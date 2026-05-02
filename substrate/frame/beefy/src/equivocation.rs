@@ -324,10 +324,16 @@ where
 		// Check if the offence has already been reported, and if so then we can discard the report.
 		let time_slot = TimeSlot { set_id: evidence.set_id(), round: *evidence.round_number() };
 		if R::is_known_offence(&[offender], &time_slot) {
-			Err(InvalidTransaction::Stale.into())
-		} else {
-			Ok(())
+			return Err(InvalidTransaction::Stale.into());
 		}
+
+		// Validate the equivocation proof itself (signatures, ancestry, future-block
+		// boundary). Without this, a structurally-valid-but-bogus report passes tx
+		// validation, lands in a block, and consumes full dispatch weight before
+		// failing in `process_evidence` — a free DoS vector against block authors.
+		evidence
+			.check_equivocation_proof()
+			.map_err(|_| InvalidTransaction::BadProof.into())
 	}
 
 	fn process_evidence(
@@ -367,9 +373,18 @@ where
 		// lists; for older `set_id`s the existing Historical check is the only line of
 		// defense, and strengthening that would require new per-set storage and a migration.
 		if set_id == crate::ValidatorSetId::<T>::get() {
-			let beefy_id = evidence.offender_id();
-			if !crate::Authorities::<T>::get().contains(beefy_id) {
-				return Err(Error::<T>::InvalidEquivocationProofSessionMember.into());
+			let authorities = crate::Authorities::<T>::get();
+			// Skip the membership check entirely if the current authority set is empty —
+			// this is a misconfigured-runtime corner (no BEEFY validators registered yet),
+			// not an attack. Failing closed here would lock out *all* equivocation reports
+			// in that state, including legitimate ones from the (empty) session bridge into
+			// the next set. The Historical key-ownership proof on its own is still authoritative
+			// for whether an account had a BEEFY key at the reported session.
+			if !authorities.is_empty() {
+				let beefy_id = evidence.offender_id();
+				if !authorities.contains(beefy_id) {
+					return Err(Error::<T>::InvalidEquivocationProofSessionMember.into());
+				}
 			}
 		}
 

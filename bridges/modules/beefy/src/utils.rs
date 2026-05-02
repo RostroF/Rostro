@@ -94,9 +94,21 @@ fn verify_signatures<T: Config<I>, I: 'static>(
 }
 
 /// Extract MMR root from commitment payload.
+///
+/// Requires the payload to be in canonical form: identifiers sorted strictly
+/// ascending, no duplicates. `Decode` does not enforce this — a malicious encoder
+/// could ship a payload where `get_decoded` (binary search) and `get_all_decoded`
+/// (linear scan) disagree on which `MMR_ROOT_PAYLOAD_ID` entry to return. The
+/// new `Payload::is_canonical()` lets us reject those at the bridge boundary so
+/// every downstream read of the payload is unambiguous regardless of which
+/// accessor a future port chooses.
 fn extract_mmr_root<T: Config<I>, I: 'static>(
 	commitment: &BridgedBeefySignedCommitment<T, I>,
 ) -> Result<BridgedMmrHash<T, I>, Error<T, I>> {
+	ensure!(
+		commitment.commitment.payload.is_canonical(),
+		Error::<T, I>::NonCanonicalCommitmentPayload
+	);
 	commitment
 		.commitment
 		.payload

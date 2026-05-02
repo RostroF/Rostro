@@ -67,6 +67,11 @@ fn test_rostro_c_canonical_mmr_size_helper() {
     for s in [2u64, 5, 6, 9, 12, 13, 14] {
         assert!(!is_canonical_mmr_size(s), "{} should NOT be canonical", s);
     }
+
+    // Boundary: `u64::MAX` and other 2^63-leaf-implying sizes must reject.
+    // The earlier `>` (vs `>=`) bug let the round-trip wrap-and-equal `u64::MAX`,
+    // silently affirming canonicality on a value that overflows downstream math.
+    assert!(!is_canonical_mmr_size(u64::MAX), "u64::MAX must NOT be canonical");
 }
 
 #[test]

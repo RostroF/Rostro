@@ -69,8 +69,8 @@ fn should_contain_mmr_digest() {
 					ValidatorSet::new(vec![mock_beefy_id(1), mock_beefy_id(2)], 1).unwrap()
 				)),
 				beefy_log(ConsensusLog::MmrRoot(H256::from_slice(&[
-					194, 34, 130, 46, 237, 248, 56, 243, 19, 45, 239, 210, 178, 143, 91, 227,
-					230, 47, 57, 49, 143, 92, 186, 217, 5, 182, 245, 224, 182, 13, 130, 232
+					117, 12, 138, 68, 179, 166, 59, 40, 27, 32, 147, 65, 145, 138, 5, 71, 230,
+					254, 235, 20, 82, 195, 124, 232, 15, 84, 232, 85, 4, 210, 19, 7
 				])))
 			]
 		);
@@ -84,8 +84,8 @@ fn should_contain_mmr_digest() {
 					ValidatorSet::new(vec![mock_beefy_id(3), mock_beefy_id(4)], 2).unwrap()
 				)),
 				beefy_log(ConsensusLog::MmrRoot(H256::from_slice(&[
-					205, 34, 154, 183, 198, 199, 249, 137, 251, 12, 103, 20, 16, 156, 25, 106,
-					241, 5, 7, 75, 13, 24, 111, 102, 58, 164, 202, 40, 192, 163, 101, 190
+					193, 23, 210, 219, 97, 21, 211, 159, 143, 142, 87, 95, 184, 154, 188, 214,
+					3, 197, 151, 137, 24, 253, 178, 29, 125, 232, 20, 192, 73, 76, 121, 19
 				]))),
 			]
 		);
@@ -115,7 +115,7 @@ fn should_contain_valid_leaf_data() {
 				id: 2,
 				len: 2,
 				keyset_commitment: array_bytes::hex_n_into_unchecked(
-					"57570dbcb8388f7a4cb09bf05bcb6c44f46b11a956b25a1b6d50a2d27f2ee71e"
+					"259895ee0e83a147dab4dd15df2066197ad7b2c608cc25d15670dbbf4871bb7a"
 				)
 			},
 			leaf_extra: array_bytes::hex2bytes_unchecked(
@@ -141,7 +141,7 @@ fn should_contain_valid_leaf_data() {
 				id: 3,
 				len: 2,
 				keyset_commitment: array_bytes::hex_n_into_unchecked(
-					"57570dbcb8388f7a4cb09bf05bcb6c44f46b11a956b25a1b6d50a2d27f2ee71e"
+					"259895ee0e83a147dab4dd15df2066197ad7b2c608cc25d15670dbbf4871bb7a"
 				)
 			},
 			leaf_extra: array_bytes::hex2bytes_unchecked(
@@ -181,7 +181,7 @@ fn should_update_authorities() {
 		// check next auth set
 		assert_eq!(2, next_auth_set.id);
 		let want = array_bytes::hex_n_into_unchecked::<_, H256, 32>(
-			"57570dbcb8388f7a4cb09bf05bcb6c44f46b11a956b25a1b6d50a2d27f2ee71e",
+			"259895ee0e83a147dab4dd15df2066197ad7b2c608cc25d15670dbbf4871bb7a",
 		);
 		assert_eq!(2, next_auth_set.len);
 		assert_eq!(want, next_auth_set.keyset_commitment);
@@ -197,7 +197,7 @@ fn should_update_authorities() {
 		// check next auth set
 		assert_eq!(3, next_auth_set.id);
 		let want = array_bytes::hex_n_into_unchecked::<_, H256, 32>(
-			"57570dbcb8388f7a4cb09bf05bcb6c44f46b11a956b25a1b6d50a2d27f2ee71e",
+			"259895ee0e83a147dab4dd15df2066197ad7b2c608cc25d15670dbbf4871bb7a",
 		);
 		assert_eq!(2, next_auth_set.len);
 		assert_eq!(want, next_auth_set.keyset_commitment);

@@ -154,4 +154,53 @@ mod tests {
 		assert_eq!(payload.get_raw(&id3), Some(&msg3.encode()));
 		assert_eq!(payload.get_raw(&known_payloads::MMR_ROOT_ID), None);
 	}
+
+	#[test]
+	fn push_raw_replaces_duplicate_ids() {
+		// Per the type contract, identifiers must be unique. `push_raw` previously
+		// appended unconditionally and let two entries with the same id coexist —
+		// `get_raw` (binary search) and `get_all_raw` (linear scan) would resolve
+		// the duplicate to different entries. After the fix, `push_raw` overwrites
+		// in place. This test pins both invariants: only one entry remains, and
+		// it carries the *latest* value.
+		let id: BeefyPayloadId = *b"hw";
+		let payload = Payload::from_single_entry(id, b"first".to_vec())
+			.push_raw(id, b"second".to_vec())
+			.push_raw(id, b"third".to_vec());
+
+		// Single entry survives — `get_all_raw` agrees with `get_raw`.
+		let all: Vec<_> = payload.get_all_raw(&id).collect();
+		assert_eq!(all.len(), 1, "duplicate ids must collapse to one entry");
+		assert_eq!(payload.get_raw(&id), Some(&b"third".to_vec()), "last write wins");
+		assert_eq!(all[0], &b"third".to_vec());
+		assert!(payload.is_canonical(), "after collapse, payload is canonical");
+	}
+
+	#[test]
+	fn is_canonical_detects_unsorted_and_duplicate_wire_form() {
+		// `Payload`'s `Decode` impl is derived and does NOT enforce canonicality.
+		// A malicious wire-form (or a buggy encoder) can ship duplicates or
+		// out-of-order ids. Encoded as a `Vec<(BeefyPayloadId, Vec<u8>)>` we can
+		// construct that directly with `Decode::decode` from a hand-crafted SCALE
+		// blob, but here we exercise the cheaper proxy: build an unsorted Vec via
+		// the public push helpers (which DO sort) then mutate the inner Vec via a
+		// round-trip through encode/decode of the underlying tuple-vector type.
+		let id1: BeefyPayloadId = *b"aa";
+		let id2: BeefyPayloadId = *b"bb";
+
+		// Sorted, unique → canonical.
+		let canonical = Payload::from_single_entry(id1, vec![1])
+			.push_raw(id2, vec![2]);
+		assert!(canonical.is_canonical());
+
+		// Decode an unsorted wire-form directly: ids in descending order.
+		let unsorted_bytes = vec![(id2, vec![2u8]), (id1, vec![1u8])].encode();
+		let decoded = Payload::decode(&mut &unsorted_bytes[..]).expect("decodes");
+		assert!(!decoded.is_canonical(), "out-of-order ids must be rejected by is_canonical");
+
+		// Decode a wire-form with duplicates.
+		let dup_bytes = vec![(id1, vec![1u8]), (id1, vec![99u8])].encode();
+		let decoded = Payload::decode(&mut &dup_bytes[..]).expect("decodes");
+		assert!(!decoded.is_canonical(), "duplicate ids must be rejected by is_canonical");
+	}
 }

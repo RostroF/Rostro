@@ -87,20 +87,34 @@ where
 pub struct BeefyEcdsaToEthereum;
 impl Convert<sp_consensus_beefy::ecdsa_crypto::AuthorityId, Vec<u8>> for BeefyEcdsaToEthereum {
 	fn convert(beefy_id: sp_consensus_beefy::ecdsa_crypto::AuthorityId) -> Vec<u8> {
+		use codec::Encode;
+		// Snapshot the encoded bytes BEFORE moving `beefy_id` into `Public::from(...)`,
+		// so a deterministic per-key fallback is available on the failure branch.
+		let encoded_id = beefy_id.encode();
 		sp_core::ecdsa::Public::from(beefy_id)
 			.to_eth_address()
 			.map(|v| v.to_vec())
 			.map_err(|_| {
-				log::error!(target: "runtime::beefy", "Failed to convert BEEFY PublicKey to ETH address!");
+				log::error!(
+					target: "runtime::beefy",
+					"Failed to convert BEEFY PublicKey to ETH address!"
+				);
 			})
-			// Return a 20-byte zero vector on failure so the downstream "uninitialized"
-			// check in `compute_authority_set` actually matches. The previous
-			// `.unwrap_or_default()` returned a 0-length vec which never compared equal
-			// to `[0u8; 20]`, silently bypassing the warning AND collapsing every failed
-			// key to `keccak256(SCALE-encoded empty vec)` — i.e. all failures merkle-collide
-			// to the same authority-set leaf, producing a deterministically-wrong
-			// `keyset_commitment` with no operator-visible signal.
-			.unwrap_or_else(|_| alloc::vec![0u8; 20])
+			// On failure use a unique-per-key 20-byte fallback (low 20 bytes of
+			// `blake2_256(encoded_beefy_id)`). The previous fallback was a constant
+			// `[0u8; 20]` for every failed key — multiple failing keys collapsed to the
+			// same merkle leaf in `keyset_commitment`, so a downstream verifier could
+			// not distinguish "two validators with broken keys" from "two validators
+			// with the same key" or "a single validator with the broken key counted
+			// twice." Using a key-dependent hash keeps each failure leaf unique while
+			// remaining deterministic, so the merkle root is at least free of forged
+			// equivalences. A failed key still won't match any real Ethereum address,
+			// which is the correct downstream behaviour: the leaf is provably "not a
+			// valid attestation" rather than "indistinguishable from another validator."
+			.unwrap_or_else(|_| {
+				let h = sp_io::hashing::blake2_256(&encoded_id);
+				h[..20].to_vec()
+			})
 	}
 }
 

@@ -1884,7 +1884,7 @@ impl pallet_mmr::Config for Runtime {
 }
 
 parameter_types! {
-	pub LeafVersion: MmrLeafVersion = MmrLeafVersion::new(0, 0);
+	pub LeafVersion: MmrLeafVersion = MmrLeafVersion::new(2, 0);
 }
 
 impl pallet_beefy_mmr::Config for Runtime {

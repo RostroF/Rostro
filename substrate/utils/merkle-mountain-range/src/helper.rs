@@ -37,7 +37,11 @@ pub fn is_canonical_mmr_size(mmr_size: u64) -> bool {
     // see the "Integer overflow in leaf_index_to_mmr_size" finding in the audit).
     // In practice `mmr_size > 2^63` is already absurd (an MMR with 2^63 leaves needs
     // ~2^64 nodes which doesn't fit in a u64) and we reject it as non-canonical.
-    if leaves_count > (1u64 << 63) {
+    // Use `>=` not `>`: at exactly `1 << 63`, `leaf_index_to_mmr_size(leaves_count - 1)`
+    // hits the `2 * leaves_count` term which is `1 << 64` — silently wraps to 0 in release,
+    // panics in debug. The round-trip then "happens to equal" `u64::MAX` via wrap, so a
+    // strict `>` here returned `true` for `mmr_size == u64::MAX`. Reject the boundary.
+    if leaves_count >= (1u64 << 63) {
         return false;
     }
     leaf_index_to_mmr_size(leaves_count - 1) == mmr_size
