@@ -186,7 +186,7 @@ impl Config for Test {
 	type PalletId = TreasuryPalletId;
 	type BlockNumberProvider = System;
 	type RejectOrigin = frame_system::EnsureRoot<u128>;
-	type SpendOrigin = frame_support::traits::NeverEnsureOrigin<u64>;
+	type SpendOrigin = frame_system::EnsureRootWithSuccess<Self::AccountId, SpendLimit>;
 	type MaxApprovals = ConstU32<100>;
 }
 
@@ -209,7 +209,7 @@ impl Config<Instance1> for Test {
 	type PalletId = TreasuryPalletId2;
 	type BlockNumberProvider = System;
 	type RejectOrigin = frame_system::EnsureRoot<u128>;
-	type SpendOrigin = frame_support::traits::NeverEnsureOrigin<u64>;
+	type SpendOrigin = frame_system::EnsureRootWithSuccess<Self::AccountId, SpendLimit1>;
 	type MaxApprovals = ConstU32<100>;
 }
 

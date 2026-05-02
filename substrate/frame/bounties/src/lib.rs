@@ -101,7 +101,7 @@ use frame_support::traits::{
 	tokens::{Fortitude, Preservation},
 	Currency,
 	ExistenceRequirement::AllowDeath,
-	Get, Imbalance, OnUnbalanced, ReservableCurrency,
+	Get, OnUnbalanced, ReservableCurrency,
 };
 
 use sp_runtime::{
@@ -122,10 +122,6 @@ pub use pallet::*;
 
 type BalanceOf<T, I = ()> =
 	<<T as Config<I>>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-
-type PositiveImbalanceOf<T, I = ()> = <<T as Config<I>>::Currency as Currency<
-	<T as frame_system::Config>::AccountId,
->>::PositiveImbalance;
 
 type NegativeImbalanceOf<T, I = ()> = <<T as Config<I>>::Currency as Currency<
 	<T as frame_system::Config>::AccountId,

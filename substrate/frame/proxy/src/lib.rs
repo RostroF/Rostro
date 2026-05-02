@@ -38,7 +38,7 @@ use alloc::{boxed::Box, vec};
 use frame_support::{
 	dispatch::GetDispatchInfo,
 	pallet_prelude::*,
-	traits::{Currency, InstanceFilter, IsSubType, OriginTrait, ReservableCurrency},
+	traits::{Currency, InstanceFilter, IsSubType, ReservableCurrency},
 };
 use frame_system::pallet_prelude::*;
 use sp_io::hashing::blake2_256;

@@ -96,7 +96,7 @@ use frame_support::{
 		fungible::{self, hold::Mutate as HoldMutate},
 		nonfungible,
 		tokens::{
-			self, DepositConsequence, Fortitude, Precision, Preservation, Provenance,
+			self, DepositConsequence, Fortitude, Preservation, Provenance,
 			WithdrawConsequence,
 		},
 		Defensive, DefensiveSaturating, OnUnbalanced,
@@ -106,8 +106,8 @@ use frame_support::{
 use frame_system::pallet_prelude::*;
 use sp_arithmetic::{
 	per_things::{PerThing, RationalArg},
-	traits::{Bounded, One, Saturating, Unsigned, Zero},
-	FixedU128, Perquintill,
+	traits::{Bounded, Saturating, Unsigned, Zero},
+	Perquintill,
 };
 use sp_runtime::{
 	traits::{AccountIdConversion, Convert, ConvertBack},

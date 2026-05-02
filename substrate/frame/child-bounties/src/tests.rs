@@ -41,6 +41,7 @@ use super::Event as ChildBountiesEvent;
 
 type Block = frame_system::mocking::MockBlock<Test>;
 type BountiesError = pallet_bounties::Error<Test>;
+type ChildBountiesError = pallet_child_bounties::Error<Test>;
 
 // This function directly jumps to a block number, and calls `on_initialize`.
 fn go_to_block(n: u64) {
@@ -140,7 +141,7 @@ impl pallet_bounties::Config for Test {
 	type PalletId = TreasuryPalletId;
 	type BlockNumberProvider = System;
 	type RejectOrigin = frame_system::EnsureRoot<u128>;
-	type SpendOrigin = frame_support::traits::NeverEnsureOrigin<u64>;
+	type SpendOrigin = frame_system::EnsureRootWithSuccess<Self::AccountId, SpendLimit>;
 	type MaxApprovals = ConstU32<100>;
 }
 impl pallet_child_bounties::Config for Test {
@@ -249,7 +250,7 @@ fn add_child_bounty() {
 				10,
 				b"12345-p1".to_vec()
 			),
-			BountiesError::RequireCurator,
+			ChildBountiesError::RequireCurator,
 		);
 
 		// Update the parent curator balance.
@@ -400,7 +401,7 @@ fn child_bounty_assign_curator() {
 
 		assert_noop!(
 			ChildBounties::accept_curator(RuntimeOrigin::signed(account_id(3)), 0, 0),
-			BountiesError::RequireCurator,
+			ChildBountiesError::RequireCurator,
 		);
 
 		assert_ok!(ChildBounties::accept_curator(RuntimeOrigin::signed(account_id(8)), 0, 0));
@@ -492,7 +493,7 @@ fn award_claim_child_bounty() {
 				0,
 				account_id(7)
 			),
-			BountiesError::RequireCurator,
+			ChildBountiesError::RequireCurator,
 		);
 
 		assert_ok!(ChildBounties::award_child_bounty(
@@ -522,7 +523,7 @@ fn award_claim_child_bounty() {
 		// Test for Premature condition.
 		assert_noop!(
 			ChildBounties::claim_child_bounty(RuntimeOrigin::signed(account_id(7)), 0, 0),
-			BountiesError::Premature
+			ChildBountiesError::Premature
 		);
 
 		go_to_block(9);
@@ -738,7 +739,7 @@ fn close_child_bounty_pending() {
 		// Close child-bounty in pending_payout state.
 		assert_noop!(
 			ChildBounties::close_child_bounty(RuntimeOrigin::signed(account_id(4)), 0, 0),
-			BountiesError::PendingPayout
+			ChildBountiesError::PendingPayout
 		);
 
 		// Check the child-bounty count.
@@ -794,7 +795,7 @@ fn child_bounty_added_unassign_curator() {
 		// Unassign curator in added state.
 		assert_noop!(
 			ChildBounties::unassign_curator(RuntimeOrigin::signed(account_id(4)), 0, 0),
-			BountiesError::UnexpectedStatus
+			ChildBountiesError::UnexpectedStatus
 		);
 	});
 }
@@ -1084,7 +1085,7 @@ fn child_bounty_active_unassign_curator() {
 		// Bounty update period is not yet complete.
 		assert_noop!(
 			ChildBounties::unassign_curator(RuntimeOrigin::signed(account_id(3)), 0, 0),
-			BountiesError::Premature
+			ChildBountiesError::Premature
 		);
 
 		go_to_block(20);
@@ -1242,7 +1243,7 @@ fn parent_bounty_inactive_unassign_curator_child_bounty() {
 
 		assert_noop!(
 			ChildBounties::unassign_curator(RuntimeOrigin::signed(account_id(3)), 0, 0),
-			BountiesError::Premature
+			ChildBountiesError::Premature
 		);
 
 		// Unassign parent bounty curator again.
