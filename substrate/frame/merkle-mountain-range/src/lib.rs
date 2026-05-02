@@ -61,7 +61,10 @@ extern crate alloc;
 use alloc::vec::Vec;
 use log;
 
-use frame::prelude::*;
+use frame_support::pallet_prelude::*;
+use frame_system::pallet_prelude::*;
+use sp_arithmetic::traits::One;
+use sp_runtime::traits::{Hash, SaturatedConversion, Saturating};
 
 pub use sp_mmr_primitives::{
 	self as primitives, utils, utils::NodesUtils, AncestryProof, Error, FullLeaf, LeafDataProvider,
@@ -144,7 +147,7 @@ pub(crate) type HashingOf<T, I> = <T as Config<I>>::Hashing;
 /// Hash type used for the pallet.
 pub(crate) type HashOf<T, I> = <<T as Config<I>>::Hashing as Hash>::Output;
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 

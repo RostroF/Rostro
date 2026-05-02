@@ -21,7 +21,6 @@ frame-benchmarking = { optional = true, workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 log = { workspace = true }
-pallet-treasury = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
 serde = { features = ["derive"], optional = true, workspace = true, default-features = true }
 sp-core = { workspace = true }
@@ -30,6 +29,7 @@ sp-runtime = { workspace = true }
 
 [dev-dependencies]
 pallet-balances = { default-features = true, workspace = true }
+pallet-treasury = { default-features = true, workspace = true }
 sp-storage = { default-features = true, workspace = true }
 
 [features]
@@ -40,7 +40,6 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"log/std",
-	"pallet-treasury/std",
 	"scale-info/std",
 	"serde",
 	"sp-core/std",

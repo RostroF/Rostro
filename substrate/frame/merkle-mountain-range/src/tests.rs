@@ -19,13 +19,16 @@ use crate::{mock::*, *};
 
 use crate::primitives::{mmr_lib::helper, utils, Compact, LeafProof};
 
-use frame::{
-	deps::sp_core::{
-		offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-		H256,
-	},
-	testing_prelude::*,
+use frame_support::assert_ok;
+use sp_core::{
+	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
+	H256,
 };
+use sp_io::TestExternalities;
+use sp_runtime::{traits::SaturatedConversion, BuildStorage};
+
+#[allow(dead_code)]
+type TestState = TestExternalities;
 
 pub(crate) fn new_test_ext() -> TestState {
 	frame_system::GenesisConfig::<Test>::default().build_storage().unwrap().into()

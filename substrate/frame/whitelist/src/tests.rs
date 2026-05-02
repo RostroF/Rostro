@@ -19,9 +19,15 @@
 
 use crate::mock::*;
 use codec::Encode;
-use frame::{
-	testing_prelude::*,
+use frame_support::{
+	assert_err, assert_noop, assert_ok,
+	dispatch::GetDispatchInfo,
 	traits::{QueryPreimage, StorePreimage},
+	weights::Weight,
+};
+use sp_runtime::{
+	traits::{Dispatchable, Hash},
+	DispatchError,
 };
 
 #[test]

@@ -20,7 +20,17 @@
 use crate as pallet_salary;
 use crate::*;
 use core::cell::RefCell;
-use frame::{deps::sp_runtime::traits::Identity, testing_prelude::*, traits::tokens::ConvertRank};
+use frame_support::{
+	assert_noop, assert_ok, construct_runtime, derive_impl, parameter_types,
+	traits::{tokens::ConvertRank, ConstU64, RankedMembers},
+	weights::Weight,
+};
+use frame_system::{mocking::MockBlock, pallet_prelude::*};
+use sp_io::TestExternalities as TestState;
+use sp_runtime::{
+	traits::{Convert, Identity},
+	BuildStorage, DispatchError, DispatchResult,
+};
 use std::collections::BTreeMap;
 
 type Block = MockBlock<Test>;

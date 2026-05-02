@@ -22,7 +22,18 @@
 use super::*;
 use crate::mock::{RuntimeCall, *};
 
-use frame::{testing_prelude::*, traits::Currency};
+use frame_support::{
+	assert_err, assert_noop, assert_ok, hypothetically_ok,
+	traits::{
+		fungible::{
+			hold::{Inspect, Mutate},
+			Inspect as FungibleInspect,
+		},
+		tokens::{Fortitude, Precision},
+		Currency,
+	},
+};
+use sp_runtime::{traits::Dispatchable, TokenError};
 
 #[test]
 fn fails_to_filter_calls_to_safe_mode_pallet() {

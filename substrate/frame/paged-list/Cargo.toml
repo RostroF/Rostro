@@ -17,26 +17,39 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 codec = { features = ["derive"], workspace = true }
 docify = { workspace = true }
-frame = { workspace = true, features = ["runtime"] }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
+sp-io = { workspace = true }
 sp-metadata-ir = { optional = true, workspace = true }
+sp-runtime = { workspace = true }
+
+[dev-dependencies]
+sp-io = { workspace = true, default-features = true }
 
 [features]
 default = ["std"]
 
 std = [
 	"codec/std",
-	"frame/std",
+	"frame-support/std",
+	"frame-system/std",
 	"scale-info/std",
+	"sp-io/std",
 	"sp-metadata-ir/std",
+	"sp-runtime/std",
 ]
 
 runtime-benchmarks = [
-	"frame/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 
 try-runtime = [
-	"frame/try-runtime",
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
 ]
 
 frame-metadata = ["sp-metadata-ir"]

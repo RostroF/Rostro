@@ -47,20 +47,23 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame::{
-	prelude::*,
+use frame_support::{
+	pallet_prelude::*,
 	traits::{
 		fungibles::{Inspect, InspectFreeze, MutateFreeze},
 		tokens::{
 			DepositConsequence, Fortitude, IdAmount, Preservation, Provenance, WithdrawConsequence,
 		},
+		VariantCount, VariantCountOf,
 	},
 };
+use frame_system::pallet_prelude::*;
+use sp_runtime::{traits::Saturating, BoundedSlice};
 
 pub use pallet::*;
 
 #[cfg(feature = "try-runtime")]
-use frame::try_runtime::TryRuntimeError;
+use sp_runtime::TryRuntimeError;
 
 #[cfg(test)]
 mod mock;
@@ -69,12 +72,22 @@ mod tests;
 
 mod impls;
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 
 	#[pallet::config(with_default)]
 	pub trait Config<I: 'static = ()>: frame_system::Config + pallet_assets::Config<I> {
+		/// Trait surface to the assets pallet — used so this pallet doesn't reach into
+		/// `pallet_assets::Pallet<T, I>` concretely. Wire to the runtime's assets pallet
+		/// (e.g. `type Assets = Assets;`).
+		#[pallet::no_default_bounds]
+		type Assets: frame_support::traits::fungibles::Inspect<
+			Self::AccountId,
+			AssetId = <Self as pallet_assets::Config<I>>::AssetId,
+			Balance = <Self as pallet_assets::Config<I>>::Balance,
+		>;
+
 		/// The overarching freeze reason.
 		#[pallet::no_default_bounds]
 		type RuntimeFreezeReason: Parameter + Member + MaxEncodedLen + Copy + VariantCount;

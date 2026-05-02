@@ -26,12 +26,14 @@
 use alloc::vec::Vec;
 use codec::{Decode, Encode, EncodeLike, FullCodec};
 use core::marker::PhantomData;
-use frame::{
-	deps::sp_io,
-	prelude::*,
-	runtime::prelude::storage::{StorageAppender, StorageList, StoragePrefixedContainer},
+use frame_support::{
+	pallet_prelude::*,
+	storage::{StorageAppender, StorageList, StoragePrefixedContainer},
 	traits::{Get, StorageInstance},
+	CloneNoBound, DebugNoBound, DefaultNoBound, EqNoBound, PartialEqNoBound, StorageNoopGuard,
 };
+use sp_io;
+use sp_runtime::traits::Saturating;
 
 pub type PageIndex = u32;
 pub type ValueIndex = u32;
@@ -407,7 +409,7 @@ where
 #[allow(dead_code)]
 pub(crate) mod mock {
 	pub use super::*;
-	use frame::testing_prelude::*;
+	use frame_support::parameter_types;
 
 	parameter_types! {
 		pub const ValuesPerNewPage: u32 = 5;
@@ -428,7 +430,7 @@ pub(crate) mod mock {
 #[cfg(test)]
 mod tests {
 	use super::mock::*;
-	use frame::testing_prelude::*;
+	use sp_io::TestExternalities;
 
 	#[test]
 	fn append_works() {

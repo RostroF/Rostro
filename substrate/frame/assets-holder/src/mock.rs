@@ -101,6 +101,7 @@ impl VariantCount for DummyHoldReason {
 impl Config for Test {
 	type RuntimeHoldReason = DummyHoldReason;
 	type RuntimeEvent = RuntimeEvent;
+	type Assets = Assets;
 }
 
 pub fn new_test_ext(execute: impl FnOnce()) -> sp_io::TestExternalities {

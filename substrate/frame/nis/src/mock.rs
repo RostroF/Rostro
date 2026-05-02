@@ -17,7 +17,22 @@
 
 //! Test environment for NIS pallet.
 
-use frame::{runtime::prelude::*, testing_prelude::*, traits::StorageMapShim};
+use frame_support::{
+	assert_noop, assert_ok, derive_impl, ord_parameter_types, parameter_types,
+	traits::{
+		fungible::{Inspect, Mutate},
+		ConstU16, ConstU32, ConstU64, EnsureOrigin, OnFinalize, OnInitialize, StorageMapShim,
+	},
+	weights::Weight,
+	PalletId,
+};
+use frame_system::{mocking::MockBlock, EnsureRoot, EnsureSignedBy};
+use sp_core::ConstU128;
+use sp_io::TestExternalities;
+use sp_runtime::{
+	traits::{Identity, IdentityLookup},
+	BuildStorage,
+};
 
 use crate::{self as pallet_nis, *};
 
@@ -26,7 +41,7 @@ pub type Balance = u64;
 type Block = frame_system::mocking::MockBlock<Test>;
 
 // Configure a mock runtime to test the pallet.
-#[frame_construct_runtime]
+#[frame_support::runtime]
 mod runtime {
 	#[runtime::runtime]
 	#[runtime::derive(

@@ -21,7 +21,14 @@
 
 use super::*;
 use crate as pallet_multisig;
-use frame::{prelude::*, runtime::prelude::*, testing_prelude::*};
+use frame_support::{
+	assert_err, assert_noop, assert_ok, construct_runtime, derive_impl, hypothetically_ok,
+	parameter_types,
+	traits::{ConstU32, ConstU64, Contains},
+};
+use frame_system::mocking::MockBlockU32;
+use sp_io::TestExternalities as TestState;
+use sp_runtime::{traits::BadOrigin, BuildStorage, TokenError};
 
 type Block = frame_system::mocking::MockBlockU32<Test>;
 

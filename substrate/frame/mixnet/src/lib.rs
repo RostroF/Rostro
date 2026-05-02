@@ -27,12 +27,19 @@ pub use pallet::*;
 
 use alloc::vec::Vec;
 use core::cmp::Ordering;
-use frame::{
-	deps::{
-		sp_io::{self, MultiRemovalResults},
-		sp_runtime,
-	},
-	prelude::*,
+use frame_support::{
+	pallet_prelude::*,
+	traits::{EstimateNextSessionRotation, OneSessionHandler},
+	DefaultNoBound,
+};
+use frame_system::{
+	offchain::{CreateBare, SubmitTransaction},
+	pallet_prelude::*,
+};
+use sp_io::{self, MultiRemovalResults};
+use sp_runtime::{
+	self,
+	traits::{Saturating, UniqueSaturatedInto},
 };
 use serde::{Deserialize, Serialize};
 use sp_application_crypto::RuntimeAppPublic;
@@ -172,7 +179,7 @@ fn twox<BlockNumber: UniqueSaturatedInto<u64>>(
 // The pallet
 ////////////////////////////////////////////////////////////////////////////////
 
-#[frame::pallet(dev_mode)]
+#[frame_support::pallet(dev_mode)]
 pub mod pallet {
 	use super::*;
 	#[pallet::pallet]

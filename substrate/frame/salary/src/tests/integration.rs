@@ -19,7 +19,17 @@
 
 use crate as pallet_salary;
 use crate::*;
-use frame::{deps::sp_io, testing_prelude::*};
+use frame_support::{
+	assert_noop, assert_ok, construct_runtime, derive_impl, hypothetically, parameter_types,
+	traits::{ConstU16, ConstU64, EitherOf, MapSuccess, NoOpPoll},
+};
+use frame_system::{mocking::MockBlock, pallet_prelude::BlockNumberFor, EnsureRootWithSuccess};
+use sp_io;
+use sp_io::TestExternalities as TestState;
+use sp_runtime::{
+	traits::{ReduceBy, ReplaceWithDefault},
+	BuildStorage, StateVersion,
+};
 use pallet_ranked_collective::{EnsureRanked, Geometric};
 
 type Rank = u16;

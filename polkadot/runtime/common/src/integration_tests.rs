@@ -155,6 +155,7 @@ parameter_types! {
 	pub const ExpectedBlockTime: Moment = 6_000;
 	pub const ReportLongevity: u64 = 10;
 	pub const MaxAuthorities: u32 = 100_000;
+	pub const SlotDuration: u64 = 6_000;
 }
 
 impl pallet_babe::Config for Test {
@@ -167,6 +168,9 @@ impl pallet_babe::Config for Test {
 	type MaxNominators = ConstU32<0>;
 	type KeyOwnerProof = sp_core::Void;
 	type EquivocationReportSystem = ();
+	type SessionInfo = frame_support::traits::NoSession;
+	type Moment = u64;
+	type SlotDuration = SlotDuration;
 }
 
 parameter_types! {

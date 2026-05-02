@@ -20,7 +20,9 @@
 use super::*;
 
 use crate as recovery;
-use frame::{deps::sp_io, testing_prelude::*};
+use frame_support::{construct_runtime, derive_impl, parameter_types};
+use sp_io;
+use sp_runtime::BuildStorage;
 
 type Block = frame_system::mocking::MockBlock<Test>;
 

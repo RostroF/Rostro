@@ -1,0 +1,1790 @@
+     Removed 0 files
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded anstyle-query v1.0.0
+  Downloaded cpufeatures v0.2.9
+  Downloaded drawille v0.3.0
+  Downloaded event-listener v5.3.1
+  Downloaded float-ord v0.3.2
+  Downloaded libflate v1.4.0
+  Downloaded memoffset v0.9.0
+  Downloaded log v0.4.22
+  Downloaded num_enum_derive v0.7.4
+  Downloaded plotters-backend v0.3.5
+  Downloaded openssl-probe v0.1.5
+  Downloaded plotters-svg v0.3.5
+  Downloaded num_enum v0.7.4
+  Downloaded plotters v0.3.5
+  Downloaded linux-raw-sys v0.4.14
+  Downloaded proc-macro-hack v0.5.20+deprecated
+  Downloaded pem v3.0.4
+  Downloaded proc-macro2 v0.4.30
+  Downloaded openssl v0.10.72
+  Downloaded prost-derive v0.11.9
+  Downloaded nybbles v0.4.1
+  Downloaded hyper v0.14.29
+  Downloaded env_logger v0.11.3
+  Downloaded picosimd v0.9.2
+  Downloaded idna v0.4.0
+  Downloaded pest_derive v2.7.2
+  Downloaded stringprep v0.1.5
+  Downloaded scale-decode-derive v0.16.0
+  Downloaded sp-maybe-compressed-blob v11.1.0
+  Downloaded sqlformat v0.2.6
+  Downloaded polkavm-linux-raw v0.26.0
+  Downloaded sc-utils v20.0.0
+  Downloaded sc-telemetry v30.0.0
+  Downloaded sc-executor-polkavm v0.38.0
+  Downloaded rustls-pemfile v2.0.0
+  Downloaded ssz_rs_derive v0.9.0
+  Downloaded indexmap v2.9.0
+  Downloaded h2 v0.4.5
+  Downloaded substrate-prometheus-endpoint v0.17.7
+  Downloaded thread_local v1.1.7
+  Downloaded unicode-properties v0.1.3
+  Downloaded tokio-test v0.4.4
+  Downloaded sp-crypto-hashing-proc-macro v0.1.0
+  Downloaded sqlx-macros-core v0.8.2
+  Downloaded sharded-slab v0.1.4
+  Downloaded serde_bytes v0.11.12
+  Downloaded raw-cpuid v10.7.0
+  Downloaded handlebars v5.1.0
+  Downloaded tar v0.4.40
+  Downloaded unicode-xid v0.1.0
+  Downloaded value-bag-serde1 v1.8.0
+  Downloaded symbolic-common v12.14.1
+  Downloaded sp-blockchain v42.0.0
+  Downloaded ssz_rs v0.9.0
+  Downloaded wasm-bindgen-shared v0.2.95
+  Downloaded wasm-bindgen-macro v0.2.95
+  Downloaded wasm-bindgen-futures v0.4.45
+  Downloaded value-bag v1.8.0
+  Downloaded sp-state-machine v0.48.0
+  Downloaded quinn v0.11.5
+  Downloaded syn v2.0.98
+  Downloaded wasm-bindgen-backend v0.2.95
+  Downloaded wasm-bindgen-macro-support v0.2.95
+  Downloaded regex-automata v0.3.6
+  Downloaded zerofrom-derive v0.1.5
+  Downloaded unicode-width v0.2.0
+  Downloaded value-bag-sval2 v1.8.0
+  Downloaded trybuild v1.0.103
+  Downloaded xattr v1.0.1
+  Downloaded sqlx-mysql v0.8.2
+  Downloaded zombienet-support v0.4.7
+  Downloaded zombienet-prom-metrics-parser v0.4.7
+  Downloaded rustls-webpki v0.103.7
+  Downloaded zombienet-provider v0.4.7
+  Downloaded wasm-encoder v0.31.1
+  Downloaded snowbridge-amcl v1.0.2
+  Downloaded sqlx-sqlite v0.8.2
+  Downloaded tower-http v0.4.4
+  Downloaded toml_edit v0.21.0
+  Downloaded tokio v1.45.0
+  Downloaded xml-rs v0.8.20
+  Downloaded termplot v0.1.1
+  Downloaded sysinfo v0.30.5
+  Downloaded sp-runtime v44.0.0
+  Downloaded sqlx-postgres v0.8.2
+  Downloaded sqlx-core v0.8.2
+  Downloaded zombienet-configuration v0.4.7
+  Downloaded substrate-txtesttool v0.7.0
+  Downloaded ruzstd v0.8.1
+  Downloaded zstd-sys v2.0.15+zstd.1.5.7
+  Downloaded zombienet-sdk v0.4.7
+  Downloaded libz-sys v1.1.12
+  Downloaded winnow v0.7.10
+  Downloaded winnow v0.6.18
+  Downloaded webpki-roots v0.25.2
+  Downloaded webpki-roots v0.26.3
+  Downloaded subxt-core v0.44.2
+  Downloaded wasm-opt v0.116.0
+  Downloaded wide v0.7.11
+  Downloaded wast v63.0.0
+  Downloaded rustls-webpki v0.101.4
+  Downloaded symbolic-demangle v12.14.1
+  Downloaded sp-core v38.1.0
+  Downloaded sc-chain-spec v46.0.0
+  Downloaded gmp-mpfr-sys v1.6.7
+  Downloaded unicode_categories v0.1.1
+  Downloaded winnow v0.5.15
+  Downloaded wat v1.0.70
+  Downloaded unicode-segmentation v1.11.0
+  Downloaded toml_edit v0.22.22
+  Downloaded syn v0.15.44
+  Downloaded zerofrom v0.1.5
+  Downloaded wait-timeout v0.2.0
+  Downloaded tokio-util v0.7.15
+  Downloaded subxt v0.44.2
+  Downloaded sp-trie v41.1.1
+  Downloaded sc-network v0.53.1
+  Downloaded curl-sys v0.4.72+curl-8.6.0
+  Downloaded wasm-bindgen v0.2.95
+  Downloaded waker-fn v1.1.0
+  Downloaded trie-bench v0.42.1
+  Downloaded quinn-proto v0.11.8
+  Downloaded serde_json v1.0.132
+  Downloaded pyroscope v0.5.8
+  Downloaded libnghttp2-sys v0.1.9+1.58.0
+  Downloaded jam-codec v0.1.0
+  Downloaded polkavm v0.26.0
+  Downloaded sp-application-crypto v43.0.0
+  Downloaded scale-encode v0.10.0
+  Downloaded sc-client-api v42.0.0
+  Downloaded sc-allocator v34.0.0
+  Downloaded subxt-macro v0.44.2
+  Downloaded subxt-lightclient v0.44.2
+  Downloaded ss58-registry v1.43.0
+  Downloaded sp-database v10.0.1
+  Downloaded sp-consensus v0.45.0
+  Downloaded soketto v0.8.0
+  Downloaded scale-value v0.18.0
+  Downloaded rustls v0.21.7
+  Downloaded rsa v0.9.5
+  Downloaded uuid v1.4.1
+  Downloaded unicode-width v0.1.10
+  Downloaded unicode-ident v1.0.11
+  Downloaded twox-hash v2.1.1
+  Downloaded try-lock v0.2.4
+  Downloaded trie-standardmap v0.16.0
+  Downloaded toml v0.8.19
+  Downloaded sval_serde v2.6.1
+  Downloaded sval_fmt v2.6.1
+  Downloaded sp-version v42.0.0
+  Downloaded schnellru v0.2.3
+  Downloaded regex-automata v0.4.8
+  Downloaded unicode-bidi v0.3.13
+  Downloaded typenum v1.16.0
+  Downloaded toml_datetime v0.6.8
+  Downloaded subxt-signer v0.44.2
+  Downloaded sp-runtime-interface v32.0.0
+  Downloaded zombienet-orchestrator v0.4.7
+  Downloaded sp-genesis-builder v0.20.0
+  Downloaded sp-api-proc-macro v25.0.0
+  Downloaded scale-encode-derive v0.10.0
+  Downloaded sc-chain-spec-derive v12.0.0
+  Downloaded rustix v1.0.8
+  Downloaded libfuzzer-sys v0.4.7
+  Downloaded subxt-codegen v0.44.2
+  Downloaded sp-arithmetic v28.0.0
+  Downloaded sp-api v39.0.0
+  Downloaded zerocopy v0.8.20
+  Downloaded snowbridge-milagro-bls v1.5.4
+  Downloaded simple-dns v0.11.0
+  Downloaded signature v2.1.0
+  Downloaded serde_spanned v0.6.7
+  Downloaded serde_fmt v1.0.3
+  Downloaded semver v1.0.18
+  Downloaded sct v0.7.0
+  Downloaded sqlx-macros v0.8.2
+  Downloaded smallvec v1.15.0
+  Downloaded sluice v0.5.5
+  Downloaded semver-parser v0.10.2
+  Downloaded rusty-fork v0.3.0
+  Downloaded litep2p v0.10.0
+  Downloaded linux-raw-sys v0.9.4
+  Downloaded socket2 v0.5.9
+  Downloaded snap v1.1.0
+  Downloaded signal-hook-registry v1.4.1
+  Downloaded prometheus v0.13.3
+  Downloaded tokio-rustls v0.26.0
+  Downloaded tikv-jemalloc-ctl v0.6.0
+  Downloaded sc-executor v0.45.0
+  Downloaded thiserror v1.0.65
+  Downloaded test-log-macros v0.2.18
+  Downloaded test-log v0.2.18
+  Downloaded test-case-macros v3.3.1
+  Downloaded test-case v3.3.1
+  Downloaded termcolor v1.2.0
+  Downloaded tempfile v3.14.0
+  Downloaded target-triple v0.1.3
+  Downloaded subxt-utils-fetchmetadata v0.44.2
+  Downloaded rustix v0.37.23
+  Downloaded quick_cache v0.3.0
+  Downloaded governor v0.6.0
+  Downloaded tungstenite v0.20.1
+  Downloaded tokio-tungstenite v0.20.1
+  Downloaded tokio-io-timeout v1.2.0
+  Downloaded thiserror-impl v1.0.65
+  Downloaded test-case-core v3.3.1
+  Downloaded sval_ref v2.6.1
+  Downloaded sval_json v2.6.1
+  Downloaded subxt-rpcs v0.44.2
+  Downloaded subxt-metadata v0.44.2
+  Downloaded sqlx v0.8.2
+  Downloaded sp-weights v33.2.0
+  Downloaded sp-io v43.0.0
+  Downloaded sp-inherents v39.0.0
+  Downloaded slotmap v1.0.6
+  Downloaded sc-executor-wasmtime v0.41.0
+  Downloaded sc-executor-common v0.41.0
+  Downloaded ryu v1.0.15
+  Downloaded rustversion v1.0.17
+  Downloaded rustls-native-certs v0.8.0
+  Downloaded rustix v0.38.42
+  Downloaded rug v1.28.0
+  Downloaded rle-decode-fast v1.0.3
+  Downloaded relative-path v1.9.2
+  Downloaded rbtag_derive v0.3.0
+  Downloaded rbtag v0.3.0
+  Downloaded rand_core v0.9.1
+  Downloaded quote v0.6.13
+  Downloaded quinn-udp v0.5.4
+  Downloaded quickcheck v1.0.3
+  Downloaded quanta v0.11.1
+  Downloaded pyroscope_pprofrs v0.2.8
+  Downloaded polkavm-common v0.26.0
+  Downloaded parity-db v0.4.12
+  Downloaded nalgebra v0.32.3
+  Downloaded multiaddr v0.18.1
+  Downloaded libp2p-identity v0.2.9
+  Downloaded honggfuzz v0.5.55
+  Downloaded femme v2.2.1
+  Downloaded encoding_rs v0.8.33
+  Downloaded cxx v1.0.106
+  Downloaded alloy-eips v1.0.41
+  Downloaded thiserror-impl v2.0.12
+  Downloaded thiserror v2.0.12
+  Downloaded target-lexicon v0.13.2
+  Downloaded sync_wrapper v1.0.1
+  Downloaded sval_dynamic v2.6.1
+  Downloaded sval_buffer v2.6.1
+  Downloaded sval v2.6.1
+  Downloaded sp-tracing v19.0.0
+  Downloaded sp-runtime-interface-proc-macro v20.0.0
+  Downloaded sc-network-common v0.51.0
+  Downloaded rustls v0.23.34
+  Downloaded reqwest v0.12.9
+  Downloaded merkleized-metadata v0.5.0
+  Downloaded alloy-consensus v1.0.41
+  Downloaded sp-wasm-interface v24.0.0
+  Downloaded sp-keystore v0.44.1
+  Downloaded scale-decode v0.16.0
+  Downloaded sc-transaction-pool-api v42.0.0
+  Downloaded git2 v0.20.0
+  Downloaded spki v0.7.2
+  Downloaded sp-version-proc-macro v15.0.0
+  Downloaded sp-metadata-ir v0.12.3
+  Downloaded sc-network-types v0.19.0
+  Downloaded polling v3.4.0
+  Downloaded rtoolbox v0.0.1
+  Downloaded rstest_macros v0.18.2
+  Downloaded rstest v0.18.2
+  Downloaded rpassword v7.2.0
+  Downloaded prost-types v0.13.2
+  Downloaded prost-build v0.13.2
+  Downloaded pest v2.7.2
+  Downloaded k8s-openapi v0.20.0
+  Downloaded dlmalloc v0.2.4
+  Downloaded cxx-build v1.0.106
+  Downloaded curl v0.4.46
+  Downloaded asn1-rs v0.6.1
+  Downloaded alloy-dyn-abi v1.2.1
+  Downloaded rustls-pki-types v1.12.0
+  Downloaded rustls-pemfile v1.0.3
+  Downloaded rustls-native-certs v0.6.3
+  Downloaded prost-types v0.14.1
+  Downloaded prost-derive v0.14.1
+  Downloaded prost-build v0.14.1
+  Downloaded prost v0.14.1
+  Downloaded prometheus-parse v0.2.4
+  Downloaded procfs-core v0.16.0
+  Downloaded proc-macro-warning v1.0.0
+  Downloaded prettyplease v0.2.12
+  Downloaded predicates v3.0.3
+  Downloaded libgit2-sys v0.18.0+1.9.0
+  Downloaded landlock v0.3.0
+  Downloaded crypto-bigint v0.5.2
+  Downloaded const_format v0.2.34
+  Downloaded color-print-proc-macro v0.3.4
+  Downloaded cmd_lib v1.9.5
+  Downloaded cfg-expr v0.15.5
+  Downloaded c-kzg v2.1.1
+  Downloaded bstr v1.6.0
+  Downloaded bip32 v0.5.2
+  Downloaded asn1-rs v0.7.0
+  Downloaded array-bytes v9.1.2
+  Downloaded alloy-tx-macros v1.0.41
+  Downloaded alloy-serde v1.0.41
+  Downloaded aes v0.8.3
+  Downloaded hickory-proto v0.24.1
+  Downloaded gimli v0.28.0
+  Downloaded blake3 v1.5.4
+  Downloaded ark-vesta-ext v0.5.1
+  Downloaded pest_meta v2.7.2
+  Downloaded openssl-sys v0.9.107
+  Downloaded memmap2 v0.9.3
+  Downloaded jsonpath_lib v0.3.0
+  Downloaded cxxbridge-macro v1.0.106
+  Downloaded cmd_lib_macros v1.9.5
+  Downloaded blst v0.3.15
+  Downloaded env_logger v0.8.4
+  Downloaded der v0.7.8
+  Downloaded dashmap v5.5.1
+  Downloaded clap_complete v4.5.13
+  Downloaded assert_cmd v2.0.14
+  Downloaded alloy-core v1.2.1
+  Downloaded aho-corasick v1.0.4
+  Downloaded prost v0.11.9
+  Downloaded procfs v0.16.0
+  Downloaded proc-macro2 v1.0.95
+  Downloaded pest_generator v2.7.2
+  Downloaded parking_lot_core v0.9.8
+  Downloaded mio v1.0.2
+  Downloaded http v0.2.9
+  Downloaded hickory-resolver v0.24.2
+  Downloaded fancy-regex v0.14.0
+  Downloaded ethabi-decode v2.0.0
+  Downloaded erased-serde v0.4.4
+  Downloaded ecdsa v0.16.8
+  Downloaded data-encoding-macro-internal v0.1.11
+  Downloaded data-encoding-macro v0.1.13
+  Downloaded const-random-macro v0.1.15
+  Downloaded color-print v0.3.4
+  Downloaded coarsetime v0.1.23
+  Downloaded cc v1.2.35
+  Downloaded cargo-platform v0.1.3
+  Downloaded binary-merkle-tree v16.1.0
+  Downloaded average v0.15.1
+  Downloaded async-signal v0.2.9
+  Downloaded async-channel v2.3.0
+  Downloaded asn1-rs-derive v0.5.0
+  Downloaded nix v0.27.1
+  Downloaded isahc v1.7.2
+  Downloaded flate2 v1.0.27
+  Downloaded env_filter v0.1.3
+  Downloaded ed25519 v2.2.2
+  Downloaded pprof2 v0.13.1
+  Downloaded portpicker v0.1.1
+  Downloaded polyval v0.6.1
+  Downloaded polkavm-assembler v0.26.0
+  Downloaded oid-registry v0.7.0
+  Downloaded network-interface v2.0.1
+  Downloaded netlink-sys v0.8.5
+  Downloaded memfd v0.6.3
+  Downloaded lite-parser v0.2.0
+  Downloaded lite-json v0.2.0
+  Downloaded linregress v0.5.2
+  Downloaded kvdb-shared-tests v0.11.0
+  Downloaded kube-client v0.87.2
+  Downloaded keccak-hasher v0.16.0
+  Downloaded jam-codec-derive v0.1.0
+  Downloaded hex-conservative v0.1.1
+  Downloaded ghash v0.5.0
+  Downloaded fraction v0.13.1
+  Downloaded finito v0.1.0
+  Downloaded filetime v0.2.22
+  Downloaded eyre v0.6.8
+  Downloaded event-listener-strategy v0.5.2
+  Downloaded enumflags2_derive v0.7.11
+  Downloaded enumflags2 v0.7.11
+  Downloaded enum-ordinalize-derive v4.3.1
+  Downloaded enum-ordinalize v4.3.0
+  Downloaded easy-cast v0.5.3
+  Downloaded dunce v1.0.4
+  Downloaded curve25519-dalek-derive v0.1.0
+  Downloaded ctrlc v3.4.5
+  Downloaded ciborium v0.2.1
+  Downloaded blake2s_simd v1.0.4
+  Downloaded async-lock v3.4.0
+  Downloaded async-io v2.3.3
+  Downloaded ark-pallas-ext v0.5.1
+  Downloaded alloy-rlp-derive v0.3.12
+  Downloaded alloy-eip7702 v0.6.1
+  Downloaded os_pipe v1.2.1
+  Downloaded num v0.4.1
+  Downloaded native-tls v0.2.12
+  Downloaded matrixmultiply v0.3.7
+  Downloaded kube-core v0.87.2
+  Downloaded jobserver v0.1.32
+  Downloaded ipnet v2.8.0
+  Downloaded indicatif v0.17.7
+  Downloaded iana-time-zone v0.1.57
+  Downloaded hyper-timeout v0.4.1
+  Downloaded http-range-header v0.3.1
+  Downloaded getrandom v0.2.10
+  Downloaded fs-err v2.9.0
+  Downloaded find-msvc-tools v0.1.0
+  Downloaded dissimilar v1.0.7
+  Downloaded cxxbridge-flags v1.0.106
+  Downloaded crc32fast v1.3.2
+  Downloaded crc v3.2.1
+  Downloaded constant_time_eq v0.3.0
+  Downloaded const-oid v0.9.5
+  Downloaded colored v2.0.4
+  Downloaded ciborium-ll v0.2.1
+  Downloaded ciborium-io v0.2.1
+  Downloaded bitflags v2.9.4
+  Downloaded anstyle-parse v0.2.1
+  Downloaded anstream v0.6.11
+  Downloaded alloy-trie v0.9.1
+  Downloaded alloy-eip2930 v0.2.1
+  Downloaded opaque-debug v0.3.0
+  Downloaded oorandom v11.1.3
+  Downloaded num-complex v0.4.4
+  Downloaded miniz_oxide v0.7.1
+  Downloaded lru v0.12.3
+  Downloaded lock_api v0.4.10
+  Downloaded libsqlite3-sys v0.30.1
+  Downloaded libsecp256k1 v0.7.1
+  Downloaded kube-runtime v0.87.2
+  Downloaded kube v0.87.2
+  Downloaded keccak v0.1.4
+  Downloaded jsonpath-rust v0.3.5
+  Downloaded json-patch v1.4.0
+  Downloaded js-sys v0.3.72
+  Downloaded hyper-rustls v0.27.3
+  Downloaded half v1.8.2
+  Downloaded glob-match v0.2.1
+  Downloaded downcast-rs v1.2.0
+  Downloaded doc-comment v0.3.3
+  Downloaded const-random v0.1.15
+  Downloaded const-hex v1.14.0
+  Downloaded clang-sys v1.6.1
+  Downloaded castaway v0.1.2
+  Downloaded bytemuck v1.13.1
+  Downloaded backoff v0.4.0
+  Downloaded atomic-waker v1.1.1
+  Downloaded async-stream-impl v0.3.5
+  Downloaded async-process v2.3.0
+  Downloaded num-rational v0.4.1
+  Downloaded litemap v0.7.4
+  Downloaded libflate_lz77 v1.2.0
+  Downloaded http v1.1.0
+  Downloaded futures-intrusive v0.5.0
+  Downloaded flume v0.11.1
+  Downloaded derive_more-impl v2.0.1
+  Downloaded derive_more v2.0.1
+  Downloaded derive_more v0.99.17
+  Downloaded crossbeam-utils v0.8.20
+  Downloaded crossbeam-epoch v0.9.15
+  Downloaded crossbeam-deque v0.8.3
+  Downloaded cpp_demangle v0.4.3
+  Downloaded convert_case v0.7.1
+  Downloaded clap_derive v4.5.47
+  Downloaded clap_builder v4.5.48
+  Downloaded bumpalo v3.19.0
+  Downloaded async-fs v2.1.2
+  Downloaded itoa v1.0.9
+  Downloaded is-terminal v0.4.9
+  Downloaded httparse v1.10.0
+  Downloaded http-body v1.0.0
+  Downloaded http-body v0.4.5
+  Downloaded home v0.5.9
+  Downloaded findshlibs v0.10.2
+  Downloaded derive_arbitrary v1.4.1
+  Downloaded atoi v2.0.0
+  Downloaded faccess v0.2.4
+  Downloaded clap v4.5.48
+  Downloaded async-stream v0.3.5
+  Downloaded env_logger v0.10.1
+  Downloaded clap_lex v0.7.5
+  Downloaded anstyle v1.0.11
+  Downloaded adler32 v1.2.0
+   Compiling proc-macro2 v1.0.95
+   Compiling unicode-ident v1.0.11
+   Compiling serde_core v1.0.228
+   Compiling serde v1.0.228
+   Compiling libc v0.2.172
+   Compiling autocfg v1.1.0
+   Compiling version_check v0.9.4
+   Compiling portable-atomic v1.11.0
+   Compiling typenum v1.16.0
+   Compiling allocator-api2 v0.2.21
+   Compiling cfg-if v1.0.0
+   Compiling foldhash v0.1.5
+   Compiling equivalent v1.0.1
+   Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.0
+   Compiling libm v0.2.8
+   Compiling critical-section v1.2.0
+   Compiling unicode-xid v0.2.4
+   Compiling winnow v0.5.15
+   Compiling memchr v2.7.4
+   Compiling rustversion v1.0.17
+   Compiling subtle v2.5.0
+   Compiling parking_lot_core v0.9.8
+   Compiling radium v0.7.0
+   Compiling generic-array v0.14.7
+   Compiling lock_api v0.4.10
+   Compiling hashbrown v0.15.3
+   Compiling num-traits v0.2.19
+   Compiling slab v0.4.9
+   Compiling thiserror v1.0.65
+   Compiling paste v1.0.15
+   Compiling ahash v0.8.11
+   Compiling const-oid v0.9.5
+   Compiling scopeguard v1.2.0
+   Compiling semver v1.0.18
+   Compiling crossbeam-utils v0.8.20
+   Compiling aho-corasick v1.0.4
+   Compiling regex-syntax v0.8.5
+   Compiling crunchy v0.2.2
+   Compiling quote v1.0.40
+   Compiling once_cell v1.21.3
+   Compiling memoffset v0.9.0
+   Compiling syn v2.0.98
+   Compiling parity-scale-codec v3.7.5
+   Compiling thiserror v2.0.12
+   Compiling itoa v1.0.9
+   Compiling anyhow v1.0.98
+   Compiling const_format_proc_macros v0.2.34
+   Compiling crossbeam-epoch v0.9.15
+   Compiling rayon-core v1.12.1
+   Compiling pkg-config v0.3.32
+   Compiling serde_json v1.0.132
+   Compiling spin v0.9.8
+   Compiling ryu v1.0.15
+   Compiling httparse v1.10.0
+   Compiling cpufeatures v0.2.9
+   Compiling heck v0.5.0
+   Compiling prettyplease v0.2.12
+   Compiling lazy_static v1.5.0
+   Compiling termcolor v1.2.0
+   Compiling ref-cast v1.0.23
+   Compiling jobserver v0.1.32
+   Compiling getrandom v0.2.10
+   Compiling ppv-lite86 v0.2.17
+   Compiling proc-macro-warning v1.0.0
+   Compiling crc32fast v1.3.2
+   Compiling rand_core v0.6.4
+   Compiling rustix v1.0.8
+   Compiling bitcoin-internals v0.2.0
+   Compiling jam-codec v0.1.0
+   Compiling winnow v0.6.18
+   Compiling cc v1.2.35
+   Compiling cranelift-srcgen v0.122.0
+   Compiling object v0.36.7
+   Compiling target-lexicon v0.13.2
+   Compiling rand_chacha v0.3.1
+   Compiling wasmtime-internal-math v35.0.0
+   Compiling cranelift-isle v0.122.0
+   Compiling cranelift-codegen-shared v0.122.0
+   Compiling same-file v1.0.6
+   Compiling cranelift-assembler-x64-meta v0.122.0
+   Compiling zstd-safe v7.2.4
+   Compiling common-path v1.0.0
+   Compiling walkdir v2.5.0
+   Compiling cpp_demangle v0.4.3
+   Compiling regex-automata v0.4.8
+   Compiling rand v0.8.5
+   Compiling wasmparser v0.235.0
+   Compiling time-core v0.1.2
+   Compiling num-conv v0.1.0
+   Compiling wasm-encoder v0.235.0
+   Compiling io-lifetimes v1.0.11
+   Compiling expander v2.2.1
+   Compiling byteorder v1.5.0
+   Compiling time-macros v0.2.18
+   Compiling rustix v0.37.23
+   Compiling wasmtime-internal-cache v35.0.0
+   Compiling wasmtime-internal-unwinder v35.0.0
+   Compiling ahash v0.7.8
+   Compiling fs-err v2.9.0
+   Compiling file-guard v0.2.0
+   Compiling prometheus v0.13.3
+   Compiling keccak v0.1.4
+   Compiling tap v1.0.1
+   Compiling funty v2.0.0
+   Compiling static_assertions v1.1.0
+   Compiling arrayref v0.3.7
+   Compiling wyz v0.5.1
+   Compiling const_format v0.2.34
+   Compiling byte-slice-cast v1.2.3
+   Compiling constant_time_eq v0.3.0
+   Compiling syn v1.0.109
+   Compiling zstd-sys v2.0.15+zstd.1.5.7
+   Compiling secp256k1-sys v0.9.2
+   Compiling ittapi-sys v0.4.0
+   Compiling backtrace v0.3.71
+    Checking pin-project-lite v0.2.14
+    Checking futures-core v0.3.31
+    Checking futures-sink v0.3.31
+    Checking futures-io v0.3.31
+   Compiling cranelift-assembler-x64 v0.122.0
+    Checking futures-channel v0.3.31
+    Checking futures-task v0.3.31
+    Checking pin-utils v0.1.0
+   Compiling num-integer v0.1.46
+    Checking tracing-core v0.1.36
+    Checking zerocopy v0.7.32
+    Checking num_cpus v1.16.0
+    Checking stable_deref_trait v1.2.0
+   Compiling num-bigint v0.4.6
+    Checking socket2 v0.5.9
+    Checking signal-hook-registry v1.4.1
+    Checking mio v1.0.2
+    Checking bitflags v2.9.4
+    Checking hex v0.4.3
+    Checking fnv v1.0.7
+    Checking integer-sqrt v0.1.5
+    Checking base16ct v0.2.0
+    Checking ff v0.13.0
+    Checking hashbrown v0.14.5
+    Checking bitflags v1.3.2
+    Checking rustc-hex v2.1.0
+    Checking rustc-hash v2.1.1
+    Checking uint v0.10.0
+    Checking group v0.13.0
+    Checking fixed-hash v0.8.0
+    Checking tinyvec_macros v0.1.1
+    Checking impl-num-traits v0.2.0
+    Checking crossbeam-deque v0.8.3
+   Compiling regex v1.11.1
+    Checking tinyvec v1.6.0
+    Checking base64 v0.22.1
+    Checking getrandom_or_panic v0.0.3
+    Checking hash-db v0.16.0
+    Checking opaque-debug v0.3.0
+   Compiling Inflector v0.11.4
+    Checking base64ct v1.6.0
+    Checking errno v0.3.10
+    Checking linux-raw-sys v0.9.4
+    Checking environmental v1.1.4
+    Checking hex-conservative v0.1.1
+    Checking uuid v1.4.1
+    Checking unicode-normalization v0.1.22
+    Checking password-hash v0.5.0
+   Compiling proc-macro-error-attr v1.0.4
+    Checking hash256-std-hasher v0.15.2
+    Checking bitcoin_hashes v0.13.0
+   Compiling proc-macro-error v1.0.4
+    Checking rustc-demangle v0.1.23
+    Checking tower-service v0.3.2
+   Compiling serde_derive v1.0.228
+   Compiling zeroize_derive v1.4.2
+   Compiling futures-macro v0.3.31
+   Compiling impl-trait-for-tuples v0.2.3
+   Compiling thiserror-impl v1.0.65
+   Compiling tracing-attributes v0.1.31
+   Compiling derive_more-impl v1.0.0
+   Compiling tokio-macros v2.5.0
+   Compiling thiserror-impl v2.0.12
+   Compiling zeroize v1.8.1
+   Compiling curve25519-dalek-derive v0.1.0
+   Compiling ref-cast-impl v1.0.23
+   Compiling derive_arbitrary v1.4.1
+   Compiling derive-syn-parse v0.2.0
+   Compiling pulley-macros v35.0.0
+   Compiling wasmtime-internal-versioned-export-macros v35.0.0
+   Compiling sp-debug-derive v15.0.0 (/home/coder/Rostro/substrate/primitives/debug-derive)
+   Compiling strum_macros v0.26.4
+   Compiling async-trait v0.1.88
+   Compiling crypto-common v0.1.6
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.9.0
+   Compiling wasmtime-internal-jit-debug v35.0.0
+   Compiling wasmtime v35.0.0
+   Compiling digest v0.10.7
+   Compiling libsecp256k1-core v0.3.0
+    Checking futures-util v0.3.31
+    Checking derive_more v1.0.0
+    Checking der v0.7.8
+   Compiling blake2 v0.10.6
+   Compiling sha2 v0.10.9
+   Compiling sha3 v0.10.8
+   Compiling twox-hash v1.6.3
+   Compiling libsecp256k1-gen-ecmult v0.3.0
+   Compiling libsecp256k1-gen-genmult v0.3.0
+    Checking hmac v0.12.1
+    Checking signature v2.1.0
+    Checking crypto-bigint v0.5.2
+   Compiling libsecp256k1 v0.7.1
+    Checking rfc6979 v0.4.0
+    Checking ed25519 v2.2.2
+    Checking spki v0.7.2
+   Compiling enum-ordinalize-derive v4.3.1
+    Checking bs58 v0.5.1
+   Compiling ark-serialize-derive v0.5.0
+   Compiling ark-ff-macros v0.5.0
+    Checking pkcs8 v0.10.2
+   Compiling ark-ff-asm v0.5.0
+    Checking merlin v3.0.0
+    Checking arbitrary v1.4.1
+    Checking pbkdf2 v0.12.2
+    Checking block-buffer v0.9.0
+    Checking crypto-mac v0.8.0
+    Checking sha2 v0.9.9
+    Checking hmac v0.8.1
+    Checking dyn-clone v1.0.17
+    Checking base64 v0.13.1
+   Compiling enum-ordinalize v4.3.0
+    Checking hmac-drbg v0.3.0
+    Checking try-lock v0.2.4
+   Compiling educe v0.6.0
+    Checking want v0.3.1
+    Checking httpdate v1.0.3
+    Checking array-bytes v6.2.2
+    Checking atomic-waker v1.1.1
+    Checking secp256k1 v0.28.2
+    Checking debugid v0.8.0
+    Checking bumpalo v3.19.0
+    Checking cranelift-control v0.122.0
+    Checking cobs v0.3.0
+    Checking bytes v1.11.1
+    Checking arrayvec v0.7.6
+    Checking smallvec v1.15.0
+    Checking serde_fmt v1.0.3
+   Compiling indexmap v2.9.0
+   Compiling toml_datetime v0.6.8
+   Compiling erased-serde v0.4.4
+   Compiling serde_spanned v0.6.7
+   Compiling cranelift-bitset v0.122.0
+   Compiling bitvec v1.0.1
+   Compiling either v1.15.0
+   Compiling rustc_version v0.4.0
+   Compiling blake2b_simd v1.0.2
+   Compiling itertools v0.11.0
+   Compiling value-bag-serde1 v1.8.0
+   Compiling value-bag v1.8.0
+   Compiling curve25519-dalek v4.1.3
+    Checking parking_lot v0.12.3
+   Compiling toml_edit v0.21.0
+   Compiling toml_edit v0.22.22
+    Checking futures-executor v0.3.31
+   Compiling sp-crypto-hashing v0.1.0 (/home/coder/Rostro/substrate/primitives/crypto/hashing)
+   Compiling log v0.4.22
+    Checking tokio v1.45.0
+    Checking futures v0.3.31
+    Checking rayon v1.10.0
+    Checking impl-serde v0.5.0
+   Compiling pulley-interpreter v35.0.0
+    Checking serdect v0.2.0
+   Compiling ss58-registry v1.43.0
+    Checking sec1 v0.7.3
+    Checking tracing v0.1.44
+    Checking elliptic-curve v0.13.8
+    Checking rlp v0.6.1
+    Checking impl-rlp v0.4.0
+    Checking ecdsa v0.16.8
+    Checking http v1.1.0
+    Checking serde_bytes v0.11.12
+    Checking secrecy v0.8.0
+    Checking schnorrkel v0.11.4
+    Checking num-format v0.4.4
+    Checking ed25519-zebra v4.0.3
+   Compiling proc-macro-crate v3.1.0
+    Checking k256 v0.13.4
+   Compiling sp-crypto-hashing-proc-macro v0.1.0 (/home/coder/Rostro/substrate/primitives/crypto/hashing/proc-macro)
+    Checking gimli v0.31.1
+   Compiling toml v0.8.19
+    Checking http-body v1.0.0
+    Checking cranelift-entity v0.122.0
+    Checking http-body-util v0.1.2
+    Checking regalloc2 v0.12.2
+    Checking iana-time-zone v0.1.57
+    Checking cranelift-bforest v0.122.0
+   Compiling parity-scale-codec-derive v3.7.5
+   Compiling scale-info-derive v2.11.6
+   Compiling jam-codec-derive v0.1.0
+   Compiling sp-runtime-interface-proc-macro v21.0.0 (/home/coder/Rostro/substrate/primitives/runtime-interface/proc-macro)
+   Compiling sp-api-proc-macro v27.0.0 (/home/coder/Rostro/substrate/primitives/api/proc-macro)
+   Compiling docify_macros v0.2.9
+    Checking chrono v0.4.40
+    Checking ed25519-dalek v2.1.1
+    Checking postcard v1.1.3
+    Checking dirs-sys-next v0.1.2
+    Checking powerfmt v0.2.0
+    Checking leb128fmt v0.1.0
+    Checking directories-next v2.0.0
+    Checking deranged v0.3.11
+    Checking fxhash v0.2.1
+    Checking tokio-util v0.7.15
+   Compiling docify v0.2.9
+    Checking linux-raw-sys v0.3.8
+    Checking num_threads v0.1.7
+    Checking itertools v0.14.0
+    Checking time v0.3.36
+    Checking addr2line v0.24.2
+    Checking h2 v0.4.5
+    Checking ittapi v0.4.0
+    Checking scale-info v2.11.6
+    Checking impl-codec v0.7.1
+    Checking wasmtime-internal-jit-icache-coherence v35.0.0
+    Checking wasmtime-internal-asm-macros v35.0.0
+    Checking wasmtime-internal-slab v35.0.0
+    Checking nohash-hasher v0.2.0
+   Compiling sp-version-proc-macro v15.0.0 (/home/coder/Rostro/substrate/primitives/version/proc-macro)
+    Checking hashbrown v0.13.2
+    Checking regex-syntax v0.6.29
+    Checking hashbrown v0.12.3
+    Checking bip39 v2.2.0
+    Checking overload v0.1.1
+    Checking adler v1.0.2
+    Checking miniz_oxide v0.7.1
+    Checking nu-ansi-term v0.46.0
+    Checking lru v0.7.8
+    Checking sharded-slab v0.1.4
+    Checking primitive-types v0.13.1
+    Checking bounded-collections v0.3.2
+    Checking thread_local v1.1.7
+    Checking tracing-log v0.2.0
+    Checking sp-storage v23.0.0 (/home/coder/Rostro/substrate/primitives/storage)
+    Checking gimli v0.28.0
+    Checking object v0.32.2
+    Checking ark-std v0.5.0
+    Checking ark-serialize v0.5.0
+    Checking itertools v0.13.0
+    Checking memory-db v0.34.0
+    Checking sp-externalities v0.32.0 (/home/coder/Rostro/substrate/primitives/externalities)
+    Checking trie-root v0.18.0
+    Checking memfd v0.6.3
+    Checking schnellru v0.2.3
+    Checking fxprof-processed-profile v0.6.0
+   Compiling itertools v0.10.5
+    Checking regex-automata v0.1.10
+   Compiling tiny-keccak v2.0.2
+   Compiling proc-macro-hack v0.5.20+deprecated
+    Checking zstd v0.13.3
+   Compiling cranelift-codegen-meta v0.122.0
+    Checking sp-std v14.0.0 (/home/coder/Rostro/substrate/primitives/std)
+    Checking trie-db v0.31.0
+    Checking matchers v0.1.0
+    Checking tracing-subscriber v0.3.19
+    Checking substrate-bip39 v0.6.1 (/home/coder/Rostro/substrate/utils/substrate-bip39)
+   Compiling macro_magic_core_macros v0.5.1
+    Checking simple-mermaid v0.1.1
+    Checking tuplex v0.1.2
+   Compiling frame-support-procedural-tools-derive v12.0.0 (/home/coder/Rostro/substrate/frame/support/procedural/tools/derive)
+    Checking ark-ff v0.5.0
+   Compiling include_dir_macros v0.7.3
+    Checking addr2line v0.21.0
+   Compiling const-random-macro v0.1.15
+   Compiling cfg-expr v0.15.5
+    Checking sp-arithmetic v28.0.1 (/home/coder/Rostro/substrate/primitives/arithmetic)
+    Checking strum v0.26.3
+   Compiling include_dir v0.7.3
+   Compiling sp-io v45.0.0 (/home/coder/Rostro/substrate/primitives/io)
+   Compiling frame-support-procedural-tools v13.0.1 (/home/coder/Rostro/substrate/frame/support/procedural/tools)
+   Compiling aquamarine v0.5.0
+   Compiling const-random v0.1.15
+    Checking binary-merkle-tree v16.1.1 (/home/coder/Rostro/substrate/utils/binary-merkle-tree)
+    Checking hyper v1.6.0
+   Compiling macro_magic_core v0.5.1
+    Checking parity-wasm v0.45.0
+    Checking frame-metadata v23.0.1
+    Checking wasmprinter v0.235.0
+    Checking sp-tracing v19.0.0 (/home/coder/Rostro/substrate/primitives/tracing)
+    Checking tt-call v1.0.9
+   Compiling macro_magic_macros v0.5.1
+   Compiling wasm-bindgen-shared v0.2.95
+   Compiling macro_magic v0.5.1
+   Compiling frame-support-procedural v37.0.0 (/home/coder/Rostro/substrate/frame/support/procedural)
+    Checking sp-weights v34.0.0 (/home/coder/Rostro/substrate/primitives/weights)
+    Checking sp-metadata-ir v0.12.3 (/home/coder/Rostro/substrate/primitives/metadata-ir)
+    Checking hyper-util v0.1.10
+   Compiling wasm-bindgen v0.2.95
+    Checking sp-panic-handler v13.0.2 (/home/coder/Rostro/substrate/primitives/panic-handler)
+   Compiling wasm-bindgen-backend v0.2.95
+    Checking wasmtime-environ v35.0.0
+    Checking send_wrapper v0.4.0
+   Compiling cranelift-codegen v0.122.0
+   Compiling strsim v0.11.1
+   Compiling ident_case v1.0.1
+    Checking substrate-prometheus-endpoint v0.17.7 (/home/coder/Rostro/substrate/utils/prometheus)
+   Compiling wasm-bindgen-macro-support v0.2.95
+   Compiling darling_core v0.20.10
+   Compiling blake3 v1.5.4
+   Compiling rustix v0.38.42
+   Compiling wasm-bindgen-macro v0.2.95
+   Compiling picosimd v0.9.2
+    Checking js-sys v0.3.72
+    Checking ark-poly v0.5.0
+    Checking ark-transcript v0.0.3
+   Compiling darling_macro v0.20.10
+   Compiling zstd-safe v6.0.6
+   Compiling darling v0.20.10
+    Checking ark-ec v0.5.0
+    Checking gloo-timers v0.2.6
+    Checking futures-timer v3.0.3
+    Checking ark-bls12-381 v0.5.0
+    Checking w3f-pcs v0.0.2
+    Checking ark-ed-on-bls12-381-bandersnatch v0.5.0
+    Checking w3f-plonk-common v0.0.2
+   Compiling convert_case v0.4.0
+    Checking w3f-ring-proof v0.0.2
+   Compiling derive_more v0.99.17
+    Checking ark-vrf v0.1.0
+    Checking sp-core v40.0.0 (/home/coder/Rostro/substrate/primitives/core)
+    Checking sp-trie v43.0.0 (/home/coder/Rostro/substrate/primitives/trie)
+    Checking sp-keystore v0.46.0 (/home/coder/Rostro/substrate/primitives/keystore)
+   Compiling linux-raw-sys v0.4.14
+   Compiling heck v0.4.1
+   Compiling fastrand v2.3.0
+    Checking sp-state-machine v0.50.0 (/home/coder/Rostro/substrate/primitives/state-machine)
+   Compiling synstructure v0.13.1
+   Compiling sc-executor-wasmtime v0.44.0 (/home/coder/Rostro/substrate/client/executor/wasmtime)
+   Compiling displaydoc v0.2.4
+   Compiling zerovec-derive v0.10.3
+   Compiling zerofrom-derive v0.1.5
+   Compiling yoke-derive v0.7.5
+   Compiling icu_provider_macros v1.5.0
+   Compiling pin-project-internal v1.1.10
+   Compiling num-rational v0.4.1
+    Checking hex-literal v0.4.1
+   Compiling serde_with_macros v3.12.0
+   Compiling ring v0.17.14
+   Compiling data-encoding v2.6.0
+   Compiling rustls v0.23.34
+   Compiling tempfile v3.14.0
+   Compiling derive-where v1.6.0
+   Compiling getrandom v0.3.1
+   Compiling minimal-lexical v0.2.1
+   Compiling zerocopy v0.8.20
+   Compiling data-encoding-macro-internal v0.1.11
+    Checking zerofrom v0.1.5
+   Compiling nom v7.1.3
+    Checking writeable v0.5.5
+    Checking litemap v0.7.4
+    Checking yoke v0.7.5
+    Checking icu_locid_transform_data v1.5.0
+    Checking icu_properties_data v1.5.0
+    Checking zerovec v0.10.4
+   Compiling glob v0.3.3
+    Checking icu_normalizer_data v1.5.0
+    Checking percent-encoding v2.3.1
+    Checking utf16_iter v1.0.5
+    Checking write16 v1.0.0
+    Checking utf8_iter v1.0.4
+   Compiling matrixmultiply v0.3.7
+    Checking form_urlencoded v1.2.1
+   Compiling libp2p-swarm-derive v0.35.0
+   Compiling enum-as-inner v0.6.0
+   Compiling nalgebra-macros v0.2.1
+   Compiling clang-sys v1.6.1
+   Compiling fixedbitset v0.4.2
+   Compiling bindgen v0.72.1
+   Compiling prost-derive v0.13.5
+   Compiling petgraph v0.6.4
+   Compiling multimap v0.8.3
+    Checking serde_with v3.12.0
+   Compiling snow v0.9.6
+    Checking pin-project v1.1.10
+    Checking tinystr v0.7.6
+    Checking icu_collections v1.5.0
+    Checking polkavm-assembler v0.31.0
+    Checking icu_locid v1.5.0
+   Compiling xcm-procedural v11.0.2 (/home/coder/Rostro/polkadot/xcm/procedural)
+    Checking polkavm-linux-raw v0.31.0
+    Checking polkavm-common v0.31.0
+    Checking icu_provider v1.5.0
+   Compiling cexpr v0.6.0
+   Compiling asn1-rs-derive v0.6.0
+   Compiling asn1-rs-impl v0.2.0
+   Compiling toml_edit v0.19.15
+    Checking icu_locid_transform v1.5.0
+   Compiling synstructure v0.12.6
+   Compiling oid-registry v0.8.1
+   Compiling moka v0.12.10
+   Compiling mockall_derive v0.13.1
+   Compiling prost v0.13.5
+   Compiling network-interface v2.0.1
+    Checking icu_properties v1.5.1
+    Checking anstyle v1.0.11
+   Compiling parking_lot_core v0.8.6
+    Checking openssl-probe v0.1.5
+   Compiling prost-types v0.13.2
+    Checking polkavm v0.31.0
+    Checking rustls-pki-types v1.12.0
+    Checking zstd v0.12.4
+    Checking untrusted v0.9.0
+    Checking sha1 v0.10.6
+    Checking base64 v0.21.7
+   Compiling prost-derive v0.14.1
+    Checking num-complex v0.4.4
+   Compiling unicode-segmentation v1.11.0
+   Compiling scale-decode-derive v0.16.0
+    Checking wasm-instrument v0.4.0
+    Checking asynchronous-codec v0.6.2
+   Compiling convert_case v0.6.0
+    Checking hkdf v0.12.4
+    Checking concurrent-queue v2.5.0
+    Checking unsigned-varint v0.7.2
+    Checking core2 v0.4.0
+   Compiling proc-macro-crate v1.3.1
+   Compiling enum-display-macro v0.1.4
+    Checking data-encoding-macro v0.1.13
+    Checking finality-grandpa v0.16.3
+    Checking base-x v0.2.11
+   Compiling prost-derive v0.12.6
+   Compiling prost-build v0.13.2
+    Checking multibase v0.9.1
+    Checking multihash v0.19.1
+    Checking rustls-pemfile v2.0.0
+    Checking web-time v1.1.0
+    Checking event-listener v2.5.3
+    Checking sp-maybe-compressed-blob v11.1.0 (/home/coder/Rostro/substrate/primitives/maybe-compressed-blob)
+    Checking icu_normalizer v1.5.0
+    Checking rustls-native-certs v0.8.0
+    Checking async-channel v1.9.0
+    Checking tokio-stream v0.1.17
+    Checking kvdb v0.13.0
+    Checking quick-protobuf v0.8.1
+    Checking unsigned-varint v0.8.0
+   Compiling multihash-derive v0.8.0
+   Compiling prost v0.14.1
+    Checking rustls-webpki v0.103.7
+    Checking libp2p-identity v0.2.9
+    Checking idna_adapter v1.2.0
+    Checking idna v1.0.3
+    Checking ipnet v2.8.0
+    Checking multistream-select v0.13.0
+   Compiling prost-types v0.14.1
+    Checking rw-stream-sink v0.4.0
+    Checking void v1.0.2
+    Checking x25519-dalek v2.0.1
+    Checking url v2.5.4
+    Checking quick-error v1.2.3
+   Compiling clap_derive v4.5.47
+    Checking soketto v0.8.0
+    Checking lru v0.12.3
+   Compiling tikv-jemalloc-sys v0.6.0+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7
+    Checking utf-8 v0.7.6
+    Checking match_cfg v0.1.0
+   Compiling sc-network v0.56.0 (/home/coder/Rostro/substrate/client/network)
+    Checking hostname v0.3.1
+    Checking instant v0.1.13
+    Checking resolv-conf v0.7.0
+    Checking multiaddr v0.18.1
+    Checking asynchronous-codec v0.7.0
+    Checking utf8parse v0.2.1
+    Checking bytemuck v1.13.1
+    Checking anstyle-parse v0.2.1
+    Checking futures-bounded v0.2.4
+    Checking libp2p-core v0.42.0
+    Checking rand_core v0.9.1
+    Checking colorchoice v1.0.0
+    Checking safe_arch v0.7.1
+   Compiling prost-build v0.14.1
+    Checking anstyle-query v1.0.0
+    Checking rand_chacha v0.9.0
+    Checking anstream v0.6.11
+    Checking quick-protobuf-codec v0.3.1
+    Checking approx v0.5.1
+    Checking rand v0.9.0
+    Checking rawpointer v0.2.1
+    Checking uint v0.9.5
+    Checking wide v0.7.11
+    Checking constant_time_eq v0.4.2
+    Checking predicates-core v1.0.6
+    Checking blake2s_simd v1.0.4
+    Checking netlink-packet-utils v0.5.2
+    Checking difflib v0.4.0
+    Checking libp2p-swarm v0.45.1
+    Checking termtree v0.4.1
+    Checking yamux v0.13.10
+    Checking linked-hash-map v0.5.6
+    Checking predicates v3.0.3
+    Checking predicates-tree v1.0.9
+    Checking multihash v0.17.0
+    Checking netlink-packet-core v0.4.2
+    Checking crossbeam-channel v0.5.15
+    Checking rusticata-macros v4.1.0
+    Checking tagptr v0.2.0
+    Checking hickory-proto v0.25.2
+   Compiling litep2p v0.13.3
+    Checking asn1-rs v0.7.0
+    Checking netlink-sys v0.8.5
+    Checking fragile v2.0.0
+    Checking unicode-bidi v0.3.13
+    Checking downcast v0.11.0
+    Checking netlink-proto v0.10.0
+    Checking simba v0.8.1
+    Checking mockall v0.13.1
+    Checking idna v0.4.0
+    Checking multiaddr v0.17.1
+    Checking netlink-packet-route v0.12.0
+    Checking cid v0.11.1
+    Checking libp2p-kad v0.46.2
+    Checking nix v0.24.3
+    Checking yasna v0.5.2
+    Checking hickory-proto v0.24.1
+   Compiling librocksdb-sys v0.17.3+10.4.2
+    Checking lru-cache v0.1.2
+    Checking der-parser v10.0.0
+    Checking ip_network v0.4.1
+    Checking cranelift-native v0.122.0
+    Checking cranelift-frontend v0.122.0
+    Checking yamux v0.12.1
+    Checking x509-parser v0.17.0
+    Checking webpki-roots v0.25.2
+    Checking parking_lot v0.11.2
+    Checking libp2p-connection-limits v0.4.0
+    Checking libp2p-request-response v0.27.0
+    Checking libp2p-allow-block-list v0.4.0
+    Checking libp2p-identify v0.45.0
+    Checking tokio-rustls v0.26.0
+    Checking wasmtime-internal-cranelift v35.0.0
+    Checking tungstenite v0.27.0
+    Checking futures-rustls v0.26.0
+    Checking libp2p-yamux v0.46.0
+    Checking rtnetlink v0.10.1
+    Checking libp2p-ping v0.45.0
+    Checking libp2p-noise v0.45.0
+    Checking libp2p-websocket v0.44.0
+    Checking wasm-timer v0.2.5
+    Checking sc-utils v20.1.0 (/home/coder/Rostro/substrate/client/utils)
+   Compiling scale-type-resolver v0.2.0
+    Checking terminal_size v0.4.3
+    Checking if-watch v3.2.0
+   Compiling scale-bits v0.7.0
+   Compiling unicode-width v0.1.10
+    Checking clap_lex v0.7.5
+    Checking tokio-tungstenite v0.27.0
+   Compiling rustc-hash v1.1.0
+    Checking linked_hash_set v0.1.4
+    Checking hickory-resolver v0.25.2
+    Checking prost v0.12.6
+    Checking partial_sort v0.2.0
+    Checking libp2p-tcp v0.42.0
+    Checking enum-display v0.1.4
+    Checking clap_builder v4.5.48
+    Checking simple-dns v0.11.0
+   Compiling option-ext v0.2.0
+   Compiling scale-decode v0.16.0
+   Compiling sc-chain-spec-derive v12.0.0 (/home/coder/Rostro/substrate/client/chain-spec/derive)
+   Compiling dirs-sys v0.4.1
+   Compiling link-cplusplus v1.0.9
+   Compiling scratch v1.0.7
+   Compiling console v0.15.8
+   Compiling cxxbridge-flags v1.0.106
+   Compiling codespan-reporting v0.11.1
+   Compiling cxx v1.0.106
+   Compiling camino v1.1.6
+   Compiling strum_macros v0.24.3
+    Checking hickory-resolver v0.24.2
+    Checking libp2p-mdns v0.46.0
+   Compiling cxx-build v1.0.106
+   Compiling cxxbridge-macro v1.0.106
+    Checking memmap2 v0.9.3
+   Compiling slice-group-by v0.3.1
+   Compiling dirs v5.0.1
+   Compiling cargo-platform v0.1.3
+   Compiling regalloc2 v0.9.3
+   Compiling cargo_metadata v0.15.4
+    Checking nalgebra v0.32.3
+   Compiling jsonrpsee-proc-macros v0.24.10
+    Checking libp2p-dns v0.42.0
+    Checking clap v4.5.48
+   Compiling sc-network-sync v0.55.0 (/home/coder/Rostro/substrate/client/network/sync)
+   Compiling semver-parser v0.7.0
+    Checking libp2p v0.54.1
+   Compiling strum v0.24.1
+   Compiling semver v0.6.0
+   Compiling array-bytes v9.1.2
+   Compiling build-helper v0.1.1
+   Compiling merkleized-metadata v0.5.0
+   Compiling filetime v0.2.22
+   Compiling lz4-sys v1.9.4
+   Compiling polkavm-linker v0.31.0
+   Compiling snap v1.1.0
+   Compiling frame-election-provider-solution-type v16.1.1 (/home/coder/Rostro/substrate/frame/election-provider-support/solution-type)
+    Checking sc-telemetry v30.0.1 (/home/coder/Rostro/substrate/client/telemetry)
+    Checking webpki-roots v0.26.3
+    Checking tower-layer v0.3.2
+    Checking hyper-rustls v0.27.3
+    Checking tower v0.4.13
+    Checking jsonrpsee-types v0.24.10
+    Checking rustls-platform-verifier v0.5.3
+    Checking inout v0.1.3
+    Checking fork-tree v13.0.1 (/home/coder/Rostro/substrate/utils/fork-tree)
+    Checking cipher v0.4.4
+    Checking jsonrpsee-core v0.24.10
+    Checking universal-hash v0.5.1
+   Compiling wasm-opt-sys v0.116.0
+   Compiling wasm-opt-cxx-sys v0.116.0
+    Checking route-recognizer v0.3.1
+    Checking polyval v0.6.1
+   Compiling cfg_aliases v0.2.1
+    Checking jsonrpsee-wasm-client v0.24.10
+    Checking ghash v0.5.0
+    Checking aes v0.8.3
+    Checking ctr v0.9.2
+    Checking aead v0.5.2
+    Checking sysinfo v0.30.5
+    Checking const-hex v1.14.0
+    Checking memmap2 v0.5.10
+    Checking fs2 v0.4.3
+    Checking aes-gcm v0.10.3
+    Checking siphasher v0.3.11
+    Checking kvdb-memorydb v0.13.0
+    Checking sc-state-db v0.42.0 (/home/coder/Rostro/substrate/client/state-db)
+    Checking sp-rpc v38.0.0 (/home/coder/Rostro/substrate/primitives/rpc)
+    Checking generic-array v0.12.4
+   Compiling sc-tracing-proc-macro v11.1.1 (/home/coder/Rostro/substrate/client/tracing/proc-macro)
+    Checking subtle v1.0.0
+    Checking byte-tools v0.3.1
+    Checking crypto-mac v0.7.0
+    Checking digest v0.8.1
+    Checking keystream v1.0.0
+    Checking opaque-debug v0.2.3
+    Checking cipher v0.2.5
+    Checking rand_distr v0.4.3
+    Checking chacha v0.3.0
+    Checking blake2 v0.8.1
+    Checking hashlink v0.8.4
+    Checking c2-chacha v0.3.3
+    Checking jsonrpsee-client-transport v0.24.10
+    Checking jsonrpsee-server v0.24.10
+    Checking jsonrpsee-http-client v0.24.10
+    Checking lioness v0.1.2
+   Compiling cfg_aliases v0.1.1
+   Compiling static_init v1.0.4
+    Checking mixnet v0.7.0
+   Compiling static_init_macro v1.0.4
+    Checking jsonrpsee-ws-client v0.24.10
+   Compiling sc-network-light v0.55.0 (/home/coder/Rostro/substrate/client/network/light)
+   Compiling sc-sysinfo v47.0.0 (/home/coder/Rostro/substrate/client/sysinfo)
+    Checking raw-cpuid v10.7.0
+    Checking dashmap v5.5.1
+    Checking jsonrpsee v0.24.10
+    Checking nonzero_ext v0.3.0
+    Checking no-std-compat v0.4.1
+   Compiling enumflags2_derive v0.7.11
+    Checking sp-wasm-interface v24.0.0 (/home/coder/Rostro/substrate/primitives/wasm-interface)
+    Checking tracing-futures v0.2.5
+   Compiling proc-macro-error-attr2 v2.0.0
+    Checking nonempty v0.7.0
+    Checking tower-http v0.5.2
+    Checking quanta v0.11.1
+    Checking forwarded-header-value v0.1.1
+   Compiling proc-macro-error2 v2.0.1
+    Checking rand_pcg v0.3.1
+    Checking directories v5.0.1
+    Checking governor v0.6.0
+    Checking exit-future v0.2.0
+   Compiling enumn v0.1.13
+   Compiling scale-encode-derive v0.10.0
+    Checking sp-runtime-interface v34.0.0 (/home/coder/Rostro/substrate/primitives/runtime-interface)
+    Checking sc-allocator v36.0.0 (/home/coder/Rostro/substrate/client/allocator)
+    Checking enumflags2 v0.7.11
+    Checking sp-crypto-hashing v0.1.0
+   Compiling secp256k1-sys v0.10.1
+    Checking pallet-staking-reward-fn v24.0.1 (/home/coder/Rostro/substrate/frame/staking/reward-fn)
+    Checking sc-executor-common v0.44.0 (/home/coder/Rostro/substrate/client/executor/common)
+    Checking is-terminal v0.4.9
+   Compiling tracing-gum-proc-macro v5.0.0 (/home/coder/Rostro/polkadot/node/gum/proc-macro)
+   Compiling names v0.14.0
+    Checking linregress v0.5.2
+   Compiling cumulus-pallet-parachain-system-proc-macro v0.8.0 (/home/coder/Rostro/cumulus/pallets/parachain-system/proc-macro)
+    Checking base58 v0.2.0
+    Checking yap v0.12.0
+    Checking keccak-hash v0.11.0
+    Checking sc-executor-polkavm v0.41.0 (/home/coder/Rostro/substrate/client/executor/polkavm)
+    Checking scale-encode v0.10.0
+    Checking ripemd v0.1.3
+   Compiling sc-authority-discovery v0.56.0 (/home/coder/Rostro/substrate/client/authority-discovery)
+   Compiling fatality-proc-macro v0.1.1
+    Checking secrecy v0.10.3
+   Compiling dyn-clonable-impl v0.9.0
+   Compiling orchestra-proc-macro v0.4.1
+   Compiling alloy-rlp-derive v0.3.12
+   Compiling ruint-macro v1.2.1
+    Checking bounded-vec v0.7.1
+    Checking bip32 v0.5.2
+   Compiling derive_more-impl v2.0.1
+    Checking coarsetime v0.1.23
+    Checking cumulus-primitives-proof-size-hostfunction v0.17.0 (/home/coder/Rostro/cumulus/primitives/proof-size-hostfunction)
+    Checking fdlimit v0.3.0
+    Checking assert_matches v1.5.0
+    Checking scale-value v0.18.0
+    Checking frame-decode v0.9.0
+    Checking rtoolbox v0.0.1
+    Checking crossbeam-queue v0.3.11
+    Checking polkadot-ckb-merkle-mountain-range v0.8.1
+    Checking rpassword v7.2.0
+    Checking nanorand v0.7.0
+    Checking fatality v0.1.1
+    Checking dyn-clonable v0.9.0
+    Checking prioritized-metered-channel v0.6.1
+   Compiling alloy-rlp v0.3.12
+   Compiling foldhash v0.2.0
+   Compiling derivative v2.2.0
+    Checking subxt-metadata v0.44.2
+   Compiling hashbrown v0.16.1
+   Compiling ruint v1.17.2
+   Compiling auto_impl v1.3.0
+   Compiling reed-solomon-novelpoly v2.0.0
+    Checking subxt-core v0.44.2
+   Compiling syn-solidity v1.5.7
+   Compiling macro-string v0.1.4
+    Checking sp-application-crypto v45.0.0 (/home/coder/Rostro/substrate/primitives/application-crypto)
+   Compiling dunce v1.0.4
+   Compiling alloy-sol-macro-input v1.5.7
+   Compiling ucd-trie v0.1.6
+    Checking sp-runtime v46.0.0 (/home/coder/Rostro/substrate/primitives/runtime)
+    Checking sc-keystore v40.0.0 (/home/coder/Rostro/substrate/client/keystore)
+   Compiling derive_more v2.0.1
+    Checking secp256k1 v0.30.0
+    Checking orchestra v0.4.1
+   Compiling alloy-primitives v1.5.7
+   Compiling alloy-sol-macro-expander v1.5.7
+    Checking lz4 v1.24.0
+    Checking subxt-signer v0.44.2
+    Checking parity-db v0.4.12
+   Compiling pest v2.7.2
+   Compiling scale-typegen v0.11.1
+    Checking sc-network-types v0.20.2 (/home/coder/Rostro/substrate/client/network/types)
+   Compiling darling_core v0.21.3
+   Compiling num-iter v0.1.43
+   Compiling num_enum_derive v0.7.4
+   Compiling sc-consensus-slots v0.55.0 (/home/coder/Rostro/substrate/client/consensus/slots)
+   Compiling subxt-codegen v0.44.2
+   Compiling subxt-utils-fetchmetadata v0.44.2
+   Compiling nix v0.29.0
+    Checking humantime v2.1.0
+   Compiling pest_meta v2.7.2
+    Checking crc-catalog v2.4.0
+    Checking alloy-eip7702 v0.6.1
+    Checking alloy-eip2930 v0.2.1
+    Checking crc v3.2.1
+    Checking wasm-bindgen-futures v0.4.45
+   Compiling pallet-revive-proc-macro v0.7.2 (/home/coder/Rostro/substrate/frame/revive/proc-macro)
+    Checking finito v0.1.0
+    Checking alloy-eip2124 v0.2.0
+    Checking alloy-serde v1.0.41
+    Checking subxt-rpcs v0.44.2
+   Compiling pest_generator v2.7.2
+   Compiling subxt-macro v0.44.2
+    Checking nybbles v0.4.1
+    Checking alloy-trie v0.9.1
+   Compiling alloy-sol-macro v1.5.7
+    Checking alloy-eips v1.0.41
+    Checking env_filter v0.1.3
+    Checking ethbloom v0.14.1
+   Compiling pest_derive v2.7.2
+    Checking num v0.4.1
+    Checking alloy-sol-types v1.5.7
+   Compiling substrate-build-script-utils v11.0.0 (/home/coder/Rostro/substrate/utils/build-script-utils)
+    Checking ethereum-types v0.15.1
+   Compiling frame-benchmarking-cli v54.0.0 (/home/coder/Rostro/substrate/utils/frame/benchmarking-cli)
+    Checking num_enum v0.7.4
+    Checking revm-primitives v20.2.1
+    Checking ark-models-ext v0.5.2
+    Checking ark-scale v0.0.13
+    Checking revm-bytecode v6.2.2
+    Checking ark-pallas v0.5.0
+    Checking primeorder v0.13.6
+    Checking sha2-const-stable v0.1.0
+   Compiling darling_macro v0.21.3
+    Checking subxt v0.44.2
+    Checking keccak-const v0.2.0
+    Checking ark-vesta v0.5.0
+    Checking ark-pallas-ext v0.5.1
+    Checking ark-ed-on-bls12-381-bandersnatch-ext v0.5.2
+    Checking ark-bls12-381-ext v0.5.2
+    Checking revm-state v7.0.5
+    Checking p256 v0.13.2
+    Checking ark-vesta-ext v0.5.1
+    Checking const-crypto v0.3.0
+    Checking aurora-engine-modexp v1.2.0
+    Checking revm-database-interface v7.0.5
+   Compiling darling v0.21.3
+    Checking landlock v0.3.0
+    Checking ark-bn254 v0.5.0
+    Checking sp-crypto-ec-utils v0.20.0 (/home/coder/Rostro/substrate/primitives/crypto/ec-utils)
+    Checking cpu-time v1.0.0
+    Checking seccompiler v0.4.0
+   Compiling alloy-tx-macros v1.0.41
+    Checking revm-context-interface v9.0.0
+    Checking revm-database v7.0.5
+    Checking humantime-serde v1.1.1
+    Checking substrate-bn v0.6.0
+    Checking staging-tracking-allocator v2.0.0 (/home/coder/Rostro/polkadot/node/tracking-allocator)
+    Checking revm-precompile v25.0.0
+    Checking revm-interpreter v24.0.0
+    Checking revm-context v8.0.4
+   Compiling slotmap v1.0.6
+    Checking always-assert v0.1.3
+   Compiling polkadot-node-core-pvf v29.0.0 (/home/coder/Rostro/polkadot/node/core/pvf)
+    Checking alloy-core v1.2.1
+    Checking pallet-revive-uapi v0.11.0 (/home/coder/Rostro/substrate/frame/revive/uapi)
+    Checking ethereum-standards v0.1.3 (/home/coder/Rostro/substrate/primitives/ethereum-standards)
+    Checking threadpool v1.8.1
+    Checking is_executable v1.0.1
+    Checking sc-proposer-metrics v0.20.0 (/home/coder/Rostro/substrate/client/proposer-metrics)
+    Checking unicode-width v0.2.0
+    Checking revm-handler v8.1.0
+    Checking thousands v0.2.0
+    Checking handlebars v5.1.0
+    Checking gethostname v0.2.3
+    Checking sp-version v44.0.0 (/home/coder/Rostro/substrate/primitives/version)
+    Checking sp-inherents v41.0.0 (/home/coder/Rostro/substrate/primitives/inherents)
+    Checking sp-staking v43.0.0 (/home/coder/Rostro/substrate/primitives/staking)
+    Checking sp-keyring v46.0.0 (/home/coder/Rostro/substrate/primitives/keyring)
+    Checking polkadot-core-primitives v22.0.0 (/home/coder/Rostro/polkadot/core-primitives)
+    Checking sc-network-common v0.53.0 (/home/coder/Rostro/substrate/client/network/common)
+    Checking sp-npos-elections v41.0.0 (/home/coder/Rostro/substrate/primitives/npos-elections)
+    Checking slot-range-helper v22.0.0 (/home/coder/Rostro/polkadot/runtime/common/slot_range_helper)
+    Checking alloy-consensus v1.0.41
+    Checking revm-inspector v8.1.0
+    Checking comfy-table v7.1.4
+    Checking revm v27.1.0
+    Checking polkadot-parachain-primitives v21.0.0 (/home/coder/Rostro/polkadot/parachain)
+    Checking sp-api v41.0.0 (/home/coder/Rostro/substrate/primitives/api)
+   Compiling pallet-staking-reward-curve v12.0.0 (/home/coder/Rostro/substrate/frame/staking/reward-curve)
+    Checking fs4 v0.7.0
+   Compiling polkadot-cli v32.0.0 (/home/coder/Rostro/polkadot/cli)
+    Checking sp-genesis-builder v0.22.0 (/home/coder/Rostro/substrate/primitives/genesis-builder)
+    Checking sp-session v43.0.0 (/home/coder/Rostro/substrate/primitives/session)
+    Checking sp-offchain v41.0.0 (/home/coder/Rostro/substrate/primitives/offchain)
+    Checking sp-authority-discovery v41.0.0 (/home/coder/Rostro/substrate/primitives/authority-discovery)
+    Checking sp-transaction-pool v41.0.0 (/home/coder/Rostro/substrate/primitives/transaction-pool)
+    Checking sp-consensus-grandpa v28.0.0 (/home/coder/Rostro/substrate/primitives/consensus/grandpa)
+    Checking sc-executor v0.48.0 (/home/coder/Rostro/substrate/client/executor)
+    Checking frame-system-rpc-runtime-api v41.0.0 (/home/coder/Rostro/substrate/frame/system/rpc/runtime-api)
+    Checking sp-mixnet v0.19.0 (/home/coder/Rostro/substrate/primitives/mixnet)
+    Checking sp-mmr-primitives v41.0.0 (/home/coder/Rostro/substrate/primitives/merkle-mountain-range)
+    Checking pallet-staking-runtime-api v31.0.0 (/home/coder/Rostro/substrate/frame/staking/runtime-api)
+    Checking sc-storage-monitor v0.28.0 (/home/coder/Rostro/substrate/client/storage-monitor)
+    Checking sc-runtime-utilities v0.8.0 (/home/coder/Rostro/substrate/client/runtime-utilities)
+    Checking sp-consensus-beefy v29.0.0 (/home/coder/Rostro/substrate/primitives/consensus/beefy)
+    Checking frame-support v46.0.0 (/home/coder/Rostro/substrate/frame/support)
+    Checking sp-timestamp v41.0.0 (/home/coder/Rostro/substrate/primitives/timestamp)
+    Checking sp-block-builder v41.0.0 (/home/coder/Rostro/substrate/primitives/block-builder)
+    Checking sp-consensus v0.47.0 (/home/coder/Rostro/substrate/primitives/consensus/common)
+    Checking sp-transaction-storage-proof v41.0.0 (/home/coder/Rostro/substrate/primitives/transaction-storage-proof)
+    Checking sp-consensus-slots v0.47.0 (/home/coder/Rostro/substrate/primitives/consensus/slots)
+    Checking sp-consensus-babe v0.47.0 (/home/coder/Rostro/substrate/primitives/consensus/babe)
+    Checking polkadot-primitives v23.0.0 (/home/coder/Rostro/polkadot/primitives)
+    Checking sp-consensus-aura v0.47.0 (/home/coder/Rostro/substrate/primitives/consensus/aura)
+    Checking parachains-common-types v0.2.0 (/home/coder/Rostro/cumulus/parachains/common/types)
+    Checking cumulus-primitives-aura v0.22.0 (/home/coder/Rostro/cumulus/primitives/aura)
+    Checking polkadot-node-primitives v24.0.0 (/home/coder/Rostro/polkadot/node/primitives)
+    Checking tracing-gum v24.0.0 (/home/coder/Rostro/polkadot/node/gum)
+    Checking polkadot-primitives-test-helpers v0.3.0 (/home/coder/Rostro/polkadot/primitives/test-helpers)
+    Checking polkadot-statement-table v24.0.0 (/home/coder/Rostro/polkadot/statement-table)
+    Checking polkadot-erasure-coding v24.0.0 (/home/coder/Rostro/polkadot/erasure-coding)
+    Checking polkadot-node-core-pvf-common v25.0.0 (/home/coder/Rostro/polkadot/node/core/pvf/common)
+   Compiling cumulus-client-bootnodes v0.8.0 (/home/coder/Rostro/cumulus/client/bootnodes)
+    Checking polkadot-node-core-pvf-execute-worker v25.0.0 (/home/coder/Rostro/polkadot/node/core/pvf/execute-worker)
+    Checking pallet-nfts-runtime-api v31.0.0 (/home/coder/Rostro/substrate/frame/nfts/runtime-api)
+   Compiling num-derive v0.4.2
+   Compiling vcpkg v0.2.15
+   Compiling pallet-contracts-proc-macro v23.0.3 (/home/coder/Rostro/substrate/frame/contracts/proc-macro)
+    Checking ciborium-io v0.2.1
+    Checking half v1.8.2
+    Checking plotters-backend v0.3.5
+    Checking ciborium-ll v0.2.1
+    Checking plotters-svg v0.3.5
+    Checking cast v0.3.0
+    Checking plotters v0.3.5
+    Checking ciborium v0.2.1
+    Checking criterion-plot v0.5.0
+    Checking tinytemplate v1.2.1
+    Checking oorandom v11.1.3
+    Checking anes v0.1.6
+    Checking maplit v1.0.2
+    Checking criterion v0.5.1
+    Checking tikv-jemalloc-ctl v0.6.0
+    Checking tikv-jemallocator v0.6.0
+    Checking polkadot-node-core-pvf-prepare-worker v25.0.0 (/home/coder/Rostro/polkadot/node/core/pvf/prepare-worker)
+    Checking number_prefix v0.4.0
+    Checking indicatif v0.17.7
+    Checking spinners v4.1.1
+    Checking diff v0.1.13
+    Checking yansi v0.5.1
+    Checking pretty_assertions v1.4.0
+   Compiling staging-chain-spec-builder v17.0.0 (/home/coder/Rostro/substrate/bin/utils/chain-spec-builder)
+    Checking frame-system v46.0.0 (/home/coder/Rostro/substrate/frame/system)
+    Checking staging-xcm v22.0.0 (/home/coder/Rostro/polkadot/xcm)
+    Checking frame-try-runtime v0.52.0 (/home/coder/Rostro/substrate/frame/try-runtime)
+    Checking sp-statement-store v25.0.0 (/home/coder/Rostro/substrate/primitives/statement-store)
+   Compiling color-print-proc-macro v0.3.4
+    Checking string-interner v0.17.0
+    Checking downcast-rs v1.2.0
+    Checking indexmap-nostd v0.4.0
+    Checking subtle-ng v2.5.0
+    Checking wasmi_core v0.32.3
+    Checking curve25519-dalek-ng v4.1.1
+    Checking wasmparser-nostd v0.100.2
+    Checking wasmi_collections v0.32.3
+    Checking pallet-balances v47.0.0 (/home/coder/Rostro/substrate/frame/balances)
+    Checking frame-benchmarking v46.0.0 (/home/coder/Rostro/substrate/frame/benchmarking)
+    Checking pallet-timestamp v45.0.0 (/home/coder/Rostro/substrate/frame/timestamp)
+    Checking pallet-authorship v46.0.0 (/home/coder/Rostro/substrate/frame/authorship)
+    Checking frame-executive v46.0.0 (/home/coder/Rostro/substrate/frame/executive)
+    Checking pallet-transaction-payment v46.0.0 (/home/coder/Rostro/substrate/frame/transaction-payment)
+    Checking pallet-asset-conversion v28.0.0 (/home/coder/Rostro/substrate/frame/asset-conversion)
+    Checking frame-election-provider-support v46.0.0 (/home/coder/Rostro/substrate/frame/election-provider-support)
+    Checking pallet-utility v46.0.0 (/home/coder/Rostro/substrate/frame/utility)
+    Checking pallet-message-queue v49.0.0 (/home/coder/Rostro/substrate/frame/message-queue)
+    Checking pallet-broker v0.25.0 (/home/coder/Rostro/substrate/frame/broker)
+    Checking frame-metadata-hash-extension v0.14.0 (/home/coder/Rostro/substrate/frame/metadata-hash-extension)
+    Checking polkadot-runtime-metrics v26.0.0 (/home/coder/Rostro/polkadot/runtime/metrics)
+    Checking pallet-identity v46.0.0 (/home/coder/Rostro/substrate/frame/identity)
+    Checking pallet-election-provider-multi-phase v45.0.0 (/home/coder/Rostro/substrate/frame/election-provider-multi-phase)
+    Checking pallet-fast-unstake v45.0.0 (/home/coder/Rostro/substrate/frame/fast-unstake)
+    Checking pallet-vesting v46.0.0 (/home/coder/Rostro/substrate/frame/vesting)
+    Checking pallet-transaction-payment-rpc-runtime-api v46.0.0 (/home/coder/Rostro/substrate/frame/transaction-payment/rpc/runtime-api)
+    Checking bp-runtime v0.26.0 (/home/coder/Rostro/bridges/primitives/runtime)
+    Checking pallet-session v46.0.0 (/home/coder/Rostro/substrate/frame/session)
+    Checking pallet-treasury v45.0.0 (/home/coder/Rostro/substrate/frame/treasury)
+    Checking pallet-sudo v46.0.0 (/home/coder/Rostro/substrate/frame/sudo)
+    Checking pallet-preimage v46.0.0 (/home/coder/Rostro/substrate/frame/preimage)
+    Checking polkadot-sdk-frame v0.15.0 (/home/coder/Rostro/substrate/frame)
+    Checking pallet-scheduler v47.0.0 (/home/coder/Rostro/substrate/frame/scheduler)
+    Checking bp-header-chain v0.26.0 (/home/coder/Rostro/bridges/primitives/header-chain)
+    Checking pallet-multisig v46.0.0 (/home/coder/Rostro/substrate/frame/multisig)
+    Checking pallet-proxy v46.0.0 (/home/coder/Rostro/substrate/frame/proxy)
+    Checking pallet-whitelist v45.0.0 (/home/coder/Rostro/substrate/frame/whitelist)
+    Checking pallet-migrations v16.0.0 (/home/coder/Rostro/substrate/frame/migrations)
+    Checking pallet-asset-rate v25.0.0 (/home/coder/Rostro/substrate/frame/asset-rate)
+    Checking pallet-referenda v46.0.0 (/home/coder/Rostro/substrate/frame/referenda)
+    Checking pallet-offences v45.0.0 (/home/coder/Rostro/substrate/frame/offences)
+    Checking bp-messages v0.26.0 (/home/coder/Rostro/bridges/primitives/messages)
+    Checking pallet-indices v46.0.0 (/home/coder/Rostro/substrate/frame/indices)
+    Checking pallet-assets v49.0.1 (/home/coder/Rostro/substrate/frame/assets)
+    Checking pallet-dap-satellite v0.2.0 (/home/coder/Rostro/substrate/frame/dap-satellite)
+    Checking pallet-conviction-voting v46.0.0 (/home/coder/Rostro/substrate/frame/conviction-voting)
+    Checking pallet-mmr v46.0.1 (/home/coder/Rostro/substrate/frame/merkle-mountain-range)
+    Checking pallet-bags-list v45.0.0 (/home/coder/Rostro/substrate/frame/bags-list)
+    Checking bp-polkadot-core v0.26.0 (/home/coder/Rostro/bridges/primitives/polkadot-core)
+    Checking pallet-nomination-pools v44.0.0 (/home/coder/Rostro/substrate/frame/nomination-pools)
+    Checking pallet-root-testing v22.0.0 (/home/coder/Rostro/substrate/frame/root-testing)
+    Checking pallet-state-trie-migration v51.0.0 (/home/coder/Rostro/substrate/frame/state-trie-migration)
+    Checking pallet-recovery v46.0.0 (/home/coder/Rostro/substrate/frame/recovery)
+    Checking pallet-parameters v0.17.0 (/home/coder/Rostro/substrate/frame/parameters)
+    Checking pallet-delegated-staking v13.0.0 (/home/coder/Rostro/substrate/frame/delegated-staking)
+    Checking pallet-ranked-collective v46.0.0 (/home/coder/Rostro/substrate/frame/ranked-collective)
+    Checking pallet-aura v45.0.0 (/home/coder/Rostro/substrate/frame/aura)
+    Checking pallet-asset-tx-payment v46.0.0 (/home/coder/Rostro/substrate/frame/transaction-payment/asset-tx-payment)
+    Checking pallet-multi-asset-bounties v0.3.0 (/home/coder/Rostro/substrate/frame/multi-asset-bounties)
+    Checking bp-parachains v0.26.0 (/home/coder/Rostro/bridges/primitives/parachains)
+    Checking pallet-bounties v45.0.0 (/home/coder/Rostro/substrate/frame/bounties)
+    Checking pallet-tips v45.0.0 (/home/coder/Rostro/substrate/frame/tips)
+    Checking pallet-nis v46.0.0 (/home/coder/Rostro/substrate/frame/nis)
+    Checking pallet-elections-phragmen v47.0.0 (/home/coder/Rostro/substrate/frame/elections-phragmen)
+    Checking staging-xcm-executor v25.1.0 (/home/coder/Rostro/polkadot/xcm/xcm-executor)
+    Checking cumulus-primitives-core v0.24.0 (/home/coder/Rostro/cumulus/primitives/core)
+    Checking pallet-staking-async-rc-client v0.8.0 (/home/coder/Rostro/substrate/frame/staking-async/rc-client)
+    Checking pallet-society v46.0.0 (/home/coder/Rostro/substrate/frame/society)
+    Checking pallet-babe v46.0.0 (/home/coder/Rostro/substrate/frame/babe)
+    Checking pallet-staking v46.0.0 (/home/coder/Rostro/substrate/frame/staking)
+    Checking pallet-authority-discovery v46.0.0 (/home/coder/Rostro/substrate/frame/authority-discovery)
+    Checking pallet-grandpa v46.0.0 (/home/coder/Rostro/substrate/frame/grandpa)
+    Checking cumulus-primitives-parachain-inherent v0.24.0 (/home/coder/Rostro/cumulus/primitives/parachain-inherent)
+    Checking cumulus-test-relay-sproof-builder v0.25.0 (/home/coder/Rostro/cumulus/test/relay-sproof-builder)
+    Checking staging-parachain-info v0.26.0 (/home/coder/Rostro/cumulus/parachains/pallets/parachain-info)
+    Checking pallet-beefy v47.0.0 (/home/coder/Rostro/substrate/frame/beefy)
+    Checking pallet-collator-selection v27.0.0 (/home/coder/Rostro/cumulus/pallets/collator-selection)
+    Checking pallet-staking-async-ah-client v0.8.0 (/home/coder/Rostro/substrate/frame/staking-async/ah-client)
+    Checking pallet-child-bounties v45.0.0 (/home/coder/Rostro/substrate/frame/child-bounties)
+    Checking pallet-nomination-pools-runtime-api v42.0.0 (/home/coder/Rostro/substrate/frame/nomination-pools/runtime-api)
+    Checking pallet-democracy v46.0.0 (/home/coder/Rostro/substrate/frame/democracy)
+    Checking cumulus-primitives-storage-weight-reclaim v17.0.0 (/home/coder/Rostro/cumulus/primitives/storage-weight-reclaim)
+    Checking bp-xcm-bridge-hub-router v0.23.0 (/home/coder/Rostro/bridges/primitives/xcm-bridge-hub-router)
+    Checking bp-relayers v0.26.0 (/home/coder/Rostro/bridges/primitives/relayers)
+    Checking pallet-revive v0.13.0 (/home/coder/Rostro/substrate/frame/revive)
+    Checking cumulus-pallet-weight-reclaim v0.8.0 (/home/coder/Rostro/cumulus/pallets/weight-reclaim)
+    Checking cumulus-pallet-xcm v0.25.0 (/home/coder/Rostro/cumulus/pallets/xcm)
+    Checking pallet-beefy-mmr v47.0.0 (/home/coder/Rostro/substrate/frame/beefy-mmr)
+    Checking bp-xcm-bridge-hub v0.12.0 (/home/coder/Rostro/bridges/primitives/xcm-bridge-hub)
+    Checking cumulus-pallet-session-benchmarking v27.0.0 (/home/coder/Rostro/cumulus/pallets/session-benchmarking)
+    Checking pallet-bridge-messages v0.26.0 (/home/coder/Rostro/bridges/modules/messages)
+    Checking bp-test-utils v0.26.0 (/home/coder/Rostro/bridges/primitives/test-utils)
+    Checking pallet-verify-signature v0.9.0 (/home/coder/Rostro/substrate/frame/verify-signature)
+    Checking pallet-meta-tx v0.8.0 (/home/coder/Rostro/substrate/frame/meta-tx)
+    Checking pallet-glutton v32.0.0 (/home/coder/Rostro/substrate/frame/glutton)
+    Checking pallet-bridge-grandpa v0.26.0 (/home/coder/Rostro/bridges/modules/grandpa)
+    Checking pallet-nfts v40.0.0 (/home/coder/Rostro/substrate/frame/nfts)
+    Checking pallet-uniques v46.0.0 (/home/coder/Rostro/substrate/frame/uniques)
+    Checking pallet-assets-freezer v0.14.0 (/home/coder/Rostro/substrate/frame/assets-freezer)
+    Checking pallet-root-offences v44.0.0 (/home/coder/Rostro/substrate/frame/root-offences)
+    Checking pallet-asset-conversion-ops v0.14.0 (/home/coder/Rostro/substrate/frame/asset-conversion/ops)
+    Checking pallet-asset-conversion-tx-payment v28.0.0 (/home/coder/Rostro/substrate/frame/transaction-payment/asset-conversion-tx-payment)
+    Checking pallet-asset-rewards v0.8.0 (/home/coder/Rostro/substrate/frame/asset-rewards)
+    Checking pallet-staking-async v0.11.0 (/home/coder/Rostro/substrate/frame/staking-async)
+    Checking pallet-dap v0.3.0 (/home/coder/Rostro/substrate/frame/dap)
+    Checking pallet-bridge-parachains v0.26.0 (/home/coder/Rostro/bridges/modules/parachains)
+    Checking pallet-election-provider-multi-block v0.8.0 (/home/coder/Rostro/substrate/frame/election-provider-multi-block)
+    Checking pallet-salary v31.0.0 (/home/coder/Rostro/substrate/frame/salary)
+    Checking pallet-collective v46.0.0 (/home/coder/Rostro/substrate/frame/collective)
+    Checking pallet-core-fellowship v30.0.0 (/home/coder/Rostro/substrate/frame/core-fellowship)
+    Checking pallet-alliance v45.0.0 (/home/coder/Rostro/substrate/frame/alliance)
+    Checking pallet-bridge-relayers v0.26.0 (/home/coder/Rostro/bridges/modules/relayers)
+    Checking pallet-collective-content v0.24.0 (/home/coder/Rostro/cumulus/parachains/pallets/collective-content)
+    Checking color-print v0.3.4
+    Checking bridge-runtime-common v0.27.0 (/home/coder/Rostro/bridges/bin/runtime-common)
+    Checking multi-stash v0.2.0
+   Compiling pallet-contracts v46.0.0 (/home/coder/Rostro/substrate/frame/contracts)
+    Checking wasmi v0.32.3
+    Checking pallet-nft-fractionalization v30.0.0 (/home/coder/Rostro/substrate/frame/nft-fractionalization)
+    Checking schnorrkel v0.10.2
+    Checking bounded-collections v0.1.9
+    Checking pallet-contracts-uapi v14.0.0 (/home/coder/Rostro/substrate/frame/contracts/uapi)
+    Checking verifiable v0.1.0
+   Compiling ssz_rs v0.9.0
+    Checking safe-mix v1.0.1
+    Checking pallet-session-benchmarking v46.0.0 (/home/coder/Rostro/substrate/frame/session/benchmarking)
+    Checking generate-bags v46.0.0 (/home/coder/Rostro/substrate/utils/frame/generate-bags)
+    Checking pallet-paged-list v0.24.0 (/home/coder/Rostro/substrate/frame/paged-list)
+    Checking pallet-dev-mode v28.0.0 (/home/coder/Rostro/substrate/frame/examples/dev-mode)
+    Checking pallet-im-online v45.0.0 (/home/coder/Rostro/substrate/frame/im-online)
+    Checking pallet-assets-precompiles v0.5.0 (/home/coder/Rostro/substrate/frame/assets/precompiles)
+    Checking pallet-staking-async-runtime-api v0.6.0 (/home/coder/Rostro/substrate/frame/staking-async/runtime-api)
+    Checking sp-consensus-pow v0.47.0 (/home/coder/Rostro/substrate/primitives/consensus/pow)
+    Checking snowbridge-amcl v1.0.2
+   Compiling ssz_rs_derive v0.9.0
+    Checking pallet-insecure-randomness-collective-flip v34.0.0 (/home/coder/Rostro/substrate/frame/insecure-randomness-collective-flip)
+    Checking pallet-people v0.7.0 (/home/coder/Rostro/substrate/frame/people)
+    Checking snowbridge-milagro-bls v1.5.4
+   Compiling pallet-oracle-runtime-api v0.3.0 (/home/coder/Rostro/substrate/frame/honzon/oracle/runtime-api)
+    Checking pallet-offences-benchmarking v46.0.0 (/home/coder/Rostro/substrate/frame/offences/benchmarking)
+    Checking pallet-nomination-pools-benchmarking v44.0.0 (/home/coder/Rostro/substrate/frame/nomination-pools/benchmarking)
+    Checking cumulus-ping v0.26.0 (/home/coder/Rostro/cumulus/parachains/pallets/ping)
+    Checking cumulus-primitives-timestamp v0.25.0 (/home/coder/Rostro/cumulus/primitives/timestamp)
+    Checking cumulus-pallet-dmp-queue v0.26.0 (/home/coder/Rostro/cumulus/pallets/dmp-queue)
+    Checking pallet-assets-holder v0.9.0 (/home/coder/Rostro/substrate/frame/assets-holder)
+    Checking pallet-atomic-swap v46.0.0 (/home/coder/Rostro/substrate/frame/atomic-swap)
+    Checking pallet-node-authorization v46.0.0 (/home/coder/Rostro/substrate/frame/node-authorization)
+    Checking pallet-mixnet v0.22.0 (/home/coder/Rostro/substrate/frame/mixnet)
+    Checking pallet-safe-mode v27.0.0 (/home/coder/Rostro/substrate/frame/safe-mode)
+    Checking pallet-tx-pause v27.0.0 (/home/coder/Rostro/substrate/frame/tx-pause)
+    Checking pallet-transaction-storage v45.0.0 (/home/coder/Rostro/substrate/frame/transaction-storage)
+    Checking pallet-origin-restriction v0.7.0 (/home/coder/Rostro/substrate/frame/origin-restriction)
+    Checking frame-system-benchmarking v46.0.0 (/home/coder/Rostro/substrate/frame/system/benchmarking)
+    Checking frame-benchmarking-pallet-pov v36.0.0 (/home/coder/Rostro/substrate/frame/benchmarking/pov)
+    Checking pallet-election-provider-support-benchmarking v45.0.0 (/home/coder/Rostro/substrate/frame/election-provider-support/benchmarking)
+    Checking pallet-scored-pool v46.0.0 (/home/coder/Rostro/substrate/frame/scored-pool)
+    Checking pallet-statement v28.0.0 (/home/coder/Rostro/substrate/frame/statement)
+    Checking pallet-lottery v46.0.0 (/home/coder/Rostro/substrate/frame/lottery)
+    Checking pallet-remark v46.0.0 (/home/coder/Rostro/substrate/frame/remark)
+    Checking pallet-skip-feeless-payment v21.0.0 (/home/coder/Rostro/substrate/frame/transaction-payment/skip-feeless-payment)
+    Checking pallet-oracle v0.3.0 (/home/coder/Rostro/substrate/frame/honzon/oracle)
+    Checking pallet-membership v46.0.0 (/home/coder/Rostro/substrate/frame/membership)
+    Checking pallet-dummy-dim v0.7.0 (/home/coder/Rostro/substrate/frame/dummy-dim)
+    Checking sp-core-hashing v16.0.0 (/home/coder/Rostro/substrate/deprecated/hashing)
+    Checking sp-core-hashing-proc-macro v16.0.0 (/home/coder/Rostro/substrate/deprecated/hashing/proc-macro)
+    Checking snowbridge-beacon-primitives v0.19.0 (/home/coder/Rostro/bridges/snowbridge/primitives/beacon)
+   Compiling openssl-sys v0.9.107
+    Checking ethabi-decode v2.0.0
+    Checking mime v0.3.17
+    Checking wait-timeout v0.2.0
+    Checking encoding_rs v0.8.33
+    Checking serde_urlencoded v0.7.1
+    Checking http v0.2.9
+   Compiling sp-debug-derive v14.0.0
+   Compiling target-triple v0.1.3
+warning: openssl-sys@0.9.107: Could not find directory of OpenSSL installation, and this `-sys` crate cannot proceed without this knowledge. If OpenSSL is installed and this crate had trouble finding it,  you can set the `OPENSSL_DIR` environment variable for the compilation process. See stderr section below for further information.
+error: failed to run custom build command for `openssl-sys v0.9.107`
+
+Caused by:
+  process didn't exit successfully: `/home/coder/Rostro/target/debug/build/openssl-sys-329a2bad919b5931/build-script-main` (exit status: 101)
+  --- stdout
+  cargo:rustc-check-cfg=cfg(osslconf, values("OPENSSL_NO_OCB", "OPENSSL_NO_SM4", "OPENSSL_NO_SEED", "OPENSSL_NO_CHACHA", "OPENSSL_NO_CAST", "OPENSSL_NO_IDEA", "OPENSSL_NO_CAMELLIA", "OPENSSL_NO_RC4", "OPENSSL_NO_BF", "OPENSSL_NO_PSK", "OPENSSL_NO_DEPRECATED_3_0", "OPENSSL_NO_SCRYPT", "OPENSSL_NO_SM3", "OPENSSL_NO_RMD160", "OPENSSL_NO_EC2M", "OPENSSL_NO_OCSP", "OPENSSL_NO_CMS", "OPENSSL_NO_COMP", "OPENSSL_NO_SOCK", "OPENSSL_NO_STDIO", "OPENSSL_NO_EC", "OPENSSL_NO_SSL3_METHOD", "OPENSSL_NO_KRB5", "OPENSSL_NO_TLSEXT", "OPENSSL_NO_SRP", "OPENSSL_NO_RFC3779", "OPENSSL_NO_SHA", "OPENSSL_NO_NEXTPROTONEG", "OPENSSL_NO_ENGINE", "OPENSSL_NO_BUF_FREELISTS", "OPENSSL_NO_RC2"))
+  cargo:rustc-check-cfg=cfg(openssl)
+  cargo:rustc-check-cfg=cfg(libressl)
+  cargo:rustc-check-cfg=cfg(boringssl)
+  cargo:rustc-check-cfg=cfg(awslc)
+  cargo:rustc-check-cfg=cfg(libressl250)
+  cargo:rustc-check-cfg=cfg(libressl251)
+  cargo:rustc-check-cfg=cfg(libressl252)
+  cargo:rustc-check-cfg=cfg(libressl261)
+  cargo:rustc-check-cfg=cfg(libressl270)
+  cargo:rustc-check-cfg=cfg(libressl271)
+  cargo:rustc-check-cfg=cfg(libressl273)
+  cargo:rustc-check-cfg=cfg(libressl280)
+  cargo:rustc-check-cfg=cfg(libressl281)
+  cargo:rustc-check-cfg=cfg(libressl291)
+  cargo:rustc-check-cfg=cfg(libressl310)
+  cargo:rustc-check-cfg=cfg(libressl321)
+  cargo:rustc-check-cfg=cfg(libressl332)
+  cargo:rustc-check-cfg=cfg(libressl340)
+  cargo:rustc-check-cfg=cfg(libressl350)
+  cargo:rustc-check-cfg=cfg(libressl360)
+  cargo:rustc-check-cfg=cfg(libressl361)
+  cargo:rustc-check-cfg=cfg(libressl370)
+  cargo:rustc-check-cfg=cfg(libressl380)
+  cargo:rustc-check-cfg=cfg(libressl381)
+  cargo:rustc-check-cfg=cfg(libressl382)
+  cargo:rustc-check-cfg=cfg(libressl390)
+  cargo:rustc-check-cfg=cfg(libressl400)
+  cargo:rustc-check-cfg=cfg(libressl410)
+  cargo:rustc-check-cfg=cfg(ossl101)
+  cargo:rustc-check-cfg=cfg(ossl102)
+  cargo:rustc-check-cfg=cfg(ossl102f)
+  cargo:rustc-check-cfg=cfg(ossl102h)
+  cargo:rustc-check-cfg=cfg(ossl110)
+  cargo:rustc-check-cfg=cfg(ossl110f)
+  cargo:rustc-check-cfg=cfg(ossl110g)
+  cargo:rustc-check-cfg=cfg(ossl110h)
+  cargo:rustc-check-cfg=cfg(ossl111)
+  cargo:rustc-check-cfg=cfg(ossl111b)
+  cargo:rustc-check-cfg=cfg(ossl111c)
+  cargo:rustc-check-cfg=cfg(ossl111d)
+  cargo:rustc-check-cfg=cfg(ossl300)
+  cargo:rustc-check-cfg=cfg(ossl310)
+  cargo:rustc-check-cfg=cfg(ossl320)
+  cargo:rustc-check-cfg=cfg(ossl330)
+  cargo:rustc-check-cfg=cfg(ossl340)
+  cargo:rerun-if-env-changed=X86_64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR
+  X86_64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR unset
+  cargo:rerun-if-env-changed=OPENSSL_LIB_DIR
+  OPENSSL_LIB_DIR unset
+  cargo:rerun-if-env-changed=X86_64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR
+  X86_64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR unset
+  cargo:rerun-if-env-changed=OPENSSL_INCLUDE_DIR
+  OPENSSL_INCLUDE_DIR unset
+  cargo:rerun-if-env-changed=X86_64_UNKNOWN_LINUX_GNU_OPENSSL_DIR
+  X86_64_UNKNOWN_LINUX_GNU_OPENSSL_DIR unset
+  cargo:rerun-if-env-changed=OPENSSL_DIR
+  OPENSSL_DIR unset
+  cargo:rerun-if-env-changed=OPENSSL_NO_PKG_CONFIG
+  cargo:rerun-if-env-changed=PKG_CONFIG_x86_64-unknown-linux-gnu
+  cargo:rerun-if-env-changed=PKG_CONFIG_x86_64_unknown_linux_gnu
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG
+  cargo:rerun-if-env-changed=PKG_CONFIG
+  cargo:rerun-if-env-changed=OPENSSL_STATIC
+  cargo:rerun-if-env-changed=OPENSSL_DYNAMIC
+  cargo:rerun-if-env-changed=PKG_CONFIG_ALL_STATIC
+  cargo:rerun-if-env-changed=PKG_CONFIG_ALL_DYNAMIC
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH_x86_64-unknown-linux-gnu
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH_x86_64_unknown_linux_gnu
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_PATH
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR_x86_64-unknown-linux-gnu
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR_x86_64_unknown_linux_gnu
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_LIBDIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64-unknown-linux-gnu
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64_unknown_linux_gnu
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_SYSROOT_DIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR
+
+
+  Could not find openssl via pkg-config:
+
+  pkg-config exited with status code 1
+  > PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 pkg-config --libs --cflags openssl
+
+  The system library `openssl` required by crate `openssl-sys` was not found.
+  The file `openssl.pc` needs to be installed and the PKG_CONFIG_PATH environment variable must contain its parent directory.
+  The PKG_CONFIG_PATH environment variable is not set.
+
+  HINT: if you have installed the library, try setting PKG_CONFIG_PATH to the directory containing `openssl.pc`.
+
+
+  cargo:warning=Could not find directory of OpenSSL installation, and this `-sys` crate cannot proceed without this knowledge. If OpenSSL is installed and this crate had trouble finding it,  you can set the `OPENSSL_DIR` environment variable for the compilation process. See stderr section below for further information.
+
+  --- stderr
+
+
+  Could not find directory of OpenSSL installation, and this `-sys` crate cannot
+  proceed without this knowledge. If OpenSSL is installed and this crate had
+  trouble finding it,  you can set the `OPENSSL_DIR` environment variable for the
+  compilation process.
+
+  Make sure you also have the development packages of openssl installed.
+  For example, `libssl-dev` on Ubuntu or `openssl-devel` on Fedora.
+
+  If you're in a situation where you think the directory *should* be found
+  automatically, please open a bug at https://github.com/sfackler/rust-openssl
+  and include information about your system as well as this message.
+
+  $HOST = x86_64-unknown-linux-gnu
+  $TARGET = x86_64-unknown-linux-gnu
+  openssl-sys = 0.9.107
+
+
+warning: build failed, waiting for other jobs to finish...

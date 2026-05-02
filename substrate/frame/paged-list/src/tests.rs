@@ -21,10 +21,8 @@
 #![cfg(test)]
 
 use crate::{mock::*, *};
-use frame::{
-	prelude::storage::{StorageAppender, StoragePrefixedContainer},
-	testing_prelude::*,
-};
+use frame_support::storage::{StorageAppender, StoragePrefixedContainer};
+use sp_io::TestExternalities;
 
 #[docify::export]
 #[test]

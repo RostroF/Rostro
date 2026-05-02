@@ -108,6 +108,8 @@ mod tests {
 				type MaxAuthorities = ConstU32<100_000>;
 				type AllowMultipleBlocksPerSlot = ConstBool<false>;
 				type SlotDuration = pallet_aura::MinimumPeriodTimesTwo<Self>;
+				type Moment = u64;
+				type Time = Timestamp;
 			}
 
 			#[docify::export(timestamp)]

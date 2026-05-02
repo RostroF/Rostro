@@ -162,6 +162,7 @@ impl pallet_beefy::Config for Test {
 	type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, BeefyId)>>::Proof;
 	type EquivocationReportSystem =
 		super::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+	type SessionInfo = Session;
 }
 
 parameter_types! {

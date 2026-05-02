@@ -49,16 +49,17 @@ pub mod weights;
 extern crate alloc;
 
 use alloc::{collections::btree_set::BTreeSet, vec::Vec};
-use frame::{
-	deps::{sp_core::OpaquePeerId as PeerId, sp_io},
-	prelude::*,
-};
+use frame_support::{pallet_prelude::*, traits::EnsureOrigin, DefaultNoBound};
+use frame_system::pallet_prelude::*;
+use sp_core::OpaquePeerId as PeerId;
+use sp_io;
+use sp_runtime::traits::StaticLookup;
 pub use pallet::*;
 pub use weights::WeightInfo;
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 

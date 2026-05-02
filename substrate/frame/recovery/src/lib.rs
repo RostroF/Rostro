@@ -154,9 +154,16 @@ extern crate alloc;
 
 use alloc::{boxed::Box, vec::Vec};
 
-use frame::{
-	prelude::*,
-	traits::{Currency, ReservableCurrency},
+use frame_support::{
+	defensive,
+	dispatch::{GetDispatchInfo, PostDispatchInfo},
+	pallet_prelude::*,
+	traits::{tokens::BalanceStatus, Currency, ReservableCurrency},
+};
+use frame_system::pallet_prelude::*;
+use sp_runtime::{
+	traits::{BlockNumberProvider, Dispatchable, SaturatedConversion, Saturating, StaticLookup},
+	ArithmeticError,
 };
 
 pub use pallet::*;
@@ -225,7 +232,7 @@ pub enum DepositKind<T: Config> {
 	ActiveRecoveryFor(<T as frame_system::Config>::AccountId),
 }
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 

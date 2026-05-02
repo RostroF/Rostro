@@ -26,7 +26,11 @@
 use crate::mock::{self, *};
 
 use codec::Compact;
-use frame::testing_prelude::*;
+use frame_support::{
+	assert_err, assert_noop, assert_ok, assert_storage_noop,
+	traits::fungibles::{Inspect, InspectFreeze, MutateFreeze},
+};
+use sp_runtime::TokenError;
 use pallet_assets::FrozenBalance;
 
 const WHO: AccountId = 1;

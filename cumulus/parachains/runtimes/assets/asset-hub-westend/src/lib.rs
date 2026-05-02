@@ -343,6 +343,7 @@ pub type AssetsFreezerInstance = pallet_assets_freezer::Instance1;
 impl pallet_assets_freezer::Config<AssetsFreezerInstance> for Runtime {
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type RuntimeEvent = RuntimeEvent;
+	type Assets = Assets;
 }
 
 parameter_types! {
@@ -387,6 +388,7 @@ pub type PoolAssetsFreezerInstance = pallet_assets_freezer::Instance3;
 impl pallet_assets_freezer::Config<PoolAssetsFreezerInstance> for Runtime {
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type RuntimeEvent = RuntimeEvent;
+	type Assets = PoolAssets;
 }
 
 /// Union fungibles implementation for `Assets` and `ForeignAssets`.
@@ -645,6 +647,7 @@ pub type ForeignAssetsFreezerInstance = pallet_assets_freezer::Instance2;
 impl pallet_assets_freezer::Config<ForeignAssetsFreezerInstance> for Runtime {
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type RuntimeEvent = RuntimeEvent;
+	type Assets = ForeignAssets;
 }
 
 parameter_types! {
@@ -1073,6 +1076,8 @@ impl pallet_aura::Config for Runtime {
 	type MaxAuthorities = ConstU32<100_000>;
 	type AllowMultipleBlocksPerSlot = ConstBool<true>;
 	type SlotDuration = ConstU64<SLOT_DURATION>;
+	type Moment = u64;
+	type Time = Timestamp;
 }
 
 parameter_types! {

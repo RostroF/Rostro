@@ -11560,12 +11560,16 @@ dependencies = [
 name = "pallet-assets-freezer"
 version = "0.14.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "log",
  "pallet-assets",
  "pallet-balances",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-core 40.0.0",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
@@ -11614,10 +11618,13 @@ dependencies = [
 name = "pallet-atomic-swap"
 version = "46.0.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "pallet-balances",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
@@ -12726,10 +12733,14 @@ dependencies = [
 name = "pallet-insecure-randomness-collective-flip"
 version = "34.0.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "safe-mix",
  "scale-info",
+ "sp-core 40.0.0",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
@@ -12820,7 +12831,6 @@ dependencies = [
  "impl-trait-for-tuples",
  "log",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "pretty_assertions",
  "scale-info",
  "sp-core 40.0.0",
@@ -12842,25 +12852,34 @@ dependencies = [
 name = "pallet-mixnet"
 version = "0.22.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "log",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
  "serde",
  "sp-application-crypto 45.0.0",
+ "sp-arithmetic 28.0.1",
+ "sp-io 45.0.0",
  "sp-mixnet",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
 name = "pallet-mmr"
 version = "46.0.1"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "itertools 0.11.0",
  "log",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-arithmetic 28.0.1",
+ "sp-core 40.0.0",
+ "sp-io 45.0.0",
  "sp-mmr-primitives",
+ "sp-runtime 46.0.0",
  "sp-tracing 19.0.0",
 ]
 
@@ -12887,24 +12906,32 @@ dependencies = [
 name = "pallet-multisig"
 version = "46.0.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "log",
  "pallet-balances",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-core 40.0.0",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
 name = "pallet-nft-fractionalization"
 version = "30.0.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "log",
  "pallet-assets",
  "pallet-balances",
  "pallet-nfts",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-core 40.0.0",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
@@ -12937,21 +12964,29 @@ dependencies = [
 name = "pallet-nis"
 version = "46.0.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "pallet-balances",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-arithmetic 28.0.1",
+ "sp-core 40.0.0",
  "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
 name = "pallet-node-authorization"
 version = "46.0.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "log",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-core 40.0.0",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
@@ -13137,10 +13172,13 @@ name = "pallet-paged-list"
 version = "0.24.0"
 dependencies = [
  "docify",
+ "frame-support",
+ "frame-system",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-io 45.0.0",
  "sp-metadata-ir 0.12.3",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
@@ -13218,11 +13256,15 @@ dependencies = [
 name = "pallet-proxy"
 version = "46.0.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "pallet-balances",
  "pallet-utility",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-core 40.0.0",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
@@ -13246,10 +13288,13 @@ dependencies = [
 name = "pallet-recovery"
 version = "46.0.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "pallet-balances",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
@@ -13486,23 +13531,31 @@ name = "pallet-safe-mode"
 version = "27.0.0"
 dependencies = [
  "docify",
+ "frame-support",
+ "frame-system",
  "pallet-balances",
  "pallet-proxy",
  "pallet-utility",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-arithmetic 28.0.1",
+ "sp-core 40.0.0",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
 name = "pallet-salary"
 version = "31.0.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "log",
  "pallet-ranked-collective",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
@@ -14206,12 +14259,15 @@ name = "pallet-tx-pause"
 version = "27.0.0"
 dependencies = [
  "docify",
+ "frame-support",
+ "frame-system",
  "pallet-balances",
  "pallet-proxy",
  "pallet-utility",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]
@@ -14280,11 +14336,15 @@ dependencies = [
 name = "pallet-whitelist"
 version = "45.0.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "pallet-balances",
  "pallet-preimage",
  "parity-scale-codec",
- "polkadot-sdk-frame",
  "scale-info",
+ "sp-core 40.0.0",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
 ]
 
 [[package]]

@@ -21,7 +21,14 @@
 
 use super::*;
 use crate as pallet_tx_pause;
-use frame::testing_prelude::*;
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
+use frame_support::{
+	construct_runtime, derive_impl, ord_parameter_types, parameter_types,
+	traits::{ConstU32, ConstU64, Contains, Everything, InsideBoth, InstanceFilter},
+};
+use frame_system::{mocking::MockBlock, EnsureSignedBy};
+use sp_io::TestExternalities;
+use sp_runtime::{traits::BlakeTwo256, BuildStorage};
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {

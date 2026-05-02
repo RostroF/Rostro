@@ -240,6 +240,11 @@ impl pallet_babe::Config for Runtime {
 		<Historical as KeyOwnerProofSystem<(KeyTypeId, pallet_babe::AuthorityId)>>::Proof;
 
 	type EquivocationReportSystem = ();
+
+	type SessionInfo = Session;
+
+	type Moment = u64;
+	type SlotDuration = SlotDuration;
 }
 
 parameter_types! {
@@ -439,6 +444,7 @@ impl pallet_grandpa::Config for Runtime {
 
 	type KeyOwnerProof = sp_core::Void;
 	type EquivocationReportSystem = ();
+	type SessionInfo = Session;
 }
 
 impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Runtime

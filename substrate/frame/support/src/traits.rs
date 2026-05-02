@@ -44,8 +44,8 @@ pub use members::{
 mod validation;
 pub use validation::{
 	DisabledValidators, EstimateNextNewSession, EstimateNextSessionRotation, FindAuthor,
-	KeyOwnerProofSystem, Lateness, OneSessionHandler, ValidatorRegistration, ValidatorSet,
-	ValidatorSetWithIdentification, VerifySeal,
+	KeyOwnerProofSystem, Lateness, NoSession, OneSessionHandler, ValidatorRegistration,
+	ValidatorSet, ValidatorSetWithIdentification, VerifySeal,
 };
 
 mod error;

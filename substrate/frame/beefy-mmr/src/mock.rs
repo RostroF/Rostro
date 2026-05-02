@@ -118,6 +118,7 @@ impl pallet_beefy::Config for Test {
 	type WeightInfo = ();
 	type KeyOwnerProof = sp_core::Void;
 	type EquivocationReportSystem = ();
+	type SessionInfo = Session;
 }
 
 parameter_types! {

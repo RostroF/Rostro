@@ -63,7 +63,7 @@ pub mod weights;
 extern crate alloc;
 
 use sp_runtime::{
-	traits::{AccountIdConversion, BadOrigin, Hash, StaticLookup, TrailingZeroInput, Zero},
+	traits::{BadOrigin, Hash, Saturating, StaticLookup, TrailingZeroInput, Zero},
 	Debug, Percent,
 };
 
@@ -87,8 +87,10 @@ pub use weights::WeightInfo;
 
 const LOG_TARGET: &str = "runtime::tips";
 
-pub type BalanceOf<T, I = ()> = pallet_treasury::BalanceOf<T, I>;
-pub type NegativeImbalanceOf<T, I = ()> = pallet_treasury::NegativeImbalanceOf<T, I>;
+pub type BalanceOf<T, I = ()> =
+	<<T as Config<I>>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+pub type NegativeImbalanceOf<T, I = ()> =
+	<<T as Config<I>>::Currency as Currency<<T as frame_system::Config>::AccountId>>::NegativeImbalance;
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 
 /// An open tipping "motion". Retains all details of a tip including information on the finder
@@ -133,11 +135,25 @@ pub mod pallet {
 	pub struct Pallet<T, I = ()>(_);
 
 	#[pallet::config]
-	pub trait Config<I: 'static = ()>: frame_system::Config + pallet_treasury::Config<I> {
+	pub trait Config<I: 'static = ()>: frame_system::Config {
 		/// The overarching event type.
 		#[allow(deprecated)]
 		type RuntimeEvent: From<Event<Self, I>>
 			+ IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+		/// The currency used to manage tip deposits and payouts.
+		///
+		/// The runtime can wire this to any currency it likes (typically the same one the
+		/// treasury uses).
+		type Currency: ReservableCurrency<Self::AccountId>;
+
+		/// Account from which tip payouts are funded (typically the treasury account).
+		///
+		/// Wire this to e.g. `parameter_types! { pub TreasuryAccount: AccountId = Treasury::account_id(); }`.
+		type TreasuryAccount: Get<Self::AccountId>;
+
+		/// Origin permitted to reject (slash) a tip.
+		type RejectOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
 		/// Maximum acceptable reason length.
 		///
@@ -505,14 +521,6 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		Reasons::<T, I>::get(hash)
 	}
 
-	/// The account ID of the treasury pot.
-	///
-	/// This actually does computation. If you need to keep using it, then make sure you cache the
-	/// value and only call this once.
-	pub fn account_id() -> T::AccountId {
-		T::PalletId::get().into_account_truncating()
-	}
-
 	/// Given a mutable reference to an `OpenTip`, insert the tip into it and check whether it
 	/// closes, if so, then deposit the relevant event and set closing accordingly.
 	///
@@ -569,8 +577,9 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		Self::retain_active_tips(&mut tips);
 		tips.sort_by_key(|i| i.1);
 
-		let treasury = Self::account_id();
-		let max_payout = pallet_treasury::Pallet::<T, I>::pot();
+		let treasury = T::TreasuryAccount::get();
+		let max_payout = T::Currency::free_balance(&treasury)
+			.saturating_sub(T::Currency::minimum_balance());
 
 		let mut payout = tips[tips.len() / 2].1.min(max_payout);
 		if !tip.deposit.is_zero() {

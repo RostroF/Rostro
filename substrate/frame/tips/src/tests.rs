@@ -162,6 +162,9 @@ impl Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type OnSlash = ();
 	type WeightInfo = ();
+	type Currency = pallet_balances::Pallet<Test>;
+	type TreasuryAccount = TreasuryAccount;
+	type RejectOrigin = frame_system::EnsureRoot<u128>;
 }
 
 impl Config<Instance1> for Test {
@@ -175,6 +178,9 @@ impl Config<Instance1> for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type OnSlash = ();
 	type WeightInfo = ();
+	type Currency = pallet_balances::Pallet<Test>;
+	type TreasuryAccount = TreasuryInstance1Account;
+	type RejectOrigin = frame_system::EnsureRoot<u128>;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {

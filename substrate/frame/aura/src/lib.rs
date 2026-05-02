@@ -83,7 +83,23 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 
 	#[pallet::config]
-	pub trait Config: pallet_timestamp::Config + frame_system::Config {
+	pub trait Config: frame_system::Config {
+		/// The moment / timestamp type Aura uses for slot duration accounting.
+		///
+		/// Decoupled from `pallet_timestamp::Config::Moment` — runtimes typically wire this to
+		/// the same `Moment` type as their timestamp pallet (e.g. `u64`).
+		type Moment: sp_runtime::traits::AtLeast32Bit
+			+ Parameter
+			+ Default
+			+ Copy
+			+ MaxEncodedLen
+			+ scale_info::StaticTypeInfo;
+
+		/// Source of the current timestamp for slot validation.
+		///
+		/// Wire to the runtime's timestamp pallet (e.g. `type Time = Timestamp;`).
+		type Time: frame_support::traits::Time<Moment = Self::Moment>;
+
 		/// The identifier type for an authority.
 		type AuthorityId: Member
 			+ Parameter
@@ -118,7 +134,7 @@ pub mod pallet {
 		///
 		/// For backwards compatibility either use [`MinimumPeriodTimesTwo`] or a const.
 		#[pallet::constant]
-		type SlotDuration: Get<<Self as pallet_timestamp::Config>::Moment>;
+		type SlotDuration: Get<Self::Moment>;
 	}
 
 	#[pallet::pallet]
@@ -127,11 +143,11 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_runtime_upgrade() -> Weight {
-			use pallet_timestamp::Pallet as Timestamp;
+			use frame_support::traits::Time;
 
 			let new_slot_duration = T::SlotDuration::get();
 
-			let current_timestamp = Timestamp::<T>::get();
+			let current_timestamp = T::Time::now();
 			let old_slot = CurrentSlot::<T>::get();
 
 			let new_slot = current_timestamp / new_slot_duration;
@@ -336,7 +352,8 @@ impl<T: Config> Pallet<T> {
 		);
 
 		// Check that the timestamp is consistent with the current slot.
-		let timestamp = pallet_timestamp::Pallet::<T>::get();
+		use frame_support::traits::Time;
+		let timestamp = T::Time::now();
 
 		if !timestamp.is_zero() {
 			let slot_duration = Self::slot_duration();

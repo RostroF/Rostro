@@ -21,7 +21,10 @@
 
 use crate as pallet_whitelist;
 
-use frame::testing_prelude::*;
+use frame_support::{construct_runtime, derive_impl, parameter_types, weights::Weight};
+use frame_system::{mocking::MockBlock, EnsureRoot};
+use sp_io::TestExternalities;
+use sp_runtime::BuildStorage;
 type Block = MockBlock<Test>;
 
 construct_runtime!(

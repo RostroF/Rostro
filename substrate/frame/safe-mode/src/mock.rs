@@ -22,10 +22,16 @@
 use super::*;
 use crate as pallet_safe_mode;
 
-use frame::{
-	testing_prelude::*,
-	traits::{InsideBoth, InstanceFilter, IsInVec},
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
+use frame_support::{
+	construct_runtime, derive_impl, ord_parameter_types, parameter_types,
+	traits::{ConstU32, ConstU64, Contains, Everything, InsideBoth, InstanceFilter, IsInVec},
 };
+use frame_system::{mocking::MockBlock, EnsureSignedBy};
+use scale_info::TypeInfo;
+use sp_core::H256;
+use sp_io::TestExternalities;
+use sp_runtime::{traits::{BlakeTwo256, IdentityLookup}, BuildStorage};
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {

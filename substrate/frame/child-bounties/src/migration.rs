@@ -41,11 +41,11 @@ pub mod v1 {
 	pub struct MigrateToV1Impl<T, TransferWeight>(PhantomData<(T, TransferWeight)>);
 
 	#[storage_alias]
-	type ChildBountyDescriptions<T: Config + pallet_bounties::Config> = StorageMap<
+	type ChildBountyDescriptions<T: Config> = StorageMap<
 		Pallet<T>,
 		Twox64Concat,
 		BountyIndex,
-		BoundedVec<u8, <T as pallet_bounties::Config>::MaximumReasonLength>,
+		BoundedVec<u8, <T as Config>::MaximumReasonLength>,
 	>;
 
 	impl<T: Config, TransferWeight: Get<Weight>> UncheckedOnRuntimeUpgrade

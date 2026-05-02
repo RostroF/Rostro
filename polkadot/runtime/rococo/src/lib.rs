@@ -370,6 +370,7 @@ impl pallet_preimage::Config for Runtime {
 parameter_types! {
 	pub const ExpectedBlockTime: Moment = MILLISECS_PER_BLOCK;
 	pub ReportLongevity: u64 = EpochDurationInBlocks::get() as u64 * 10;
+	pub const SlotDuration: u64 = SLOT_DURATION;
 }
 
 impl pallet_babe::Config for Runtime {
@@ -384,6 +385,9 @@ impl pallet_babe::Config for Runtime {
 	type KeyOwnerProof = sp_session::MembershipProof;
 	type EquivocationReportSystem =
 		pallet_babe::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+	type SessionInfo = Session;
+	type Moment = u64;
+	type SlotDuration = SlotDuration;
 }
 
 parameter_types! {
@@ -591,6 +595,12 @@ impl pallet_bounties::Config for Runtime {
 	type WeightInfo = weights::pallet_bounties::WeightInfo<Runtime>;
 	type OnSlash = Treasury;
 	type TransferAllAssets = ();
+	type Currency = Balances;
+	type PalletId = TreasuryPalletId;
+	type BlockNumberProvider = System;
+	type RejectOrigin = EitherOfDiverse<EnsureRoot<AccountId>, Treasurer>;
+	type SpendOrigin = TreasurySpender;
+	type MaxApprovals = MaxApprovals;
 }
 
 parameter_types! {
@@ -603,6 +613,14 @@ impl pallet_child_bounties::Config for Runtime {
 	type MaxActiveChildBountyCount = MaxActiveChildBountyCount;
 	type ChildBountyValueMinimum = ChildBountyValueMinimum;
 	type WeightInfo = weights::pallet_child_bounties::WeightInfo<Runtime>;
+	type Currency = Balances;
+	type BlockNumberProvider = System;
+	type Bounties = Bounties;
+	type PalletId = TreasuryPalletId;
+	type RejectOrigin = EitherOfDiverse<EnsureRoot<AccountId>, Treasurer>;
+	type OnSlash = Treasury;
+	type BountyDepositPayoutDelay = BountyDepositPayoutDelay;
+	type MaximumReasonLength = MaximumReasonLength;
 }
 
 impl pallet_offences::Config for Runtime {
@@ -628,6 +646,7 @@ impl pallet_grandpa::Config for Runtime {
 	type KeyOwnerProof = sp_session::MembershipProof;
 	type EquivocationReportSystem =
 		pallet_grandpa::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+	type SessionInfo = Session;
 }
 
 impl frame_system::offchain::SigningTypes for Runtime {
@@ -1373,6 +1392,7 @@ impl pallet_beefy::Config for Runtime {
 	type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, BeefyId)>>::Proof;
 	type EquivocationReportSystem =
 		pallet_beefy::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+	type SessionInfo = Session;
 }
 
 /// MMR helper types.

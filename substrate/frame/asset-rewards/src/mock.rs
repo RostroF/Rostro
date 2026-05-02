@@ -128,6 +128,7 @@ impl EnsureOrigin<RuntimeOrigin> for MockPermissionedOrigin {
 impl pallet_assets_freezer::Config<pallet_assets_freezer::Instance1> for MockRuntime {
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type RuntimeEvent = RuntimeEvent;
+	type Assets = Assets;
 }
 
 pub type NativeAndAssets = UnionOf<Balances, Assets, NativeFromLeft, NativeOrWithId<u32>, u128>;

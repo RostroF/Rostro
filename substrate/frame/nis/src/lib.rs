@@ -90,16 +90,35 @@ pub use pallet::*;
 pub use weights::WeightInfo;
 
 use alloc::{vec, vec::Vec};
-use frame::prelude::*;
+use frame_support::{
+	pallet_prelude::*,
+	traits::{
+		fungible::{self, hold::Mutate as HoldMutate},
+		nonfungible,
+		tokens::{
+			self, DepositConsequence, Fortitude, Precision, Preservation, Provenance,
+			WithdrawConsequence,
+		},
+		Defensive, DefensiveSaturating, OnUnbalanced,
+	},
+	PalletId,
+};
+use frame_system::pallet_prelude::*;
+use sp_arithmetic::{
+	per_things::{PerThing, RationalArg},
+	traits::{Bounded, One, Saturating, Unsigned, Zero},
+	FixedU128, Perquintill,
+};
+use sp_runtime::{
+	traits::{AccountIdConversion, Convert, ConvertBack},
+	Rounding, TokenError,
+};
 use fungible::{
 	Balanced as FunBalanced, Inspect as FunInspect, Mutate as FunMutate,
 	MutateHold as FunMutateHold,
 };
 use nonfungible::{Inspect as NftInspect, Transfer as NftTransfer};
-use tokens::{Balance, Restriction::*};
-use Fortitude::*;
-use Precision::*;
-use Preservation::*;
+use tokens::{Balance, Fortitude::*, Precision::*, Preservation::*, Restriction::*};
 
 pub struct WithMaximumOf<A: TypedGet>(core::marker::PhantomData<A>);
 impl<A: TypedGet> Convert<Perquintill, A::Type> for WithMaximumOf<A>
@@ -173,7 +192,7 @@ impl BenchmarkSetup for () {
 	fn create_counterpart_asset() {}
 }
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 

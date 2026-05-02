@@ -18,16 +18,12 @@
 use crate as pallet_mmr;
 use crate::*;
 
-use crate::{
-	frame_system::DefaultConfig,
-	primitives::{Compact, LeafDataProvider},
-};
+use crate::primitives::{Compact, LeafDataProvider};
 use codec::{Decode, Encode};
-use frame::{
-	deps::frame_support::derive_impl,
-	prelude::{frame_system, frame_system::config_preludes::TestDefaultConfig},
-	testing_prelude::*,
-};
+use frame_support::{construct_runtime, derive_impl, parameter_types, traits::Get};
+use frame_system::{self, config_preludes::TestDefaultConfig, mocking::MockBlock, DefaultConfig};
+use sp_io::TestExternalities;
+use sp_runtime::{traits::Keccak256, BuildStorage};
 
 type Block = MockBlock<Test>;
 

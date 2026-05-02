@@ -330,14 +330,15 @@ where
 		(ValidTransaction, Self::Val, <T::RuntimeCall as Dispatchable>::RuntimeOrigin),
 		TransactionValidityError,
 	> {
-		use pallet_transaction_payment::ChargeTransactionPayment;
 		let Some(who) = origin.as_system_origin_signer() else {
 			return Ok((ValidTransaction::default(), Val::NoCharge, origin));
 		};
 		// Non-mutating call of `compute_fee` to calculate the fee used in the transaction priority.
 		let fee = pallet_transaction_payment::Pallet::<T>::compute_fee(len as u32, info, self.tip);
 		self.can_withdraw_fee(&who, call, info, fee)?;
-		let priority = ChargeTransactionPayment::<T>::get_priority(info, len, self.tip, fee);
+		let priority = pallet_transaction_payment::ChargeTransactionPayment::<T>::get_priority(
+			info, len, self.tip, fee,
+		);
 		let val = Val::Charge { tip: self.tip, who: who.clone(), fee };
 		let validity = ValidTransaction { priority, ..Default::default() };
 		Ok((validity, val, origin))

@@ -86,6 +86,8 @@ impl pallet_aura::Config for Test {
 	type MaxAuthorities = ConstU32<10>;
 	type AllowMultipleBlocksPerSlot = AllowMultipleBlocksPerSlot;
 	type SlotDuration = SlotDurationValue;
+	type Moment = u64;
+	type Time = Timestamp;
 }
 
 pub fn build_ext(authorities: Vec<u64>) -> sp_io::TestExternalities {

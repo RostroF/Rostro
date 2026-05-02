@@ -50,11 +50,13 @@ use core::{
 	marker::PhantomData,
 	ops::{Deref, DerefMut},
 };
-use frame::{
-	prelude::*,
-	traits::{BalanceStatus, Currency, ReservableCurrency},
+use frame_support::{
+	pallet_prelude::*,
+	traits::{tokens::BalanceStatus, Currency, ReservableCurrency},
 };
+use frame_system::pallet_prelude::*;
 use scale_info::TypeInfo;
+use sp_io::hashing::blake2_256;
 
 /// Pending atomic swap operation.
 #[derive(
@@ -165,7 +167,7 @@ where
 
 pub use pallet::*;
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 

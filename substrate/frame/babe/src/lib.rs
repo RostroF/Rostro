@@ -28,7 +28,10 @@ use codec::{Decode, Encode};
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays},
 	ensure,
-	traits::{ConstU32, DisabledValidators, FindAuthor, Get, OnTimestampSet, OneSessionHandler},
+	traits::{
+		ConstU32, DisabledValidators, FindAuthor, Get, OnTimestampSet, OneSessionHandler,
+		ValidatorSet,
+	},
 	weights::Weight,
 	BoundedVec, WeakBoundedVec,
 };
@@ -120,8 +123,18 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
-	#[pallet::disable_frame_system_supertrait_check]
-	pub trait Config: pallet_timestamp::Config {
+	pub trait Config: frame_system::Config {
+		/// The moment / timestamp type BABE uses for slot duration accounting.
+		///
+		/// Decoupled from `pallet_timestamp::Config::Moment` — runtimes typically wire this to
+		/// the same `Moment` type as their timestamp pallet (e.g. `u64`).
+		type Moment: sp_runtime::traits::AtLeast32Bit
+			+ Parameter
+			+ Default
+			+ Copy
+			+ MaxEncodedLen
+			+ scale_info::StaticTypeInfo;
+
 		/// The amount of time, in slots, that each epoch should last.
 		/// NOTE: Currently it is not possible to change the epoch duration after
 		/// the chain has started. Attempting to do so will brick block production.
@@ -135,6 +148,14 @@ pub mod pallet {
 		/// the probability of a slot being empty).
 		#[pallet::constant]
 		type ExpectedBlockTime: Get<Self::Moment>;
+
+		/// The slot duration BABE should run with, expressed as a `Moment`.
+		///
+		/// Decoupled from `pallet_timestamp::Config::MinimumPeriod`. Wire this to e.g.
+		/// `parameter_types! { pub SlotDuration: u64 = MinimumPeriod::get() * 2; }` to preserve
+		/// the historic `MinimumPeriod * 2` default.
+		#[pallet::constant]
+		type SlotDuration: Get<Self::Moment>;
 
 		/// BABE requires some logic to be triggered on every block to query for whether an epoch
 		/// has ended and to perform the transition to the next epoch.
@@ -171,6 +192,14 @@ pub mod pallet {
 			Option<Self::AccountId>,
 			(EquivocationProof<HeaderFor<Self>>, Self::KeyOwnerProof),
 		>;
+
+		/// Source of session information (current session index, validator set).
+		///
+		/// Typically wired up to `pallet_session::Pallet<Self>` in the runtime, but any type
+		/// implementing [`ValidatorSet`] can be used. Bound on a trait surface rather than
+		/// reaching into `pallet_session::Pallet` concretely so consensus is independent of the
+		/// session implementation.
+		type SessionInfo: ValidatorSet<Self::AccountId>;
 	}
 
 	#[pallet::error]
@@ -564,11 +593,9 @@ impl<T: Config> Pallet<T> {
 		SkippedEpochs::<T>::get()
 	}
 
-	/// Determine the BABE slot duration based on the Timestamp module configuration.
+	/// Determine the BABE slot duration.
 	pub fn slot_duration() -> T::Moment {
-		// we double the minimum block-period so each author can always propose within
-		// the majority of their slot.
-		<T as pallet_timestamp::Config>::MinimumPeriod::get().saturating_mul(2u32.into())
+		T::SlotDuration::get()
 	}
 
 	/// Determine whether an epoch change should take place at this block.
@@ -1044,10 +1071,7 @@ impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
 	type Public = AuthorityId;
 }
 
-impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T>
-where
-	T: pallet_session::Config,
-{
+impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 	type Key = AuthorityId;
 
 	fn on_genesis_session<'a, I: 'a>(validators: I)
@@ -1080,7 +1104,7 @@ where
 			),
 		);
 
-		let session_index = <pallet_session::Pallet<T>>::current_index();
+		let session_index = T::SessionInfo::session_index();
 
 		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities, Some(session_index))
 	}

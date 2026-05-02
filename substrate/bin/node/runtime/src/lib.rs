@@ -552,6 +552,7 @@ parameter_types! {
 	pub const ExpectedBlockTime: Moment = MILLISECS_PER_BLOCK;
 	pub const ReportLongevity: u64 =
 		BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
+	pub const SlotDuration: u64 = SLOT_DURATION;
 }
 
 impl pallet_babe::Config for Runtime {
@@ -565,6 +566,9 @@ impl pallet_babe::Config for Runtime {
 	type KeyOwnerProof = sp_session::MembershipProof;
 	type EquivocationReportSystem =
 		pallet_babe::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+	type SessionInfo = Session;
+	type Moment = u64;
+	type SlotDuration = SlotDuration;
 }
 
 parameter_types! {
@@ -633,6 +637,7 @@ pub type AssetsFreezerInstance = pallet_assets_freezer::Instance1;
 impl pallet_assets_freezer::Config<AssetsFreezerInstance> for Runtime {
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type RuntimeEvent = RuntimeEvent;
+	type Assets = Assets;
 }
 
 impl pallet_asset_conversion_tx_payment::Config for Runtime {
@@ -1374,6 +1379,15 @@ impl pallet_bounties::Config for Runtime {
 	type ChildBountyManager = ChildBounties;
 	type OnSlash = Treasury;
 	type TransferAllAssets = ();
+	type Currency = Balances;
+	type PalletId = TreasuryPalletId;
+	type BlockNumberProvider = System;
+	type RejectOrigin = EitherOfDiverse<
+		EnsureRoot<AccountId>,
+		pallet_collective::EnsureProportionMoreThan<AccountId, CouncilCollective, 1, 2>,
+	>;
+	type SpendOrigin = EnsureWithSuccess<EnsureRoot<AccountId>, AccountId, MaxBalance>;
+	type MaxApprovals = MaxApprovals;
 }
 
 parameter_types! {
@@ -1407,6 +1421,17 @@ impl pallet_child_bounties::Config for Runtime {
 	type MaxActiveChildBountyCount = MaxActiveChildBountyCount;
 	type ChildBountyValueMinimum = ChildBountyValueMinimum;
 	type WeightInfo = pallet_child_bounties::weights::SubstrateWeight<Runtime>;
+	type Currency = Balances;
+	type BlockNumberProvider = System;
+	type Bounties = Bounties;
+	type PalletId = TreasuryPalletId;
+	type RejectOrigin = EitherOfDiverse<
+		EnsureRoot<AccountId>,
+		pallet_collective::EnsureProportionMoreThan<AccountId, CouncilCollective, 1, 2>,
+	>;
+	type OnSlash = Treasury;
+	type BountyDepositPayoutDelay = BountyDepositPayoutDelay;
+	type MaximumReasonLength = MaximumReasonLength;
 }
 
 parameter_types! {
@@ -1485,6 +1510,12 @@ impl pallet_tips::Config for Runtime {
 	type MaxTipAmount = ConstU128<{ 500 * DOLLARS }>;
 	type WeightInfo = pallet_tips::weights::SubstrateWeight<Runtime>;
 	type OnSlash = Treasury;
+	type Currency = Balances;
+	type TreasuryAccount = TreasuryAccount;
+	type RejectOrigin = EitherOfDiverse<
+		EnsureRoot<AccountId>,
+		pallet_collective::EnsureProportionMoreThan<AccountId, CouncilCollective, 1, 2>,
+	>;
 }
 
 parameter_types! {
@@ -1732,6 +1763,7 @@ impl pallet_grandpa::Config for Runtime {
 	type KeyOwnerProof = sp_session::MembershipProof;
 	type EquivocationReportSystem =
 		pallet_grandpa::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+	type SessionInfo = Session;
 }
 
 parameter_types! {
@@ -3005,6 +3037,7 @@ impl pallet_beefy::Config for Runtime {
 	type KeyOwnerProof = sp_session::MembershipProof;
 	type EquivocationReportSystem =
 		pallet_beefy::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+	type SessionInfo = Session;
 }
 
 parameter_types! {

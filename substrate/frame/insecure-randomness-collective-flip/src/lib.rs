@@ -71,7 +71,10 @@
 use safe_mix::TripletMix;
 
 use codec::Encode;
-use frame::{prelude::*, traits::Randomness};
+use frame_support::{pallet_prelude::*, traits::Randomness};
+use frame_system::pallet_prelude::*;
+use sp_core::Hasher;
+use sp_runtime::traits::Saturating;
 
 const RANDOM_MATERIAL_LEN: u32 = 81;
 
@@ -83,7 +86,7 @@ fn block_number_to_index<T: Config>(block_number: BlockNumberFor<T>) -> usize {
 
 pub use pallet::*;
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 
@@ -162,10 +165,11 @@ impl<T: Config> Randomness<T::Hash, BlockNumberFor<T>> for Pallet<T> {
 mod tests {
 	use super::*;
 	use crate as pallet_insecure_randomness_collective_flip;
-	use frame::{
-		testing_prelude::{frame_system::limits, *},
-		traits::Header as _,
-	};
+	use frame_support::{construct_runtime, derive_impl, parameter_types};
+	use frame_system::limits;
+	use sp_core::H256;
+	use sp_io::TestExternalities;
+	use sp_runtime::{traits::Header as _, BuildStorage};
 
 	type Block = frame_system::mocking::MockBlock<Test>;
 

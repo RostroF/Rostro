@@ -182,6 +182,12 @@ impl Config for Test {
 	type ChildBountyManager = ();
 	type OnSlash = ();
 	type TransferAllAssets = TransferAllFungibles<AccountId, NativeAndAssets, RelevantAssets>;
+	type Currency = pallet_balances::Pallet<Test>;
+	type PalletId = TreasuryPalletId;
+	type BlockNumberProvider = System;
+	type RejectOrigin = frame_system::EnsureRoot<u128>;
+	type SpendOrigin = frame_support::traits::NeverEnsureOrigin<u64>;
+	type MaxApprovals = ConstU32<100>;
 }
 
 impl Config<Instance1> for Test {
@@ -199,10 +205,19 @@ impl Config<Instance1> for Test {
 	type ChildBountyManager = ();
 	type OnSlash = ();
 	type TransferAllAssets = ();
+	type Currency = pallet_balances::Pallet<Test>;
+	type PalletId = TreasuryPalletId2;
+	type BlockNumberProvider = System;
+	type RejectOrigin = frame_system::EnsureRoot<u128>;
+	type SpendOrigin = frame_support::traits::NeverEnsureOrigin<u64>;
+	type MaxApprovals = ConstU32<100>;
 }
 
-type TreasuryError = pallet_treasury::Error<Test>;
-type TreasuryError1 = pallet_treasury::Error<Test, Instance1>;
+// After Step 3 decoupling, bounties returns its own `Error::InsufficientPermission`
+// instead of `pallet_treasury::Error::InsufficientPermission`. Tests still use the
+// `TreasuryError` name for continuity but it now points at bounties' error enum.
+type TreasuryError = crate::Error<Test>;
+type TreasuryError1 = crate::Error<Test, Instance1>;
 
 pub struct ExtBuilder {}
 

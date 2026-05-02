@@ -89,6 +89,8 @@ impl pallet_aura::Config for Test {
 	type DisabledValidators = ();
 	type AllowMultipleBlocksPerSlot = ConstBool<false>;
 	type SlotDuration = pallet_aura::MinimumPeriodTimesTwo<Self>;
+	type Moment = u64;
+	type Time = Timestamp;
 }
 
 sp_runtime::impl_opaque_keys! {

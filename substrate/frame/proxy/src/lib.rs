@@ -35,9 +35,16 @@ pub mod weights;
 
 extern crate alloc;
 use alloc::{boxed::Box, vec};
-use frame::{
-	prelude::*,
-	traits::{Currency, InstanceFilter, ReservableCurrency},
+use frame_support::{
+	dispatch::GetDispatchInfo,
+	pallet_prelude::*,
+	traits::{Currency, InstanceFilter, IsSubType, OriginTrait, ReservableCurrency},
+};
+use frame_system::pallet_prelude::*;
+use sp_io::hashing::blake2_256;
+use sp_runtime::{
+	traits::{BlockNumberProvider, Dispatchable, Hash, Saturating, StaticLookup, TrailingZeroInput},
+	DispatchError,
 };
 pub use pallet::*;
 pub use weights::WeightInfo;
@@ -120,7 +127,7 @@ pub enum DepositKind {
 	Announcements,
 }
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 
@@ -153,7 +160,7 @@ pub mod pallet {
 			+ Member
 			+ Ord
 			+ PartialOrd
-			+ frame::traits::InstanceFilter<<Self as Config>::RuntimeCall>
+			+ InstanceFilter<<Self as Config>::RuntimeCall>
 			+ Default
 			+ MaxEncodedLen;
 
@@ -996,7 +1003,7 @@ impl<T: Config> Pallet<T> {
 		real: T::AccountId,
 		call: <T as Config>::RuntimeCall,
 	) {
-		use frame::traits::{InstanceFilter as _, OriginTrait as _};
+		use frame_support::traits::{InstanceFilter as _, OriginTrait as _};
 		// This is a freshly authenticated new account, the origin restrictions doesn't apply.
 		let mut origin: T::RuntimeOrigin = frame_system::RawOrigin::Signed(real).into();
 		origin.add_filter(move |c: &<T as frame_system::Config>::RuntimeCall| {

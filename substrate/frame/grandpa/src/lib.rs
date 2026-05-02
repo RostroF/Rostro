@@ -40,7 +40,7 @@ use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays},
 	pallet_prelude::Get,
-	traits::OneSessionHandler,
+	traits::{OneSessionHandler, ValidatorSet},
 	weights::Weight,
 	WeakBoundedVec,
 };
@@ -114,6 +114,14 @@ pub mod pallet {
 		/// The proof include the session index and validator count of the
 		/// session at which the equivocation occurred.
 		type KeyOwnerProof: Parameter + GetSessionNumber + GetValidatorCount;
+
+		/// Source of session information (current session index, validator set).
+		///
+		/// Typically wired up to `pallet_session::Pallet<Self>` in the runtime, but any type
+		/// implementing [`ValidatorSet`] can be used. Bound here on a trait surface rather than
+		/// reaching into `pallet_session::Pallet` concretely so consensus is independent of the
+		/// session implementation.
+		type SessionInfo: ValidatorSet<Self::AccountId>;
 
 		/// The equivocation handling subsystem, defines methods to check/report an
 		/// offence and for submitting a transaction to report an equivocation
@@ -595,10 +603,7 @@ impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
 	type Public = AuthorityId;
 }
 
-impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T>
-where
-	T: pallet_session::Config,
-{
+impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 	type Key = AuthorityId;
 
 	fn on_genesis_session<'a, I: 'a>(validators: I)
@@ -643,7 +648,7 @@ where
 
 		// update the mapping to note that the current set corresponds to the
 		// latest equivalent session (i.e. now).
-		let session_index = pallet_session::Pallet::<T>::current_index();
+		let session_index = T::SessionInfo::session_index();
 		SetIdSession::<T>::insert(current_set_id, &session_index);
 	}
 

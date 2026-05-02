@@ -50,6 +50,32 @@ pub trait ValidatorSetWithIdentification<AccountId>: ValidatorSet<AccountId> {
 	type IdentificationOf: Convert<Self::ValidatorId, Option<Self::Identification>>;
 }
 
+/// No-op [`ValidatorSet`] for runtimes that do not run sessions.
+///
+/// `session_index()` returns `0` and `validators()` returns an empty `Vec`. Use this as
+/// a default `SessionInfo` in consumer pallets (e.g., grandpa, babe, beefy) when running
+/// on a chain that has no `pallet-session`.
+pub struct NoSession;
+
+impl<AccountId> ValidatorSet<AccountId> for NoSession {
+	type ValidatorId = ();
+	type ValidatorIdOf = NoSession;
+
+	fn session_index() -> SessionIndex {
+		0
+	}
+
+	fn validators() -> Vec<Self::ValidatorId> {
+		Vec::new()
+	}
+}
+
+impl<AccountId> Convert<AccountId, Option<()>> for NoSession {
+	fn convert(_: AccountId) -> Option<()> {
+		None
+	}
+}
+
 /// A trait for finding the author of a block header based on the `PreRuntime` digests contained
 /// within it.
 pub trait FindAuthor<Author> {

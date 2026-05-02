@@ -135,6 +135,8 @@
 //!     // ...
 //!     type AllowMultipleBlocksPerSlot = ConstBool<true>;
 //!     type SlotDuration = ConstU64<SLOT_DURATION>;
+//!     type Moment = u64;
+//!     type Time = Timestamp;
 //! }
 //! ```
 //!

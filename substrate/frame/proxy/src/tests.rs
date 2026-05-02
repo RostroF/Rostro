@@ -22,7 +22,19 @@
 use super::*;
 use crate as proxy;
 use alloc::{vec, vec::Vec};
-use frame::testing_prelude::*;
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
+use frame_support::{
+	assert_noop, assert_ok, construct_runtime, derive_impl, parameter_types,
+	traits::{ConstU32, ConstU64, Contains, InstanceFilter},
+};
+use frame_system::mocking::MockBlock;
+use scale_info::TypeInfo;
+use sp_core::H256;
+use sp_io::TestExternalities as TestState;
+use sp_runtime::{
+	traits::{BlakeTwo256, IdentityLookup},
+	BuildStorage,
+};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -79,7 +91,7 @@ impl Default for ProxyType {
 		Self::Any
 	}
 }
-impl frame::traits::InstanceFilter<RuntimeCall> for ProxyType {
+impl InstanceFilter<RuntimeCall> for ProxyType {
 	fn filter(&self, c: &RuntimeCall) -> bool {
 		match self {
 			ProxyType::Any => true,

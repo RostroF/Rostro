@@ -353,6 +353,7 @@ parameter_types! {
 	pub const ExpectedBlockTime: Moment = MILLISECS_PER_BLOCK;
 	pub const ReportLongevity: u64 =
 		BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
+	pub const SlotDuration: u64 = SLOT_DURATION;
 }
 
 impl pallet_babe::Config for Runtime {
@@ -373,6 +374,11 @@ impl pallet_babe::Config for Runtime {
 
 	type EquivocationReportSystem =
 		pallet_babe::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+
+	type SessionInfo = Session;
+
+	type Moment = u64;
+	type SlotDuration = SlotDuration;
 }
 
 parameter_types! {
@@ -425,6 +431,7 @@ impl pallet_beefy::Config for Runtime {
 	type KeyOwnerProof = sp_session::MembershipProof;
 	type EquivocationReportSystem =
 		pallet_beefy::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+	type SessionInfo = Session;
 }
 
 impl pallet_mmr::Config for Runtime {
@@ -1018,6 +1025,8 @@ impl pallet_grandpa::Config for Runtime {
 
 	type EquivocationReportSystem =
 		pallet_grandpa::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+
+	type SessionInfo = Session;
 }
 
 impl frame_system::offchain::SigningTypes for Runtime {

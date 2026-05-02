@@ -461,6 +461,9 @@ impl pallet_babe::Config for Runtime {
 	type WeightInfo = ();
 	type MaxAuthorities = ConstU32<10>;
 	type MaxNominators = ConstU32<100>;
+	type SessionInfo = frame_support::traits::NoSession;
+	type Moment = u64;
+	type SlotDuration = ConstU64<1000>;
 }
 
 /// Adds one to the given input and returns the final result.

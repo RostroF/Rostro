@@ -47,13 +47,18 @@ mod tests;
 
 pub mod weights;
 
-use frame::prelude::*;
-use frame_system::Config as SystemConfig;
+use frame_support::{
+	pallet_prelude::*,
+	traits::tokens::{self, fungible, fungibles, nonfungibles_v2},
+	PalletId,
+};
+use frame_system::{pallet_prelude::*, Config as SystemConfig};
+use sp_runtime::{traits::{AccountIdConversion, StaticLookup}, TokenError};
 pub use pallet::*;
 pub use types::*;
 pub use weights::WeightInfo;
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	use core::fmt::Display;

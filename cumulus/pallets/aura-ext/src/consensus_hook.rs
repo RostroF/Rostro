@@ -59,7 +59,7 @@ impl<
 		const C: u32,
 	> ConsensusHook for FixedVelocityConsensusHook<T, RELAY_CHAIN_SLOT_DURATION_MILLIS, V, C>
 where
-	<T as pallet_timestamp::Config>::Moment: Into<u64>,
+	<T as pallet_aura::Config>::Moment: Into<u64>,
 {
 	/// Consensus hook that performs validations on the provided relay chain state
 	/// proof:

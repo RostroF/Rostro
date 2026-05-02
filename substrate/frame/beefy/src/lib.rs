@@ -33,7 +33,7 @@ use log;
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays},
 	pallet_prelude::*,
-	traits::{Get, OneSessionHandler},
+	traits::{Get, OneSessionHandler, ValidatorSet as ValidatorSetTrait},
 	weights::{constants::RocksDbWeight as DbWeight, Weight},
 	BoundedSlice, BoundedVec, Parameter,
 };
@@ -117,6 +117,14 @@ pub mod pallet {
 			Option<Self::AccountId>,
 			EquivocationEvidenceFor<Self>,
 		>;
+
+		/// Source of session information (current session index, validator set).
+		///
+		/// Typically wired up to `pallet_session::Pallet<Self>` in the runtime, but any type
+		/// implementing [`ValidatorSetTrait`] can be used. Bound on a trait surface rather than
+		/// reaching into `pallet_session::Pallet` concretely so consensus is independent of the
+		/// session implementation.
+		type SessionInfo: ValidatorSetTrait<Self::AccountId>;
 	}
 
 	#[pallet::pallet]
@@ -665,10 +673,7 @@ impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
 	type Public = T::BeefyId;
 }
 
-impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T>
-where
-	T: pallet_session::Config,
-{
+impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 	type Key = T::BeefyId;
 
 	fn on_genesis_session<'a, I: 'a>(validators: I)
@@ -715,7 +720,7 @@ where
 
 		let validator_set_id = ValidatorSetId::<T>::get();
 		// Update the mapping for the new set id that corresponds to the latest session (i.e. now).
-		let session_index = pallet_session::Pallet::<T>::current_index();
+		let session_index = <T::SessionInfo as ValidatorSetTrait<T::AccountId>>::session_index();
 		SetIdSession::<T>::insert(validator_set_id, &session_index);
 		// Prune old entry if limit reached.
 		let max_set_id_session_entries = T::MaxSetIdSessionEntries::get().max(1);

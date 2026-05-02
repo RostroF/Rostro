@@ -128,6 +128,8 @@ impl pallet_aura::Config for Test {
 	type DisabledValidators = ();
 	type AllowMultipleBlocksPerSlot = ConstBool<true>;
 	type SlotDuration = TestSlotDuration;
+	type Moment = u64;
+	type Time = pallet_timestamp::Pallet<Test>;
 }
 
 impl pallet_timestamp::Config for Test {

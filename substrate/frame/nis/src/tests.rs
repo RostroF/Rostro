@@ -17,7 +17,14 @@
 
 //! Tests for NIS pallet.
 
-use frame::testing_prelude::*;
+use frame_support::{
+	assert_noop, assert_ok,
+	traits::{
+		fungible::{hold::Inspect as FungibleInspectHold, Inspect, Mutate},
+		Get, OnFinalize, OnInitialize,
+	},
+};
+use sp_runtime::{traits::Saturating, Perbill, Perquintill, TokenError};
 
 use crate::{
 	mock::{Balance, *},

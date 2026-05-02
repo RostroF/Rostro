@@ -26,7 +26,14 @@
 use crate as pallet_assets_freezer;
 pub use crate::*;
 use codec::{Compact, Decode, Encode, MaxEncodedLen};
-use frame::testing_prelude::*;
+use frame_support::{
+	construct_runtime, derive_impl, parameter_types,
+	traits::{AsEnsureOriginWithArg, ConstU32, ConstU64, Everything},
+};
+use frame_system::{mocking::MockBlock, EnsureSigned};
+use sp_core::H256;
+use sp_io::TestExternalities;
+use sp_runtime::{traits::{BlakeTwo256, IdentityLookup}, BuildStorage};
 use scale_info::TypeInfo;
 
 pub type AccountId = u64;
@@ -141,6 +148,7 @@ impl VariantCount for DummyFreezeReason {
 impl Config for Test {
 	type RuntimeFreezeReason = DummyFreezeReason;
 	type RuntimeEvent = RuntimeEvent;
+	type Assets = Assets;
 }
 
 pub fn new_test_ext(execute: impl FnOnce()) -> TestExternalities {

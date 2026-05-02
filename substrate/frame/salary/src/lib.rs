@@ -20,9 +20,18 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use core::marker::PhantomData;
-use frame::{
-	prelude::*,
-	traits::tokens::{GetSalary, Pay, PaymentStatus},
+use frame_support::{
+	defensive,
+	pallet_prelude::*,
+	traits::{
+		tokens::{GetSalary, Pay, PaymentStatus},
+		RankedMembers, RankedMembersSwapHandler,
+	},
+};
+use frame_system::pallet_prelude::*;
+use sp_runtime::{
+	traits::{Convert, Saturating},
+	Perbill,
 };
 
 #[cfg(test)]
@@ -75,7 +84,7 @@ pub struct ClaimantStatus<CycleIndex, Balance, Id> {
 	status: ClaimState<Balance, Id>,
 }
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	#[pallet::pallet]

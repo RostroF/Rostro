@@ -242,6 +242,8 @@ impl pallet_aura::Config for Runtime {
 	type MaxAuthorities = ConstU32<100_000>;
 	type AllowMultipleBlocksPerSlot = ConstBool<true>;
 	type SlotDuration = ConstU64<2000>;
+	type Moment = u64;
+	type Time = Timestamp;
 }
 
 impl pallet_glutton::Config for Runtime {

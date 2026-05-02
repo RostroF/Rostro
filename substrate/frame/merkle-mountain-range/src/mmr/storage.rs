@@ -25,13 +25,10 @@ use crate::{
 use alloc::{vec, vec::Vec};
 use codec::Encode;
 use core::iter::Peekable;
-use frame::{
-	deps::{
-		sp_core::offchain::StorageKind,
-		sp_io::{offchain, offchain_index},
-	},
-	prelude::*,
-};
+use frame_support::pallet_prelude::*;
+use sp_core::offchain::StorageKind;
+use sp_io::{offchain, offchain_index};
+use sp_runtime::traits::Hash;
 use log::{debug, trace};
 
 /// A marker type for runtime-specific storage implementation.

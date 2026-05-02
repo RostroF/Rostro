@@ -1,0 +1,2281 @@
+     Removed 78917 files, 62.3GiB total
+   Compiling unicode-ident v1.0.11
+   Compiling proc-macro2 v1.0.95
+   Compiling serde_core v1.0.228
+   Compiling serde v1.0.228
+   Compiling libc v0.2.172
+   Compiling cfg-if v1.0.0
+   Compiling allocator-api2 v0.2.21
+   Compiling autocfg v1.1.0
+   Compiling quote v1.0.40
+   Compiling equivalent v1.0.1
+   Compiling foldhash v0.1.5
+   Compiling syn v2.0.98
+   Compiling hashbrown v0.15.3
+   Compiling getrandom v0.2.10
+   Compiling version_check v0.9.4
+   Compiling portable-atomic v1.11.0
+   Compiling critical-section v1.2.0
+   Compiling rand_core v0.6.4
+   Compiling memchr v2.7.4
+   Compiling typenum v1.16.0
+   Compiling generic-array v0.14.7
+   Compiling once_cell v1.21.3
+   Compiling subtle v2.5.0
+   Compiling const-oid v0.9.5
+   Compiling scopeguard v1.2.0
+   Compiling winnow v0.5.15
+   Compiling shlex v1.3.0
+   Compiling jobserver v0.1.32
+   Compiling find-msvc-tools v0.1.0
+   Compiling cc v1.2.35
+   Compiling ppv-lite86 v0.2.17
+   Compiling cpufeatures v0.2.9
+   Compiling lock_api v0.4.10
+   Compiling rand_chacha v0.3.1
+   Compiling rand v0.8.5
+   Compiling libm v0.2.8
+   Compiling unicode-xid v0.2.4
+   Compiling pin-project-lite v0.2.14
+   Compiling num-traits v0.2.19
+   Compiling rustversion v1.0.17
+   Compiling itoa v1.0.9
+   Compiling byteorder v1.5.0
+   Compiling serde_derive v1.0.228
+   Compiling zeroize_derive v1.4.2
+   Compiling futures-core v0.3.31
+   Compiling parking_lot_core v0.9.8
+   Compiling radium v0.7.0
+   Compiling zeroize v1.8.1
+   Compiling futures-sink v0.3.31
+   Compiling tap v1.0.1
+   Compiling wyz v0.5.1
+   Compiling funty v2.0.0
+   Compiling futures-io v0.3.31
+   Compiling slab v0.4.9
+   Compiling crypto-common v0.1.6
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling futures-channel v0.3.31
+   Compiling sha2 v0.10.9
+   Compiling futures-macro v0.3.31
+   Compiling futures-task v0.3.31
+   Compiling pin-utils v0.1.0
+   Compiling static_assertions v1.1.0
+   Compiling const_format_proc_macros v0.2.34
+   Compiling futures-util v0.3.31
+   Compiling const_format v0.2.34
+   Compiling parity-scale-codec v3.7.5
+   Compiling impl-trait-for-tuples v0.2.3
+   Compiling byte-slice-cast v1.2.3
+   Compiling bytes v1.11.1
+   Compiling indexmap v2.9.0
+   Compiling serde_fmt v1.0.3
+   Compiling erased-serde v0.4.4
+   Compiling arrayvec v0.7.6
+   Compiling smallvec v1.15.0
+   Compiling toml_datetime v0.6.8
+   Compiling value-bag-serde1 v1.8.0
+   Compiling value-bag v1.8.0
+   Compiling toml_edit v0.21.0
+   Compiling either v1.15.0
+   Compiling bitvec v1.0.1
+   Compiling log v0.4.22
+   Compiling parking_lot v0.12.3
+   Compiling thiserror v1.0.65
+   Compiling thiserror-impl v1.0.65
+   Compiling proc-macro-crate v3.1.0
+   Compiling regex-syntax v0.8.5
+   Compiling aho-corasick v1.0.4
+   Compiling tracing-core v0.1.36
+   Compiling parity-scale-codec-derive v3.7.5
+   Compiling tracing-attributes v0.1.31
+   Compiling regex-automata v0.4.8
+   Compiling tracing v0.1.44
+   Compiling arrayref v0.3.7
+   Compiling fnv v1.0.7
+   Compiling derive_more-impl v1.0.0
+   Compiling scale-info-derive v2.11.6
+   Compiling ahash v0.8.11
+   Compiling zerocopy v0.7.32
+   Compiling derive_more v1.0.0
+   Compiling paste v1.0.15
+   Compiling num_cpus v1.16.0
+   Compiling keccak v0.1.4
+   Compiling bitflags v2.9.4
+   Compiling semver v1.0.18
+   Compiling futures-executor v0.3.31
+   Compiling stable_deref_trait v1.2.0
+   Compiling sha3 v0.10.8
+   Compiling regex v1.11.1
+   Compiling ryu v1.0.15
+   Compiling futures v0.3.31
+   Compiling hmac v0.12.1
+   Compiling signature v2.1.0
+   Compiling socket2 v0.5.9
+   Compiling tokio-macros v2.5.0
+   Compiling mio v1.0.2
+   Compiling signal-hook-registry v1.4.1
+   Compiling crunchy v0.2.2
+   Compiling hex v0.4.3
+   Compiling tokio v1.45.0
+   Compiling crossbeam-utils v0.8.20
+   Compiling spin v0.9.8
+   Compiling rustc_version v0.4.0
+   Compiling lazy_static v1.5.0
+   Compiling hashbrown v0.14.5
+   Compiling integer-sqrt v0.1.5
+   Compiling anyhow v1.0.98
+   Compiling curve25519-dalek v4.1.3
+   Compiling curve25519-dalek-derive v0.1.0
+   Compiling constant_time_eq v0.3.0
+   Compiling rustc-hash v2.1.1
+   Compiling thiserror v2.0.12
+   Compiling thiserror-impl v2.0.12
+   Compiling impl-serde v0.5.0
+   Compiling blake2b_simd v1.0.2
+   Compiling memoffset v0.9.0
+   Compiling crossbeam-epoch v0.9.15
+   Compiling rustc-hex v2.1.0
+   Compiling bs58 v0.5.1
+   Compiling uint v0.10.0
+   Compiling bitflags v1.3.2
+   Compiling ed25519 v2.2.2
+   Compiling tokio-util v0.7.15
+   Compiling der v0.7.8
+   Compiling bumpalo v3.19.0
+   Compiling base16ct v0.2.0
+   Compiling ff v0.13.0
+   Compiling serdect v0.2.0
+   Compiling group v0.13.0
+   Compiling spki v0.7.2
+   Compiling sec1 v0.7.3
+   Compiling pkcs8 v0.10.2
+   Compiling rlp v0.6.1
+   Compiling crypto-bigint v0.5.2
+   Compiling fixed-hash v0.8.0
+   Compiling impl-codec v0.7.1
+   Compiling impl-rlp v0.4.0
+   Compiling rfc6979 v0.4.0
+   Compiling blake2 v0.10.6
+   Compiling impl-num-traits v0.2.0
+   Compiling rayon-core v1.12.1
+   Compiling crossbeam-deque v0.8.3
+   Compiling termcolor v1.2.0
+   Compiling elliptic-curve v0.13.8
+   Compiling pkg-config v0.3.32
+   Compiling serde_json v1.0.132
+   Compiling ecdsa v0.16.8
+   Compiling rayon v1.10.0
+   Compiling serde_spanned v0.6.7
+   Compiling winnow v0.6.18
+   Compiling k256 v0.13.4
+   Compiling tinyvec_macros v0.1.1
+   Compiling tinyvec v1.6.0
+   Compiling httparse v1.10.0
+   Compiling heck v0.5.0
+   Compiling toml_edit v0.22.22
+   Compiling http v1.1.0
+   Compiling base64 v0.22.1
+   Compiling unicode-normalization v0.1.22
+   Compiling Inflector v0.11.4
+   Compiling itertools v0.14.0
+   Compiling digest v0.9.0
+   Compiling merlin v3.0.0
+   Compiling prettyplease v0.2.12
+   Compiling ref-cast v1.0.23
+   Compiling ref-cast-impl v1.0.23
+   Compiling getrandom_or_panic v0.0.3
+   Compiling serde_bytes v0.11.12
+   Compiling toml v0.8.19
+   Compiling opaque-debug v0.3.0
+   Compiling proc-macro-warning v1.0.0
+   Compiling bitcoin-internals v0.2.0
+   Compiling base64ct v1.6.0
+   Compiling environmental v1.1.4
+   Compiling rustix v1.0.8
+   Compiling password-hash v0.5.0
+   Compiling hash-db v0.16.0
+   Compiling pbkdf2 v0.12.2
+   Compiling schnorrkel v0.11.4
+   Compiling block-buffer v0.9.0
+   Compiling jam-codec v0.1.0
+   Compiling errno v0.3.10
+   Compiling linux-raw-sys v0.9.4
+   Compiling hex-conservative v0.1.1
+   Compiling sha2 v0.9.9
+   Compiling bitcoin_hashes v0.13.0
+   Compiling jam-codec-derive v0.1.0
+   Compiling itertools v0.11.0
+   Compiling libsecp256k1-core v0.3.0
+   Compiling uuid v1.4.1
+   Compiling crc32fast v1.3.2
+   Compiling libsecp256k1-gen-genmult v0.3.0
+   Compiling libsecp256k1-gen-ecmult v0.3.0
+   Compiling secrecy v0.8.0
+   Compiling crypto-mac v0.8.0
+   Compiling rustc-demangle v0.1.23
+   Compiling libsecp256k1 v0.7.1
+   Compiling hmac v0.8.1
+   Compiling hash256-std-hasher v0.15.2
+   Compiling secp256k1-sys v0.9.2
+   Compiling dyn-clone v1.0.17
+   Compiling hmac-drbg v0.3.0
+   Compiling ss58-registry v1.43.0
+   Compiling base64 v0.13.1
+   Compiling num-format v0.4.4
+   Compiling array-bytes v6.2.2
+   Compiling ed25519-zebra v4.0.3
+   Compiling derive_arbitrary v1.4.1
+   Compiling zstd-sys v2.0.15+zstd.1.5.7
+   Compiling ed25519-dalek v2.1.1
+   Compiling arbitrary v1.4.1
+   Compiling http-body v1.0.0
+   Compiling cranelift-bitset v0.122.0
+   Compiling cranelift-srcgen v0.122.0
+   Compiling tower-service v0.3.2
+   Compiling cranelift-assembler-x64-meta v0.122.0
+   Compiling gimli v0.31.1
+   Compiling secp256k1 v0.28.2
+   Compiling try-lock v0.2.4
+   Compiling want v0.3.1
+   Compiling httpdate v1.0.3
+   Compiling object v0.36.7
+   Compiling same-file v1.0.6
+   Compiling walkdir v2.5.0
+   Compiling pulley-macros v35.0.0
+   Compiling wasmtime-internal-math v35.0.0
+   Compiling cranelift-isle v0.122.0
+   Compiling pulley-interpreter v35.0.0
+   Compiling http-body-util v0.1.2
+   Compiling derive-syn-parse v0.2.0
+   Compiling cranelift-codegen-shared v0.122.0
+   Compiling target-lexicon v0.13.2
+   Compiling cranelift-assembler-x64 v0.122.0
+   Compiling cranelift-entity v0.122.0
+   Compiling cpp_demangle v0.4.3
+   Compiling debugid v0.8.0
+   Compiling wasmtime-internal-versioned-export-macros v35.0.0
+   Compiling cranelift-codegen-meta v0.122.0
+   Compiling cranelift-bforest v0.122.0
+   Compiling cranelift-control v0.122.0
+   Compiling regalloc2 v0.12.2
+   Compiling atomic-waker v1.1.1
+   Compiling wasmparser v0.235.0
+   Compiling h2 v0.4.5
+   Compiling cranelift-codegen v0.122.0
+   Compiling cobs v0.3.0
+   Compiling fs-err v2.9.0
+   Compiling wasm-encoder v0.235.0
+   Compiling io-lifetimes v1.0.11
+   Compiling zstd-safe v7.2.4
+   Compiling postcard v1.1.3
+   Compiling hyper v1.6.0
+   Compiling ittapi-sys v0.4.0
+   Compiling common-path v1.0.0
+   Compiling leb128fmt v0.1.0
+   Compiling rustix v0.37.23
+   Compiling iana-time-zone v0.1.57
+   Compiling chrono v0.4.40
+   Compiling hyper-util v0.1.10
+   Compiling docify_macros v0.2.9
+   Compiling wasmprinter v0.235.0
+   Compiling wasmtime-internal-jit-debug v35.0.0
+   Compiling fxhash v0.2.1
+   Compiling dirs-sys-next v0.1.2
+   Compiling wasmtime-internal-unwinder v35.0.0
+   Compiling num-conv v0.1.0
+   Compiling wasmtime-internal-cache v35.0.0
+   Compiling linux-raw-sys v0.3.8
+   Compiling powerfmt v0.2.0
+   Compiling expander v2.2.1
+   Compiling time-core v0.1.2
+   Compiling time-macros v0.2.18
+   Compiling deranged v0.3.11
+   Compiling directories-next v2.0.0
+   Compiling wasmtime-environ v35.0.0
+   Compiling zstd v0.13.3
+   Compiling docify v0.2.9
+   Compiling wasmtime v35.0.0
+   Compiling sp-debug-derive v15.0.0 (/home/coder/Rostro/substrate/primitives/debug-derive)
+   Compiling file-guard v0.2.0
+   Compiling num_threads v0.1.7
+   Compiling time v0.3.36
+   Compiling ittapi v0.4.0
+   Compiling memfd v0.6.3
+   Compiling addr2line v0.24.2
+   Compiling wasmtime-internal-jit-icache-coherence v35.0.0
+   Compiling wasmtime-internal-asm-macros v35.0.0
+   Compiling wasmtime-internal-slab v35.0.0
+   Compiling bip39 v2.2.0
+   Compiling sp-storage v23.0.0 (/home/coder/Rostro/substrate/primitives/storage)
+   Compiling ahash v0.7.8
+   Compiling prometheus v0.13.3
+   Compiling nohash-hasher v0.2.0
+   Compiling sp-externalities v0.32.0 (/home/coder/Rostro/substrate/primitives/externalities)
+   Compiling hashbrown v0.12.3
+   Compiling regex-syntax v0.6.29
+   Compiling lru v0.7.8
+   Compiling overload v0.1.1
+   Compiling nu-ansi-term v0.46.0
+   Compiling tracing-log v0.2.0
+   Compiling sharded-slab v0.1.4
+   Compiling thread_local v1.1.7
+   Compiling hashbrown v0.13.2
+   Compiling adler v1.0.2
+   Compiling regex-automata v0.1.10
+   Compiling miniz_oxide v0.7.1
+   Compiling matchers v0.1.0
+   Compiling tracing-subscriber v0.3.19
+   Compiling backtrace v0.3.71
+   Compiling gimli v0.28.0
+   Compiling object v0.32.2
+   Compiling addr2line v0.21.0
+   Compiling trie-root v0.18.0
+   Compiling memory-db v0.34.0
+   Compiling schnellru v0.2.3
+   Compiling sp-tracing v19.0.0 (/home/coder/Rostro/substrate/primitives/tracing)
+   Compiling sp-runtime-interface-proc-macro v21.0.0 (/home/coder/Rostro/substrate/primitives/runtime-interface/proc-macro)
+   Compiling substrate-prometheus-endpoint v0.17.7 (/home/coder/Rostro/substrate/utils/prometheus)
+   Compiling trie-db v0.31.0
+   Compiling cranelift-native v0.122.0
+   Compiling cranelift-frontend v0.122.0
+   Compiling wasmtime-internal-cranelift v35.0.0
+   Compiling sp-panic-handler v13.0.2 (/home/coder/Rostro/substrate/primitives/panic-handler)
+   Compiling tuplex v0.1.2
+   Compiling simple-mermaid v0.1.1
+   Compiling twox-hash v1.6.3
+   Compiling strum_macros v0.26.4
+   Compiling sp-crypto-hashing v0.1.0 (/home/coder/Rostro/substrate/primitives/crypto/hashing)
+   Compiling parity-wasm v0.45.0
+   Compiling strum v0.26.3
+   Compiling sp-crypto-hashing-proc-macro v0.1.0 (/home/coder/Rostro/substrate/primitives/crypto/hashing/proc-macro)
+   Compiling syn v1.0.109
+   Compiling sp-version-proc-macro v15.0.0 (/home/coder/Rostro/substrate/primitives/version/proc-macro)
+   Compiling sp-api-proc-macro v27.0.0 (/home/coder/Rostro/substrate/primitives/api/proc-macro)
+   Compiling num-integer v0.1.46
+   Compiling num-bigint v0.4.6
+   Compiling async-trait v0.1.88
+   Compiling itertools v0.13.0
+   Compiling scale-info v2.11.6
+   Compiling primitive-types v0.13.1
+   Compiling enum-ordinalize-derive v4.3.1
+   Compiling ark-std v0.5.0
+   Compiling ark-serialize-derive v0.5.0
+   Compiling enum-ordinalize v4.3.0
+   Compiling educe v0.6.0
+   Compiling ark-serialize v0.5.0
+   Compiling ark-ff-macros v0.5.0
+   Compiling ark-ff-asm v0.5.0
+   Compiling bounded-collections v0.3.2
+   Compiling itertools v0.10.5
+   Compiling ark-ff v0.5.0
+   Compiling fxprof-processed-profile v0.6.0
+   Compiling sp-std v14.0.0 (/home/coder/Rostro/substrate/primitives/std)
+   Compiling substrate-bip39 v0.6.1 (/home/coder/Rostro/substrate/utils/substrate-bip39)
+   Compiling proc-macro-error-attr v1.0.4
+   Compiling proc-macro-error v1.0.4
+   Compiling sp-io v45.0.0 (/home/coder/Rostro/substrate/primitives/io)
+   Compiling sp-arithmetic v28.0.1 (/home/coder/Rostro/substrate/primitives/arithmetic)
+   Compiling binary-merkle-tree v16.1.1 (/home/coder/Rostro/substrate/utils/binary-merkle-tree)
+   Compiling tiny-keccak v2.0.2
+   Compiling proc-macro-hack v0.5.20+deprecated
+   Compiling ark-poly v0.5.0
+   Compiling ark-transcript v0.0.3
+   Compiling sp-weights v34.0.0 (/home/coder/Rostro/substrate/primitives/weights)
+   Compiling const-random-macro v0.1.15
+   Compiling ark-ec v0.5.0
+   Compiling macro_magic_core_macros v0.5.1
+   Compiling const-random v0.1.15
+   Compiling frame-support-procedural-tools-derive v12.0.0 (/home/coder/Rostro/substrate/frame/support/procedural/tools/derive)
+   Compiling macro_magic_core v0.5.1
+   Compiling macro_magic_macros v0.5.1
+   Compiling include_dir_macros v0.7.3
+   Compiling macro_magic v0.5.1
+   Compiling include_dir v0.7.3
+   Compiling frame-support-procedural-tools v13.0.1 (/home/coder/Rostro/substrate/frame/support/procedural/tools)
+   Compiling cfg-expr v0.15.5
+   Compiling ark-bls12-381 v0.5.0
+   Compiling w3f-pcs v0.0.2
+   Compiling sp-wasm-interface v24.0.0 (/home/coder/Rostro/substrate/primitives/wasm-interface)
+   Compiling w3f-plonk-common v0.0.2
+   Compiling ark-ed-on-bls12-381-bandersnatch v0.5.0
+   Compiling w3f-ring-proof v0.0.2
+   Compiling sp-runtime-interface v34.0.0 (/home/coder/Rostro/substrate/primitives/runtime-interface)
+   Compiling frame-support-procedural v37.0.0 (/home/coder/Rostro/substrate/frame/support/procedural)
+   Compiling ark-vrf v0.1.0
+   Compiling aquamarine v0.5.0
+   Compiling tt-call v1.0.9
+   Compiling frame-metadata v23.0.1
+   Compiling sp-core v40.0.0 (/home/coder/Rostro/substrate/primitives/core)
+   Compiling sp-metadata-ir v0.12.3 (/home/coder/Rostro/substrate/primitives/metadata-ir)
+   Compiling wasm-bindgen-shared v0.2.95
+   Compiling wasm-bindgen-backend v0.2.95
+   Compiling sp-trie v43.0.0 (/home/coder/Rostro/substrate/primitives/trie)
+   Compiling sp-keystore v0.46.0 (/home/coder/Rostro/substrate/primitives/keystore)
+   Compiling sp-state-machine v0.50.0 (/home/coder/Rostro/substrate/primitives/state-machine)
+   Compiling wasm-bindgen-macro-support v0.2.95
+   Compiling wasm-bindgen v0.2.95
+   Compiling send_wrapper v0.4.0
+   Compiling strsim v0.11.1
+   Compiling wasm-bindgen-macro v0.2.95
+   Compiling js-sys v0.3.72
+   Compiling ident_case v1.0.1
+   Compiling darling_core v0.20.10
+   Compiling convert_case v0.4.0
+   Compiling derive_more v0.99.17
+   Compiling sp-application-crypto v45.0.0 (/home/coder/Rostro/substrate/primitives/application-crypto)
+   Compiling gloo-timers v0.2.6
+   Compiling futures-timer v3.0.3
+   Compiling darling_macro v0.20.10
+   Compiling blake3 v1.5.4
+   Compiling darling v0.20.10
+   Compiling sp-runtime v46.0.0 (/home/coder/Rostro/substrate/primitives/runtime)
+   Compiling rustix v0.38.42
+   Compiling linux-raw-sys v0.4.14
+   Compiling picosimd v0.9.2
+   Compiling polkavm-assembler v0.31.0
+   Compiling polkavm-linux-raw v0.31.0
+   Compiling polkavm-common v0.31.0
+   Compiling zstd-safe v6.0.6
+   Compiling polkavm v0.31.0
+   Compiling hex-literal v0.4.1
+   Compiling fastrand v2.3.0
+   Compiling zstd v0.12.4
+   Compiling tempfile v3.14.0
+   Compiling wasm-instrument v0.4.0
+   Compiling sp-maybe-compressed-blob v11.1.0 (/home/coder/Rostro/substrate/primitives/maybe-compressed-blob)
+   Compiling heck v0.4.1
+   Compiling sc-executor-wasmtime v0.44.0 (/home/coder/Rostro/substrate/client/executor/wasmtime)
+   Compiling sp-version v44.0.0 (/home/coder/Rostro/substrate/primitives/version)
+   Compiling sp-api v41.0.0 (/home/coder/Rostro/substrate/primitives/api)
+   Compiling sp-inherents v41.0.0 (/home/coder/Rostro/substrate/primitives/inherents)
+   Compiling sp-staking v43.0.0 (/home/coder/Rostro/substrate/primitives/staking)
+   Compiling sp-genesis-builder v0.22.0 (/home/coder/Rostro/substrate/primitives/genesis-builder)
+   Compiling sp-session v43.0.0 (/home/coder/Rostro/substrate/primitives/session)
+   Compiling frame-support v46.0.0 (/home/coder/Rostro/substrate/frame/support)
+   Compiling sp-timestamp v41.0.0 (/home/coder/Rostro/substrate/primitives/timestamp)
+   Compiling sp-consensus-slots v0.47.0 (/home/coder/Rostro/substrate/primitives/consensus/slots)
+   Compiling synstructure v0.13.1
+   Compiling displaydoc v0.2.4
+   Compiling zerofrom-derive v0.1.5
+   Compiling yoke-derive v0.7.5
+   Compiling zerofrom v0.1.5
+   Compiling yoke v0.7.5
+   Compiling zerovec-derive v0.10.3
+   Compiling writeable v0.5.5
+   Compiling zerovec v0.10.4
+   Compiling litemap v0.7.4
+   Compiling tinystr v0.7.6
+   Compiling icu_locid v1.5.0
+   Compiling icu_provider_macros v1.5.0
+   Compiling icu_provider v1.5.0
+   Compiling icu_locid_transform_data v1.5.0
+   Compiling icu_collections v1.5.0
+   Compiling icu_locid_transform v1.5.0
+   Compiling icu_properties_data v1.5.0
+   Compiling percent-encoding v2.3.1
+   Compiling icu_properties v1.5.1
+   Compiling icu_normalizer_data v1.5.0
+   Compiling utf8_iter v1.0.4
+   Compiling utf16_iter v1.0.5
+   Compiling write16 v1.0.0
+   Compiling form_urlencoded v1.2.1
+   Compiling serde_with_macros v3.12.0
+   Compiling icu_normalizer v1.5.0
+   Compiling idna_adapter v1.2.0
+   Compiling rustc-hash v1.1.0
+   Compiling idna v1.0.3
+   Compiling serde_with v3.12.0
+   Compiling pin-project-internal v1.1.10
+   Compiling url v2.5.4
+   Compiling pin-project v1.1.10
+   Compiling sp-keyring v46.0.0 (/home/coder/Rostro/substrate/primitives/keyring)
+   Compiling glob v0.3.3
+   Compiling num-rational v0.4.1
+   Compiling unicode-width v0.1.10
+   Compiling data-encoding v2.6.0
+   Compiling minimal-lexical v0.2.1
+   Compiling nom v7.1.3
+   Compiling ring v0.17.14
+   Compiling untrusted v0.9.0
+   Compiling openssl-probe v0.1.5
+   Compiling rustls-pki-types v1.12.0
+   Compiling derive-where v1.6.0
+   Compiling console v0.15.8
+   Compiling hkdf v0.12.4
+   Compiling polkadot-core-primitives v22.0.0 (/home/coder/Rostro/polkadot/core-primitives)
+   Compiling sha1 v0.10.6
+   Compiling rustls v0.23.34
+   Compiling asynchronous-codec v0.6.2
+   Compiling polkadot-parachain-primitives v21.0.0 (/home/coder/Rostro/polkadot/parachain)
+   Compiling frame-system v46.0.0 (/home/coder/Rostro/substrate/frame/system)
+   Compiling unsigned-varint v0.7.2
+   Compiling num-complex v0.4.4
+   Compiling core2 v0.4.0
+   Compiling data-encoding-macro-internal v0.1.11
+   Compiling base-x v0.2.11
+   Compiling web-time v1.1.0
+   Compiling anstyle v1.0.11
+   Compiling data-encoding-macro v0.1.13
+   Compiling multibase v0.9.1
+   Compiling multihash v0.19.1
+   Compiling base64 v0.21.7
+   Compiling sp-consensus-babe v0.47.0 (/home/coder/Rostro/substrate/primitives/consensus/babe)
+   Compiling concurrent-queue v2.5.0
+   Compiling pallet-balances v47.0.0 (/home/coder/Rostro/substrate/frame/balances)
+   Compiling unsigned-varint v0.8.0
+   Compiling quick-protobuf v0.8.1
+   Compiling option-ext v0.2.0
+   Compiling dirs-sys v0.4.1
+   Compiling libp2p-identity v0.2.9
+   Compiling tokio-stream v0.1.17
+   Compiling multiaddr v0.18.1
+   Compiling multistream-select v0.13.0
+   Compiling rustls-webpki v0.103.7
+   Compiling rw-stream-sink v0.4.0
+   Compiling void v1.0.2
+   Compiling event-listener v2.5.3
+   Compiling rustls-pemfile v2.0.0
+   Compiling async-channel v1.9.0
+   Compiling rustls-native-certs v0.8.0
+   Compiling kvdb v0.13.0
+   Compiling sp-block-builder v41.0.0 (/home/coder/Rostro/substrate/primitives/block-builder)
+   Compiling getrandom v0.3.1
+   Compiling zerocopy v0.8.20
+   Compiling ipnet v2.8.0
+   Compiling x25519-dalek v2.0.1
+   Compiling bytemuck v1.13.1
+   Compiling matrixmultiply v0.3.7
+   Compiling safe_arch v0.7.1
+   Compiling libp2p-swarm-derive v0.35.0
+   Compiling wide v0.7.11
+   Compiling lru v0.12.3
+   Compiling approx v0.5.1
+   Compiling quick-error v1.2.3
+   Compiling rawpointer v0.2.1
+   Compiling rand_core v0.9.1
+   Compiling rand_chacha v0.9.0
+   Compiling rand v0.9.0
+   Compiling simba v0.8.1
+   Compiling nalgebra-macros v0.2.1
+   Compiling fixedbitset v0.4.2
+   Compiling clang-sys v1.6.1
+   Compiling petgraph v0.6.4
+   Compiling tokio-rustls v0.26.0
+   Compiling sp-offchain v41.0.0 (/home/coder/Rostro/substrate/primitives/offchain)
+   Compiling enum-as-inner v0.6.0
+   Compiling soketto v0.8.0
+   Compiling bindgen v0.72.1
+   Compiling cexpr v0.6.0
+   Compiling prost-derive v0.13.5
+   Compiling match_cfg v0.1.0
+   Compiling multimap v0.8.3
+   Compiling nalgebra v0.32.3
+   Compiling hostname v0.3.1
+   Compiling resolv-conf v0.7.0
+   Compiling snow v0.9.6
+   Compiling asynchronous-codec v0.7.0
+   Compiling xcm-procedural v11.0.2 (/home/coder/Rostro/polkadot/xcm/procedural)
+   Compiling yamux v0.13.10
+   Compiling finality-grandpa v0.16.3
+   Compiling quick-protobuf-codec v0.3.1
+   Compiling linregress v0.5.2
+   Compiling utf-8 v0.7.6
+   Compiling sp-consensus-grandpa v28.0.0 (/home/coder/Rostro/substrate/primitives/consensus/grandpa)
+   Compiling uint v0.9.5
+   Compiling sp-transaction-pool v41.0.0 (/home/coder/Rostro/substrate/primitives/transaction-pool)
+   Compiling instant v0.1.13
+   Compiling toml_edit v0.19.15
+   Compiling predicates-core v1.0.6
+   Compiling rusticata-macros v4.1.0
+   Compiling asn1-rs-derive v0.6.0
+   Compiling synstructure v0.12.6
+   Compiling asn1-rs-impl v0.2.0
+   Compiling linked-hash-map v0.5.6
+   Compiling constant_time_eq v0.4.2
+   Compiling proc-macro-crate v1.3.1
+   Compiling termtree v0.4.1
+   Compiling mockall_derive v0.13.1
+   Compiling predicates-tree v1.0.9
+   Compiling asn1-rs v0.7.0
+   Compiling blake2s_simd v1.0.4
+   Compiling multihash-derive v0.8.0
+   Compiling sp-authority-discovery v41.0.0 (/home/coder/Rostro/substrate/primitives/authority-discovery)
+   Compiling moka v0.12.10
+   Compiling oid-registry v0.8.1
+   Compiling multihash v0.17.0
+   Compiling netlink-packet-utils v0.5.2
+   Compiling crossbeam-channel v0.5.15
+   Compiling network-interface v2.0.1
+   Compiling fragile v2.0.0
+   Compiling downcast v0.11.0
+   Compiling tagptr v0.2.0
+   Compiling netlink-packet-core v0.4.2
+   Compiling der-parser v10.0.0
+   Compiling tungstenite v0.27.0
+   Compiling hickory-proto v0.25.2
+   Compiling x509-parser v0.17.0
+   Compiling tokio-tungstenite v0.27.0
+   Compiling multiaddr v0.17.1
+   Compiling cid v0.11.1
+   Compiling netlink-sys v0.8.5
+   Compiling unicode-bidi v0.3.13
+   Compiling yasna v0.5.2
+   Compiling hickory-resolver v0.25.2
+   Compiling idna v0.4.0
+   Compiling netlink-proto v0.10.0
+   Compiling netlink-packet-route v0.12.0
+   Compiling prost v0.13.5
+   Compiling nix v0.24.3
+   Compiling hickory-proto v0.24.1
+   Compiling rtnetlink v0.10.1
+   Compiling ip_network v0.4.1
+   Compiling lru-cache v0.1.2
+   Compiling futures-rustls v0.26.0
+   Compiling yamux v0.12.1
+   Compiling parking_lot_core v0.8.6
+   Compiling if-watch v3.2.0
+   Compiling webpki-roots v0.25.2
+   Compiling polkadot-primitives v23.0.0 (/home/coder/Rostro/polkadot/primitives)
+   Compiling prost-types v0.13.2
+   Compiling parking_lot v0.11.2
+   Compiling hickory-resolver v0.24.2
+   Compiling prost-build v0.13.2
+   Compiling wasm-timer v0.2.5
+   Compiling prost-derive v0.14.1
+   Compiling unicode-segmentation v1.11.0
+   Compiling convert_case v0.6.0
+   Compiling enum-display-macro v0.1.4
+   Compiling simple-dns v0.11.0
+   Compiling enum-display v0.1.4
+   Compiling prost-derive v0.12.6
+   Compiling prost v0.14.1
+   Compiling prost-types v0.14.1
+   Compiling linked_hash_set v0.1.4
+   Compiling partial_sort v0.2.0
+   Compiling libp2p-core v0.42.0
+   Compiling prost-build v0.14.1
+   Compiling prost v0.12.6
+   Compiling utf8parse v0.2.1
+   Compiling anstyle-parse v0.2.1
+   Compiling pallet-timestamp v45.0.0 (/home/coder/Rostro/substrate/frame/timestamp)
+   Compiling anstyle-query v1.0.0
+   Compiling colorchoice v1.0.0
+   Compiling anstream v0.6.11
+   Compiling libp2p-swarm v0.45.1
+   Compiling sc-allocator v36.0.0 (/home/coder/Rostro/substrate/client/allocator)
+   Compiling litep2p v0.13.3
+   Compiling tikv-jemalloc-sys v0.6.0+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7
+   Compiling sc-executor-common v0.44.0 (/home/coder/Rostro/substrate/client/executor/common)
+   Compiling scale-decode-derive v0.16.0
+   Compiling futures-bounded v0.2.4
+   Compiling libp2p-kad v0.46.2
+   Compiling sc-executor-polkavm v0.41.0 (/home/coder/Rostro/substrate/client/executor/polkavm)
+   Compiling frame-benchmarking v46.0.0 (/home/coder/Rostro/substrate/frame/benchmarking)
+   Compiling librocksdb-sys v0.17.3+10.4.2
+   Compiling sc-network v0.56.0 (/home/coder/Rostro/substrate/client/network)
+   Compiling sc-executor v0.48.0 (/home/coder/Rostro/substrate/client/executor)
+   Compiling difflib v0.4.0
+   Compiling predicates v3.0.3
+   Compiling mockall v0.13.1
+   Compiling sp-consensus v0.47.0 (/home/coder/Rostro/substrate/primitives/consensus/common)
+   Compiling staging-xcm v22.0.0 (/home/coder/Rostro/polkadot/xcm)
+   Compiling terminal_size v0.4.3
+   Compiling clap_lex v0.7.5
+   Compiling libp2p-identify v0.45.0
+   Compiling libp2p-request-response v0.27.0
+   Compiling libp2p-allow-block-list v0.4.0
+   Compiling libp2p-connection-limits v0.4.0
+   Compiling libp2p-ping v0.45.0
+   Compiling libp2p-mdns v0.46.0
+   Compiling libp2p-tcp v0.42.0
+   Compiling libp2p-noise v0.45.0
+   Compiling libp2p-yamux v0.46.0
+   Compiling libp2p-dns v0.42.0
+   Compiling libp2p-websocket v0.44.0
+   Compiling memmap2 v0.9.3
+   Compiling clap_derive v4.5.47
+   Compiling libp2p v0.54.1
+   Compiling pallet-session v46.0.0 (/home/coder/Rostro/substrate/frame/session)
+   Compiling sc-utils v20.1.0 (/home/coder/Rostro/substrate/client/utils)
+   Compiling sp-consensus-aura v0.47.0 (/home/coder/Rostro/substrate/primitives/consensus/aura)
+   Compiling pallet-authorship v46.0.0 (/home/coder/Rostro/substrate/frame/authorship)
+   Compiling sc-chain-spec-derive v12.0.0 (/home/coder/Rostro/substrate/client/chain-spec/derive)
+   Compiling clap_builder v4.5.48
+   Compiling sc-network-common v0.53.0 (/home/coder/Rostro/substrate/client/network/common)
+   Compiling clap v4.5.48
+   Compiling frame-try-runtime v0.52.0 (/home/coder/Rostro/substrate/frame/try-runtime)
+   Compiling scale-type-resolver v0.2.0
+   Compiling scale-bits v0.7.0
+   Compiling frame-executive v46.0.0 (/home/coder/Rostro/substrate/frame/executive)
+   Compiling scale-decode v0.16.0
+   Compiling webpki-roots v0.26.3
+   Compiling tower-layer v0.3.2
+   Compiling hyper-rustls v0.27.3
+   Compiling tower v0.4.13
+   Compiling fork-tree v13.0.1 (/home/coder/Rostro/substrate/utils/fork-tree)
+   Compiling sc-network-types v0.20.2 (/home/coder/Rostro/substrate/client/network/types)
+   Compiling rustls-platform-verifier v0.5.3
+   Compiling inout v0.1.3
+   Compiling cipher v0.4.4
+   Compiling sc-telemetry v30.0.1 (/home/coder/Rostro/substrate/client/telemetry)
+   Compiling pallet-transaction-payment v46.0.0 (/home/coder/Rostro/substrate/frame/transaction-payment)
+   Compiling universal-hash v0.5.1
+   Compiling polyval v0.6.1
+   Compiling ghash v0.5.0
+   Compiling aes v0.8.3
+   Compiling ctr v0.9.2
+   Compiling aead v0.5.2
+   Compiling aes-gcm v0.10.3
+   Compiling route-recognizer v0.3.1
+   Compiling jsonrpsee-proc-macros v0.24.10
+   Compiling sc-network-sync v0.55.0 (/home/coder/Rostro/substrate/client/network/sync)
+   Compiling filetime v0.2.22
+   Compiling camino v1.1.6
+   Compiling slice-group-by v0.3.1
+   Compiling regalloc2 v0.9.3
+   Compiling dirs v5.0.1
+   Compiling cargo-platform v0.1.3
+   Compiling sysinfo v0.30.5
+   Compiling scratch v1.0.7
+   Compiling strum_macros v0.24.3
+   Compiling link-cplusplus v1.0.9
+   Compiling codespan-reporting v0.11.1
+   Compiling cxxbridge-flags v1.0.106
+   Compiling cxx v1.0.106
+   Compiling cxx-build v1.0.106
+   Compiling lz4-sys v1.9.4
+   Compiling strum v0.24.1
+   Compiling cargo_metadata v0.15.4
+   Compiling frame-election-provider-solution-type v16.1.1 (/home/coder/Rostro/substrate/frame/election-provider-support/solution-type)
+   Compiling snap v1.1.0
+   Compiling wasm-opt-sys v0.116.0
+   Compiling cxxbridge-macro v1.0.106
+   Compiling fs2 v0.4.3
+   Compiling memmap2 v0.5.10
+   Compiling siphasher v0.3.11
+   Compiling wasm-opt-cxx-sys v0.116.0
+   Compiling array-bytes v9.1.2
+   Compiling semver-parser v0.7.0
+   Compiling semver v0.6.0
+   Compiling build-helper v0.1.1
+   Compiling polkavm-linker v0.31.0
+   Compiling lz4 v1.24.0
+   Compiling parity-db v0.4.12
+   Compiling pallet-babe v46.0.0 (/home/coder/Rostro/substrate/frame/babe)
+   Compiling const-hex v1.14.0
+   Compiling merkleized-metadata v0.5.0
+   Compiling frame-system-rpc-runtime-api v41.0.0 (/home/coder/Rostro/substrate/frame/system/rpc/runtime-api)
+   Compiling kvdb-memorydb v0.13.0
+   Compiling jsonrpsee-types v0.24.10
+   Compiling jsonrpsee-core v0.24.10
+   Compiling jsonrpsee-client-transport v0.24.10
+   Compiling jsonrpsee-ws-client v0.24.10
+   Compiling jsonrpsee-server v0.24.10
+   Compiling jsonrpsee-http-client v0.24.10
+   Compiling generic-array v0.12.4
+   Compiling jsonrpsee-wasm-client v0.24.10
+   Compiling jsonrpsee v0.24.10
+   Compiling sp-statement-store v25.0.0 (/home/coder/Rostro/substrate/primitives/statement-store)
+   Compiling subtle v1.0.0
+   Compiling crypto-mac v0.7.0
+   Compiling digest v0.8.1
+   Compiling rand_distr v0.4.3
+   Compiling byte-tools v0.3.1
+   Compiling keystream v1.0.0
+   Compiling opaque-debug v0.2.3
+   Compiling blake2 v0.8.1
+   Compiling chacha v0.3.0
+   Compiling cipher v0.2.5
+   Compiling c2-chacha v0.3.3
+   Compiling lioness v0.1.2
+   Compiling hashlink v0.8.4
+   Compiling mixnet v0.7.0
+   Compiling sp-npos-elections v41.0.0 (/home/coder/Rostro/substrate/primitives/npos-elections)
+   Compiling pallet-asset-conversion v28.0.0 (/home/coder/Rostro/substrate/frame/asset-conversion)
+   Compiling staging-xcm-executor v25.1.0 (/home/coder/Rostro/polkadot/xcm/xcm-executor)
+   Compiling sc-state-db v0.42.0 (/home/coder/Rostro/substrate/client/state-db)
+   Compiling frame-election-provider-support v46.0.0 (/home/coder/Rostro/substrate/frame/election-provider-support)
+   Compiling cfg_aliases v0.2.1
+   Compiling pallet-utility v46.0.0 (/home/coder/Rostro/substrate/frame/utility)
+   Compiling is-terminal v0.4.9
+   Compiling sp-rpc v38.0.0 (/home/coder/Rostro/substrate/primitives/rpc)
+   Compiling sp-mixnet v0.19.0 (/home/coder/Rostro/substrate/primitives/mixnet)
+   Compiling raw-cpuid v10.7.0
+   Compiling quanta v0.11.1
+   Compiling dashmap v5.5.1
+   Compiling nonzero_ext v0.3.0
+   Compiling no-std-compat v0.4.1
+   Compiling pallet-staking v46.0.0 (/home/coder/Rostro/substrate/frame/staking)
+   Compiling tracing-futures v0.2.5
+   Compiling sc-tracing-proc-macro v11.1.1 (/home/coder/Rostro/substrate/client/tracing/proc-macro)
+   Compiling sc-keystore v40.0.0 (/home/coder/Rostro/substrate/client/keystore)
+   Compiling cfg_aliases v0.1.1
+   Compiling static_init_macro v1.0.4
+   Compiling static_init v1.0.4
+   Compiling sc-network-light v0.55.0 (/home/coder/Rostro/substrate/client/network/light)
+   Compiling sc-sysinfo v47.0.0 (/home/coder/Rostro/substrate/client/sysinfo)
+   Compiling nonempty v0.7.0
+   Compiling forwarded-header-value v0.1.1
+   Compiling tower-http v0.5.2
+   Compiling rand_pcg v0.3.1
+   Compiling pallet-message-queue v49.0.0 (/home/coder/Rostro/substrate/frame/message-queue)
+   Compiling directories v5.0.1
+   Compiling exit-future v0.2.0
+   Compiling cumulus-primitives-core v0.24.0 (/home/coder/Rostro/cumulus/primitives/core)
+   Compiling governor v0.6.0
+   Compiling pallet-authority-discovery v46.0.0 (/home/coder/Rostro/substrate/frame/authority-discovery)
+   Compiling polkadot-runtime-metrics v26.0.0 (/home/coder/Rostro/polkadot/runtime/metrics)
+   Compiling pallet-broker v0.25.0 (/home/coder/Rostro/substrate/frame/broker)
+   Compiling enumflags2_derive v0.7.11
+   Compiling enumflags2 v0.7.11
+   Compiling sp-transaction-storage-proof v41.0.0 (/home/coder/Rostro/substrate/primitives/transaction-storage-proof)
+   Compiling proc-macro-error-attr2 v2.0.0
+   Compiling proc-macro-error2 v2.0.1
+   Compiling enumn v0.1.13
+   Compiling polkadot-sdk-frame v0.15.0 (/home/coder/Rostro/substrate/frame)
+   Compiling frame-metadata-hash-extension v0.14.0 (/home/coder/Rostro/substrate/frame/metadata-hash-extension)
+   Compiling pallet-treasury v45.0.0 (/home/coder/Rostro/substrate/frame/treasury)
+   Compiling pallet-identity v46.0.0 (/home/coder/Rostro/substrate/frame/identity)
+   Compiling pallet-election-provider-multi-phase v45.0.0 (/home/coder/Rostro/substrate/frame/election-provider-multi-phase)
+   Compiling pallet-staking-reward-fn v24.0.1 (/home/coder/Rostro/substrate/frame/staking/reward-fn)
+   Compiling slot-range-helper v22.0.0 (/home/coder/Rostro/polkadot/runtime/common/slot_range_helper)
+   Compiling pallet-fast-unstake v45.0.0 (/home/coder/Rostro/substrate/frame/fast-unstake)
+   Compiling pallet-vesting v46.0.0 (/home/coder/Rostro/substrate/frame/vesting)
+   Compiling scale-encode-derive v0.10.0
+   Compiling sp-crypto-hashing v0.1.0
+   Compiling yap v0.12.0
+   Compiling base58 v0.2.0
+   Compiling ripemd v0.1.3
+   Compiling secp256k1-sys v0.10.1
+   Compiling secp256k1 v0.30.0
+   Compiling bip32 v0.5.2
+   Compiling secrecy v0.10.3
+   Compiling coarsetime v0.1.23
+   Compiling tracing-gum-proc-macro v5.0.0 (/home/coder/Rostro/polkadot/node/gum/proc-macro)
+   Compiling cumulus-pallet-parachain-system-proc-macro v0.8.0 (/home/coder/Rostro/cumulus/pallets/parachain-system/proc-macro)
+   Compiling assert_matches v1.5.0
+   Compiling scale-encode v0.10.0
+   Compiling bounded-vec v0.7.1
+   Compiling scale-value v0.18.0
+   Compiling keccak-hash v0.11.0
+   Compiling frame-decode v0.9.0
+   Compiling staging-xcm-builder v26.0.0 (/home/coder/Rostro/polkadot/xcm/xcm-builder)
+   Compiling polkadot-runtime-parachains v25.0.0 (/home/coder/Rostro/polkadot/runtime/parachains)
+   Compiling xcm-runtime-apis v0.13.0 (/home/coder/Rostro/polkadot/xcm/xcm-runtime-apis)
+   Compiling pallet-xcm v26.0.0 (/home/coder/Rostro/polkadot/xcm/pallet-xcm)
+   Compiling names v0.14.0
+   Compiling subxt-metadata v0.44.2
+   Compiling polkadot-runtime-common v25.0.0 (/home/coder/Rostro/polkadot/runtime/common)
+   Compiling fdlimit v0.3.0
+   Compiling subxt-core v0.44.2
+   Compiling rtoolbox v0.0.1
+   Compiling rpassword v7.2.0
+   Compiling crossbeam-queue v0.3.11
+   Compiling subxt-signer v0.44.2
+   Compiling sc-authority-discovery v0.56.0 (/home/coder/Rostro/substrate/client/authority-discovery)
+   Compiling cumulus-primitives-parachain-inherent v0.24.0 (/home/coder/Rostro/cumulus/primitives/parachain-inherent)
+   Compiling bp-runtime v0.26.0 (/home/coder/Rostro/bridges/primitives/runtime)
+   Compiling cumulus-primitives-proof-size-hostfunction v0.17.0 (/home/coder/Rostro/cumulus/primitives/proof-size-hostfunction)
+   Compiling nanorand v0.7.0
+   Compiling fatality-proc-macro v0.1.1
+   Compiling orchestra-proc-macro v0.4.1
+   Compiling pallet-transaction-payment-rpc-runtime-api v46.0.0 (/home/coder/Rostro/substrate/frame/transaction-payment/rpc/runtime-api)
+   Compiling dyn-clonable-impl v0.9.0
+   Compiling fatality v0.1.1
+   Compiling dyn-clonable v0.9.0
+   Compiling cumulus-pallet-parachain-system v0.26.0 (/home/coder/Rostro/cumulus/pallets/parachain-system)
+   Compiling bp-header-chain v0.26.0 (/home/coder/Rostro/bridges/primitives/header-chain)
+   Compiling polkadot-node-primitives v24.0.0 (/home/coder/Rostro/polkadot/node/primitives)
+   Compiling tracing-gum v24.0.0 (/home/coder/Rostro/polkadot/node/gum)
+   Compiling bp-messages v0.26.0 (/home/coder/Rostro/bridges/primitives/messages)
+   Compiling polkadot-ckb-merkle-mountain-range v0.8.1
+   Compiling sp-mmr-primitives v41.0.0 (/home/coder/Rostro/substrate/primitives/merkle-mountain-range)
+   Compiling alloy-rlp-derive v0.3.12
+   Compiling alloy-rlp v0.3.12
+   Compiling ruint-macro v1.2.1
+   Compiling derive_more-impl v2.0.1
+   Compiling ruint v1.17.2
+   Compiling foldhash v0.2.0
+   Compiling hashbrown v0.16.1
+   Compiling derive_more v2.0.1
+   Compiling alloy-primitives v1.5.7
+   Compiling prioritized-metered-channel v0.6.1
+   Compiling sp-consensus-beefy v29.0.0 (/home/coder/Rostro/substrate/primitives/consensus/beefy)
+   Compiling polkadot-statement-table v24.0.0 (/home/coder/Rostro/polkadot/statement-table)
+   Compiling orchestra v0.4.1
+   Compiling tikv-jemalloc-ctl v0.6.0
+   Compiling rococo-runtime-constants v26.0.0 (/home/coder/Rostro/polkadot/runtime/rococo/constants)
+   Compiling westend-runtime-constants v26.0.0 (/home/coder/Rostro/polkadot/runtime/westend/constants)
+   Compiling pallet-sudo v46.0.0 (/home/coder/Rostro/substrate/frame/sudo)
+   Compiling pallet-multisig v46.0.0 (/home/coder/Rostro/substrate/frame/multisig)
+   Compiling cumulus-test-relay-sproof-builder v0.25.0 (/home/coder/Rostro/cumulus/test/relay-sproof-builder)
+   Compiling pallet-assets v49.0.1 (/home/coder/Rostro/substrate/frame/assets)
+   Compiling pallet-proxy v46.0.0 (/home/coder/Rostro/substrate/frame/proxy)
+   Compiling crc-catalog v2.4.0
+   Compiling crc v3.2.1
+   Compiling staging-parachain-info v0.26.0 (/home/coder/Rostro/cumulus/parachains/pallets/parachain-info)
+   Compiling auto_impl v1.3.0
+   Compiling alloy-eip2930 v0.2.1
+   Compiling alloy-eip7702 v0.6.1
+   Compiling bp-polkadot-core v0.26.0 (/home/coder/Rostro/bridges/primitives/polkadot-core)
+   Compiling syn-solidity v1.5.7
+   Compiling macro-string v0.1.4
+   Compiling dunce v1.0.4
+   Compiling darling_core v0.21.3
+   Compiling alloy-sol-macro-input v1.5.7
+   Compiling alloy-sol-macro-expander v1.5.7
+   Compiling darling_macro v0.21.3
+   Compiling alloy-eip2124 v0.2.0
+   Compiling darling v0.21.3
+   Compiling nybbles v0.4.1
+   Compiling alloy-trie v0.9.1
+   Compiling alloy-sol-macro v1.5.7
+   Compiling alloy-tx-macros v1.0.41
+   Compiling alloy-sol-types v1.5.7
+   Compiling alloy-core v1.2.1
+   Compiling humantime v2.1.0
+   Compiling pallet-whitelist v45.0.0 (/home/coder/Rostro/substrate/frame/whitelist)
+   Compiling reed-solomon-novelpoly v2.0.0
+   Compiling pallet-preimage v46.0.0 (/home/coder/Rostro/substrate/frame/preimage)
+   Compiling polkadot-erasure-coding v24.0.0 (/home/coder/Rostro/polkadot/erasure-coding)
+   Compiling derivative v2.2.0
+   Compiling pallet-scheduler v47.0.0 (/home/coder/Rostro/substrate/frame/scheduler)
+   Compiling pallet-migrations v16.0.0 (/home/coder/Rostro/substrate/frame/migrations)
+   Compiling pallet-offences v45.0.0 (/home/coder/Rostro/substrate/frame/offences)
+   Compiling pallet-grandpa v46.0.0 (/home/coder/Rostro/substrate/frame/grandpa)
+   Compiling pallet-referenda v46.0.0 (/home/coder/Rostro/substrate/frame/referenda)
+   Compiling pallet-asset-rate v25.0.0 (/home/coder/Rostro/substrate/frame/asset-rate)
+   Compiling alloy-serde v1.0.41
+   Compiling alloy-eips v1.0.41
+   Compiling parachains-common-types v0.2.0 (/home/coder/Rostro/cumulus/parachains/common/types)
+   Compiling pallet-dap-satellite v0.2.0 (/home/coder/Rostro/substrate/frame/dap-satellite)
+   Compiling pallet-indices v46.0.0 (/home/coder/Rostro/substrate/frame/indices)
+   Compiling alloy-consensus v1.0.41
+   Compiling num-iter v0.1.43
+   Compiling pallet-bags-list v45.0.0 (/home/coder/Rostro/substrate/frame/bags-list)
+   Compiling pallet-beefy v47.0.0 (/home/coder/Rostro/substrate/frame/beefy)
+   Compiling pallet-mmr v46.0.1 (/home/coder/Rostro/substrate/frame/merkle-mountain-range)
+   Compiling pallet-conviction-voting v46.0.0 (/home/coder/Rostro/substrate/frame/conviction-voting)
+   Compiling num_enum_derive v0.7.4
+   Compiling num_enum v0.7.4
+   Compiling num v0.4.1
+   Compiling pallet-staking-async-rc-client v0.8.0 (/home/coder/Rostro/substrate/frame/staking-async/rc-client)
+   Compiling revm-primitives v20.2.1
+   Compiling pallet-beefy-mmr v47.0.0 (/home/coder/Rostro/substrate/frame/beefy-mmr)
+   Compiling cumulus-primitives-utility v0.26.0 (/home/coder/Rostro/cumulus/primitives/utility)
+   Compiling pallet-asset-tx-payment v46.0.0 (/home/coder/Rostro/substrate/frame/transaction-payment/asset-tx-payment)
+   Compiling pallet-collator-selection v27.0.0 (/home/coder/Rostro/cumulus/pallets/collator-selection)
+   Compiling pallet-multi-asset-bounties v0.3.0 (/home/coder/Rostro/substrate/frame/multi-asset-bounties)
+   Compiling pallet-revive-proc-macro v0.7.2 (/home/coder/Rostro/substrate/frame/revive/proc-macro)
+   Compiling keccak-const v0.2.0
+   Compiling sha2-const-stable v0.1.0
+   Compiling const-crypto v0.3.0
+   Compiling revm-bytecode v6.2.2
+   Compiling pallet-nomination-pools v44.0.0 (/home/coder/Rostro/substrate/frame/nomination-pools)
+   Compiling revm-state v7.0.5
+   Compiling ethbloom v0.14.1
+   Compiling pallet-aura v45.0.0 (/home/coder/Rostro/substrate/frame/aura)
+   Compiling sc-consensus-slots v0.55.0 (/home/coder/Rostro/substrate/client/consensus/slots)
+   Compiling ethereum-types v0.15.1
+   Compiling revm-database-interface v7.0.5
+   Compiling parachains-common v28.0.0 (/home/coder/Rostro/cumulus/parachains/common)
+   Compiling pallet-state-trie-migration v51.0.0 (/home/coder/Rostro/substrate/frame/state-trie-migration)
+   Compiling ucd-trie v0.1.6
+   Compiling pest v2.7.2
+   Compiling pallet-root-testing v22.0.0 (/home/coder/Rostro/substrate/frame/root-testing)
+   Compiling pest_meta v2.7.2
+   Compiling revm-context-interface v9.0.0
+   Compiling scale-typegen v0.11.1
+   Compiling primeorder v0.13.6
+   Compiling p256 v0.13.2
+   Compiling pest_generator v2.7.2
+   Compiling aurora-engine-modexp v1.2.0
+   Compiling pallet-recovery v46.0.0 (/home/coder/Rostro/substrate/frame/recovery)
+   Compiling pallet-parameters v0.17.0 (/home/coder/Rostro/substrate/frame/parameters)
+   Compiling ark-bn254 v0.5.0
+   Compiling pest_derive v2.7.2
+   Compiling revm-precompile v25.0.0
+   Compiling revm-interpreter v24.0.0
+   Compiling revm-context v8.0.4
+   Compiling pallet-delegated-staking v13.0.0 (/home/coder/Rostro/substrate/frame/delegated-staking)
+   Compiling revm-handler v8.1.0
+   Compiling revm-inspector v8.1.0
+   Compiling revm-database v7.0.5
+   Compiling ethereum-standards v0.1.3 (/home/coder/Rostro/substrate/primitives/ethereum-standards)
+   Compiling bp-parachains v0.26.0 (/home/coder/Rostro/bridges/primitives/parachains)
+   Compiling pallet-ranked-collective v46.0.0 (/home/coder/Rostro/substrate/frame/ranked-collective)
+   Compiling wasm-bindgen-futures v0.4.45
+   Compiling revm v27.1.0
+   Compiling subxt-codegen v0.44.2
+   Compiling humantime-serde v1.1.1
+   Compiling substrate-bn v0.6.0
+   Compiling subxt-utils-fetchmetadata v0.44.2
+   Compiling pallet-staking-async-ah-client v0.8.0 (/home/coder/Rostro/substrate/frame/staking-async/ah-client)
+   Compiling subxt-macro v0.44.2
+   Compiling env_filter v0.1.3
+   Compiling pallet-nomination-pools-runtime-api v42.0.0 (/home/coder/Rostro/substrate/frame/nomination-pools/runtime-api)
+   Compiling nix v0.29.0
+   Compiling pallet-staking-runtime-api v31.0.0 (/home/coder/Rostro/substrate/frame/staking/runtime-api)
+   Compiling pallet-root-offences v44.0.0 (/home/coder/Rostro/substrate/frame/root-offences)
+   Compiling cumulus-primitives-aura v0.22.0 (/home/coder/Rostro/cumulus/primitives/aura)
+   Compiling cumulus-pallet-aura-ext v0.26.0 (/home/coder/Rostro/cumulus/pallets/aura-ext)
+   Compiling pallet-revive-uapi v0.11.0 (/home/coder/Rostro/substrate/frame/revive/uapi)
+   Compiling ark-models-ext v0.5.2
+   Compiling ark-pallas v0.5.0
+   Compiling bp-xcm-bridge-hub-router v0.23.0 (/home/coder/Rostro/bridges/primitives/xcm-bridge-hub-router)
+   Compiling finito v0.1.0
+   Compiling subxt-rpcs v0.44.2
+   Compiling ark-vesta v0.5.0
+   Compiling bp-relayers v0.26.0 (/home/coder/Rostro/bridges/primitives/relayers)
+   Compiling ark-vesta-ext v0.5.1
+   Compiling ark-bls12-381-ext v0.5.2
+   Compiling subxt v0.44.2
+   Compiling ark-pallas-ext v0.5.1
+   Compiling ark-ed-on-bls12-381-bandersnatch-ext v0.5.2
+   Compiling cumulus-primitives-storage-weight-reclaim v17.0.0 (/home/coder/Rostro/cumulus/primitives/storage-weight-reclaim)
+   Compiling cumulus-pallet-weight-reclaim v0.8.0 (/home/coder/Rostro/cumulus/pallets/weight-reclaim)
+   Compiling pallet-revive v0.13.0 (/home/coder/Rostro/substrate/frame/revive)
+   Compiling pallet-bounties v45.0.0 (/home/coder/Rostro/substrate/frame/bounties)
+   Compiling cumulus-pallet-xcmp-queue v0.26.0 (/home/coder/Rostro/cumulus/pallets/xcmp-queue)
+   Compiling ark-scale v0.0.13
+   Compiling pallet-child-bounties v45.0.0 (/home/coder/Rostro/substrate/frame/child-bounties)
+   Compiling pallet-tips v45.0.0 (/home/coder/Rostro/substrate/frame/tips)
+   Compiling pallet-nis v46.0.0 (/home/coder/Rostro/substrate/frame/nis)
+   Compiling pallet-elections-phragmen v47.0.0 (/home/coder/Rostro/substrate/frame/elections-phragmen)
+   Compiling pallet-democracy v46.0.0 (/home/coder/Rostro/substrate/frame/democracy)
+   Compiling pallet-society v46.0.0 (/home/coder/Rostro/substrate/frame/society)
+   Compiling thousands v0.2.0
+   Compiling snowbridge-core v0.19.0 (/home/coder/Rostro/bridges/snowbridge/primitives/core)
+   Compiling unicode-width v0.2.0
+   Compiling frame-benchmarking-cli v54.0.0 (/home/coder/Rostro/substrate/utils/frame/benchmarking-cli)
+   Compiling comfy-table v7.1.4
+   Compiling assets-common v0.28.0 (/home/coder/Rostro/cumulus/parachains/runtimes/assets/common)
+   Compiling gethostname v0.2.3
+   Compiling substrate-build-script-utils v11.0.0 (/home/coder/Rostro/substrate/utils/build-script-utils)
+   Compiling sp-crypto-ec-utils v0.20.0 (/home/coder/Rostro/substrate/primitives/crypto/ec-utils)
+   Compiling landlock v0.3.0
+   Compiling cpu-time v1.0.0
+   Compiling seccompiler v0.4.0
+   Compiling polkadot-node-core-pvf-common v25.0.0 (/home/coder/Rostro/polkadot/node/core/pvf/common)
+   Compiling testnet-parachains-constants v19.0.0 (/home/coder/Rostro/cumulus/parachains/runtimes/constants)
+   Compiling staging-tracking-allocator v2.0.0 (/home/coder/Rostro/polkadot/node/tracking-allocator)
+   Compiling bp-xcm-bridge-hub v0.12.0 (/home/coder/Rostro/bridges/primitives/xcm-bridge-hub)
+   Compiling cumulus-pallet-xcm v0.25.0 (/home/coder/Rostro/cumulus/pallets/xcm)
+   Compiling tikv-jemallocator v0.6.0
+   Compiling always-assert v0.1.3
+   Compiling slotmap v1.0.6
+   Compiling polkadot-node-core-pvf-prepare-worker v25.0.0 (/home/coder/Rostro/polkadot/node/core/pvf/prepare-worker)
+   Compiling polkadot-node-core-pvf-execute-worker v25.0.0 (/home/coder/Rostro/polkadot/node/core/pvf/execute-worker)
+   Compiling polkadot-node-core-pvf v29.0.0 (/home/coder/Rostro/polkadot/node/core/pvf)
+   Compiling sc-proposer-metrics v0.20.0 (/home/coder/Rostro/substrate/client/proposer-metrics)
+   Compiling threadpool v1.8.1
+   Compiling is_executable v1.0.1
+   Compiling parachains-runtimes-test-utils v29.0.0 (/home/coder/Rostro/cumulus/parachains/runtimes/test-utils)
+   Compiling sc-runtime-utilities v0.8.0 (/home/coder/Rostro/substrate/client/runtime-utilities)
+   Compiling pallet-xcm-bridge-hub-router v0.24.0 (/home/coder/Rostro/bridges/modules/xcm-bridge-hub-router)
+   Compiling handlebars v5.1.0
+   Compiling cumulus-pallet-session-benchmarking v27.0.0 (/home/coder/Rostro/cumulus/pallets/session-benchmarking)
+   Compiling fs4 v0.7.0
+   Compiling pallet-staking-reward-curve v12.0.0 (/home/coder/Rostro/substrate/frame/staking/reward-curve)
+   Compiling xcm-simulator v26.0.0 (/home/coder/Rostro/polkadot/xcm/xcm-simulator)
+   Compiling pallet-bridge-messages v0.26.0 (/home/coder/Rostro/bridges/modules/messages)
+   Compiling polkadot-primitives-test-helpers v0.3.0 (/home/coder/Rostro/polkadot/primitives/test-helpers)
+   Compiling asset-test-utils v30.0.0 (/home/coder/Rostro/cumulus/parachains/runtimes/assets/test-utils)
+   Compiling pallet-xcm-bridge-hub v0.22.0 (/home/coder/Rostro/bridges/modules/xcm-bridge-hub)
+   Compiling sc-storage-monitor v0.28.0 (/home/coder/Rostro/substrate/client/storage-monitor)
+   Compiling polkadot-cli v32.0.0 (/home/coder/Rostro/polkadot/cli)
+   Compiling bp-test-utils v0.26.0 (/home/coder/Rostro/bridges/primitives/test-utils)
+   Compiling pallet-verify-signature v0.9.0 (/home/coder/Rostro/substrate/frame/verify-signature)
+   Compiling pallet-bridge-grandpa v0.26.0 (/home/coder/Rostro/bridges/modules/grandpa)
+   Compiling xcm-emulator v0.27.0 (/home/coder/Rostro/cumulus/xcm/xcm-emulator)
+   Compiling pallet-meta-tx v0.8.0 (/home/coder/Rostro/substrate/frame/meta-tx)
+   Compiling pallet-bridge-parachains v0.26.0 (/home/coder/Rostro/bridges/modules/parachains)
+   Compiling bridge-hub-common v0.19.0 (/home/coder/Rostro/cumulus/parachains/runtimes/bridge-hubs/common)
+   Compiling pallet-nfts v40.0.0 (/home/coder/Rostro/substrate/frame/nfts)
+   Compiling pallet-uniques v46.0.0 (/home/coder/Rostro/substrate/frame/uniques)
+   Compiling pallet-assets-freezer v0.14.0 (/home/coder/Rostro/substrate/frame/assets-freezer)
+   Compiling pallet-nft-fractionalization v30.0.0 (/home/coder/Rostro/substrate/frame/nft-fractionalization)
+   Compiling pallet-bridge-relayers v0.26.0 (/home/coder/Rostro/bridges/modules/relayers)
+   Compiling pallet-asset-conversion-tx-payment v28.0.0 (/home/coder/Rostro/substrate/frame/transaction-payment/asset-conversion-tx-payment)
+   Compiling pallet-asset-conversion-ops v0.14.0 (/home/coder/Rostro/substrate/frame/asset-conversion/ops)
+   Compiling pallet-asset-rewards v0.8.0 (/home/coder/Rostro/substrate/frame/asset-rewards)
+   Compiling pallet-staking-async v0.11.0 (/home/coder/Rostro/substrate/frame/staking-async)
+   Compiling pallet-dap v0.3.0 (/home/coder/Rostro/substrate/frame/dap)
+   Compiling pallet-glutton v32.0.0 (/home/coder/Rostro/substrate/frame/glutton)
+   Compiling pallet-election-provider-multi-block v0.8.0 (/home/coder/Rostro/substrate/frame/election-provider-multi-block)
+   Compiling bridge-runtime-common v0.27.0 (/home/coder/Rostro/bridges/bin/runtime-common)
+   Compiling pallet-nfts-runtime-api v31.0.0 (/home/coder/Rostro/substrate/frame/nfts/runtime-api)
+   Compiling pallet-xcm-precompiles v0.4.0 (/home/coder/Rostro/polkadot/xcm/pallet-xcm/precompiles)
+   Compiling pallet-assets-precompiles v0.5.0 (/home/coder/Rostro/substrate/frame/assets/precompiles)
+   Compiling cumulus-client-bootnodes v0.8.0 (/home/coder/Rostro/cumulus/client/bootnodes)
+   Compiling ssz_rs v0.9.0
+   Compiling vcpkg v0.2.15
+   Compiling pallet-collective v46.0.0 (/home/coder/Rostro/substrate/frame/collective)
+   Compiling snowbridge-amcl v1.0.2
+   Compiling ssz_rs_derive v0.9.0
+   Compiling snowbridge-milagro-bls v1.5.4
+   Compiling pallet-salary v31.0.0 (/home/coder/Rostro/substrate/frame/salary)
+   Compiling snowbridge-beacon-primitives v0.19.0 (/home/coder/Rostro/bridges/snowbridge/primitives/beacon)
+   Compiling subtle-ng v2.5.0
+   Compiling curve25519-dalek-ng v4.1.1
+   Compiling pallet-core-fellowship v30.0.0 (/home/coder/Rostro/substrate/frame/core-fellowship)
+   Compiling pallet-alliance v45.0.0 (/home/coder/Rostro/substrate/frame/alliance)
+   Compiling pallet-collective-content v0.24.0 (/home/coder/Rostro/cumulus/parachains/pallets/collective-content)
+   Compiling string-interner v0.17.0
+   Compiling downcast-rs v1.2.0
+   Compiling indexmap-nostd v0.4.0
+   Compiling wasmparser-nostd v0.100.2
+   Compiling wasmi_core v0.32.3
+   Compiling wasmi_collections v0.32.3
+   Compiling schnorrkel v0.10.2
+   Compiling pallet-contracts-proc-macro v23.0.3 (/home/coder/Rostro/substrate/frame/contracts/proc-macro)
+   Compiling num-derive v0.4.2
+   Compiling multi-stash v0.2.0
+   Compiling wasmi v0.32.3
+   Compiling snowbridge-verification-primitives v0.8.1 (/home/coder/Rostro/bridges/snowbridge/primitives/verification)
+   Compiling safe-mix v1.0.1
+   Compiling maplit v1.0.2
+   Compiling yansi v0.5.1
+   Compiling diff v0.1.13
+   Compiling pretty_assertions v1.4.0
+   Compiling number_prefix v0.4.0
+   Compiling indicatif v0.17.7
+   Compiling spinners v4.1.1
+   Compiling staging-chain-spec-builder v17.0.0 (/home/coder/Rostro/substrate/bin/utils/chain-spec-builder)
+   Compiling bridge-hub-test-utils v0.29.0 (/home/coder/Rostro/cumulus/parachains/runtimes/bridge-hubs/test-utils)
+   Compiling color-print-proc-macro v0.3.4
+   Compiling pallet-contracts-uapi v14.0.0 (/home/coder/Rostro/substrate/frame/contracts/uapi)
+   Compiling pallet-contracts v46.0.0 (/home/coder/Rostro/substrate/frame/contracts)
+   Compiling color-print v0.3.4
+   Compiling ethabi-decode v2.0.0
+   Compiling bounded-collections v0.1.9
+   Compiling plotters-backend v0.3.5
+   Compiling half v1.8.2
+   Compiling ciborium-io v0.2.1
+   Compiling ciborium-ll v0.2.1
+   Compiling plotters-svg v0.3.5
+   Compiling verifiable v0.1.0
+   Compiling cast v0.3.0
+   Compiling criterion-plot v0.5.0
+   Compiling plotters v0.3.5
+   Compiling ciborium v0.2.1
+   Compiling snowbridge-outbound-queue-primitives v0.8.0 (/home/coder/Rostro/bridges/snowbridge/primitives/outbound-queue)
+   Compiling pallet-session-benchmarking v46.0.0 (/home/coder/Rostro/substrate/frame/session/benchmarking)
+   Compiling pallet-im-online v45.0.0 (/home/coder/Rostro/substrate/frame/im-online)
+   Compiling pallet-dev-mode v28.0.0 (/home/coder/Rostro/substrate/frame/examples/dev-mode)
+   Compiling pallet-staking-async-runtime-api v0.6.0 (/home/coder/Rostro/substrate/frame/staking-async/runtime-api)
+   Compiling sp-consensus-pow v0.47.0 (/home/coder/Rostro/substrate/primitives/consensus/pow)
+   Compiling tinytemplate v1.2.1
+   Compiling anes v0.1.6
+   Compiling oorandom v11.1.3
+   Compiling criterion v0.5.1
+   Compiling pallet-people v0.7.0 (/home/coder/Rostro/substrate/frame/people)
+   Compiling pallet-insecure-randomness-collective-flip v34.0.0 (/home/coder/Rostro/substrate/frame/insecure-randomness-collective-flip)
+   Compiling openssl-sys v0.9.107
+   Compiling pallet-paged-list v0.24.0 (/home/coder/Rostro/substrate/frame/paged-list)
+   Compiling generate-bags v46.0.0 (/home/coder/Rostro/substrate/utils/frame/generate-bags)
+   Compiling pallet-offences-benchmarking v46.0.0 (/home/coder/Rostro/substrate/frame/offences/benchmarking)
+   Compiling pallet-contracts-mock-network v24.0.0 (/home/coder/Rostro/substrate/frame/contracts/mock-network)
+   Compiling cumulus-ping v0.26.0 (/home/coder/Rostro/cumulus/parachains/pallets/ping)
+   Compiling pallet-nomination-pools-benchmarking v44.0.0 (/home/coder/Rostro/substrate/frame/nomination-pools/benchmarking)
+   Compiling pallet-assets-holder v0.9.0 (/home/coder/Rostro/substrate/frame/assets-holder)
+   Compiling cumulus-pallet-solo-to-para v0.26.0 (/home/coder/Rostro/cumulus/pallets/solo-to-para)
+   Compiling pallet-xcm-benchmarks v26.0.0 (/home/coder/Rostro/polkadot/xcm/pallet-xcm-benchmarks)
+   Compiling pallet-derivatives v0.4.0 (/home/coder/Rostro/substrate/frame/derivatives)
+   Compiling pallet-mixnet v0.22.0 (/home/coder/Rostro/substrate/frame/mixnet)
+   Compiling pallet-tx-pause v27.0.0 (/home/coder/Rostro/substrate/frame/tx-pause)
+   Compiling pallet-node-authorization v46.0.0 (/home/coder/Rostro/substrate/frame/node-authorization)
+   Compiling pallet-safe-mode v27.0.0 (/home/coder/Rostro/substrate/frame/safe-mode)
+   Compiling pallet-atomic-swap v46.0.0 (/home/coder/Rostro/substrate/frame/atomic-swap)
+   Compiling pallet-transaction-storage v45.0.0 (/home/coder/Rostro/substrate/frame/transaction-storage)
+   Compiling cumulus-pallet-dmp-queue v0.26.0 (/home/coder/Rostro/cumulus/pallets/dmp-queue)
+   Compiling cumulus-primitives-timestamp v0.25.0 (/home/coder/Rostro/cumulus/primitives/timestamp)
+   Compiling pallet-election-provider-support-benchmarking v45.0.0 (/home/coder/Rostro/substrate/frame/election-provider-support/benchmarking)
+   Compiling pallet-statement v28.0.0 (/home/coder/Rostro/substrate/frame/statement)
+   Compiling pallet-origin-restriction v0.7.0 (/home/coder/Rostro/substrate/frame/origin-restriction)
+   Compiling frame-system-benchmarking v46.0.0 (/home/coder/Rostro/substrate/frame/system/benchmarking)
+   Compiling frame-benchmarking-pallet-pov v36.0.0 (/home/coder/Rostro/substrate/frame/benchmarking/pov)
+   Compiling pallet-remark v46.0.0 (/home/coder/Rostro/substrate/frame/remark)
+   Compiling pallet-dummy-dim v0.7.0 (/home/coder/Rostro/substrate/frame/dummy-dim)
+   Compiling pallet-skip-feeless-payment v21.0.0 (/home/coder/Rostro/substrate/frame/transaction-payment/skip-feeless-payment)
+   Compiling pallet-oracle v0.3.0 (/home/coder/Rostro/substrate/frame/honzon/oracle)
+   Compiling pallet-scored-pool v46.0.0 (/home/coder/Rostro/substrate/frame/scored-pool)
+   Compiling pallet-lottery v46.0.0 (/home/coder/Rostro/substrate/frame/lottery)
+   Compiling pallet-membership v46.0.0 (/home/coder/Rostro/substrate/frame/membership)
+   Compiling pallet-oracle-runtime-api v0.3.0 (/home/coder/Rostro/substrate/frame/honzon/oracle/runtime-api)
+   Compiling sp-core-hashing v16.0.0 (/home/coder/Rostro/substrate/deprecated/hashing)
+   Compiling sp-core-hashing-proc-macro v16.0.0 (/home/coder/Rostro/substrate/deprecated/hashing/proc-macro)
+   Compiling bp-bridge-hub-cumulus v0.28.0 (/home/coder/Rostro/bridges/chains/chain-cumulus)
+   Compiling wasm-opt v0.116.0
+   Compiling substrate-wasm-builder v32.0.0 (/home/coder/Rostro/substrate/utils/wasm-builder)
+   Compiling westend-runtime v31.0.0 (/home/coder/Rostro/polkadot/runtime/westend)
+   Compiling frame-storage-access-test-runtime v0.7.0 (/home/coder/Rostro/substrate/utils/frame/storage-access-test-runtime)
+   Compiling rococo-runtime v30.0.0 (/home/coder/Rostro/polkadot/runtime/rococo)
+   Compiling substrate-test-runtime v2.0.0 (/home/coder/Rostro/substrate/test-utils/runtime)
+   Compiling mime v0.3.17
+   Compiling encoding_rs v0.8.33
+   Compiling bp-asset-hub-rococo v0.24.0 (/home/coder/Rostro/cumulus/parachains/runtimes/assets/asset-hub-rococo/bridge-primitives)
+   Compiling bp-bridge-hub-rococo v0.28.0 (/home/coder/Rostro/cumulus/parachains/runtimes/bridge-hubs/bridge-hub-rococo/bridge-primitives)
+   Compiling bp-bridge-hub-westend v0.24.0 (/home/coder/Rostro/cumulus/parachains/runtimes/bridge-hubs/bridge-hub-westend/bridge-primitives)
+   Compiling bp-asset-hub-westend v0.23.0 (/home/coder/Rostro/cumulus/parachains/runtimes/assets/asset-hub-westend/bridge-primitives)
+   Compiling serde_urlencoded v0.7.1
+   Compiling snowbridge-merkle-tree v0.7.0 (/home/coder/Rostro/bridges/snowbridge/primitives/merkle-tree)
+   Compiling http v0.2.9
+   Compiling wait-timeout v0.2.0
+   Compiling target-triple v0.1.3
+   Compiling snowbridge-inbound-queue-primitives v0.8.0 (/home/coder/Rostro/bridges/snowbridge/primitives/inbound-queue)
+   Compiling dissimilar v1.0.7
+   Compiling snowbridge-pallet-ethereum-client-fixtures v0.27.0 (/home/coder/Rostro/bridges/snowbridge/pallets/ethereum-client/fixtures)
+   Compiling sp-debug-derive v14.0.0
+   Compiling sp-storage v22.0.0
+   Compiling foreign-types-shared v0.1.1
+   Compiling openssl v0.10.72
+   Compiling foreign-types v0.3.2
+   Compiling sp-externalities v0.30.0
+   Compiling backoff v0.4.0
+   Compiling openssl-macros v0.1.1
+   Compiling native-tls v0.2.12
+   Compiling sp-std v14.0.0
+   Compiling snowbridge-pallet-ethereum-client v0.19.0 (/home/coder/Rostro/bridges/snowbridge/pallets/ethereum-client)
+   Compiling trybuild v1.0.103
+   Compiling snowbridge-pallet-system v0.19.0 (/home/coder/Rostro/bridges/snowbridge/pallets/system)
+   Compiling parity-bip39 v2.0.1
+   Compiling substrate-bip39 v0.6.0
+   Compiling sp-core v38.1.0
+   Compiling snowbridge-pallet-outbound-queue v0.19.0 (/home/coder/Rostro/bridges/snowbridge/pallets/outbound-queue)
+   Compiling doc-comment v0.3.3
+   Compiling tokio-native-tls v0.3.1
+   Compiling polkadot-test-runtime v1.0.0 (/home/coder/Rostro/polkadot/runtime/test-runtime)
+   Compiling test-runtime-constants v1.0.0 (/home/coder/Rostro/polkadot/runtime/test-runtime/constants)
+   Compiling assert_cmd v2.0.14
+   Compiling regex-automata v0.3.6
+   Compiling bstr v1.6.0
+   Compiling hyper-tls v0.6.0
+   Compiling sp-wasm-interface v24.0.0
+   Compiling sync_wrapper v1.0.1
+   Compiling reqwest v0.12.9
+   Compiling unsafe-libyaml v0.2.11
+   Compiling serde_yaml v0.9.34+deprecated
+   Compiling snowbridge-pallet-inbound-queue v0.19.0 (/home/coder/Rostro/bridges/snowbridge/pallets/inbound-queue)
+   Compiling snowbridge-pallet-inbound-queue-fixtures v0.27.0 (/home/coder/Rostro/bridges/snowbridge/pallets/inbound-queue/fixtures)
+   Compiling snowbridge-outbound-queue-runtime-api v0.19.0 (/home/coder/Rostro/bridges/snowbridge/pallets/outbound-queue/runtime-api)
+   Compiling snowbridge-system-runtime-api v0.19.0 (/home/coder/Rostro/bridges/snowbridge/pallets/system/runtime-api)
+   Compiling sp-tracing v19.0.0
+   Compiling substrate-prometheus-endpoint v0.17.7
+   Compiling sp-runtime-interface-proc-macro v20.0.0
+   Compiling trie-db v0.30.0
+   Compiling sp-trie v41.1.1
+   Compiling sp-runtime-interface v32.0.0
+   Compiling pallet-example-tasks v1.0.0 (/home/coder/Rostro/substrate/frame/examples/tasks)
+   Compiling node-primitives v2.0.0 (/home/coder/Rostro/substrate/bin/node/primitives)
+   Compiling sp-arithmetic v28.0.0
+   Compiling sp-panic-handler v13.0.2
+   Compiling sp-io v43.0.0
+   Compiling sp-state-machine v0.48.0
+   Compiling sp-keystore v0.44.1
+   Compiling libz-sys v1.1.12
+   Compiling sp-application-crypto v43.0.0
+   Compiling sp-weights v33.2.0
+   Compiling kitchensink-runtime v3.0.0 (/home/coder/Rostro/substrate/bin/node/runtime)
+   Compiling cumulus-test-runtime v0.1.0 (/home/coder/Rostro/cumulus/test/runtime)
+   Compiling asset-hub-westend-runtime v0.43.0 (/home/coder/Rostro/cumulus/parachains/runtimes/assets/asset-hub-westend)
+   Compiling snowbridge-pallet-system-frontend v0.8.0 (/home/coder/Rostro/bridges/snowbridge/pallets/system-frontend)
+   Compiling pallet-example-mbm v0.1.0 (/home/coder/Rostro/substrate/frame/examples/multi-block-migrations)
+   Compiling snowbridge-runtime-common v0.20.0 (/home/coder/Rostro/bridges/snowbridge/runtime/runtime-common)
+   Compiling pallet-ah-ops v0.6.0 (/home/coder/Rostro/cumulus/pallets/ah-ops)
+   Compiling binary-merkle-tree v16.1.0
+   Compiling rstest_macros v0.18.2
+   Compiling sp-runtime v44.0.0
+   Compiling frame-support-test-pallet v4.0.0 (/home/coder/Rostro/substrate/frame/support/test/pallet)
+   Compiling ring v0.16.20
+   Compiling parking v2.2.1
+   Compiling relative-path v1.9.2
+   Compiling env_logger v0.11.3
+   Compiling eyre v0.6.8
+   Compiling rstest v0.18.2
+   Compiling indenter v0.3.3
+   Compiling spin v0.5.2
+   Compiling untrusted v0.7.1
+   Compiling frame-support-test v3.0.0 (/home/coder/Rostro/substrate/frame/support/test)
+   Compiling snowbridge-pallet-system-v2 v0.8.0 (/home/coder/Rostro/bridges/snowbridge/pallets/system-v2)
+   Compiling snowbridge-pallet-inbound-queue-v2 v0.8.0 (/home/coder/Rostro/bridges/snowbridge/pallets/inbound-queue-v2)
+   Compiling snowbridge-pallet-inbound-queue-v2-fixtures v0.8.0 (/home/coder/Rostro/bridges/snowbridge/pallets/inbound-queue-v2/fixtures)
+   Compiling snowbridge-pallet-outbound-queue-v2 v0.8.0 (/home/coder/Rostro/bridges/snowbridge/pallets/outbound-queue-v2)
+   Compiling snowbridge-outbound-queue-v2-runtime-api v0.8.0 (/home/coder/Rostro/bridges/snowbridge/pallets/outbound-queue-v2/runtime-api)
+   Compiling bridge-hub-westend-runtime v0.23.0 (/home/coder/Rostro/cumulus/parachains/runtimes/bridge-hubs/bridge-hub-westend)
+   Compiling snowbridge-system-v2-runtime-api v0.8.0 (/home/coder/Rostro/bridges/snowbridge/pallets/system-v2/runtime-api)
+   Compiling sp-crypto-hashing-proc-macro v0.1.0
+   Compiling bp-rococo v0.25.0 (/home/coder/Rostro/polkadot/runtime/rococo/bridge-primitives)
+   Compiling sp-version-proc-macro v15.0.0
+   Compiling polkavm-assembler v0.26.0
+   Compiling owo-colors v3.5.0
+   Compiling color-eyre v0.6.3
+   Compiling polkavm-common v0.26.0
+   Compiling sp-version v42.0.0
+   Compiling http-body v0.4.5
+   Compiling clap_complete v4.5.13
+   Compiling sp-api-proc-macro v25.0.0
+   Compiling rustls v0.21.7
+   Compiling polkavm-linux-raw v0.26.0
+   Compiling polkavm v0.26.0
+   Compiling sp-api v39.0.0
+   Compiling sct v0.7.0
+   Compiling rustls-webpki v0.101.4
+   Compiling sc-allocator v34.0.0
+   Compiling penpal-runtime v0.36.0 (/home/coder/Rostro/cumulus/parachains/runtimes/testing/penpal)
+   Compiling sp-maybe-compressed-blob v11.1.0
+   Compiling ordered-float v2.10.1
+   Compiling bit-vec v0.8.0
+   Compiling k8s-openapi v0.20.0
+   Compiling bit-set v0.8.0
+   Compiling serde-value v0.7.0
+   Compiling sc-executor-common v0.41.0
+   Compiling hyper v0.14.29
+   Compiling sp-inherents v39.0.0
+   Compiling rustls-pemfile v1.0.3
+   Compiling flate2 v1.0.27
+   Compiling sc-executor-wasmtime v0.41.0
+   Compiling rustls-native-certs v0.6.3
+   Compiling sp-consensus v0.45.0
+   Compiling tokio-rustls v0.24.1
+   Compiling tungstenite v0.20.1
+   Compiling litep2p v0.10.0
+   Compiling sp-database v10.0.1
+   Compiling json-patch v1.4.0
+   Compiling tokio-io-timeout v1.2.0
+   Compiling leb128 v0.2.5
+   Compiling http-range-header v0.3.1
+   Compiling tower-http v0.4.4
+   Compiling wasm-encoder v0.31.1
+   Compiling hyper-timeout v0.4.1
+   Compiling kube-core v0.87.2
+   Compiling sp-blockchain v42.0.0
+   Compiling tokio-tungstenite v0.20.1
+   Compiling hyper-rustls v0.24.2
+   Compiling sc-executor-polkavm v0.38.0
+   Compiling sc-utils v20.0.0
+   Compiling jsonpath-rust v0.3.5
+   Compiling pem v3.0.4
+   Compiling simple-dns v0.9.3
+   Compiling home v0.5.9
+   Compiling kube-client v0.87.2
+   Compiling sc-executor v0.45.0
+   Compiling sc-transaction-pool-api v42.0.0
+   Compiling wast v63.0.0
+   Compiling sc-network v0.53.1
+   Compiling xattr v1.0.1
+   Compiling tar v0.4.40
+   Compiling sc-client-api v42.0.0
+   Compiling wat v1.0.70
+   Compiling sc-network-types v0.19.0
+   Compiling kube-runtime v0.87.2
+   Compiling sc-network-common v0.51.0
+   Compiling zombienet-support v0.4.7
+   Compiling cid v0.9.0
+   Compiling zombienet-configuration v0.4.7
+   Compiling kube v0.87.2
+   Compiling sc-telemetry v30.0.0
+   Compiling sp-genesis-builder v0.20.0
+   Compiling sc-chain-spec-derive v12.0.0
+   Compiling sc-chain-spec v46.0.0
+   Compiling zombienet-provider v0.4.7
+   Compiling fancy-regex v0.14.0
+   Compiling zombienet-prom-metrics-parser v0.4.7
+   Compiling glob-match v0.2.1
+   Compiling zombienet-orchestrator v0.4.7
+   Compiling collectives-westend-runtime v26.0.0 (/home/coder/Rostro/cumulus/parachains/runtimes/collectives/collectives-westend)
+   Compiling people-westend-runtime v0.22.0 (/home/coder/Rostro/cumulus/parachains/runtimes/people/people-westend)
+   Compiling coretime-westend-runtime v0.22.0 (/home/coder/Rostro/cumulus/parachains/runtimes/coretime/coretime-westend)
+   Compiling libnghttp2-sys v0.1.9+1.58.0
+   Compiling fs_extra v1.3.0
+   Compiling zombienet-sdk v0.4.7
+   Compiling substrate-cli-test-utils v0.1.0 (/home/coder/Rostro/substrate/test-utils/cli)
+   Compiling curl-sys v0.4.72+curl-8.6.0
+   Compiling colored v2.0.4
+   Compiling polling v2.8.0
+   Compiling curl v0.4.46
+   Compiling polkavm-common v0.30.0
+   Compiling dlmalloc v0.2.4
+   Compiling fastrand v1.9.0
+   Compiling isahc v1.7.2
+   Compiling waker-fn v1.1.0
+   Compiling futures-lite v1.13.0
+   Compiling polkavm-linker v0.30.0
+   Compiling sluice v0.5.5
+   Compiling castaway v0.1.2
+   Compiling bridge-hub-rococo-runtime v0.26.0 (/home/coder/Rostro/cumulus/parachains/runtimes/bridge-hubs/bridge-hub-rococo)
+   Compiling bp-westend v0.22.0 (/home/coder/Rostro/polkadot/runtime/westend/bridge-primitives)
+   Compiling bp-polkadot-bulletin v0.23.0 (/home/coder/Rostro/bridges/chains/chain-polkadot-bulletin)
+   Compiling jsonpath_lib v0.3.0
+   Compiling cumulus-zombienet-sdk-helpers v0.1.0 (/home/coder/Rostro/cumulus/zombienet/zombienet-sdk-helpers)
+   Compiling asset-hub-rococo-runtime v0.32.0 (/home/coder/Rostro/cumulus/parachains/runtimes/assets/asset-hub-rococo)
+   Compiling relay-utils v0.1.0 (/home/coder/Rostro/bridges/relays/utils)
+   Compiling honggfuzz v0.5.55
+   Compiling unicode_categories v0.1.1
+   Compiling sqlformat v0.2.6
+   Compiling pallet-revive-fixtures v0.10.0 (/home/coder/Rostro/substrate/frame/revive/fixtures)
+   Compiling event-listener v5.3.1
+   Compiling libsqlite3-sys v0.30.1
+   Compiling hashlink v0.9.1
+   Compiling futures-intrusive v0.5.0
+   Compiling atoi v2.0.0
+   Compiling findshlibs v0.10.2
+   Compiling winapi v0.3.9
+   Compiling symbolic-demangle v12.14.1
+   Compiling rle-decode-fast v1.0.3
+   Compiling libflate_lz77 v1.2.0
+   Compiling symbolic-common v12.14.1
+   Compiling prost-derive v0.11.9
+   Compiling adler32 v1.2.0
+   Compiling pprof2 v0.13.1
+   Compiling libflate v1.4.0
+   Compiling prost v0.11.9
+   Compiling finality-relay v0.1.0 (/home/coder/Rostro/bridges/relays/finality)
+   Compiling polkadot v31.0.0 (/home/coder/Rostro/polkadot)
+   Compiling frame-metadata v20.0.0
+   Compiling libgit2-sys v0.18.0+1.9.0
+   Compiling flume v0.11.1
+   Compiling nix v0.27.1
+   Compiling frame-decode v0.7.1
+   Compiling pyroscope v0.5.8
+   Compiling sqlx-core v0.8.2
+   Compiling sqlx-sqlite v0.8.2
+   Compiling pyroscope_pprofrs v0.2.8
+   Compiling subxt-metadata v0.41.0
+   Compiling bincode v1.3.3
+   Compiling dotenvy v0.15.7
+   Compiling sqlx-macros-core v0.8.2
+   Compiling subxt-core v0.41.0
+   Compiling git2 v0.20.0
+   Compiling test-parachain-adder v0.1.0 (/home/coder/Rostro/polkadot/parachain/test-parachains/adder)
+   Compiling env_logger v0.8.4
+   Compiling substrate-test-utils v3.0.0 (/home/coder/Rostro/substrate/test-utils)
+   Compiling quickcheck v1.0.3
+   Compiling subxt-codegen v0.41.0
+   Compiling sqlx-macros v0.8.2
+   Compiling subxt-utils-fetchmetadata v0.41.0
+   Compiling subxt-macro v0.41.0
+   Compiling sqlx v0.8.2
+   Compiling subxt-rpcs v0.41.0
+   Compiling drawille v0.3.0
+   Compiling snowbridge-test-utils v0.9.0 (/home/coder/Rostro/bridges/snowbridge/test-utils)
+   Compiling easy-cast v0.5.3
+   Compiling float-ord v0.3.2
+   Compiling average v0.15.1
+   Compiling subxt v0.41.0
+   Compiling termplot v0.1.1
+   Compiling subxt-signer v0.41.0
+   Compiling rusty-fork v0.3.0
+   Compiling sp-runtime-interface-test-wasm v2.0.0 (/home/coder/Rostro/substrate/primitives/runtime-interface/test-wasm)
+   Compiling test-parachain-undying v1.0.0 (/home/coder/Rostro/polkadot/parachain/test-parachains/undying)
+   Compiling ctrlc v3.4.5
+   Compiling lite-parser v0.2.0
+   Compiling lite-json v0.2.0
+   Compiling substrate-txtesttool v0.7.0
+   Compiling snowbridge-runtime-test-common v0.22.0 (/home/coder/Rostro/bridges/snowbridge/runtime/test-common)
+   Compiling env_logger v0.10.1
+   Compiling cmd_lib_macros v1.9.5
+   Compiling pallet-example-basic v34.0.0 (/home/coder/Rostro/substrate/frame/examples/basic)
+   Compiling ark-serialize-derive v0.4.2
+   Compiling quick_cache v0.3.0
+   Compiling faccess v0.2.4
+   Compiling ark-std v0.4.0
+   Compiling os_pipe v1.2.1
+   Compiling proc-macro2 v0.4.30
+   Compiling cmd_lib v1.9.5
+   Compiling ark-serialize v0.4.2
+   Compiling solochain-template-runtime v0.1.0 (/home/coder/Rostro/templates/solochain/runtime)
+   Compiling sc-runtime-test v2.0.0 (/home/coder/Rostro/substrate/client/executor/runtime-test)
+   Compiling chain-spec-guide-runtime v0.1.0 (/home/coder/Rostro/docs/sdk/src/reference_docs/chain_spec_runtime)
+   Compiling pallet-template v0.1.0 (/home/coder/Rostro/templates/solochain/pallets/template)
+   Compiling pallet-contracts-fixtures v1.0.0 (/home/coder/Rostro/substrate/frame/contracts/fixtures)
+   Compiling ark-ff-macros v0.4.2
+   Compiling ark-ff-asm v0.4.2
+   Compiling unicode-xid v0.1.0
+   Compiling ark-ff v0.4.2
+   Compiling pallet-example-offchain-worker v28.0.0 (/home/coder/Rostro/substrate/frame/examples/offchain-worker)
+   Compiling polkadot-sdk-docs-first-runtime v0.1.0 (/home/coder/Rostro/docs/sdk/packages/guides/first-runtime)
+   Compiling test-parachain-halt v0.1.0 (/home/coder/Rostro/polkadot/parachain/test-parachains/halt)
+   Compiling glutton-westend-runtime v24.0.0 (/home/coder/Rostro/cumulus/parachains/runtimes/glutton/glutton-westend)
+   Compiling yet-another-parachain-runtime v0.8.0 (/home/coder/Rostro/cumulus/parachains/runtimes/testing/yet-another-parachain)
+   Compiling sp-runtime-interface-test-wasm-deprecated v2.0.0 (/home/coder/Rostro/substrate/primitives/runtime-interface/test-wasm-deprecated)
+   Compiling pallet-staking-async-preset-store v0.1.0 (/home/coder/Rostro/substrate/frame/staking-async/runtimes/preset-store)
+   Compiling polkadot-sdk-docs-first-pallet v0.1.0 (/home/coder/Rostro/docs/sdk/packages/guides/first-pallet)
+   Compiling pallet-example-frame-crate v0.1.0 (/home/coder/Rostro/substrate/frame/examples/frame-crate)
+   Compiling pallet-example-single-block-migrations v0.1.0 (/home/coder/Rostro/substrate/frame/examples/single-block-migrations)
+   Compiling pallet-example-kitchensink v4.0.0 (/home/coder/Rostro/substrate/frame/examples/kitchensink)
+   Compiling pallet-default-config-example v10.0.0 (/home/coder/Rostro/substrate/frame/examples/default-config)
+   Compiling pallet-example-view-functions v0.8.0 (/home/coder/Rostro/substrate/frame/examples/view-functions)
+   Compiling pallet-example-split v10.0.0 (/home/coder/Rostro/substrate/frame/examples/split)
+   Compiling pallet-example-authorization-tx-extension v1.0.0 (/home/coder/Rostro/substrate/frame/examples/authorization-tx-extension)
+   Compiling sp-test-primitives v2.0.0 (/home/coder/Rostro/substrate/primitives/test-primitives)
+   Compiling syn v0.15.44
+   Compiling ark-poly v0.4.2
+   Compiling quote v0.6.13
+   Compiling polkadot-zombienet-sdk-tests v0.1.0 (/home/coder/Rostro/polkadot/zombienet-sdk-tests)
+   Compiling fraction v0.13.1
+   Compiling keccak-hasher v0.16.0
+   Compiling test-case-core v3.3.1
+   Compiling test-case-macros v3.3.1
+   Compiling trie-standardmap v0.16.0
+   Compiling ark-ec v0.4.2
+   Compiling parachain-template-runtime v0.1.0 (/home/coder/Rostro/templates/parachain/runtime)
+   Compiling pallet-parachain-template v0.1.0 (/home/coder/Rostro/templates/parachain/pallets/template)
+   Compiling rand_xorshift v0.3.0
+   Compiling unarray v0.1.4
+   Compiling procfs v0.16.0
+   Compiling proptest v1.6.0
+   Compiling rbtag_derive v0.3.0
+   Compiling test-case v3.3.1
+   Compiling pallet-examples v4.0.0 (/home/coder/Rostro/substrate/frame/examples)
+   Compiling messages-relay v0.1.0 (/home/coder/Rostro/bridges/relays/messages)
+   Compiling equivocation-detector v0.1.0 (/home/coder/Rostro/bridges/relays/equivocation)
+   Compiling pallet-staking-async-rc-runtime v7.0.0 (/home/coder/Rostro/substrate/frame/staking-async/runtimes/rc)
+   Compiling pallet-staking-async-parachain-runtime v0.15.0 (/home/coder/Rostro/substrate/frame/staking-async/runtimes/parachain)
+   Compiling xcm-docs v0.1.0 (/home/coder/Rostro/polkadot/xcm/docs)
+   Compiling polkadot-test-malus v1.0.0 (/home/coder/Rostro/polkadot/node/malus)
+   Compiling polkadot-omni-node v0.14.0 (/home/coder/Rostro/cumulus/polkadot-omni-node)
+   Compiling polkadot-parachain-bin v6.0.0 (/home/coder/Rostro/cumulus/polkadot-parachain)
+   Compiling bp-beefy v0.1.0 (/home/coder/Rostro/bridges/primitives/beefy)
+   Compiling pallet-staking-async-rc-runtime-constants v0.7.0 (/home/coder/Rostro/substrate/frame/staking-async/runtimes/rc/constants)
+   Compiling tungstenite v0.26.2
+   Compiling sp-consensus-sassafras v0.3.4 (/home/coder/Rostro/substrate/primitives/consensus/sassafras)
+   Compiling procfs-core v0.16.0
+   Compiling async-stream-impl v0.3.5
+   Compiling async-stream v0.3.5
+   Compiling tokio-tungstenite v0.26.2
+   Compiling rbtag v0.3.0
+   Compiling ark-bls12-377 v0.4.0
+   Compiling ark-bls12-381 v0.4.0
+   Compiling substrate-zombienet-sdk-tests v0.1.0 (/home/coder/Rostro/substrate/zombienet/zombienet-sdk)
+   Compiling femme v2.2.1
+   Compiling test-log-macros v0.2.18
+   Compiling test-log v0.2.18
+   Compiling w3f-bls v0.1.9
+   Compiling tokio-test v0.4.4
+   Compiling trie-bench v0.42.1
+   Compiling solochain-template-node v0.1.0 (/home/coder/Rostro/templates/solochain/node)
+   Compiling kvdb-shared-tests v0.11.0
+   Compiling prometheus-parse v0.2.4
+   Compiling portpicker v0.1.1
+   Compiling rocksdb v0.24.0
+   Compiling kvdb-rocksdb v0.21.0
+   Compiling sp-database v10.0.1 (/home/coder/Rostro/substrate/primitives/database)
+   Compiling sp-blockchain v44.0.0 (/home/coder/Rostro/substrate/primitives/blockchain)
+   Compiling sc-transaction-pool-api v44.0.0 (/home/coder/Rostro/substrate/client/transaction-pool/api)
+   Compiling sc-client-api v45.0.0 (/home/coder/Rostro/substrate/client/api)
+   Compiling sc-chain-spec v49.0.0 (/home/coder/Rostro/substrate/client/chain-spec)
+   Compiling sc-consensus v0.55.0 (/home/coder/Rostro/substrate/client/consensus/common)
+   Compiling sc-block-builder v0.49.0 (/home/coder/Rostro/substrate/client/block-builder)
+   Compiling sc-client-db v0.52.0 (/home/coder/Rostro/substrate/client/db)
+   Compiling sc-mixnet v0.26.0 (/home/coder/Rostro/substrate/client/mixnet)
+   Compiling sc-network-statement v0.38.0 (/home/coder/Rostro/substrate/client/network/statement)
+   Compiling sc-rpc-api v0.55.0 (/home/coder/Rostro/substrate/client/rpc-api)
+   Compiling sc-statement-store v27.0.0 (/home/coder/Rostro/substrate/client/statement-store)
+   Compiling sc-tracing v45.0.0 (/home/coder/Rostro/substrate/client/tracing)
+   Compiling sc-rpc-server v28.0.0 (/home/coder/Rostro/substrate/client/rpc-servers)
+   Compiling sc-rpc v51.0.0 (/home/coder/Rostro/substrate/client/rpc)
+   Compiling sc-informant v0.55.0 (/home/coder/Rostro/substrate/client/informant)
+   Compiling sc-network-transactions v0.55.0 (/home/coder/Rostro/substrate/client/network/transactions)
+   Compiling sc-transaction-pool v45.0.0 (/home/coder/Rostro/substrate/client/transaction-pool)
+   Compiling sc-rpc-spec-v2 v0.56.0 (/home/coder/Rostro/substrate/client/rpc-spec-v2)
+   Compiling sc-network-gossip v0.56.0 (/home/coder/Rostro/substrate/client/network-gossip)
+   Compiling sc-consensus-grandpa v0.41.0 (/home/coder/Rostro/substrate/client/consensus/grandpa)
+   Compiling sc-consensus-epochs v0.55.0 (/home/coder/Rostro/substrate/client/consensus/epochs)
+   Compiling sc-consensus-babe v0.56.0 (/home/coder/Rostro/substrate/client/consensus/babe)
+   Compiling sc-consensus-beefy v35.0.0 (/home/coder/Rostro/substrate/client/consensus/beefy)
+   Compiling substrate-frame-rpc-system v50.0.0 (/home/coder/Rostro/substrate/utils/frame/rpc/system)
+   Compiling pallet-transaction-payment-rpc v49.0.0 (/home/coder/Rostro/substrate/frame/transaction-payment/rpc)
+   Compiling sc-sync-state-rpc v0.56.0 (/home/coder/Rostro/substrate/client/sync-state-rpc)
+   Compiling sc-consensus-grandpa-rpc v0.41.0 (/home/coder/Rostro/substrate/client/consensus/grandpa/rpc)
+   Compiling sc-consensus-beefy-rpc v35.0.0 (/home/coder/Rostro/substrate/client/consensus/beefy/rpc)
+   Compiling sc-consensus-babe-rpc v0.56.0 (/home/coder/Rostro/substrate/client/consensus/babe/rpc)
+   Compiling sc-service v0.57.0 (/home/coder/Rostro/substrate/client/service)
+   Compiling substrate-state-trie-migration-rpc v49.0.0 (/home/coder/Rostro/substrate/utils/frame/rpc/state-trie-migration-rpc)
+   Compiling mmr-rpc v45.0.0 (/home/coder/Rostro/substrate/client/merkle-mountain-range/rpc)
+   Compiling sc-offchain v51.0.0 (/home/coder/Rostro/substrate/client/offchain)
+   Compiling sc-basic-authorship v0.54.0 (/home/coder/Rostro/substrate/client/basic-authorship)
+   Compiling polkadot-rpc v30.0.0 (/home/coder/Rostro/polkadot/rpc)
+   Compiling emulated-integration-tests-common v29.0.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/common)
+   Compiling mmr-gadget v51.0.0 (/home/coder/Rostro/substrate/client/merkle-mountain-range)
+   Compiling sc-consensus-aura v0.56.0 (/home/coder/Rostro/substrate/client/consensus/aura)
+   Compiling sc-cli v0.58.0 (/home/coder/Rostro/substrate/client/cli)
+   Compiling substrate-test-client v2.0.1 (/home/coder/Rostro/substrate/test-utils/client)
+   Compiling polkadot-node-network-protocol v29.0.0 (/home/coder/Rostro/polkadot/node/network/protocol)
+   Compiling polkadot-node-metrics v29.0.0 (/home/coder/Rostro/polkadot/node/metrics)
+   Compiling substrate-rpc-client v0.55.0 (/home/coder/Rostro/substrate/utils/frame/rpc/client)
+   Compiling polkadot-node-subsystem-types v29.0.0 (/home/coder/Rostro/polkadot/node/subsystem-types)
+   Compiling cumulus-client-cli v0.29.0 (/home/coder/Rostro/cumulus/client/cli)
+   Compiling polkadot-overseer v29.0.0 (/home/coder/Rostro/polkadot/node/overseer)
+   Compiling substrate-test-runtime-client v2.0.0 (/home/coder/Rostro/substrate/test-utils/runtime/client)
+⚡ Found 4 strongly connected components which includes at least one cycle each
+cycle(001) ∈ α: DisputeCoordinator ~~{"DisputeDistributionMessage"}~~> DisputeDistribution ~~{"DisputeCoordinatorMessage"}~~>  *
+cycle(002) ∈ β: ApprovalVoting ~~{"ApprovalDistributionMessage"}~~> ApprovalDistribution ~~{"ApprovalVotingMessage"}~~>  *
+cycle(003) ∈ γ: CandidateBacking ~~{"CollatorProtocolMessage"}~~> CollatorProtocol ~~{"CandidateBackingMessage"}~~>  *
+cycle(004) ∈ δ: NetworkBridgeRx ~~{"GossipSupportMessage"}~~> GossipSupport ~~{"NetworkBridgeRxMessage"}~~>  *
+   Compiling frame-remote-externalities v0.57.0 (/home/coder/Rostro/substrate/utils/frame/remote-externalities)
+   Compiling sc-consensus-manual-seal v0.57.0 (/home/coder/Rostro/substrate/client/consensus/manual-seal)
+   Compiling subkey v31.0.0 (/home/coder/Rostro/substrate/bin/utils/subkey)
+   Compiling staging-node-inspect v0.34.0 (/home/coder/Rostro/substrate/bin/node/inspect)
+   Compiling substrate-frame-rpc-support v51.0.0 (/home/coder/Rostro/substrate/utils/frame/rpc/support)
+   Compiling sc-consensus-pow v0.55.0 (/home/coder/Rostro/substrate/client/consensus/pow)
+   Compiling node-rpc v3.0.0 (/home/coder/Rostro/substrate/bin/node/rpc)
+   Compiling westend-emulated-chain v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/chains/relays/westend)
+   Compiling penpal-emulated-chain v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal)
+   Compiling asset-hub-westend-emulated-chain v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend)
+   Compiling bridge-hub-westend-emulated-chain v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/chains/parachains/bridges/bridge-hub-westend)
+   Compiling sc-service-test v2.0.0 (/home/coder/Rostro/substrate/client/service/test)
+   Compiling people-westend-emulated-chain v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/chains/parachains/people/people-westend)
+   Compiling collectives-westend-emulated-chain v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/chains/parachains/collectives/collectives-westend)
+   Compiling coretime-westend-emulated-chain v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/chains/parachains/coretime/coretime-westend)
+   Compiling substrate-test-runtime-transaction-pool v2.0.0 (/home/coder/Rostro/substrate/test-utils/runtime/transaction-pool)
+   Compiling westend-system-emulated-network v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/networks/westend-system)
+⚡ Found 4 strongly connected components which includes at least one cycle each
+cycle(001) ∈ α: DisputeCoordinator ~~{"DisputeDistributionMessage"}~~> DisputeDistribution ~~{"DisputeCoordinatorMessage"}~~>  *
+cycle(002) ∈ β: ApprovalVoting ~~{"ApprovalDistributionMessage"}~~> ApprovalDistribution ~~{"ApprovalVotingMessage"}~~>  *
+cycle(003) ∈ γ: CandidateBacking ~~{"CollatorProtocolMessage"}~~> CollatorProtocol ~~{"CandidateBackingMessage"}~~>  *
+cycle(004) ∈ δ: NetworkBridgeRx ~~{"GossipSupportMessage"}~~> GossipSupport ~~{"NetworkBridgeRxMessage"}~~>  *
+   Compiling rococo-emulated-chain v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/chains/relays/rococo)
+   Compiling asset-hub-rococo-emulated-chain v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-rococo)
+   Compiling bridge-hub-rococo-emulated-chain v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/chains/parachains/bridges/bridge-hub-rococo)
+   Compiling sc-network-test v0.8.0 (/home/coder/Rostro/substrate/client/network/test)
+   Compiling rococo-westend-system-emulated-network v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/networks/rococo-westend-system)
+   Compiling relay-substrate-client v0.1.0 (/home/coder/Rostro/bridges/relays/client-substrate)
+   Compiling pallet-bags-list-remote-tests v4.0.0 (/home/coder/Rostro/substrate/frame/bags-list/remote-tests)
+   Compiling cumulus-zombienet-sdk-tests v0.1.0 (/home/coder/Rostro/cumulus/zombienet/zombienet-sdk)
+   Compiling parachains-relay v0.1.0 (/home/coder/Rostro/bridges/relays/parachains)
+   Compiling polkadot-node-subsystem v29.0.0 (/home/coder/Rostro/polkadot/node/subsystem)
+   Compiling polkadot-node-subsystem-util v29.0.0 (/home/coder/Rostro/polkadot/node/subsystem-util)
+   Compiling cumulus-relay-chain-interface v0.29.0 (/home/coder/Rostro/cumulus/client/relay-chain-interface)
+   Compiling cumulus-client-parachain-inherent v0.23.0 (/home/coder/Rostro/cumulus/client/parachain-inherent)
+   Compiling polkadot-approval-distribution v29.0.0 (/home/coder/Rostro/polkadot/node/network/approval-distribution)
+   Compiling polkadot-node-core-approval-voting v29.0.0 (/home/coder/Rostro/polkadot/node/core/approval-voting)
+   Compiling polkadot-availability-bitfield-distribution v29.0.0 (/home/coder/Rostro/polkadot/node/network/bitfield-distribution)
+   Compiling polkadot-dispute-distribution v29.0.0 (/home/coder/Rostro/polkadot/node/network/dispute-distribution)
+   Compiling polkadot-node-core-av-store v29.0.0 (/home/coder/Rostro/polkadot/node/core/av-store)
+   Compiling polkadot-node-core-approval-voting-parallel v0.12.0 (/home/coder/Rostro/polkadot/node/core/approval-voting-parallel)
+   Compiling polkadot-statement-distribution v29.0.0 (/home/coder/Rostro/polkadot/node/network/statement-distribution)
+   Compiling polkadot-availability-distribution v29.0.0 (/home/coder/Rostro/polkadot/node/network/availability-distribution)
+   Compiling polkadot-availability-recovery v29.0.0 (/home/coder/Rostro/polkadot/node/network/availability-recovery)
+   Compiling polkadot-node-core-dispute-coordinator v29.0.0 (/home/coder/Rostro/polkadot/node/core/dispute-coordinator)
+   Compiling polkadot-node-core-candidate-validation v29.0.0 (/home/coder/Rostro/polkadot/node/core/candidate-validation)
+   Compiling polkadot-node-core-pvf-checker v29.0.0 (/home/coder/Rostro/polkadot/node/core/pvf-checker)
+   Compiling polkadot-node-core-backing v29.0.0 (/home/coder/Rostro/polkadot/node/core/backing)
+   Compiling polkadot-collator-protocol v29.1.0 (/home/coder/Rostro/polkadot/node/network/collator-protocol)
+   Compiling polkadot-node-core-bitfield-signing v29.0.0 (/home/coder/Rostro/polkadot/node/core/bitfield-signing)
+   Compiling polkadot-node-core-chain-selection v29.0.0 (/home/coder/Rostro/polkadot/node/core/chain-selection)
+   Compiling polkadot-node-core-prospective-parachains v28.0.0 (/home/coder/Rostro/polkadot/node/core/prospective-parachains)
+   Compiling polkadot-node-collation-generation v29.0.0 (/home/coder/Rostro/polkadot/node/collation-generation)
+   Compiling polkadot-gossip-support v29.0.0 (/home/coder/Rostro/polkadot/node/network/gossip-support)
+   Compiling polkadot-node-core-provisioner v29.0.0 (/home/coder/Rostro/polkadot/node/core/provisioner)
+   Compiling polkadot-node-core-runtime-api v29.0.0 (/home/coder/Rostro/polkadot/node/core/runtime-api)
+   Compiling polkadot-node-core-chain-api v29.0.0 (/home/coder/Rostro/polkadot/node/core/chain-api)
+   Compiling polkadot-node-core-parachains-inherent v29.0.0 (/home/coder/Rostro/polkadot/node/core/parachains-inherent)
+   Compiling polkadot-network-bridge v29.0.0 (/home/coder/Rostro/polkadot/node/network/bridge)
+   Compiling cumulus-relay-chain-streams v0.7.0 (/home/coder/Rostro/cumulus/client/relay-chain-streams)
+   Compiling polkadot-service v32.0.0 (/home/coder/Rostro/polkadot/node/service)
+   Compiling cumulus-client-pov-recovery v0.29.0 (/home/coder/Rostro/cumulus/client/pov-recovery)
+   Compiling cumulus-relay-chain-rpc-interface v0.29.0 (/home/coder/Rostro/cumulus/client/relay-chain-rpc-interface)
+   Compiling cumulus-client-consensus-common v0.29.0 (/home/coder/Rostro/cumulus/client/consensus/common)
+   Compiling cumulus-client-network v0.29.0 (/home/coder/Rostro/cumulus/client/network)
+   Compiling cumulus-client-collator v0.29.0 (/home/coder/Rostro/cumulus/client/collator)
+   Compiling cumulus-client-consensus-relay-chain v0.29.0 (/home/coder/Rostro/cumulus/client/consensus/relay-chain)
+   Compiling cumulus-client-consensus-aura v0.29.0 (/home/coder/Rostro/cumulus/client/consensus/aura)
+   Compiling polkadot-node-subsystem-test-helpers v1.0.0 (/home/coder/Rostro/polkadot/node/subsystem-test-helpers)
+   Compiling substrate-relay-helper v0.1.0 (/home/coder/Rostro/bridges/relays/lib-substrate-relay)
+   Compiling polkadot-subsystem-bench v1.0.0 (/home/coder/Rostro/polkadot/node/subsystem-bench)
+   Compiling cumulus-relay-chain-minimal-node v0.32.0 (/home/coder/Rostro/cumulus/client/relay-chain-minimal-node)
+   Compiling polkadot-sdk v2603.0.0 (/home/coder/Rostro/umbrella)
+   Compiling polkadot-test-service v1.0.0 (/home/coder/Rostro/polkadot/node/test/service)
+   Compiling staging-node-cli v3.0.0 (/home/coder/Rostro/substrate/bin/node/cli)
+   Compiling revive-dev-runtime v0.5.0 (/home/coder/Rostro/substrate/frame/revive/dev-node/runtime)
+   Compiling revive-dev-node v0.1.0 (/home/coder/Rostro/substrate/frame/revive/dev-node/node)
+   Compiling minimal-template-runtime v0.1.0 (/home/coder/Rostro/templates/minimal/runtime)
+   Compiling polkadot-test-client v1.0.0 (/home/coder/Rostro/polkadot/node/test/client)
+   Compiling minimal-template-node v0.1.0 (/home/coder/Rostro/templates/minimal/node)
+   Compiling pallet-revive-eth-rpc v0.14.0 (/home/coder/Rostro/substrate/frame/revive/rpc)
+   Compiling parachain-template-node v0.1.0 (/home/coder/Rostro/templates/parachain/node)
+   Compiling xcm-executor-integration-tests v1.0.0 (/home/coder/Rostro/polkadot/xcm/xcm-executor/integration-tests)
+   Compiling bridge-hub-westend-integration-tests v1.0.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/tests/bridges/bridge-hub-westend)
+   Compiling bridge-hub-rococo-integration-tests v1.0.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/tests/bridges/bridge-hub-rococo)
+   Compiling coretime-westend-integration-tests v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/tests/coretime/coretime-westend)
+   Compiling collectives-westend-integration-tests v1.0.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/tests/collectives/collectives-westend)
+   Compiling people-westend-integration-tests v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/tests/people/people-westend)
+   Compiling governance-westend-integration-tests v0.1.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/tests/governance/westend)
+   Compiling asset-hub-westend-integration-tests v1.0.0 (/home/coder/Rostro/cumulus/parachains/integration-tests/emulated/tests/assets/asset-hub-westend)
+   Compiling sp-application-crypto-test v2.0.0 (/home/coder/Rostro/substrate/primitives/application-crypto/test)
+   Compiling zombienet-backchannel v1.0.0 (/home/coder/Rostro/polkadot/node/zombienet-backchannel)
+   Compiling pallet-sassafras v0.3.5 (/home/coder/Rostro/substrate/frame/sassafras)
+   Compiling pallet-bridge-beefy v0.1.0 (/home/coder/Rostro/bridges/modules/beefy)
+   Compiling sp-runtime-interface-test v2.0.0 (/home/coder/Rostro/substrate/primitives/runtime-interface/test)
+   Compiling xcm-simulator-example v27.0.0 (/home/coder/Rostro/polkadot/xcm/xcm-simulator/example)
+   Compiling pallet-revive-ui-tests v0.1.0 (/home/coder/Rostro/substrate/frame/revive/ui-tests)
+   Compiling frame-support-test-stg-frame-crate v0.1.0 (/home/coder/Rostro/substrate/frame/support/test/stg_frame_crate)
+   Compiling frame-support-test-compile-pass v4.0.0 (/home/coder/Rostro/substrate/frame/support/test/compile_pass)
+   Compiling parachain-template v0.1.0 (/home/coder/Rostro/templates/parachain)
+   Compiling pallet-nomination-pools-test-delegate-stake v1.0.0 (/home/coder/Rostro/substrate/frame/nomination-pools/test-delegate-stake)
+   Compiling pallet-election-provider-e2e-test v1.0.0 (/home/coder/Rostro/substrate/frame/election-provider-multi-phase/test-staking-e2e)
+   Compiling pallet-ahm-test v1.0.0 (/home/coder/Rostro/substrate/frame/staking-async/integration-tests)
+   Compiling cumulus-relay-chain-inprocess-interface v0.32.0 (/home/coder/Rostro/cumulus/client/relay-chain-inprocess-interface)
+   Compiling cumulus-client-service v0.32.0 (/home/coder/Rostro/cumulus/client/service)
+   Compiling polkadot-jemalloc-shim v0.2.0 (/home/coder/Rostro/polkadot/jemalloc-shim)
+   Compiling test-parachain-undying-collator v1.0.0 (/home/coder/Rostro/polkadot/parachain/test-parachains/undying/collator)
+   Compiling polkadot-omni-node-lib v0.14.0 (/home/coder/Rostro/cumulus/polkadot-omni-node/lib)
+   Compiling cumulus-test-service v0.1.0 (/home/coder/Rostro/cumulus/test/service)
+   Compiling test-parachain-adder-collator v1.0.0 (/home/coder/Rostro/polkadot/parachain/test-parachains/adder/collator)
+   Compiling cumulus-test-client v0.1.0 (/home/coder/Rostro/cumulus/test/client)
+   Compiling pallet-minimal-template v0.1.0 (/home/coder/Rostro/templates/minimal/pallets/template)
+   Compiling frame-omni-bencher v0.18.0 (/home/coder/Rostro/substrate/utils/frame/omni-bencher)
+⚡ Found 4 strongly connected components which includes at least one cycle each
+cycle(001) ∈ α: DisputeCoordinator ~~{"DisputeDistributionMessage"}~~> DisputeDistribution ~~{"DisputeCoordinatorMessage"}~~>  *
+cycle(002) ∈ β: ApprovalVoting ~~{"ApprovalDistributionMessage"}~~> ApprovalDistribution ~~{"ApprovalVotingMessage"}~~>  *
+cycle(003) ∈ γ: CandidateBacking ~~{"CollatorProtocolMessage"}~~> CollatorProtocol ~~{"CandidateBackingMessage"}~~>  *
+cycle(004) ∈ δ: NetworkBridgeRx ~~{"GossipSupportMessage"}~~> GossipSupport ~~{"NetworkBridgeRxMessage"}~~>  *
+   Compiling node-runtime-generate-bags v3.0.0 (/home/coder/Rostro/substrate/utils/frame/generate-bags/node-runtime)
+   Compiling node-testing v3.0.0 (/home/coder/Rostro/substrate/bin/node/testing)
+   Compiling polkadot-sdk-docs v0.1.0 (/home/coder/Rostro/docs/sdk)
+   Compiling node-bench v0.9.0 (/home/coder/Rostro/substrate/bin/node/bench)
+   Compiling remote-ext-tests-bags-list v1.0.0 (/home/coder/Rostro/polkadot/utils/remote-ext-tests/bags-list)
+   Compiling sp-api-test v2.0.1 (/home/coder/Rostro/substrate/primitives/api/test)
+   Compiling sp-arithmetic-fuzzer v2.0.0 (/home/coder/Rostro/substrate/primitives/arithmetic/fuzzer)
+   Compiling pallet-paged-list-fuzzer v0.1.0 (/home/coder/Rostro/substrate/frame/paged-list/fuzzer)
+   Compiling pallet-nomination-pools-fuzzer v2.0.0 (/home/coder/Rostro/substrate/frame/nomination-pools/fuzzer)
+   Compiling sp-npos-elections-fuzzer v2.0.0 (/home/coder/Rostro/substrate/primitives/npos-elections/fuzzer)
+   Compiling erasure_coding_fuzzer v1.0.0 (/home/coder/Rostro/polkadot/erasure-coding/fuzzer)
+   Compiling xcm-simulator-fuzzer v1.0.0 (/home/coder/Rostro/polkadot/xcm/xcm-simulator/fuzzer)
+   Compiling pallet-bags-list-fuzzer v4.0.0 (/home/coder/Rostro/substrate/frame/bags-list/fuzzer)
+   Compiling frame-election-solution-type-fuzzer v2.0.0 (/home/coder/Rostro/substrate/frame/election-provider-support/solution-type/fuzzer)
+   Compiling template-zombienet-tests v0.1.0 (/home/coder/Rostro/templates/zombienet)
+   Compiling node-template-release v3.0.0 (/home/coder/Rostro/substrate/scripts/ci/node-template-release)
+   Compiling statement-latency-bench v0.1.0 (/home/coder/Rostro/substrate/client/statement-store/statement-latency-bench)
+   Compiling polkadot-voter-bags v31.0.0 (/home/coder/Rostro/polkadot/utils/generate-bags)
+   Compiling cumulus-pov-validator v0.11.0 (/home/coder/Rostro/cumulus/bin/pov-validator)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 60m 30s
+warning: the following packages contain code that will be rejected by a future version of Rust: trie-db v0.30.0
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/lib.rs (target/debug/deps/asset_hub_rococo_emulated_chain-ba91e207f5a7241b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/asset_hub_rococo_runtime-6fe50740e7116442)
+
+running 10 tests
+test weights::rocksdb_weights::constants::test_db_weights::sane ... ok
+test weights::extrinsic_weights::constants::test_weights::sane ... ok
+test weights::paritydb_weights::constants::test_db_weights::sane ... ok
+test weights::block_weights::constants::test_weights::sane ... ok
+test tests::sane_block_weight ... ok
+test tests::sane_transfer_fee ... ok
+test tests::weight_charged_for_both_components ... ok
+test tests::full_block_fee_ratio ... ok
+test test_genesis_config_builds ... ok
+test __construct_runtime_integrity_test::runtime_integrity_tests ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/tests.rs (target/debug/deps/tests-0c8705ac20285ea5)
+
+running 24 tests
+test asset_hub_rococo_tests::check_sane_weight_report_bridge_status_for_westend ... ok
+test asset_hub_rococo_tests::test_report_bridge_status_call_compatibility ... ok
+[2m2026-05-01T08:25:38.101473Z[0m [31mERROR[0m [2mbridges::estimate[0m[2m:[0m `bridging::BridgeHubEthereumBaseFee` [3mactual_value[0m[2m=[0m3833568200000 [3mruntime[0m[2m=[0mstatemine-1022002 (statemine-0.tx16.au1)
+[2m2026-05-01T08:25:38.101474Z[0m [31mERROR[0m [2mbridges::estimate[0m[2m:[0m `bridging::XcmBridgeHubRouterBaseFee` [3mactual_value[0m[2m=[0m89434800881 [3mruntime[0m[2m=[0mstatemine-1022002 (statemine-0.tx16.au1)
+test location_conversion_works ... ok
+test asset_transactor_transfer_with_local_consensus_currency_works ... ok
+test change_xcm_bridge_hub_router_byte_fee_by_governance_works ... ok
+test change_xcm_bridge_hub_ethereum_base_fee_by_governance_works ... ok
+test change_xcm_bridge_hub_router_base_fee_by_governance_works ... ok
+test asset_hub_rococo_tests::report_bridge_status_from_xcm_bridge_router_for_westend_works ... ok
+test asset_transactor_transfer_with_trust_backed_assets_works ... ok
+test asset_transactor_transfer_with_foreign_assets_works ... ok
+test test_asset_xcm_take_first_trader_refund_not_possible_since_amount_less_than_ed ... ok
+test test_assets_balances_api_works ... ok
+test test_asset_xcm_trader_not_possible_for_non_sufficient_assets ... ok
+test test_buy_and_refund_weight_in_native ... ok
+test asset_hub_rococo_tests::receive_reserve_asset_deposited_wnd_from_asset_hub_westend_fees_paid_by_sufficient_asset_works ... ok
+test test_buy_and_refund_weight_with_swap_local_asset_xcm_trader ... ok
+test asset_hub_rococo_tests::receive_reserve_asset_deposited_wnd_from_asset_hub_westend_fees_paid_by_pool_swap_works ... ok
+test test_buy_and_refund_weight_with_swap_foreign_asset_xcm_trader ... ok
+test create_and_manage_foreign_assets_for_local_consensus_parachain_assets_works ... ok
+test teleports_for_native_asset_works ... ok
+test xcm_payment_api_works ... ok
+test teleports_for_foreign_assets_works ... ok
+test asset_hub_rococo_tests::reserve_transfer_native_asset_to_non_teleport_para_works ... ok
+test asset_hub_rococo_tests::limited_reserve_transfer_assets_for_native_asset_to_asset_hub_westend_works ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (target/debug/deps/asset_hub_westend_emulated_chain-8f058e4287c7beb1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/asset_hub_westend_integration_tests-870b8e8a45b4f167)
+
+running 64 tests
+test tests::hybrid_transfers::transfer_foreign_assets_from_para_to_para_through_asset_hub ... FAILED
+test tests::hybrid_transfers::transfer_foreign_assets_from_asset_hub_to_para ... FAILED
+test tests::hybrid_transfers::transfer_native_asset_from_relay_to_penpal_through_asset_hub ... FAILED
+test tests::exchange_asset::exchange_asset_from_penpal_via_asset_hub_back_to_penpal ... FAILED
+test tests::fellowship_treasury::create_and_claim_treasury_spend ... FAILED
+test tests::reserve_transfer::reserve_transfer_multiple_assets_from_asset_hub_to_para ... FAILED
+test tests::reserve_transfer::reserve_transfer_native_asset_from_asset_hub_to_para ... FAILED
+test tests::hybrid_transfers::transfer_native_asset_from_penpal_to_relay_through_asset_hub ... FAILED
+test tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_para_through_relay ... FAILED
+test tests::aliases::asset_hub_root_aliases_anything ... FAILED
+test tests::hybrid_transfers::bidirectional_transfer_multiple_assets_between_penpal_and_asset_hub ... FAILED
+test tests::aliases::aliasing_child_locations ... FAILED
+test tests::aliases::account_on_sibling_syschain_aliases_into_same_local_account ... FAILED
+test tests::hybrid_transfers::transfer_foreign_assets_from_para_to_asset_hub ... FAILED
+test tests::hybrid_transfers::bidirectional_teleport_foreign_asset_between_para_and_asset_hub_using_explicit_transfer_types ... FAILED
+test tests::aliases::account_on_sibling_syschain_cannot_alias_into_different_local_account ... FAILED
+test tests::aliases::authorized_cross_chain_aliases ... FAILED
+test tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_asset_hub ... FAILED
+test tests::reserve_transfer::reserve_transfer_multiple_assets_from_para_to_asset_hub ... FAILED
+test tests::reserve_transfer::reserve_transfer_native_asset_from_asset_hub_to_relay_fails ... FAILED
+test tests::claim_assets::assets_can_be_claimed ... FAILED
+test tests::foreign_assets::bidirectional_reserve_transfer_foreign_asset_between_penpal_and_asset_hub ... FAILED
+test tests::foreign_assets::bidirectional_teleport_foreign_asset_between_penpal_and_asset_hub ... FAILED
+test tests::foreign_assets::verify_foreign_asset_origin_checks ... FAILED
+test tests::reserve_transfer::reserve_transfer_usdt_from_para_to_para_through_asset_hub ... FAILED
+test tests::reserve_transfer::reserve_transfer_native_asset_from_relay_to_para ... FAILED
+test tests::reserve_transfer::reserve_withdraw_from_untrusted_reserve_fails ... FAILED
+test tests::reward_pool::treasury_creates_asset_reward_pool ... FAILED
+test tests::send::send_xcm_from_para_to_asset_hub_paying_fee_with_system_asset ... FAILED
+test tests::reserve_transfer::reserve_transfer_usdt_from_asset_hub_to_para ... FAILED
+test tests::send::send_xcm_from_para_to_asset_hub_paying_fee_with_sufficient_asset ... FAILED
+test tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_relay ... FAILED
+test tests::swap::pay_xcm_fee_with_some_asset_swapped_for_native ... FAILED
+test tests::swap::xcm_fee_querying_apis_work ... FAILED
+test tests::swap::swap_locally_on_chain_using_foreign_assets ... FAILED
+test tests::teleport::limited_teleport_native_assets_from_relay_to_asset_hub_checking_acc_burn_works ... FAILED
+test tests::swap::swap_locally_on_chain_using_local_assets ... FAILED
+test tests::teleport::limited_teleport_native_assets_from_relay_to_asset_hub_checking_acc_fails ... FAILED
+test tests::teleport::bidirectional_teleport_foreign_assets_between_para_and_asset_hub ... FAILED
+test tests::teleport::teleport_to_untrusted_chain_fails ... FAILED
+test tests::set_asset_claimer::test_set_asset_claimer_between_the_chains ... FAILED
+test tests::send::send_transact_as_superuser_from_relay_to_asset_hub_works ... FAILED
+test tests::swap::cannot_create_pool_from_pool_assets ... FAILED
+test tests::transact::transact_from_para_to_para_through_asset_hub ... FAILED
+test tests::transfer_assets_validation::transfer_assets_non_native_assets_work ... FAILED
+test tests::transfer_assets_validation::transfer_assets_wnd_as_fee_in_reserve_transfer_fails ... FAILED
+test tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_para_to_para_fails ... FAILED
+test tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_relay_to_para_fails ... FAILED
+test tests::teleport::teleport_via_limited_teleport_assets_to_other_system_parachains_works ... FAILED
+test tests::xcm_fee_estimation::multi_hop_pay_fees_works ... FAILED
+test tests::xcm_fee_estimation::multi_hop_works ... FAILED
+test tests::xcm_fee_estimation::usdt_fee_estimation_in_usdt_works ... FAILED
+test tests::teleport::teleport_via_transfer_assets_to_other_system_parachains_works ... FAILED
+test tests::set_asset_claimer::test_set_asset_claimer_within_a_chain ... FAILED
+test tests::set_xcm_versions::system_para_sets_relay_xcm_supported_version ... FAILED
+test tests::transact::transact_using_authorized_alias_from_para_to_asset_hub_and_back_to_para ... FAILED
+test tests::treasury::create_and_claim_treasury_spend ... FAILED
+test tests::set_xcm_versions::relay_sets_system_para_xcm_supported_version ... FAILED
+test tests::reserve_transfer::reserve_transfer_native_asset_from_relay_to_asset_hub_fails ... FAILED
+test tests::transact::transact_using_sov_account_from_para_to_asset_hub_and_back_to_para ... FAILED
+test tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_para_to_relay_fails ... FAILED
+test tests::teleport::limited_teleport_native_assets_from_asset_hub_to_relay_checking_acc_mint_works ... FAILED
+test tests::teleport::teleport_via_transfer_assets_from_and_to_relay ... FAILED
+test tests::teleport::teleport_via_limited_teleport_assets_from_and_to_relay ... FAILED
+
+failures:
+
+---- tests::hybrid_transfers::transfer_foreign_assets_from_para_to_para_through_asset_hub stdout ----
+
+thread 'tests::hybrid_transfers::transfer_foreign_assets_from_para_to_para_through_asset_hub' (458917) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::hybrid_transfers::transfer_foreign_assets_from_asset_hub_to_para stdout ----
+
+thread 'tests::hybrid_transfers::transfer_foreign_assets_from_asset_hub_to_para' (458915) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::hybrid_transfers::transfer_native_asset_from_relay_to_penpal_through_asset_hub stdout ----
+
+thread 'tests::hybrid_transfers::transfer_native_asset_from_relay_to_penpal_through_asset_hub' (458919) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::exchange_asset::exchange_asset_from_penpal_via_asset_hub_back_to_penpal stdout ----
+
+thread 'tests::exchange_asset::exchange_asset_from_penpal_via_asset_hub_back_to_penpal' (458908) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::fellowship_treasury::create_and_claim_treasury_spend stdout ----
+
+thread 'tests::fellowship_treasury::create_and_claim_treasury_spend' (458909) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/collectives/collectives-westend/src/genesis.rs:67:14:
+WASM binary was not built, please build it!
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tests::reserve_transfer::reserve_transfer_multiple_assets_from_asset_hub_to_para stdout ----
+
+thread 'tests::reserve_transfer::reserve_transfer_multiple_assets_from_asset_hub_to_para' (458920) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::reserve_transfer::reserve_transfer_native_asset_from_asset_hub_to_para stdout ----
+
+thread 'tests::reserve_transfer::reserve_transfer_native_asset_from_asset_hub_to_para' (458922) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::hybrid_transfers::transfer_native_asset_from_penpal_to_relay_through_asset_hub stdout ----
+
+thread 'tests::hybrid_transfers::transfer_native_asset_from_penpal_to_relay_through_asset_hub' (458918) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_para_through_relay stdout ----
+
+thread 'tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_para_through_relay' (458925) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::aliases::asset_hub_root_aliases_anything stdout ----
+
+thread 'tests::aliases::asset_hub_root_aliases_anything' (458905) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::hybrid_transfers::bidirectional_transfer_multiple_assets_between_penpal_and_asset_hub stdout ----
+
+thread 'tests::hybrid_transfers::bidirectional_transfer_multiple_assets_between_penpal_and_asset_hub' (458914) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::aliases::aliasing_child_locations stdout ----
+
+thread 'tests::aliases::aliasing_child_locations' (458904) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::aliases::account_on_sibling_syschain_aliases_into_same_local_account stdout ----
+
+thread 'tests::aliases::account_on_sibling_syschain_aliases_into_same_local_account' (458902) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::hybrid_transfers::transfer_foreign_assets_from_para_to_asset_hub stdout ----
+
+thread 'tests::hybrid_transfers::transfer_foreign_assets_from_para_to_asset_hub' (458916) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::hybrid_transfers::bidirectional_teleport_foreign_asset_between_para_and_asset_hub_using_explicit_transfer_types stdout ----
+
+thread 'tests::hybrid_transfers::bidirectional_teleport_foreign_asset_between_para_and_asset_hub_using_explicit_transfer_types' (458913) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::aliases::account_on_sibling_syschain_cannot_alias_into_different_local_account stdout ----
+
+thread 'tests::aliases::account_on_sibling_syschain_cannot_alias_into_different_local_account' (458903) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::aliases::authorized_cross_chain_aliases stdout ----
+
+thread 'tests::aliases::authorized_cross_chain_aliases' (458906) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_asset_hub stdout ----
+
+thread 'tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_asset_hub' (458924) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::reserve_transfer::reserve_transfer_multiple_assets_from_para_to_asset_hub stdout ----
+
+thread 'tests::reserve_transfer::reserve_transfer_multiple_assets_from_para_to_asset_hub' (458921) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::reserve_transfer::reserve_transfer_native_asset_from_asset_hub_to_relay_fails stdout ----
+
+thread 'tests::reserve_transfer::reserve_transfer_native_asset_from_asset_hub_to_relay_fails' (458923) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::claim_assets::assets_can_be_claimed stdout ----
+
+thread 'tests::claim_assets::assets_can_be_claimed' (458907) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::foreign_assets::bidirectional_reserve_transfer_foreign_asset_between_penpal_and_asset_hub stdout ----
+
+thread 'tests::foreign_assets::bidirectional_reserve_transfer_foreign_asset_between_penpal_and_asset_hub' (458910) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::foreign_assets::bidirectional_teleport_foreign_asset_between_penpal_and_asset_hub stdout ----
+
+thread 'tests::foreign_assets::bidirectional_teleport_foreign_asset_between_penpal_and_asset_hub' (458911) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::foreign_assets::verify_foreign_asset_origin_checks stdout ----
+
+thread 'tests::foreign_assets::verify_foreign_asset_origin_checks' (458912) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::reserve_transfer::reserve_transfer_usdt_from_para_to_para_through_asset_hub stdout ----
+
+thread 'tests::reserve_transfer::reserve_transfer_usdt_from_para_to_para_through_asset_hub' (458930) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::reserve_transfer::reserve_transfer_native_asset_from_relay_to_para stdout ----
+
+thread 'tests::reserve_transfer::reserve_transfer_native_asset_from_relay_to_para' (458928) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::reserve_transfer::reserve_withdraw_from_untrusted_reserve_fails stdout ----
+
+thread 'tests::reserve_transfer::reserve_withdraw_from_untrusted_reserve_fails' (458931) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::reward_pool::treasury_creates_asset_reward_pool stdout ----
+
+thread 'tests::reward_pool::treasury_creates_asset_reward_pool' (458932) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::send::send_xcm_from_para_to_asset_hub_paying_fee_with_system_asset stdout ----
+
+thread 'tests::send::send_xcm_from_para_to_asset_hub_paying_fee_with_system_asset' (458935) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::reserve_transfer::reserve_transfer_usdt_from_asset_hub_to_para stdout ----
+
+thread 'tests::reserve_transfer::reserve_transfer_usdt_from_asset_hub_to_para' (458929) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::send::send_xcm_from_para_to_asset_hub_paying_fee_with_sufficient_asset stdout ----
+
+thread 'tests::send::send_xcm_from_para_to_asset_hub_paying_fee_with_sufficient_asset' (458934) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_relay stdout ----
+
+thread 'tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_relay' (458926) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::swap::pay_xcm_fee_with_some_asset_swapped_for_native stdout ----
+
+thread 'tests::swap::pay_xcm_fee_with_some_asset_swapped_for_native' (458941) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::swap::xcm_fee_querying_apis_work stdout ----
+
+thread 'tests::swap::xcm_fee_querying_apis_work' (458944) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::swap::swap_locally_on_chain_using_foreign_assets stdout ----
+
+thread 'tests::swap::swap_locally_on_chain_using_foreign_assets' (458942) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::teleport::limited_teleport_native_assets_from_relay_to_asset_hub_checking_acc_burn_works stdout ----
+
+thread 'tests::teleport::limited_teleport_native_assets_from_relay_to_asset_hub_checking_acc_burn_works' (458947) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::swap::swap_locally_on_chain_using_local_assets stdout ----
+
+thread 'tests::swap::swap_locally_on_chain_using_local_assets' (458943) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::teleport::limited_teleport_native_assets_from_relay_to_asset_hub_checking_acc_fails stdout ----
+
+thread 'tests::teleport::limited_teleport_native_assets_from_relay_to_asset_hub_checking_acc_fails' (458948) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::teleport::bidirectional_teleport_foreign_assets_between_para_and_asset_hub stdout ----
+
+thread 'tests::teleport::bidirectional_teleport_foreign_assets_between_para_and_asset_hub' (458945) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::teleport::teleport_to_untrusted_chain_fails stdout ----
+
+thread 'tests::teleport::teleport_to_untrusted_chain_fails' (458949) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::set_asset_claimer::test_set_asset_claimer_between_the_chains stdout ----
+
+thread 'tests::set_asset_claimer::test_set_asset_claimer_between_the_chains' (458936) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::send::send_transact_as_superuser_from_relay_to_asset_hub_works stdout ----
+
+thread 'tests::send::send_transact_as_superuser_from_relay_to_asset_hub_works' (458933) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::swap::cannot_create_pool_from_pool_assets stdout ----
+
+thread 'tests::swap::cannot_create_pool_from_pool_assets' (458940) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::transact::transact_from_para_to_para_through_asset_hub stdout ----
+
+thread 'tests::transact::transact_from_para_to_para_through_asset_hub' (458954) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::transfer_assets_validation::transfer_assets_non_native_assets_work stdout ----
+
+thread 'tests::transfer_assets_validation::transfer_assets_non_native_assets_work' (458957) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::transfer_assets_validation::transfer_assets_wnd_as_fee_in_reserve_transfer_fails stdout ----
+
+thread 'tests::transfer_assets_validation::transfer_assets_wnd_as_fee_in_reserve_transfer_fails' (458958) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_para_to_para_fails stdout ----
+
+thread 'tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_para_to_para_fails' (458959) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_relay_to_para_fails stdout ----
+
+thread 'tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_relay_to_para_fails' (458961) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::teleport::teleport_via_limited_teleport_assets_to_other_system_parachains_works stdout ----
+
+thread 'tests::teleport::teleport_via_limited_teleport_assets_to_other_system_parachains_works' (458951) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::xcm_fee_estimation::multi_hop_pay_fees_works stdout ----
+
+thread 'tests::xcm_fee_estimation::multi_hop_pay_fees_works' (458963) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::xcm_fee_estimation::multi_hop_works stdout ----
+
+thread 'tests::xcm_fee_estimation::multi_hop_works' (458964) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::xcm_fee_estimation::usdt_fee_estimation_in_usdt_works stdout ----
+
+thread 'tests::xcm_fee_estimation::usdt_fee_estimation_in_usdt_works' (458965) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::teleport::teleport_via_transfer_assets_to_other_system_parachains_works stdout ----
+
+thread 'tests::teleport::teleport_via_transfer_assets_to_other_system_parachains_works' (458953) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::set_asset_claimer::test_set_asset_claimer_within_a_chain stdout ----
+
+thread 'tests::set_asset_claimer::test_set_asset_claimer_within_a_chain' (458937) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::set_xcm_versions::system_para_sets_relay_xcm_supported_version stdout ----
+
+thread 'tests::set_xcm_versions::system_para_sets_relay_xcm_supported_version' (458939) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::transact::transact_using_authorized_alias_from_para_to_asset_hub_and_back_to_para stdout ----
+
+thread 'tests::transact::transact_using_authorized_alias_from_para_to_asset_hub_and_back_to_para' (458955) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::treasury::create_and_claim_treasury_spend stdout ----
+
+thread 'tests::treasury::create_and_claim_treasury_spend' (458962) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::set_xcm_versions::relay_sets_system_para_xcm_supported_version stdout ----
+
+thread 'tests::set_xcm_versions::relay_sets_system_para_xcm_supported_version' (458938) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::reserve_transfer::reserve_transfer_native_asset_from_relay_to_asset_hub_fails stdout ----
+
+thread 'tests::reserve_transfer::reserve_transfer_native_asset_from_relay_to_asset_hub_fails' (458927) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::transact::transact_using_sov_account_from_para_to_asset_hub_and_back_to_para stdout ----
+
+thread 'tests::transact::transact_using_sov_account_from_para_to_asset_hub_and_back_to_para' (458956) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/testing/penpal/src/genesis.rs:97:37:
+WASM binary was not built, please build it!
+
+---- tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_para_to_relay_fails stdout ----
+
+thread 'tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_para_to_relay_fails' (458960) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::teleport::limited_teleport_native_assets_from_asset_hub_to_relay_checking_acc_mint_works stdout ----
+
+thread 'tests::teleport::limited_teleport_native_assets_from_asset_hub_to_relay_checking_acc_mint_works' (458946) panicked at cumulus/parachains/integration-tests/emulated/chains/parachains/assets/asset-hub-westend/src/genesis.rs:166:14:
+WASM binary was not built, please build it!
+
+---- tests::teleport::teleport_via_transfer_assets_from_and_to_relay stdout ----
+
+thread 'tests::teleport::teleport_via_transfer_assets_from_and_to_relay' (458952) panicked at cumulus/parachains/integration-tests/emulated/chains/relays/westend/src/genesis.rs:90:73:
+called `Option::unwrap()` on a `None` value
+
+---- tests::teleport::teleport_via_limited_teleport_assets_from_and_to_relay stdout ----
+
+thread 'tests::teleport::teleport_via_limited_teleport_assets_from_and_to_relay' (458950) panicked at cumulus/parachains/integration-tests/emulated/chains/relays/westend/src/genesis.rs:90:73:
+called `Option::unwrap()` on a `None` value
+
+
+failures:
+    tests::aliases::account_on_sibling_syschain_aliases_into_same_local_account
+    tests::aliases::account_on_sibling_syschain_cannot_alias_into_different_local_account
+    tests::aliases::aliasing_child_locations
+    tests::aliases::asset_hub_root_aliases_anything
+    tests::aliases::authorized_cross_chain_aliases
+    tests::claim_assets::assets_can_be_claimed
+    tests::exchange_asset::exchange_asset_from_penpal_via_asset_hub_back_to_penpal
+    tests::fellowship_treasury::create_and_claim_treasury_spend
+    tests::foreign_assets::bidirectional_reserve_transfer_foreign_asset_between_penpal_and_asset_hub
+    tests::foreign_assets::bidirectional_teleport_foreign_asset_between_penpal_and_asset_hub
+    tests::foreign_assets::verify_foreign_asset_origin_checks
+    tests::hybrid_transfers::bidirectional_teleport_foreign_asset_between_para_and_asset_hub_using_explicit_transfer_types
+    tests::hybrid_transfers::bidirectional_transfer_multiple_assets_between_penpal_and_asset_hub
+    tests::hybrid_transfers::transfer_foreign_assets_from_asset_hub_to_para
+    tests::hybrid_transfers::transfer_foreign_assets_from_para_to_asset_hub
+    tests::hybrid_transfers::transfer_foreign_assets_from_para_to_para_through_asset_hub
+    tests::hybrid_transfers::transfer_native_asset_from_penpal_to_relay_through_asset_hub
+    tests::hybrid_transfers::transfer_native_asset_from_relay_to_penpal_through_asset_hub
+    tests::reserve_transfer::reserve_transfer_multiple_assets_from_asset_hub_to_para
+    tests::reserve_transfer::reserve_transfer_multiple_assets_from_para_to_asset_hub
+    tests::reserve_transfer::reserve_transfer_native_asset_from_asset_hub_to_para
+    tests::reserve_transfer::reserve_transfer_native_asset_from_asset_hub_to_relay_fails
+    tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_asset_hub
+    tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_para_through_relay
+    tests::reserve_transfer::reserve_transfer_native_asset_from_para_to_relay
+    tests::reserve_transfer::reserve_transfer_native_asset_from_relay_to_asset_hub_fails
+    tests::reserve_transfer::reserve_transfer_native_asset_from_relay_to_para
+    tests::reserve_transfer::reserve_transfer_usdt_from_asset_hub_to_para
+    tests::reserve_transfer::reserve_transfer_usdt_from_para_to_para_through_asset_hub
+    tests::reserve_transfer::reserve_withdraw_from_untrusted_reserve_fails
+    tests::reward_pool::treasury_creates_asset_reward_pool
+    tests::send::send_transact_as_superuser_from_relay_to_asset_hub_works
+    tests::send::send_xcm_from_para_to_asset_hub_paying_fee_with_sufficient_asset
+    tests::send::send_xcm_from_para_to_asset_hub_paying_fee_with_system_asset
+    tests::set_asset_claimer::test_set_asset_claimer_between_the_chains
+    tests::set_asset_claimer::test_set_asset_claimer_within_a_chain
+    tests::set_xcm_versions::relay_sets_system_para_xcm_supported_version
+    tests::set_xcm_versions::system_para_sets_relay_xcm_supported_version
+    tests::swap::cannot_create_pool_from_pool_assets
+    tests::swap::pay_xcm_fee_with_some_asset_swapped_for_native
+    tests::swap::swap_locally_on_chain_using_foreign_assets
+    tests::swap::swap_locally_on_chain_using_local_assets
+    tests::swap::xcm_fee_querying_apis_work
+    tests::teleport::bidirectional_teleport_foreign_assets_between_para_and_asset_hub
+    tests::teleport::limited_teleport_native_assets_from_asset_hub_to_relay_checking_acc_mint_works
+    tests::teleport::limited_teleport_native_assets_from_relay_to_asset_hub_checking_acc_burn_works
+    tests::teleport::limited_teleport_native_assets_from_relay_to_asset_hub_checking_acc_fails
+    tests::teleport::teleport_to_untrusted_chain_fails
+    tests::teleport::teleport_via_limited_teleport_assets_from_and_to_relay
+    tests::teleport::teleport_via_limited_teleport_assets_to_other_system_parachains_works
+    tests::teleport::teleport_via_transfer_assets_from_and_to_relay
+    tests::teleport::teleport_via_transfer_assets_to_other_system_parachains_works
+    tests::transact::transact_from_para_to_para_through_asset_hub
+    tests::transact::transact_using_authorized_alias_from_para_to_asset_hub_and_back_to_para
+    tests::transact::transact_using_sov_account_from_para_to_asset_hub_and_back_to_para
+    tests::transfer_assets_validation::transfer_assets_non_native_assets_work
+    tests::transfer_assets_validation::transfer_assets_wnd_as_fee_in_reserve_transfer_fails
+    tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_para_to_para_fails
+    tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_para_to_relay_fails
+    tests::transfer_assets_validation::transfer_assets_wnd_reserve_transfer_relay_to_para_fails
+    tests::treasury::create_and_claim_treasury_spend
+    tests::xcm_fee_estimation::multi_hop_pay_fees_works
+    tests::xcm_fee_estimation::multi_hop_works
+    tests::xcm_fee_estimation::usdt_fee_estimation_in_usdt_works
+
+test result: FAILED. 0 passed; 64 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p asset-hub-westend-integration-tests --lib`
+---
+cargo test exit: 101
+elapsed: 3776 seconds

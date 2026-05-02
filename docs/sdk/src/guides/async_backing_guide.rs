@@ -95,6 +95,8 @@
 //! 	type AllowMultipleBlocksPerSlot = ConstBool<false>;
 //! 	#[cfg(feature = "experimental")]
 //! 	type SlotDuration = ConstU64<SLOT_DURATION>;
+//! 	type Moment = u64;
+//! 	type Time = Timestamp;
 //! 	..
 //! }
 //! ```

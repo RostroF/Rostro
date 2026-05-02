@@ -50,11 +50,17 @@ pub mod weights;
 
 extern crate alloc;
 use alloc::{boxed::Box, vec, vec::Vec};
-use frame::{
-	prelude::*,
+use frame_support::{
+	dispatch::{GetDispatchInfo, PostDispatchInfo},
+	pallet_prelude::*,
 	traits::{Currency, ReservableCurrency},
 };
-use frame_system::RawOrigin;
+use frame_system::{pallet_prelude::*, RawOrigin};
+use sp_io::hashing::blake2_256;
+use sp_runtime::{
+	traits::{BlockNumberProvider, Dispatchable, Saturating, TrailingZeroInput},
+	DispatchError, DispatchErrorWithPostInfo,
+};
 pub use weights::WeightInfo;
 
 /// Re-export all pallet items.
@@ -138,7 +144,7 @@ enum CallOrHash<T: Config> {
 	Hash([u8; 32]),
 }
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 

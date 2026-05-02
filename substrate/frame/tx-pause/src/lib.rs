@@ -75,10 +75,14 @@ pub mod weights;
 extern crate alloc;
 
 use alloc::vec::Vec;
-use frame::{
-	prelude::*,
-	traits::{TransactionPause, TransactionPauseError},
+use frame_support::{
+	dispatch::GetDispatchInfo,
+	pallet_prelude::*,
+	traits::{CallMetadata, Contains, GetCallMetadata, IsSubType, TransactionPause, TransactionPauseError},
+	DefaultNoBound,
 };
+use frame_system::pallet_prelude::*;
+use sp_runtime::traits::Dispatchable;
 pub use pallet::*;
 pub use weights::*;
 
@@ -93,7 +97,7 @@ pub type PalletCallNameOf<T> = BoundedVec<u8, <T as Config>::MaxNameLen>;
 /// to partially or fully specify an item a variant of a  [`Config::RuntimeCall`].
 pub type RuntimeCallNameOf<T> = (PalletNameOf<T>, PalletCallNameOf<T>);
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 

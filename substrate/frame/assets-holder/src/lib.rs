@@ -46,7 +46,7 @@
 
 use frame_support::{
 	pallet_prelude::*,
-	traits::{tokens::IdAmount, VariantCount, VariantCountOf},
+	traits::{fungibles, tokens::IdAmount, VariantCount, VariantCountOf},
 	BoundedVec,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
@@ -68,6 +68,16 @@ pub mod pallet {
 	pub trait Config<I: 'static = ()>:
 		frame_system::Config + pallet_assets::Config<I, Holder = Pallet<Self, I>>
 	{
+		/// Trait surface to the assets pallet — used so this pallet doesn't reach into
+		/// `pallet_assets::Pallet<T, I>` concretely. Wire to the runtime's assets pallet
+		/// (e.g. `type Assets = Assets;`).
+		#[pallet::no_default_bounds]
+		type Assets: fungibles::Mutate<
+				Self::AccountId,
+				AssetId = <Self as pallet_assets::Config<I>>::AssetId,
+				Balance = <Self as pallet_assets::Config<I>>::Balance,
+			> + fungibles::Inspect<Self::AccountId>;
+
 		/// The overarching freeze reason.
 		#[pallet::no_default_bounds]
 		type RuntimeHoldReason: Parameter + Member + MaxEncodedLen + Copy + VariantCount;

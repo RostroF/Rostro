@@ -21,7 +21,8 @@
 #![allow(unused_parens)]
 #![allow(unused_imports)]
 
-use frame::weights_prelude::*;
+use core::marker::PhantomData;
+use frame_support::{traits::Get, weights::{constants::{ParityDbWeight, RocksDbWeight}, Weight}};
 
 pub trait WeightInfo {
 	fn add_well_known_node() -> Weight;

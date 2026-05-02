@@ -20,7 +20,17 @@
 use super::*;
 use crate as pallet_nft_fractionalization;
 
-use frame::{deps::sp_runtime::MultiSignature, testing_prelude::*, traits::Verify};
+use frame_support::{
+	construct_runtime, derive_impl, parameter_types,
+	traits::{AsEnsureOriginWithArg, ConstU32, ConstU64, Everything},
+};
+use frame_system::{mocking::MockBlock, EnsureSigned};
+use sp_core::H256;
+use sp_io::TestExternalities;
+use sp_runtime::{
+	traits::{BlakeTwo256, IdentifyAccount, IdentityLookup, Verify},
+	BuildStorage, MultiSignature,
+};
 use pallet_nfts::PalletFeatures;
 
 type Block = MockBlock<Test>;

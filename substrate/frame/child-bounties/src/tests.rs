@@ -136,12 +136,26 @@ impl pallet_bounties::Config for Test {
 	type ChildBountyManager = ChildBounties;
 	type OnSlash = ();
 	type TransferAllAssets = ();
+	type Currency = pallet_balances::Pallet<Test>;
+	type PalletId = TreasuryPalletId;
+	type BlockNumberProvider = System;
+	type RejectOrigin = frame_system::EnsureRoot<u128>;
+	type SpendOrigin = frame_support::traits::NeverEnsureOrigin<u64>;
+	type MaxApprovals = ConstU32<100>;
 }
 impl pallet_child_bounties::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type MaxActiveChildBountyCount = ConstU32<2>;
 	type ChildBountyValueMinimum = ConstU64<1>;
 	type WeightInfo = ();
+	type Currency = pallet_balances::Pallet<Test>;
+	type BlockNumberProvider = System;
+	type Bounties = Bounties;
+	type PalletId = TreasuryPalletId;
+	type RejectOrigin = frame_system::EnsureRoot<u128>;
+	type OnSlash = ();
+	type BountyDepositPayoutDelay = ConstU64<3>;
+	type MaximumReasonLength = ConstU32<300>;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {

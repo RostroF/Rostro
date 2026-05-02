@@ -71,10 +71,14 @@ mod tests;
 extern crate alloc;
 
 use codec::FullCodec;
-use frame::{prelude::*, traits::StorageInstance};
+use frame_support::{
+	pallet_prelude::*,
+	traits::StorageInstance,
+};
+use frame_system::pallet_prelude::*;
 pub use paged_list::StoragePagedList;
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 

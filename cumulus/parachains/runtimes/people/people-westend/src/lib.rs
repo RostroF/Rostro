@@ -402,6 +402,8 @@ impl pallet_aura::Config for Runtime {
 	type MaxAuthorities = ConstU32<100_000>;
 	type AllowMultipleBlocksPerSlot = ConstBool<true>;
 	type SlotDuration = ConstU64<SLOT_DURATION>;
+	type Moment = u64;
+	type Time = Timestamp;
 }
 
 parameter_types! {
