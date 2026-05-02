@@ -1855,6 +1855,26 @@ fn verify_upgrade_restriction_signal_is_externally_accessible() {
 }
 
 #[test]
+fn sorted_para_heads_includes_all_paras_no_truncation() {
+	// Regression test: upstream silently truncated to MAX_PARA_HEADS=1024 (paritytech/polkadot-sdk#4737),
+	// which produced a BEEFY-signed parachain-heads root inconsistent with on-chain state. Rostro
+	// removed the truncation so all registered paras are committed. If a future merge re-introduces
+	// `heads.truncate(MAX_PARA_HEADS)` in `sorted_para_heads`, this test fails.
+	new_test_ext(Default::default()).execute_with(|| {
+		let total = MAX_PARA_HEADS + 5;
+		for i in 0..total {
+			let id = ParaId::from(i as u32);
+			Heads::<Test>::insert(&id, HeadData(vec![i as u8]));
+		}
+		let heads = Pallet::<Test>::sorted_para_heads();
+		assert_eq!(heads.len(), total, "all paras must be in the heads commitment");
+		for (idx, (id, _)) in heads.iter().enumerate() {
+			assert_eq!(*id, idx as u32, "heads must remain sorted by para_id");
+		}
+	});
+}
+
+#[test]
 fn verify_para_head_is_externally_accessible() {
 	use polkadot_primitives::well_known_keys;
 

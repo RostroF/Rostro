@@ -118,11 +118,10 @@ impl pallet_beefy::Config for Test {
 	type WeightInfo = ();
 	type KeyOwnerProof = sp_core::Void;
 	type EquivocationReportSystem = ();
-	type SessionInfo = Session;
 }
 
 parameter_types! {
-	pub LeafVersion: MmrLeafVersion = MmrLeafVersion::new(1, 5);
+	pub LeafVersion: MmrLeafVersion = MmrLeafVersion::new(2, 0);
 }
 
 impl pallet_beefy_mmr::Config for Test {

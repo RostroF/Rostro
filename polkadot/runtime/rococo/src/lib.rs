@@ -1392,7 +1392,6 @@ impl pallet_beefy::Config for Runtime {
 	type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, BeefyId)>>::Proof;
 	type EquivocationReportSystem =
 		pallet_beefy::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
-	type SessionInfo = Session;
 }
 
 /// MMR helper types.
@@ -1417,7 +1416,7 @@ impl pallet_mmr::Config for Runtime {
 }
 
 parameter_types! {
-	pub LeafVersion: MmrLeafVersion = MmrLeafVersion::new(0, 0);
+	pub LeafVersion: MmrLeafVersion = MmrLeafVersion::new(2, 0);
 }
 
 pub struct ParaHeadsRootProvider;

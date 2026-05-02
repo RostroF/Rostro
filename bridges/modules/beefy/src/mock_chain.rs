@@ -191,8 +191,9 @@ impl HeaderBuilder {
 		let next_validators_mmr_root =
 			get_authorities_mmr_root::<TestRuntime, (), _>(next_validators.iter());
 		let leaf = sp_consensus_beefy::mmr::MmrLeaf {
-			version: MmrLeafVersion::new(1, 0),
+			version: MmrLeafVersion::new(2, 0),
 			parent_number_and_hash: (header.number().saturating_sub(1), *header.parent_hash()),
+			current_validator_set_id: chain.validator_set_id,
 			beefy_next_authority_set: BeefyNextAuthoritySet {
 				id: next_validator_set_id,
 				len: next_validators.len() as u32,

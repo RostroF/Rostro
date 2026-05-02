@@ -2093,6 +2093,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake2b-rs"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a89a8565807f21b913288968e391819e7f9b2f0f46c7b89549c051cccf3a2771"
+dependencies = [
+ "cc",
+ "cty",
+]
+
+[[package]]
 name = "blake2b_simd"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4219,6 +4229,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cty"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b365fabc795046672053e29c954733ec3b05e4be654ab130fe8f1f94d7051f35"
+
+[[package]]
 name = "cumulus-client-bootnodes"
 version = "0.8.0"
 dependencies = [
@@ -6306,6 +6322,15 @@ dependencies = [
  "bit-set",
  "regex-automata 0.4.8",
  "regex-syntax 0.8.5",
+]
+
+[[package]]
+name = "faster-hex"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "239f7bfb930f820ab16a9cd95afc26f88264cf6905c960b340a615384aa3338a"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -11850,7 +11875,7 @@ dependencies = [
  "pallet-beefy-mmr",
  "pallet-mmr",
  "parity-scale-codec",
- "polkadot-ckb-merkle-mountain-range",
+ "polkadot-ckb-merkle-mountain-range-rostro",
  "rand 0.8.5",
  "scale-info",
  "serde",
@@ -15296,13 +15321,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "polkadot-ckb-merkle-mountain-range"
+name = "polkadot-ckb-merkle-mountain-range-rostro"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "221c71b432b38e494a0fdedb5f720e4cb974edf03a0af09e5b2238dbac7e6947"
 dependencies = [
+ "blake2b-rs",
+ "bytes",
  "cfg-if",
+ "criterion",
+ "faster-hex",
  "itertools 0.10.5",
+ "lazy_static",
+ "proptest",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -24050,7 +24080,7 @@ dependencies = [
  "array-bytes 6.2.2",
  "log",
  "parity-scale-codec",
- "polkadot-ckb-merkle-mountain-range",
+ "polkadot-ckb-merkle-mountain-range-rostro",
  "scale-info",
  "serde",
  "sp-api 41.0.0",

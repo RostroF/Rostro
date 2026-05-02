@@ -69,8 +69,8 @@ fn should_contain_mmr_digest() {
 					ValidatorSet::new(vec![mock_beefy_id(1), mock_beefy_id(2)], 1).unwrap()
 				)),
 				beefy_log(ConsensusLog::MmrRoot(H256::from_slice(&[
-					117, 0, 56, 25, 185, 195, 71, 232, 67, 213, 27, 178, 64, 168, 137, 220, 64,
-					184, 64, 240, 83, 245, 18, 93, 185, 202, 125, 205, 17, 254, 18, 143
+					194, 34, 130, 46, 237, 248, 56, 243, 19, 45, 239, 210, 178, 143, 91, 227,
+					230, 47, 57, 49, 143, 92, 186, 217, 5, 182, 245, 224, 182, 13, 130, 232
 				])))
 			]
 		);
@@ -84,8 +84,8 @@ fn should_contain_mmr_digest() {
 					ValidatorSet::new(vec![mock_beefy_id(3), mock_beefy_id(4)], 2).unwrap()
 				)),
 				beefy_log(ConsensusLog::MmrRoot(H256::from_slice(&[
-					193, 246, 48, 7, 89, 204, 186, 109, 167, 226, 188, 211, 8, 243, 203, 154, 234,
-					235, 136, 210, 245, 7, 209, 27, 241, 90, 156, 113, 137, 65, 191, 139
+					205, 34, 154, 183, 198, 199, 249, 137, 251, 12, 103, 20, 16, 156, 25, 106,
+					241, 5, 7, 75, 13, 24, 111, 102, 58, 164, 202, 40, 192, 163, 101, 190
 				]))),
 			]
 		);
@@ -108,13 +108,14 @@ fn should_contain_valid_leaf_data() {
 	assert_eq!(
 		mmr_leaf,
 		MmrLeaf {
-			version: MmrLeafVersion::new(1, 5),
+			version: MmrLeafVersion::new(2, 0),
 			parent_number_and_hash: (0_u64, H256::repeat_byte(1)),
+			current_validator_set_id: 1,
 			beefy_next_authority_set: BeefyNextAuthoritySet {
 				id: 2,
 				len: 2,
 				keyset_commitment: array_bytes::hex_n_into_unchecked(
-					"9c6b2c1b0d0b25a008e6c882cc7b415f309965c72ad2b944ac0931048ca31cd5"
+					"57570dbcb8388f7a4cb09bf05bcb6c44f46b11a956b25a1b6d50a2d27f2ee71e"
 				)
 			},
 			leaf_extra: array_bytes::hex2bytes_unchecked(
@@ -133,13 +134,14 @@ fn should_contain_valid_leaf_data() {
 	assert_eq!(
 		mmr_leaf,
 		MmrLeaf {
-			version: MmrLeafVersion::new(1, 5),
+			version: MmrLeafVersion::new(2, 0),
 			parent_number_and_hash: (1_u64, H256::repeat_byte(2)),
+			current_validator_set_id: 2,
 			beefy_next_authority_set: BeefyNextAuthoritySet {
 				id: 3,
 				len: 2,
 				keyset_commitment: array_bytes::hex_n_into_unchecked(
-					"9c6b2c1b0d0b25a008e6c882cc7b415f309965c72ad2b944ac0931048ca31cd5"
+					"57570dbcb8388f7a4cb09bf05bcb6c44f46b11a956b25a1b6d50a2d27f2ee71e"
 				)
 			},
 			leaf_extra: array_bytes::hex2bytes_unchecked(
@@ -179,7 +181,7 @@ fn should_update_authorities() {
 		// check next auth set
 		assert_eq!(2, next_auth_set.id);
 		let want = array_bytes::hex_n_into_unchecked::<_, H256, 32>(
-			"9c6b2c1b0d0b25a008e6c882cc7b415f309965c72ad2b944ac0931048ca31cd5",
+			"57570dbcb8388f7a4cb09bf05bcb6c44f46b11a956b25a1b6d50a2d27f2ee71e",
 		);
 		assert_eq!(2, next_auth_set.len);
 		assert_eq!(want, next_auth_set.keyset_commitment);
@@ -195,7 +197,7 @@ fn should_update_authorities() {
 		// check next auth set
 		assert_eq!(3, next_auth_set.id);
 		let want = array_bytes::hex_n_into_unchecked::<_, H256, 32>(
-			"9c6b2c1b0d0b25a008e6c882cc7b415f309965c72ad2b944ac0931048ca31cd5",
+			"57570dbcb8388f7a4cb09bf05bcb6c44f46b11a956b25a1b6d50a2d27f2ee71e",
 		);
 		assert_eq!(2, next_auth_set.len);
 		assert_eq!(want, next_auth_set.keyset_commitment);
@@ -218,7 +220,7 @@ fn extract_validation_context_should_work_correctly() {
 
 		// Check the MMR root log
 		let expected_mmr_root: [u8; 32] = array_bytes::hex_n_into_unchecked(
-			"322c6a46ac00d3455c87bd9af42ebafb388f589a1b562f5e39b1d0d71bcbe8e0",
+			"07ec3234f8da7b0e630a34d5523a058d28a48de9333ac9282ae747cd8ab3ef8b",
 		);
 
 		assert_eq!(

@@ -91,9 +91,16 @@ impl Convert<sp_consensus_beefy::ecdsa_crypto::AuthorityId, Vec<u8>> for BeefyEc
 			.to_eth_address()
 			.map(|v| v.to_vec())
 			.map_err(|_| {
-				log::debug!(target: "runtime::beefy", "Failed to convert BEEFY PublicKey to ETH address!");
+				log::error!(target: "runtime::beefy", "Failed to convert BEEFY PublicKey to ETH address!");
 			})
-			.unwrap_or_default()
+			// Return a 20-byte zero vector on failure so the downstream "uninitialized"
+			// check in `compute_authority_set` actually matches. The previous
+			// `.unwrap_or_default()` returned a 0-length vec which never compared equal
+			// to `[0u8; 20]`, silently bypassing the warning AND collapsing every failed
+			// key to `keccak256(SCALE-encoded empty vec)` — i.e. all failures merkle-collide
+			// to the same authority-set leaf, producing a deterministically-wrong
+			// `keyset_commitment` with no operator-visible signal.
+			.unwrap_or_else(|_| alloc::vec![0u8; 20])
 	}
 }
 
@@ -162,8 +169,9 @@ impl<T: Config> LeafDataProvider for Pallet<T> {
 		MmrLeaf {
 			version: T::LeafVersion::get(),
 			parent_number_and_hash: ParentNumberAndHash::<T>::leaf_data(),
-			leaf_extra: T::BeefyDataProvider::extra_data(),
+			current_validator_set_id: pallet_beefy::ValidatorSetId::<T>::get(),
 			beefy_next_authority_set: BeefyNextAuthorities::<T>::get(),
+			leaf_extra: T::BeefyDataProvider::extra_data(),
 		}
 	}
 }

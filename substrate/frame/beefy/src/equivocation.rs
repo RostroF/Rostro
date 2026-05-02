@@ -271,7 +271,7 @@ impl<T: Config> EquivocationEvidenceFor<T> {
 				let is_signature_valid =
 					check_commitment_signature(&vote.commitment, &vote.id, &vote.signature);
 				if !is_signature_valid {
-					return Err(Error::<T>::InvalidForkVotingProof);
+					return Err(Error::<T>::InvalidFutureBlockVotingProof);
 				}
 
 				Ok(())
@@ -355,6 +355,23 @@ where
 		// Validate the key ownership proof extracting the id of the offender.
 		let offender =
 			evidence.checked_offender::<P>().ok_or(Error::<T>::InvalidKeyOwnershipProof)?;
+
+		// Defense-in-depth: when the equivocation is reported against the current BEEFY set,
+		// verify the offender's BeefyId actually appears in the current authority list.
+		// `Historical` proves that a key belongs to a session validator at `session_index`,
+		// but does not prove the validator was specifically a BEEFY authority at that time.
+		// Without this check, on a runtime where the BEEFY set is a strict subset of the
+		// session set, an attacker could forge slashable equivocations against accounts
+		// that have BEEFY keys set but are not active BEEFY authorities. We can only check
+		// this against the current set since the pallet does not retain historical authority
+		// lists; for older `set_id`s the existing Historical check is the only line of
+		// defense, and strengthening that would require new per-set storage and a migration.
+		if set_id == crate::ValidatorSetId::<T>::get() {
+			let beefy_id = evidence.offender_id();
+			if !crate::Authorities::<T>::get().contains(beefy_id) {
+				return Err(Error::<T>::InvalidEquivocationProofSessionMember.into());
+			}
+		}
 
 		evidence.check_equivocation_proof()?;
 

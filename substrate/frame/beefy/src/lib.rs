@@ -33,7 +33,7 @@ use log;
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays},
 	pallet_prelude::*,
-	traits::{Get, OneSessionHandler, ValidatorSet as ValidatorSetTrait},
+	traits::{Get, OneSessionHandler},
 	weights::{constants::RocksDbWeight as DbWeight, Weight},
 	BoundedSlice, BoundedVec, Parameter,
 };
@@ -65,8 +65,16 @@ pub mod pallet {
 	use super::*;
 	use frame_system::{ensure_root, pallet_prelude::BlockNumberFor};
 
+	// Note: `pallet_session::Config` is a supertrait so the equivocation reporter can use
+	// `pallet_session::Pallet::<T>::current_index()` — the canonical session index that
+	// `pallet_session_historical` keys key-ownership proofs by. An earlier Rostro refactor
+	// abstracted this via a `ValidatorSet` trait (`type SessionInfo`), but that abstraction
+	// was unsound: nothing required the trait impl's `session_index()` to match Historical's,
+	// so a pluggable impl could desync `SetIdSession` from the proofs the reporter checks
+	// against (DoS at minimum, slashing-bypass at worst). The coupling is fundamental to
+	// equivocation reporting, so we keep it concrete here.
 	#[pallet::config]
-	pub trait Config: frame_system::Config {
+	pub trait Config: frame_system::Config + pallet_session::Config {
 		/// Authority identifier type
 		type BeefyId: Member
 			+ Parameter
@@ -118,13 +126,6 @@ pub mod pallet {
 			EquivocationEvidenceFor<Self>,
 		>;
 
-		/// Source of session information (current session index, validator set).
-		///
-		/// Typically wired up to `pallet_session::Pallet<Self>` in the runtime, but any type
-		/// implementing [`ValidatorSetTrait`] can be used. Bound on a trait surface rather than
-		/// reaching into `pallet_session::Pallet` concretely so consensus is independent of the
-		/// session implementation.
-		type SessionInfo: ValidatorSetTrait<Self::AccountId>;
 	}
 
 	#[pallet::pallet]
@@ -223,7 +224,7 @@ pub mod pallet {
 		/// against the extracted offender. If both are valid, the offence
 		/// will be reported.
 		#[pallet::call_index(0)]
-		#[pallet::weight(T::WeightInfo::report_double_voting(
+		#[pallet::weight(<T as Config>::WeightInfo::report_double_voting(
 			key_owner_proof.validator_count(),
 			T::MaxNominators::get(),
 		))]
@@ -258,7 +259,7 @@ pub mod pallet {
 		/// if the block author is defined it will be defined as the equivocation
 		/// reporter.
 		#[pallet::call_index(1)]
-		#[pallet::weight(T::WeightInfo::report_double_voting(
+		#[pallet::weight(<T as Config>::WeightInfo::report_double_voting(
 			key_owner_proof.validator_count(),
 			T::MaxNominators::get(),
 		))]
@@ -303,7 +304,7 @@ pub mod pallet {
 		/// and validate the given key ownership proof against the extracted offender.
 		/// If both are valid, the offence will be reported.
 		#[pallet::call_index(3)]
-		#[pallet::weight(T::WeightInfo::report_fork_voting::<T>(
+		#[pallet::weight(<T as Config>::WeightInfo::report_fork_voting::<T>(
 			key_owner_proof.validator_count(),
 			T::MaxNominators::get(),
 			&equivocation_proof.ancestry_proof
@@ -338,7 +339,7 @@ pub mod pallet {
 		/// if the block author is defined it will be defined as the equivocation
 		/// reporter.
 		#[pallet::call_index(4)]
-		#[pallet::weight(T::WeightInfo::report_fork_voting::<T>(
+		#[pallet::weight(<T as Config>::WeightInfo::report_fork_voting::<T>(
 			key_owner_proof.validator_count(),
 			T::MaxNominators::get(),
 			&equivocation_proof.ancestry_proof
@@ -368,7 +369,7 @@ pub mod pallet {
 		/// and validate the given key ownership proof against the extracted offender.
 		/// If both are valid, the offence will be reported.
 		#[pallet::call_index(5)]
-		#[pallet::weight(T::WeightInfo::report_future_block_voting(
+		#[pallet::weight(<T as Config>::WeightInfo::report_future_block_voting(
 			key_owner_proof.validator_count(),
 			T::MaxNominators::get(),
 		))]
@@ -399,7 +400,7 @@ pub mod pallet {
 		/// if the block author is defined it will be defined as the equivocation
 		/// reporter.
 		#[pallet::call_index(6)]
-		#[pallet::weight(T::WeightInfo::report_future_block_voting(
+		#[pallet::weight(<T as Config>::WeightInfo::report_future_block_voting(
 			key_owner_proof.validator_count(),
 			T::MaxNominators::get(),
 		))]
@@ -720,7 +721,12 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 
 		let validator_set_id = ValidatorSetId::<T>::get();
 		// Update the mapping for the new set id that corresponds to the latest session (i.e. now).
-		let session_index = <T::SessionInfo as ValidatorSetTrait<T::AccountId>>::session_index();
+		// MUST use `pallet_session::Pallet::<T>::current_index()` here — `SetIdSession` is read
+		// during equivocation processing and compared to `key_owner_proof.session()`, which comes
+		// from `pallet_session_historical` keyed by this exact value. Any indirection that lets
+		// these diverge breaks the reporter (best case: valid proofs rejected; worst case: bogus
+		// proofs accepted).
+		let session_index = pallet_session::Pallet::<T>::current_index();
 		SetIdSession::<T>::insert(validator_set_id, &session_index);
 		// Prune old entry if limit reached.
 		let max_set_id_session_entries = T::MaxSetIdSessionEntries::get().max(1);

@@ -1461,13 +1461,18 @@ const INVALID_TX_BAD_SUBJECT: u8 = 2;
 const INVALID_TX_DOUBLE_VOTE: u8 = 3;
 const INVALID_TX_UNAUTHORIZED_CODE: u8 = 4;
 
-/// This is intermediate "fix" for this issue:
-/// <https://github.com/paritytech/polkadot-sdk/issues/4737>
+/// Worst-case sizing hint used by the parachain-heads benchmark setup.
 ///
-/// It does not actually fix it, but makes the worst case better. Without that limit someone
-/// could completely DoS the relay chain by registering a ridiculously high amount of paras.
-/// With this limit the same attack could lead to some parachains ceasing to being able to
-/// communicate via offchain XCMP. Snowbridge will still work as it only cares about `BridgeHub`.
+/// This is **not** a hard cap on `sorted_para_heads`. Rostro removes the truncation
+/// that the upstream comment described as "intermediate fix [...] does not actually
+/// fix it" (paritytech/polkadot-sdk#4737), because silently dropping ParaIds past a
+/// cliff produces a BEEFY-signed parachain-heads root that disagrees with reality —
+/// the failure mode behind the Feb 2026 Hyperbridge incident.
+///
+/// The original DoS concern (someone registering a ridiculous number of paras) is
+/// bounded by para registration economics (deposits, slot auctions, governance);
+/// that bound is enforced where registration happens, not by silently truncating
+/// cryptographic commitments.
 pub const MAX_PARA_HEADS: usize = 1024;
 
 impl<T: Config> Pallet<T> {
@@ -1540,13 +1545,16 @@ impl<T: Config> Pallet<T> {
 		})
 	}
 
-	/// Get a list of the first [`MAX_PARA_HEADS`] para heads sorted by para_id.
-	/// This method is likely to be removed in the future.
+	/// Get all para heads sorted by para_id.
+	///
+	/// Used to construct the BEEFY-signed parachain-heads merkle root (the `extra_data`
+	/// of the BEEFY MMR leaf). All registered paras are committed unconditionally so
+	/// downstream verifiers (bridges, light clients) see a heads root consistent with
+	/// the on-chain state.
 	pub fn sorted_para_heads() -> Vec<(u32, Vec<u8>)> {
 		let mut heads: Vec<(u32, Vec<u8>)> =
 			Heads::<T>::iter().map(|(id, head)| (id.into(), head.0)).collect();
 		heads.sort_by_key(|(id, _)| *id);
-		heads.truncate(MAX_PARA_HEADS);
 		heads
 	}
 

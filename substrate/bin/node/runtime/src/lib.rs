@@ -3037,7 +3037,6 @@ impl pallet_beefy::Config for Runtime {
 	type KeyOwnerProof = sp_session::MembershipProof;
 	type EquivocationReportSystem =
 		pallet_beefy::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
-	type SessionInfo = Session;
 }
 
 parameter_types! {

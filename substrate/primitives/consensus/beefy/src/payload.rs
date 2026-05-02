@@ -94,13 +94,35 @@ impl Payload {
 	}
 
 	/// Push a `Vec<u8>` with a given id into the payload vec.
-	/// This method will internally sort the payload vec after every push.
+	///
+	/// If `id` already exists, its value is **replaced**. Duplicate identifiers are
+	/// disallowed per the type's contract; previously this method appended unconditionally
+	/// and let callers ship a non-canonical payload, where `get_raw` (binary search) and
+	/// `get_all_raw` (linear scan) would resolve the duplicate to different entries — a
+	/// port-induced bug class where two reasonable verifier implementations of the same
+	/// payload disagree on which value is canonical.
 	///
 	/// Returns self to allow for daisy chaining.
 	pub fn push_raw(mut self, id: BeefyPayloadId, value: Vec<u8>) -> Self {
-		self.0.push((id, value));
+		if let Some(existing) = self.0.iter_mut().find(|(probe, _)| *probe == id) {
+			existing.1 = value;
+		} else {
+			self.0.push((id, value));
+		}
 		self.0.sort_by_key(|(id, _)| *id);
 		self
+	}
+
+	/// Verify the canonical-form invariants: identifiers are sorted strictly ascending
+	/// (which implies no duplicates).
+	///
+	/// `Decode` does not enforce this — callers reading `Payload` from untrusted sources
+	/// (across-the-wire BEEFY commitments, bridge messages, light-client inputs) MUST
+	/// call `is_canonical` before trusting any `get_raw` / `get_decoded` lookup, otherwise
+	/// a malicious encoder can ship a payload where `get_raw` and `get_all_raw` resolve
+	/// duplicate ids differently.
+	pub fn is_canonical(&self) -> bool {
+		self.0.windows(2).all(|w| w[0].0 < w[1].0)
 	}
 }
 

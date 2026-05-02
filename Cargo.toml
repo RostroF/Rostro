@@ -563,6 +563,7 @@ members = [
 	"substrate/utils/frame/rpc/support",
 	"substrate/utils/frame/rpc/system",
 	"substrate/utils/frame/storage-access-test-runtime",
+	"substrate/utils/merkle-mountain-range",
 	"substrate/utils/prometheus",
 	"substrate/utils/substrate-bip39",
 	"substrate/utils/wasm-builder",
@@ -912,7 +913,7 @@ milagro-bls = { version = "1.5.4", default-features = false, package = "snowbrid
 minimal-template-runtime = { path = "templates/minimal/runtime" }
 mixnet = { version = "0.7.0" }
 mmr-gadget = { path = "substrate/client/merkle-mountain-range", default-features = false }
-mmr-lib = { version = "0.8.1", package = "polkadot-ckb-merkle-mountain-range", default-features = false }
+mmr-lib = { path = "substrate/utils/merkle-mountain-range", package = "polkadot-ckb-merkle-mountain-range-rostro", default-features = false }
 mmr-rpc = { path = "substrate/client/merkle-mountain-range/rpc", default-features = false }
 mockall = { version = "0.13.1" }
 multiaddr = { version = "0.18.1" }

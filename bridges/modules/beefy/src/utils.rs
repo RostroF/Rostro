@@ -134,6 +134,47 @@ pub(crate) fn verify_beefy_mmr_leaf<T: Config<I>, I: 'static>(
 	let mmr_proof_leaf_count = mmr_proof.leaf_count;
 	let mmr_proof_length = mmr_proof.items.len();
 
+	// Defense-in-depth bounds checks on the proof shape, before handing the proof to the
+	// upstream `polkadot-ckb-merkle-mountain-range` verifier.
+	//
+	// Why: the bridge calls the *stateless* `verify_mmr_leaves_proof` re-export
+	// (`bp_beefy::verify_mmr_leaves_proof`), which is a thin wrapper around
+	// `mmr_lib::MerkleProof::verify`. That wrapper does NOT replicate the guards that
+	// `pallet_mmr::Pallet::verify_leaves` performs in-tree
+	// (`substrate/frame/merkle-mountain-range/src/lib.rs:405-411`).
+	//
+	// Today the `leaf_count = 1, leaf_index = 1` Hyperbridge attack walk happens to be
+	// caught by a single boolean inside the third-party MMR library
+	// (`if !leaves.is_empty() { Err(CorruptedProof) }` at `mmr.rs:680` of
+	// `polkadot-ckb-merkle-mountain-range-0.8.1`). That is a fragile safety net: any
+	// upstream refactor of the peaks loop, or any port of this verifier to Solidity /
+	// TypeScript / WASM that omits that one check, reproduces the Hyperbridge hack
+	// (April 2026) identically.
+	//
+	// Mirroring the in-tree pallet's checks here makes the bridge robust against those
+	// classes of upstream regressions and against any downstream port using this code as
+	// reference. The single-leaf shape (`leaf_indices.len() == 1`) is also enforced because
+	// the call site below always passes exactly one leaf.
+	ensure!(mmr_proof.leaf_count > 0, Error::<T, I>::MmrProofVerificationFailed);
+	ensure!(mmr_proof.leaf_indices.len() == 1, Error::<T, I>::MmrProofVerificationFailed);
+	// `leaf_index < leaf_count` is the exact invariant whose absence enabled Hyperbridge
+	// bug #1. The MMR library only catches `leaf_index = leaf_count = 1` by accident
+	// (see comment above); for any other combination its behaviour is undefined w.r.t. an
+	// honest verifier. Enforce it explicitly.
+	ensure!(
+		mmr_proof.leaf_indices[0] < mmr_proof.leaf_count,
+		Error::<T, I>::MmrProofVerificationFailed,
+	);
+	// Proof item count consistency: the number of proof items plus the number of leaves
+	// being verified must not exceed `leaf_count`. Mirrors
+	// `pallet_mmr::Pallet::verify_leaves`. Without this an attacker can submit an
+	// arbitrarily large `items` Vec for a tiny `leaf_count` and waste verifier work
+	// before the cryptographic check fails.
+	ensure!(
+		(mmr_proof.items.len() as u64).saturating_add(1) <= mmr_proof.leaf_count,
+		Error::<T, I>::MmrProofVerificationFailed,
+	);
+
 	// Verify the mmr proof for the provided leaf.
 	let mmr_leaf_hash = BridgedMmrHashing::<T, I>::hash(&mmr_leaf.encode());
 	verify_mmr_leaves_proof(
@@ -354,6 +395,71 @@ mod tests {
 					parent_number_and_hash: (0, [0; 32].into()),
 					mmr_root: header.mmr_root,
 				},
+			);
+		});
+	}
+
+	// Regression test for the missing-bounds-check finding (Hyperbridge bug class #1).
+	//
+	// The bridge calls the unchecked stateless `verify_mmr_leaves_proof` and used to rely
+	// solely on the upstream MMR library's single safety net (line 680 of `mmr.rs` in
+	// `polkadot-ckb-merkle-mountain-range-0.8.1`) to catch malformed proof shapes.
+	// `verify_beefy_mmr_leaf` now layers in the same checks `pallet_mmr::Pallet::verify_leaves`
+	// performs in-tree. These tests exercise each of those new guards.
+	#[test]
+	fn submit_commitment_rejects_mmr_proof_with_invalid_shape() {
+		// `leaf_count == 0` is invalid: nothing in the MMR.
+		run_test_with_initialize(1, || {
+			let mut header = ChainBuilder::new(1).append_finalized_header().to_header();
+			header.leaf_proof.leaf_count = 0;
+			assert_noop!(
+				import_commitment(header),
+				Error::<TestRuntime, ()>::MmrProofVerificationFailed,
+			);
+		});
+
+		// `leaf_indices.len() != 1` is invalid for this single-leaf bridge call site.
+		run_test_with_initialize(1, || {
+			let mut header = ChainBuilder::new(1).append_finalized_header().to_header();
+			header.leaf_proof.leaf_indices.clear();
+			assert_noop!(
+				import_commitment(header),
+				Error::<TestRuntime, ()>::MmrProofVerificationFailed,
+			);
+		});
+		run_test_with_initialize(1, || {
+			let mut header = ChainBuilder::new(1).append_finalized_header().to_header();
+			header.leaf_proof.leaf_indices.push(0);
+			assert_noop!(
+				import_commitment(header),
+				Error::<TestRuntime, ()>::MmrProofVerificationFailed,
+			);
+		});
+
+		// `leaf_index >= leaf_count` is the exact invariant whose absence enabled the
+		// Hyperbridge attack walk (`leaf_count = 1, leaf_index = 1`).
+		run_test_with_initialize(1, || {
+			let mut header = ChainBuilder::new(1).append_finalized_header().to_header();
+			// Set leaf_index == leaf_count.
+			header.leaf_proof.leaf_indices[0] = header.leaf_proof.leaf_count;
+			assert_noop!(
+				import_commitment(header),
+				Error::<TestRuntime, ()>::MmrProofVerificationFailed,
+			);
+		});
+
+		// `items.len() + 1 > leaf_count` is invalid: more proof items than leaves.
+		run_test_with_initialize(1, || {
+			let mut header = ChainBuilder::new(1).append_finalized_header().to_header();
+			// Pad `items` so `items.len() + 1 > leaf_count`.
+			let pad = TestBridgedMmrHashing::hash(b"junk");
+			let needed = header.leaf_proof.leaf_count as usize + 1;
+			while header.leaf_proof.items.len() < needed {
+				header.leaf_proof.items.push(pad);
+			}
+			assert_noop!(
+				import_commitment(header),
+				Error::<TestRuntime, ()>::MmrProofVerificationFailed,
 			);
 		});
 	}

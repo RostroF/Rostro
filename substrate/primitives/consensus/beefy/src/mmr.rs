@@ -49,6 +49,15 @@ impl BeefyDataProvider<Vec<u8>> for () {
 }
 
 /// A standard leaf that gets added every block to the MMR constructed by Substrate's `pallet_mmr`.
+///
+/// **Version 2 change (Rostro):** `current_validator_set_id` is now bound directly into the leaf.
+/// Pre-v2 the leaf only carried `beefy_next_authority_set`; the `current` set was implied via
+/// pallet-ordering convention (`Mmr` after `Session`, so the leaf written this block was authored
+/// under whatever set was active before the rotation). Bridges and light clients that decoded the
+/// leaf had no on-chain way to verify *which* set the commitment they were checking signatures
+/// against actually corresponded to — a port-induced footgun where a leaf constructed under set N
+/// could be replayed by a verifier expecting set N+1 (or vice versa) without the leaf hash
+/// changing. Binding `current_validator_set_id` makes the relationship cryptographic.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, TypeInfo)]
 pub struct MmrLeaf<BlockNumber, Hash, MerkleRoot, ExtraData> {
 	/// Version of the leaf format.
@@ -58,6 +67,10 @@ pub struct MmrLeaf<BlockNumber, Hash, MerkleRoot, ExtraData> {
 	pub version: MmrLeafVersion,
 	/// Current block parent number and hash.
 	pub parent_number_and_hash: (BlockNumber, Hash),
+	/// Validator set id of the BEEFY authority set that signed (or signs) the commitment for this
+	/// block. Bound here so a leaf<->commitment relationship can be checked cryptographically
+	/// without trusting pallet ordering or off-chain conventions.
+	pub current_validator_set_id: crate::ValidatorSetId,
 	/// A merkle root of the next BEEFY authority set.
 	pub beefy_next_authority_set: BeefyNextAuthoritySet<MerkleRoot>,
 	/// Arbitrary extra leaf data to be used by downstream pallets to include custom data in the

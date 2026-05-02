@@ -431,7 +431,6 @@ impl pallet_beefy::Config for Runtime {
 	type KeyOwnerProof = sp_session::MembershipProof;
 	type EquivocationReportSystem =
 		pallet_beefy::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
-	type SessionInfo = Session;
 }
 
 impl pallet_mmr::Config for Runtime {
@@ -456,7 +455,7 @@ mod mmr {
 }
 
 parameter_types! {
-	pub LeafVersion: MmrLeafVersion = MmrLeafVersion::new(0, 0);
+	pub LeafVersion: MmrLeafVersion = MmrLeafVersion::new(2, 0);
 }
 
 /// A BEEFY data provider that merkelizes all the parachain heads at the current block
