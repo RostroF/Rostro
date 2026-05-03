@@ -1,0 +1,279 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Rostro Foundation contributors
+
+//! # Proof Verifier Pallet
+//!
+//! Generic on-chain verifier for Plonky3 / FRI-based STARK proofs.
+//!
+//! Three downstream workloads consume this pallet:
+//! - **Execution proofs**: validators verify that a block's state transition
+//!   was computed correctly without re-executing it (~10-50ms verify vs
+//!   seconds of re-execution).
+//! - **Light-client checkpoints (BEEFY-equivalent)**: aggregate K-of-N
+//!   validator signatures into a single STARK proof that mobile light
+//!   clients verify in 50-300ms.
+//! - **Validator-side hip-check**: hardware-attestation continuity proven
+//!   in Plonky3 instead of Groth16/BN254 (validator hardware can run FRI
+//!   provers; mobile cannot).
+//!
+//! The pallet is verifier-only. Proof generation happens off-chain (in
+//! validator daemons or operator services). Each circuit family registers
+//! its verifying-key hash on-chain via [`Call::register_verifier`] (admin
+//! or governance origin); subsequent proofs reference that key by hash.
+//!
+//! Configuration commitments per `crypto_stack_v1.md`:
+//! - **Field**: Goldilocks (`p3-goldilocks`, 64-bit prime, well-established)
+//! - **Extension**: `BinomialExtensionField<Goldilocks, 2>` (~128-bit security)
+//! - **In-circuit hash**: Poseidon2 (FRI-friendly, circuit-efficient)
+//! - **Out-of-circuit hash**: Keccak (NIST SHA-3 standardized, transparent)
+//! - **Proof system**: uni-stark + TwoAdicFriPcs
+//! - **PQ posture**: hash-based, transparent setup, no curve assumption,
+//!   post-quantum-secure by construction.
+
+#![cfg_attr(not(feature = "std"), no_std)]
+
+pub use pallet::*;
+
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+mod tests;
+
+#[frame_support::pallet]
+pub mod pallet {
+	use codec::{Decode, Encode, MaxEncodedLen};
+	use frame_support::{
+		pallet_prelude::*,
+		BoundedVec,
+	};
+	use frame_system::pallet_prelude::*;
+	use rp_runtime::traits::Hash as HashT;
+	use scale_info::TypeInfo;
+
+	/// Identifier for a registered verifying key. Computed as the Blake2b-256
+	/// hash of the SCALE-encoded verifying key bytes.
+	pub type VerifierKeyHash = [u8; 32];
+
+	/// Maximum size in bytes of a single verifying key blob the pallet will
+	/// accept. Plonky3 verifying keys for typical Rostro circuits are under
+	/// 1 KB; we set a generous cap here that can be lowered post-launch
+	/// based on actual circuit measurements.
+	pub const MAX_VERIFYING_KEY_LEN: u32 = 64 * 1024;
+
+	/// Maximum size in bytes of a proof the pallet will verify in one
+	/// extrinsic. Plonky3 STARK proofs are typically 50-200 KB; we allow up
+	/// to 512 KB to leave headroom for larger circuits.
+	pub const MAX_PROOF_LEN: u32 = 512 * 1024;
+
+	/// Maximum size in bytes of public-input bytes for a single proof.
+	pub const MAX_PUBLIC_INPUTS_LEN: u32 = 64 * 1024;
+
+	/// Information about a registered verifying key.
+	#[derive(
+		Clone, Debug, Eq, PartialEq, Encode, Decode, MaxEncodedLen, TypeInfo,
+	)]
+	pub struct VerifierInfo<AccountId, BlockNumber> {
+		/// The account that registered this verifier (for governance
+		/// audit). `None` if registered via a non-account origin such as
+		/// root or a governance collective.
+		pub registrar: Option<AccountId>,
+		/// Block at which the verifier was registered.
+		pub registered_at: BlockNumber,
+		/// SCALE-encoded verifying key bytes. Bounded to
+		/// [`MAX_VERIFYING_KEY_LEN`].
+		pub verifying_key: BoundedVec<u8, ConstU32<MAX_VERIFYING_KEY_LEN>>,
+		/// Free-form circuit family identifier (e.g.,
+		/// `b"execution-proof-v1"`, `b"hip-check-validator"`). Used by
+		/// downstream pallets to dispatch on circuit type.
+		pub circuit_family: BoundedVec<u8, ConstU32<64>>,
+	}
+
+	#[pallet::config]
+	pub trait Config: frame_system::Config {
+		/// Origin permitted to register and deregister verifying keys.
+		/// Typically root or a governance origin.
+		type RegistrarOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
+		/// Weight information for the pallet's extrinsics.
+		type WeightInfo: WeightInfo;
+	}
+
+	/// Trait for benchmarked weights.
+	pub trait WeightInfo {
+		fn register_verifier() -> Weight;
+		fn deregister_verifier() -> Weight;
+		fn verify_proof() -> Weight;
+	}
+
+	/// Stub weights for development. Real weights generated via
+	/// `frame-benchmarking` in a follow-up commit.
+	impl WeightInfo for () {
+		fn register_verifier() -> Weight {
+			Weight::from_parts(10_000_000, 0)
+		}
+		fn deregister_verifier() -> Weight {
+			Weight::from_parts(10_000_000, 0)
+		}
+		fn verify_proof() -> Weight {
+			// Stub. Real verify cost is ~10-50ms wall-clock on validator
+			// hardware per crypto_stack_v1.md target. Will be benchmarked
+			// against actual circuits before mainnet.
+			Weight::from_parts(50_000_000_000, 0)
+		}
+	}
+
+	#[pallet::pallet]
+	pub struct Pallet<T>(_);
+
+	/// Storage map: verifying-key hash → VerifierInfo.
+	#[pallet::storage]
+	#[pallet::getter(fn verifier)]
+	pub type Verifiers<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		VerifierKeyHash,
+		VerifierInfo<T::AccountId, BlockNumberFor<T>>,
+	>;
+
+	#[pallet::event]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	pub enum Event<T: Config> {
+		/// A verifying key was registered.
+		VerifierRegistered {
+			key_hash: VerifierKeyHash,
+			circuit_family: BoundedVec<u8, ConstU32<64>>,
+			registrar: Option<T::AccountId>,
+		},
+		/// A verifying key was deregistered.
+		VerifierDeregistered { key_hash: VerifierKeyHash },
+		/// A proof was successfully verified.
+		ProofVerified {
+			key_hash: VerifierKeyHash,
+			submitter: T::AccountId,
+		},
+	}
+
+	#[pallet::error]
+	pub enum Error<T> {
+		/// The supplied verifying-key hash is not registered.
+		VerifierNotRegistered,
+		/// The supplied verifying-key hash is already registered.
+		VerifierAlreadyRegistered,
+		/// The verifying key exceeds [`MAX_VERIFYING_KEY_LEN`] bytes.
+		VerifyingKeyTooLarge,
+		/// The proof exceeds [`MAX_PROOF_LEN`] bytes.
+		ProofTooLarge,
+		/// The public inputs exceed [`MAX_PUBLIC_INPUTS_LEN`] bytes.
+		PublicInputsTooLarge,
+		/// The circuit-family identifier exceeds 64 bytes.
+		CircuitFamilyTooLarge,
+		/// The proof failed verification.
+		InvalidProof,
+		/// Verification could not be performed (deserialization or runtime
+		/// error before the cryptographic check).
+		VerifierError,
+	}
+
+	#[pallet::call]
+	impl<T: Config> Pallet<T> {
+		/// Register a new verifying key, indexed by its Blake2b-256 hash.
+		///
+		/// Called by [`Config::RegistrarOrigin`] (typically root or a
+		/// governance origin) when a new circuit family is added to the
+		/// chain. Subsequent [`Self::verify_proof`] calls reference this
+		/// key by hash.
+		#[pallet::call_index(0)]
+		#[pallet::weight(T::WeightInfo::register_verifier())]
+		pub fn register_verifier(
+			origin: OriginFor<T>,
+			verifying_key: BoundedVec<u8, ConstU32<MAX_VERIFYING_KEY_LEN>>,
+			circuit_family: BoundedVec<u8, ConstU32<64>>,
+		) -> DispatchResult {
+			T::RegistrarOrigin::ensure_origin(origin.clone())?;
+			// Try to extract a signing account if the origin happens to
+			// also be signed; otherwise `None` (root or non-account
+			// governance origin).
+			let registrar = ensure_signed(origin).ok();
+
+			let key_hash = T::Hashing::hash(&verifying_key)
+				.as_ref()
+				.try_into()
+				.map_err(|_| Error::<T>::VerifierError)?;
+
+			ensure!(
+				!Verifiers::<T>::contains_key(key_hash),
+				Error::<T>::VerifierAlreadyRegistered
+			);
+
+			let now = frame_system::Pallet::<T>::block_number();
+			Verifiers::<T>::insert(
+				key_hash,
+				VerifierInfo {
+					registrar: registrar.clone(),
+					registered_at: now,
+					verifying_key,
+					circuit_family: circuit_family.clone(),
+				},
+			);
+
+			Self::deposit_event(Event::VerifierRegistered {
+				key_hash,
+				circuit_family,
+				registrar,
+			});
+			Ok(())
+		}
+
+		/// Deregister a verifying key. Called by
+		/// [`Config::RegistrarOrigin`] when a circuit family is retired.
+		#[pallet::call_index(1)]
+		#[pallet::weight(T::WeightInfo::deregister_verifier())]
+		pub fn deregister_verifier(
+			origin: OriginFor<T>,
+			key_hash: VerifierKeyHash,
+		) -> DispatchResult {
+			T::RegistrarOrigin::ensure_origin(origin)?;
+			ensure!(
+				Verifiers::<T>::contains_key(key_hash),
+				Error::<T>::VerifierNotRegistered
+			);
+			Verifiers::<T>::remove(key_hash);
+			Self::deposit_event(Event::VerifierDeregistered { key_hash });
+			Ok(())
+		}
+
+		/// Verify a Plonky3 STARK proof against a registered verifying key.
+		///
+		/// Returns `Ok(())` if verification succeeds, or
+		/// [`Error::InvalidProof`] if the proof is invalid.
+		///
+		/// **NOTE**: actual Plonky3 verification logic lands in a follow-up
+		/// commit. This first-pass scaffolding validates the wiring
+		/// (deserialization, storage lookup, event emission) but always
+		/// returns `Ok(())` for any registered verifier. Real cryptographic
+		/// verification dispatches per circuit family in the next iteration.
+		#[pallet::call_index(2)]
+		#[pallet::weight(T::WeightInfo::verify_proof())]
+		pub fn verify_proof(
+			origin: OriginFor<T>,
+			key_hash: VerifierKeyHash,
+			_proof: BoundedVec<u8, ConstU32<MAX_PROOF_LEN>>,
+			_public_inputs: BoundedVec<u8, ConstU32<MAX_PUBLIC_INPUTS_LEN>>,
+		) -> DispatchResult {
+			let submitter = ensure_signed(origin)?;
+
+			let _info = Verifiers::<T>::get(key_hash)
+				.ok_or(Error::<T>::VerifierNotRegistered)?;
+
+			// TODO(stage3-plonky3-base): real Plonky3 verification.
+			// Dispatch on `info.circuit_family` to invoke the correct
+			// `p3_uni_stark::verify` call with the appropriate StarkConfig
+			// and AIR. For now, reaching this point is a successful
+			// "wiring is correct" verification.
+
+			Self::deposit_event(Event::ProofVerified { key_hash, submitter });
+			Ok(())
+		}
+	}
+}
+
