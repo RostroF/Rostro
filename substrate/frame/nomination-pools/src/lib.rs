@@ -81,7 +81,7 @@
 //!
 //! > A member can have up to [`Config::MaxUnbonding`] distinct active unbonding requests.
 //!
-//! Second, once [`sp_staking::StakingInterface::bonding_duration`] eras have passed, the member can
+//! Second, once [`rp_staking::StakingInterface::bonding_duration`] eras have passed, the member can
 //! call [`Call::withdraw_unbonded`] to withdraw any funds that are free.
 //!
 //! For design docs see the [bonded pool](#bonded-pool) and [unbonding sub
@@ -313,7 +313,7 @@
 //! This scheme "averages" out the points value in the unbonded pool.
 //!
 //! Once a members `unbonding_era` is older than `current_era -
-//! [sp_staking::StakingInterface::bonding_duration]`, it can can cash it's points out of the
+//! [rp_staking::StakingInterface::bonding_duration]`, it can can cash it's points out of the
 //! corresponding unbonding pool. If it's `unbonding_era` is older than `current_era -
 //! TotalUnbondingPools`, it can cash it's points from the unbonded pool.
 //!
@@ -326,7 +326,7 @@
 //!
 //! This section assumes that the slash computation is executed by
 //! `pallet_staking::StakingLedger::slash`, which passes the information to this pallet via
-//! [`sp_staking::OnStakingUpdate::on_slash`].
+//! [`rp_staking::OnStakingUpdate::on_slash`].
 //!
 //! Unbonding pools need to be slashed to ensure all nominators whom where in the bonded pool while
 //! it was backing a validator that equivocated are punished. Without these measures a member could
@@ -369,18 +369,18 @@ use frame_support::{
 	DefaultNoBound, PalletError,
 };
 use scale_info::TypeInfo;
-use sp_core::U256;
-use sp_runtime::{
+use rp_core::U256;
+use rp_runtime::{
 	traits::{
 		AccountIdConversion, Bounded, CheckedAdd, CheckedSub, Convert, Saturating, StaticLookup,
 		Zero,
 	},
 	FixedPointNumber, Perbill,
 };
-use sp_staking::{EraIndex, StakingInterface};
+use rp_staking::{EraIndex, StakingInterface};
 
 #[cfg(any(feature = "try-runtime", feature = "fuzzing", test, debug_assertions))]
-use sp_runtime::TryRuntimeError;
+use rp_runtime::TryRuntimeError;
 
 /// The log target of this pallet.
 pub const LOG_TARGET: &str = "runtime::nomination-pools";
@@ -405,7 +405,7 @@ pub mod migration;
 pub mod weights;
 
 pub use pallet::*;
-use sp_runtime::traits::BlockNumberProvider;
+use rp_runtime::traits::BlockNumberProvider;
 pub use weights::WeightInfo;
 
 /// The balance type used by the currency system.
@@ -1653,7 +1653,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::{
 		ensure_root, ensure_signed, BlockNumberFor as SystemBlockNumberFor, OriginFor,
 	};
-	use sp_runtime::Perbill;
+	use rp_runtime::Perbill;
 
 	/// The in-code storage version.
 	const STORAGE_VERSION: StorageVersion = StorageVersion::new(8);
@@ -1687,7 +1687,7 @@ pub mod pallet {
 		/// a PITA to do).
 		///
 		/// See the inline code docs of `Member::pending_rewards` and `RewardPool::update_recorded`
-		/// for example analysis. A [`sp_runtime::FixedU128`] should be fine for chains with balance
+		/// for example analysis. A [`rp_runtime::FixedU128`] should be fine for chains with balance
 		/// types similar to that of Polkadot and Kusama, in the absence of severe slashing (or
 		/// prevented via a reasonable `MaxPointsToBalance`), for many many years to come.
 		type RewardCounter: FixedPointNumber + MaxEncodedLen + TypeInfo + Default + codec::FullCodec;
@@ -2800,7 +2800,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			let mut bonded_pool = match ensure_root(origin.clone()) {
 				Ok(()) => BondedPool::<T>::get(pool_id).ok_or(Error::<T>::PoolNotFound)?,
-				Err(sp_runtime::traits::BadOrigin) => {
+				Err(rp_runtime::traits::BadOrigin) => {
 					let who = ensure_signed(origin)?;
 					let bonded_pool =
 						BondedPool::<T>::get(pool_id).ok_or(Error::<T>::PoolNotFound)?;
@@ -4284,10 +4284,10 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-impl<T: Config> sp_staking::OnStakingUpdate<T::AccountId, BalanceOf<T>> for Pallet<T> {
+impl<T: Config> rp_staking::OnStakingUpdate<T::AccountId, BalanceOf<T>> for Pallet<T> {
 	/// Reduces the balances of the [`SubPools`], that belong to the pool involved in the
 	/// slash, to the amount that is defined in the `slashed_unlocking` field of
-	/// [`sp_staking::OnStakingUpdate::on_slash`]
+	/// [`rp_staking::OnStakingUpdate::on_slash`]
 	///
 	/// Emits the `PoolsSlashed` event.
 	fn on_slash(

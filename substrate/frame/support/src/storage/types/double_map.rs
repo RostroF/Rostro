@@ -29,8 +29,8 @@ use crate::{
 use alloc::{vec, vec::Vec};
 use codec::{Decode, Encode, EncodeLike, FullCodec, MaxEncodedLen};
 use frame_support::storage::StorageDecodeNonDedupLength;
-use sp_arithmetic::traits::SaturatedConversion;
-use sp_metadata_ir::{StorageEntryMetadataIR, StorageEntryTypeIR};
+use rp_arithmetic::traits::SaturatedConversion;
+use rp_metadata_ir::{StorageEntryMetadataIR, StorageEntryTypeIR};
 
 /// A type representing a *double map* in storage. This structure associates a pair of keys with a
 /// value of a specified type stored on-chain.
@@ -320,7 +320,7 @@ where
 	/// removed and the same result being returned. This happens because the keys to delete in the
 	/// overlay are not taken into account when deleting keys in the backend.
 	#[deprecated = "Use `clear_prefix` instead"]
-	pub fn remove_prefix<KArg1>(k1: KArg1, limit: Option<u32>) -> sp_io::KillStorageResult
+	pub fn remove_prefix<KArg1>(k1: KArg1, limit: Option<u32>) -> rp_io::KillStorageResult
 	where
 		KArg1: ?Sized + EncodeLike<Key1>,
 	{
@@ -330,7 +330,7 @@ where
 
 	/// Attempt to remove items from the map matching a `first_key` prefix.
 	///
-	/// Returns [`MultiRemovalResults`](sp_io::MultiRemovalResults) to inform about the result. Once
+	/// Returns [`MultiRemovalResults`](rp_io::MultiRemovalResults) to inform about the result. Once
 	/// the resultant `maybe_cursor` field is `None`, then no further items remain to be deleted.
 	///
 	/// NOTE: After the initial call for any given map, it is important that no further items
@@ -355,7 +355,7 @@ where
 		first_key: KArg1,
 		limit: u32,
 		maybe_cursor: Option<&[u8]>,
-	) -> sp_io::MultiRemovalResults
+	) -> rp_io::MultiRemovalResults
 	where
 		KArg1: ?Sized + EncodeLike<Key1>,
 	{
@@ -516,14 +516,14 @@ where
 	/// removed and the same result being returned. This happens because the keys to delete in the
 	/// overlay are not taken into account when deleting keys in the backend.
 	#[deprecated = "Use `clear` instead"]
-	pub fn remove_all(limit: Option<u32>) -> sp_io::KillStorageResult {
+	pub fn remove_all(limit: Option<u32>) -> rp_io::KillStorageResult {
 		#[allow(deprecated)]
 		<Self as crate::storage::StoragePrefixedMap<Value>>::remove_all(limit)
 	}
 
 	/// Attempt to remove all items from the map.
 	///
-	/// Returns [`MultiRemovalResults`](sp_io::MultiRemovalResults) to inform about the result. Once
+	/// Returns [`MultiRemovalResults`](rp_io::MultiRemovalResults) to inform about the result. Once
 	/// the resultant `maybe_cursor` field is `None`, then no further items remain to be deleted.
 	///
 	/// NOTE: After the initial call for any given map, it is important that no further items
@@ -544,7 +544,7 @@ where
 	/// passed once (in the initial call) for any given storage map. Subsequent calls
 	/// operating on the same map should always pass `Some`, and this should be equal to the
 	/// previous call result's `maybe_cursor` field.
-	pub fn clear(limit: u32, maybe_cursor: Option<&[u8]>) -> sp_io::MultiRemovalResults {
+	pub fn clear(limit: u32, maybe_cursor: Option<&[u8]>) -> rp_io::MultiRemovalResults {
 		<Self as crate::storage::StoragePrefixedMap<Value>>::clear(limit, maybe_cursor)
 	}
 
@@ -734,7 +734,7 @@ where
 	MaxValues: Get<Option<u32>>,
 {
 	fn build_metadata(
-		deprecation_status: sp_metadata_ir::ItemDeprecationInfoIR,
+		deprecation_status: rp_metadata_ir::ItemDeprecationInfoIR,
 		docs: Vec<&'static str>,
 		entries: &mut Vec<StorageEntryMetadataIR>,
 	) {
@@ -817,8 +817,8 @@ where
 mod test {
 	use super::*;
 	use crate::{hash::*, storage::types::ValueQuery};
-	use sp_io::{hashing::twox_128, TestExternalities};
-	use sp_metadata_ir::{StorageEntryModifierIR, StorageEntryTypeIR, StorageHasherIR};
+	use rp_io::{hashing::twox_128, TestExternalities};
+	use rp_metadata_ir::{StorageEntryModifierIR, StorageEntryTypeIR, StorageHasherIR};
 	use std::collections::BTreeSet;
 
 	struct Prefix;
@@ -992,12 +992,12 @@ mod test {
 
 			let mut entries = vec![];
 			A::build_metadata(
-				sp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated,
+				rp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated,
 				vec![],
 				&mut entries,
 			);
 			AValueQueryWithAnOnEmpty::build_metadata(
-				sp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated,
+				rp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated,
 				vec![],
 				&mut entries,
 			);
@@ -1017,7 +1017,7 @@ mod test {
 						},
 						default: Option::<u32>::None.encode(),
 						docs: vec![],
-						deprecation_info: sp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated
+						deprecation_info: rp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated
 					},
 					StorageEntryMetadataIR {
 						name: "foo",
@@ -1032,7 +1032,7 @@ mod test {
 						},
 						default: 97u32.encode(),
 						docs: vec![],
-						deprecation_info: sp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated
+						deprecation_info: rp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated
 					}
 				]
 			);

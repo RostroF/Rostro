@@ -19,9 +19,9 @@
 //! Configuration of the transaction protocol
 
 use futures::prelude::*;
-use sc_network::MAX_RESPONSE_SIZE;
-use sc_network_common::ExHashT;
-use sp_runtime::traits::Block as BlockT;
+use rc_network::MAX_RESPONSE_SIZE;
+use rc_network_common::ExHashT;
+use rp_runtime::traits::Block as BlockT;
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time};
 
 /// Interval at which we propagate transactions;

@@ -1,13 +1,13 @@
 [package]
 description = "Substrate sync network protocol"
-name = "sc-network-sync"
+name = "rc-network-sync"
 version = "0.55.0"
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 authors.workspace = true
 edition.workspace = true
 homepage.workspace = true
 repository.workspace = true
-documentation = "https://docs.rs/sc-network-sync"
+documentation = "https://docs.rs/rc-network-sync"
 
 [lints]
 workspace = true
@@ -26,28 +26,28 @@ log = { workspace = true, default-features = true }
 mockall = { workspace = true }
 prometheus-endpoint = { default-features = true, workspace = true }
 prost = { workspace = true }
-sc-client-api = { default-features = true, workspace = true }
-sc-consensus = { default-features = true, workspace = true }
-sc-network = { default-features = true, workspace = true }
-sc-network-common = { default-features = true, workspace = true }
-sc-network-types = { default-features = true, workspace = true }
-sc-utils = { default-features = true, workspace = true }
+rc-client-api = { default-features = true, workspace = true }
+rc-consensus = { default-features = true, workspace = true }
+rc-network = { default-features = true, workspace = true }
+rc-network-common = { default-features = true, workspace = true }
+rc-network-types = { default-features = true, workspace = true }
+rc-utils = { default-features = true, workspace = true }
 schnellru = { workspace = true }
 smallvec = { workspace = true, default-features = true }
-sp-arithmetic = { default-features = true, workspace = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-consensus = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
+rp-arithmetic = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-consensus = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 tokio = { features = ["macros", "time"], workspace = true, default-features = true }
 tokio-stream = { workspace = true }
 
 [dev-dependencies]
 quickcheck = { workspace = true }
-sc-block-builder = { default-features = true, workspace = true }
-sp-test-primitives = { workspace = true }
-sp-tracing = { default-features = true, workspace = true }
+rc-block-builder = { default-features = true, workspace = true }
+rp-test-primitives = { workspace = true }
+rp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 
 [build-dependencies]

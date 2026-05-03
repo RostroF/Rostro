@@ -24,12 +24,12 @@ extern crate alloc;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 
 #[cfg(feature = "std")]
-use sp_api::ProvideRuntimeApi;
+use rp_api::ProvideRuntimeApi;
 #[cfg(feature = "std")]
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 
 use alloc::vec::Vec;
-use sp_staking::SessionIndex;
+use rp_staking::SessionIndex;
 use Debug;
 
 pub mod runtime_api;
@@ -77,13 +77,13 @@ pub trait GetValidatorCount {
 	fn validator_count(&self) -> ValidatorCount;
 }
 
-impl GetSessionNumber for sp_core::Void {
+impl GetSessionNumber for rp_core::Void {
 	fn session(&self) -> SessionIndex {
 		Default::default()
 	}
 }
 
-impl GetValidatorCount for sp_core::Void {
+impl GetValidatorCount for rp_core::Void {
 	fn validator_count(&self) -> ValidatorCount {
 		Default::default()
 	}
@@ -108,14 +108,14 @@ pub fn generate_initial_session_keys<Block, T>(
 	client: std::sync::Arc<T>,
 	at: Block::Hash,
 	seeds: Vec<String>,
-	keystore: sp_keystore::KeystorePtr,
-) -> Result<(), sp_api::ApiError>
+	keystore: rp_keystore::KeystorePtr,
+) -> Result<(), rp_api::ApiError>
 where
 	Block: BlockT,
 	T: ProvideRuntimeApi<Block>,
 	T::Api: SessionKeys<Block>,
 {
-	use sp_api::{ApiError, ApiExt};
+	use rp_api::{ApiError, ApiExt};
 
 	if seeds.is_empty() {
 		return Ok(());
@@ -127,7 +127,7 @@ where
 		ApiError::Application(Box::from("Could not find `SessionKeys` runtime api"))
 	})?;
 
-	runtime_api.register_extension(sp_keystore::KeystoreExt::from(keystore));
+	runtime_api.register_extension(rp_keystore::KeystoreExt::from(keystore));
 
 	for seed in seeds {
 		let seed = Some(seed.as_bytes().to_vec());

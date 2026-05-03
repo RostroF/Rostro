@@ -20,7 +20,7 @@
 use alloc::collections::BTreeSet;
 use core::hash::Hash;
 use scale_info::TypeInfo;
-use sp_core::{Decode, Encode};
+use rp_core::{Decode, Encode};
 use trie_db::{RecordedForKey, TrieAccess, TrieRecorder};
 
 /// Error associated with the `AccessedNodesTracker` module.
@@ -79,8 +79,8 @@ pub mod tests {
 	use hash_db::Hasher;
 	use trie_db::{Trie, TrieDBBuilder};
 
-	type Hash = <sp_core::Blake2Hasher as Hasher>::Out;
-	type Layout = crate::LayoutV1<sp_core::Blake2Hasher>;
+	type Hash = <rp_core::Blake2Hasher as Hasher>::Out;
+	type Layout = crate::LayoutV1<rp_core::Blake2Hasher>;
 
 	const TEST_DATA: &[(&[u8], &[u8])] =
 		&[(b"key1", &[1; 64]), (b"key2", &[2; 64]), (b"key3", &[3; 64])];

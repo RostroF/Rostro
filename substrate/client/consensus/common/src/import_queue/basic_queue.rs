@@ -21,9 +21,9 @@ use futures::{
 };
 use log::{debug, trace};
 use prometheus_endpoint::Registry;
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use sp_consensus::BlockOrigin;
-use sp_runtime::{
+use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
+use rp_consensus::BlockOrigin;
+use rp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT, NumberFor},
 	Justification, Justifications,
 };
@@ -65,7 +65,7 @@ impl<B: BlockT> BasicQueue<B> {
 		verifier: V,
 		block_import: BoxBlockImport<B>,
 		justification_import: Option<BoxJustificationImport<B>>,
-		spawner: &impl sp_core::traits::SpawnEssentialNamed,
+		spawner: &impl rp_core::traits::SpawnEssentialNamed,
 		prometheus_registry: Option<&Registry>,
 	) -> Self
 	where
@@ -362,7 +362,7 @@ impl<B: BlockT> BlockImportWorker<B> {
 				});
 				match result {
 					Ok(()) => JustificationImportResult::Success,
-					Err(sp_consensus::Error::OutdatedJustification) => {
+					Err(rp_consensus::Error::OutdatedJustification) => {
 						JustificationImportResult::OutdatedJustification
 					},
 					Err(_) => JustificationImportResult::Failure,
@@ -513,7 +513,7 @@ mod tests {
 	};
 	use futures::{executor::block_on, Future};
 	use parking_lot::Mutex;
-	use sp_test_primitives::{Block, BlockNumber, Hash, Header};
+	use rp_test_primitives::{Block, BlockNumber, Hash, Header};
 
 	#[async_trait::async_trait]
 	impl Verifier<Block> for () {
@@ -527,7 +527,7 @@ mod tests {
 
 	#[async_trait::async_trait]
 	impl BlockImport<Block> for () {
-		type Error = sp_consensus::Error;
+		type Error = rp_consensus::Error;
 
 		async fn check_block(
 			&self,
@@ -546,7 +546,7 @@ mod tests {
 
 	#[async_trait::async_trait]
 	impl JustificationImport<Block> for () {
-		type Error = sp_consensus::Error;
+		type Error = rp_consensus::Error;
 
 		async fn on_start(&mut self) -> Vec<(Hash, BlockNumber)> {
 			Vec::new()
@@ -640,7 +640,7 @@ mod tests {
 			let hash = Hash::random();
 			finality_sender
 				.unbounded_send(worker_messages::ImportJustification(
-					sc_network_types::PeerId::random(),
+					rc_network_types::PeerId::random(),
 					hash,
 					1,
 					(*b"TEST", Vec::new()),

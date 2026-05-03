@@ -35,19 +35,19 @@ use futures::{stream::Fuse, FutureExt, StreamExt};
 use log::{debug, error, info, trace, warn};
 use parking_lot::Mutex;
 use prometheus_endpoint::Registry;
-use sc_client_api::{Backend, BlockBackend, BlockchainEvents, FinalityNotification, Finalizer};
-use sc_consensus::BlockImport;
-use sc_network::{NetworkRequest, NotificationService, ProtocolName};
-use sc_network_gossip::{GossipEngine, Network as GossipNetwork, Syncing as GossipSyncing};
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver};
-use sp_api::ProvideRuntimeApi;
-use sp_blockchain::{Backend as BlockchainBackend, HeaderBackend};
-use sp_consensus::{Error as ConsensusError, SyncOracle};
-use sp_consensus_beefy::{
+use rc_client_api::{Backend, BlockBackend, BlockchainEvents, FinalityNotification, Finalizer};
+use rc_consensus::BlockImport;
+use rc_network::{NetworkRequest, NotificationService, ProtocolName};
+use rc_network_gossip::{GossipEngine, Network as GossipNetwork, Syncing as GossipSyncing};
+use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver};
+use rp_api::ProvideRuntimeApi;
+use rp_blockchain::{Backend as BlockchainBackend, HeaderBackend};
+use rp_consensus::{Error as ConsensusError, SyncOracle};
+use rp_consensus_beefy::{
 	AuthorityIdBound, BeefyApi, ConsensusLog, PayloadProvider, ValidatorSet, BEEFY_ENGINE_ID,
 };
-use sp_keystore::KeystorePtr;
-use sp_runtime::traits::{Block, Header as HeaderT, NumberFor, Zero};
+use rp_keystore::KeystorePtr;
+use rp_runtime::traits::{Block, Header as HeaderT, NumberFor, Zero};
 use std::{
 	collections::{BTreeMap, VecDeque},
 	future::Future,
@@ -80,7 +80,7 @@ use crate::{
 pub use communication::beefy_protocol_name::{
 	gossip_protocol_name, justifications_protocol_name as justifs_protocol_name,
 };
-use sp_runtime::generic::OpaqueDigestItemId;
+use rp_runtime::generic::OpaqueDigestItemId;
 
 mod fisherman;
 #[cfg(test)]
@@ -91,7 +91,7 @@ const LOG_TARGET: &str = "beefy";
 const HEADER_SYNC_DELAY: Duration = Duration::from_secs(60);
 
 type FinalityNotifications<Block> =
-	sc_utils::mpsc::TracingUnboundedReceiver<UnpinnedFinalityNotification<Block>>;
+	rc_utils::mpsc::TracingUnboundedReceiver<UnpinnedFinalityNotification<Block>>;
 /// A convenience BEEFY client trait that defines all the type bounds a BEEFY client
 /// has to satisfy. Ideally that should actually be a trait alias. Unfortunately as
 /// of today, Rust does not allow a type alias to be used as a trait bound. Tracking
@@ -491,7 +491,7 @@ where
 }
 
 /// Finality notification for consumption by BEEFY worker.
-/// This is a stripped down version of `sc_client_api::FinalityNotification` which does not keep
+/// This is a stripped down version of `rc_client_api::FinalityNotification` which does not keep
 /// blocks pinned.
 struct UnpinnedFinalityNotification<B: Block> {
 	/// Finalized block header hash.
@@ -658,7 +658,7 @@ pub async fn start_beefy_gadget<B, BE, C, N, P, R, S, AuthorityId>(
 /// Produce a future that transformes finality notifications into a struct that does not keep blocks
 /// pinned.
 fn finality_notification_transformer_future<B>(
-	mut finality_notifications: sc_client_api::FinalityNotifications<B>,
+	mut finality_notifications: rc_client_api::FinalityNotifications<B>,
 ) -> (
 	Pin<Box<futures::future::Fuse<impl Future<Output = ()> + Sized>>>,
 	Fuse<TracingUnboundedReceiver<UnpinnedFinalityNotification<B>>>,

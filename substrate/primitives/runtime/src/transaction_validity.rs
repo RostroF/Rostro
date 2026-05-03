@@ -23,7 +23,7 @@ use crate::{
 };
 use alloc::{vec, vec::Vec};
 use scale_info::TypeInfo;
-use sp_weights::Weight;
+use rp_weights::Weight;
 
 /// Priority for a transaction. Additive. Higher is better.
 pub type TransactionPriority = u64;

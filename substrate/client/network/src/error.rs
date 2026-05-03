@@ -20,7 +20,7 @@
 
 use crate::{config::TransportConfig, types::ProtocolName};
 
-use sc_network_types::{multiaddr::Multiaddr, PeerId};
+use rc_network_types::{multiaddr::Multiaddr, PeerId};
 
 use std::fmt;
 
@@ -36,7 +36,7 @@ pub enum Error {
 
 	/// Client error
 	#[error(transparent)]
-	Client(#[from] Box<sp_blockchain::Error>),
+	Client(#[from] Box<rp_blockchain::Error>),
 	/// The same bootnode (based on address) is registered with two different peer ids.
 	#[error(
 		"The same bootnode (`{address}`) is registered with two different peer ids: `{first_id}` and `{second_id}`"

@@ -41,18 +41,18 @@ use codec::{Decode, Encode};
 use futures::{pin_mut, FutureExt, StreamExt};
 use jsonrpsee::RpcModule;
 use log::{debug, error, trace, warn};
-use sc_client_api::{blockchain::HeaderBackend, BlockBackend, BlockchainEvents, ProofProvider};
-use sc_network::{
+use rc_client_api::{blockchain::HeaderBackend, BlockBackend, BlockchainEvents, ProofProvider};
+use rc_network::{
 	config::MultiaddrWithPeerId, service::traits::NetworkService, NetworkBackend, NetworkBlock,
 	NetworkPeers, NetworkStateInfo,
 };
-use sc_network_sync::SyncingService;
-use sc_network_types::PeerId;
-use sc_rpc_server::Server;
-use sc_utils::mpsc::TracingUnboundedReceiver;
-use sp_blockchain::HeaderMetadata;
-use sp_consensus::SyncOracle;
-use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
+use rc_network_sync::SyncingService;
+use rc_network_types::PeerId;
+use rc_rpc_server::Server;
+use rc_utils::mpsc::TracingUnboundedReceiver;
+use rp_blockchain::HeaderMetadata;
+use rp_consensus::SyncOracle;
+use rp_runtime::traits::{Block as BlockT, Header as HeaderT};
 
 pub use self::{
 	builder::{
@@ -71,7 +71,7 @@ pub use self::{
 #[allow(deprecated)]
 pub use builder::new_native_or_wasm_executor;
 
-pub use sc_chain_spec::{
+pub use rc_chain_spec::{
 	construct_genesis_block, resolve_state_version_from_wasm, BuildGenesisBlock,
 	GenesisBlockBuilder,
 };
@@ -79,23 +79,23 @@ pub use sc_chain_spec::{
 pub use config::{
 	BasePath, BlocksPruning, Configuration, DatabaseSource, PruningMode, Role, RpcMethods, TaskType,
 };
-pub use sc_chain_spec::{
+pub use rc_chain_spec::{
 	ChainSpec, ChainType, Extension as ChainSpecExtension, GenericChainSpec, NoExtension,
 	Properties,
 };
-pub use sc_client_db::PruningFilter;
+pub use rc_client_db::PruningFilter;
 
 use crate::config::RpcConfiguration;
 use prometheus_endpoint::Registry;
-pub use sc_consensus::ImportQueue;
-pub use sc_executor::NativeExecutionDispatch;
-pub use sc_network_sync::WarpSyncConfig;
+pub use rc_consensus::ImportQueue;
+pub use rc_executor::NativeExecutionDispatch;
+pub use rc_network_sync::WarpSyncConfig;
 #[doc(hidden)]
-pub use sc_network_transactions::config::{TransactionImport, TransactionImportFuture};
-pub use sc_rpc::{RandomIntegerSubscriptionId, RandomStringSubscriptionId};
-pub use sc_tracing::TracingReceiver;
-pub use sc_transaction_pool::TransactionPoolOptions;
-pub use sc_transaction_pool_api::{error::IntoPoolError, InPoolTransaction, TransactionPool};
+pub use rc_network_transactions::config::{TransactionImport, TransactionImportFuture};
+pub use rc_rpc::{RandomIntegerSubscriptionId, RandomStringSubscriptionId};
+pub use rc_tracing::TracingReceiver;
+pub use rc_transaction_pool::TransactionPoolOptions;
+pub use rc_transaction_pool_api::{error::IntoPoolError, InPoolTransaction, TransactionPool};
 #[doc(hidden)]
 pub use std::{ops::Deref, result::Result, sync::Arc};
 pub use task_manager::{
@@ -182,12 +182,12 @@ async fn build_network_future<
 	C: BlockchainEvents<B>
 		+ HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = sp_blockchain::Error>
+		+ HeaderMetadata<B, Error = rp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync
 		+ 'static,
-	H: sc_network_common::ExHashT,
+	H: rc_network_common::ExHashT,
 	N: NetworkBackend<B, <B as BlockT>::Hash>,
 >(
 	network: N,
@@ -249,18 +249,18 @@ pub async fn build_system_rpc_future<
 	C: BlockchainEvents<B>
 		+ HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = sp_blockchain::Error>
+		+ HeaderMetadata<B, Error = rp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync
 		+ 'static,
-	H: sc_network_common::ExHashT,
+	H: rc_network_common::ExHashT,
 >(
 	role: Role,
 	network_service: Arc<dyn NetworkService>,
 	sync_service: Arc<SyncingService<B>>,
 	client: Arc<C>,
-	mut rpc_rx: TracingUnboundedReceiver<sc_rpc::system::Request<B>>,
+	mut rpc_rx: TracingUnboundedReceiver<rc_rpc::system::Request<B>>,
 	should_have_peers: bool,
 ) {
 	// Current best block at initialization, to report to the RPC layer.
@@ -274,9 +274,9 @@ pub async fn build_system_rpc_future<
 		};
 
 		match req {
-			sc_rpc::system::Request::Health(sender) => match sync_service.peers_info().await {
+			rc_rpc::system::Request::Health(sender) => match sync_service.peers_info().await {
 				Ok(info) => {
-					let _ = sender.send(sc_rpc::system::Health {
+					let _ = sender.send(rc_rpc::system::Health {
 						peers: info.len(),
 						is_syncing: sync_service.is_major_syncing(),
 						should_have_peers,
@@ -284,12 +284,12 @@ pub async fn build_system_rpc_future<
 				},
 				Err(_) => log::error!("`SyncingEngine` shut down"),
 			},
-			sc_rpc::system::Request::LocalPeerId(sender) => {
+			rc_rpc::system::Request::LocalPeerId(sender) => {
 				let _ = sender.send(network_service.local_peer_id().to_base58());
 			},
-			sc_rpc::system::Request::LocalListenAddresses(sender) => {
+			rc_rpc::system::Request::LocalListenAddresses(sender) => {
 				let peer_id = (network_service.local_peer_id()).into();
-				let p2p_proto_suffix = sc_network::multiaddr::Protocol::P2p(peer_id);
+				let p2p_proto_suffix = rc_network::multiaddr::Protocol::P2p(peer_id);
 				let addresses = network_service
 					.listen_addresses()
 					.iter()
@@ -297,11 +297,11 @@ pub async fn build_system_rpc_future<
 					.collect();
 				let _ = sender.send(addresses);
 			},
-			sc_rpc::system::Request::Peers(sender) => match sync_service.peers_info().await {
+			rc_rpc::system::Request::Peers(sender) => match sync_service.peers_info().await {
 				Ok(info) => {
 					let _ = sender.send(
 						info.into_iter()
-							.map(|(peer_id, p)| sc_rpc::system::PeerInfo {
+							.map(|(peer_id, p)| rc_rpc::system::PeerInfo {
 								peer_id: peer_id.to_base58(),
 								roles: format!("{:?}", p.roles),
 								best_hash: p.best_hash,
@@ -312,7 +312,7 @@ pub async fn build_system_rpc_future<
 				},
 				Err(_) => log::error!("`SyncingEngine` shut down"),
 			},
-			sc_rpc::system::Request::NetworkState(sender) => {
+			rc_rpc::system::Request::NetworkState(sender) => {
 				let network_state = network_service.network_state().await;
 				if let Ok(network_state) = network_state {
 					if let Ok(network_state) = serde_json::to_value(network_state) {
@@ -322,26 +322,26 @@ pub async fn build_system_rpc_future<
 					break;
 				}
 			},
-			sc_rpc::system::Request::NetworkAddReservedPeer(peer_addr, sender) => {
+			rc_rpc::system::Request::NetworkAddReservedPeer(peer_addr, sender) => {
 				let result = match MultiaddrWithPeerId::try_from(peer_addr) {
 					Ok(peer) => network_service.add_reserved_peer(peer),
 					Err(err) => Err(err.to_string()),
 				};
-				let x = result.map_err(sc_rpc::system::error::Error::MalformattedPeerArg);
+				let x = result.map_err(rc_rpc::system::error::Error::MalformattedPeerArg);
 				let _ = sender.send(x);
 			},
-			sc_rpc::system::Request::NetworkRemoveReservedPeer(peer_id, sender) => {
+			rc_rpc::system::Request::NetworkRemoveReservedPeer(peer_id, sender) => {
 				let _ = match peer_id.parse::<PeerId>() {
 					Ok(peer_id) => {
 						network_service.remove_reserved_peer(peer_id);
 						sender.send(Ok(()))
 					},
-					Err(e) => sender.send(Err(sc_rpc::system::error::Error::MalformattedPeerArg(
+					Err(e) => sender.send(Err(rc_rpc::system::error::Error::MalformattedPeerArg(
 						e.to_string(),
 					))),
 				};
 			},
-			sc_rpc::system::Request::NetworkReservedPeers(sender) => {
+			rc_rpc::system::Request::NetworkReservedPeers(sender) => {
 				let Ok(reserved_peers) = network_service.reserved_peers().await else {
 					break;
 				};
@@ -349,8 +349,8 @@ pub async fn build_system_rpc_future<
 				let _ =
 					sender.send(reserved_peers.iter().map(|peer_id| peer_id.to_base58()).collect());
 			},
-			sc_rpc::system::Request::NodeRoles(sender) => {
-				use sc_rpc::system::NodeRole;
+			rc_rpc::system::Request::NodeRoles(sender) => {
+				use rc_rpc::system::NodeRole;
 
 				let node_role = match role {
 					Role::Authority { .. } => NodeRole::Authority,
@@ -359,8 +359,8 @@ pub async fn build_system_rpc_future<
 
 				let _ = sender.send(vec![node_role]);
 			},
-			sc_rpc::system::Request::SyncState(sender) => {
-				use sc_rpc::system::SyncState;
+			rc_rpc::system::Request::SyncState(sender) => {
+				use rc_rpc::system::SyncState;
 
 				match sync_service.status().await.map(|status| status.best_seen_block) {
 					Ok(best_seen_block) => {
@@ -386,12 +386,12 @@ pub fn start_rpc_servers<R>(
 	registry: Option<&Registry>,
 	tokio_handle: &Handle,
 	gen_rpc_module: R,
-	rpc_id_provider: Option<Box<dyn sc_rpc_server::SubscriptionIdProvider>>,
+	rpc_id_provider: Option<Box<dyn rc_rpc_server::SubscriptionIdProvider>>,
 ) -> Result<Server, error::Error>
 where
 	R: Fn() -> Result<RpcModule<()>, Error>,
 {
-	let endpoints: Vec<sc_rpc_server::RpcEndpoint> = if let Some(endpoints) =
+	let endpoints: Vec<rc_rpc_server::RpcEndpoint> = if let Some(endpoints) =
 		rpc_configuration.addr.as_ref()
 	{
 		endpoints.clone()
@@ -401,7 +401,7 @@ where
 		let ipv4 = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, rpc_configuration.port));
 
 		vec![
-			sc_rpc_server::RpcEndpoint {
+			rc_rpc_server::RpcEndpoint {
 				batch_config: rpc_configuration.batch_config,
 				cors: rpc_configuration.cors.clone(),
 				listen_addr: ipv4,
@@ -417,7 +417,7 @@ where
 				retry_random_port: true,
 				is_optional: false,
 			},
-			sc_rpc_server::RpcEndpoint {
+			rc_rpc_server::RpcEndpoint {
 				batch_config: rpc_configuration.batch_config,
 				cors: rpc_configuration.cors.clone(),
 				listen_addr: ipv6,
@@ -436,10 +436,10 @@ where
 		]
 	};
 
-	let metrics = sc_rpc_server::RpcMetrics::new(registry)?;
+	let metrics = rc_rpc_server::RpcMetrics::new(registry)?;
 	let rpc_api = gen_rpc_module()?;
 
-	let server_config = sc_rpc_server::Config {
+	let server_config = rc_rpc_server::Config {
 		endpoints,
 		rpc_api,
 		metrics,
@@ -453,7 +453,7 @@ where
 	// `block_in_place` is a hack to allow callers to call `block_on` prior to
 	// calling `start_rpc_servers`.
 	match tokio::task::block_in_place(|| {
-		tokio_handle.block_on(sc_rpc_server::start_server(server_config))
+		tokio_handle.block_on(rc_rpc_server::start_server(server_config))
 	}) {
 		Ok(server) => Ok(server),
 		Err(e) => Err(Error::Application(e)),
@@ -480,8 +480,8 @@ fn transactions_to_propagate<Pool, B, H, E>(pool: &Pool) -> Vec<(H, Arc<B::Extri
 where
 	Pool: TransactionPool<Block = B, Hash = H, Error = E>,
 	B: BlockT,
-	H: std::hash::Hash + Eq + sp_runtime::traits::Member + sp_runtime::traits::MaybeSerialize,
-	E: IntoPoolError + From<sc_transaction_pool_api::error::Error>,
+	H: std::hash::Hash + Eq + rp_runtime::traits::Member + rp_runtime::traits::MaybeSerialize,
+	E: IntoPoolError + From<rc_transaction_pool_api::error::Error>,
 {
 	pool.ready()
 		.filter(|t| t.is_propagable())
@@ -493,20 +493,20 @@ where
 		.collect()
 }
 
-impl<B, H, C, Pool, E> sc_network_transactions::config::TransactionPool<H, B>
+impl<B, H, C, Pool, E> rc_network_transactions::config::TransactionPool<H, B>
 	for TransactionPoolAdapter<C, Pool>
 where
 	C: HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = sp_blockchain::Error>
+		+ HeaderMetadata<B, Error = rp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync
 		+ 'static,
 	Pool: 'static + TransactionPool<Block = B, Hash = H, Error = E>,
 	B: BlockT,
-	H: std::hash::Hash + Eq + sp_runtime::traits::Member + sp_runtime::traits::MaybeSerialize,
-	E: 'static + IntoPoolError + From<sc_transaction_pool_api::error::Error>,
+	H: std::hash::Hash + Eq + rp_runtime::traits::Member + rp_runtime::traits::MaybeSerialize,
+	E: 'static + IntoPoolError + From<rc_transaction_pool_api::error::Error>,
 {
 	fn transactions(&self) -> Vec<(H, Arc<B::Extrinsic>)> {
 		transactions_to_propagate(&*self.pool)
@@ -521,7 +521,7 @@ where
 		let uxt = match Decode::decode(&mut &encoded[..]) {
 			Ok(uxt) => uxt,
 			Err(e) => {
-				debug!(target: sc_transaction_pool::LOG_TARGET, "Transaction invalid: {:?}", e);
+				debug!(target: rc_transaction_pool::LOG_TARGET, "Transaction invalid: {:?}", e);
 				return Box::pin(futures::future::ready(TransactionImport::Bad));
 			},
 		};
@@ -533,18 +533,18 @@ where
 			match pool
 				.submit_one(
 					client.info().best_hash,
-					sc_transaction_pool_api::TransactionSource::External,
+					rc_transaction_pool_api::TransactionSource::External,
 					uxt,
 				)
 				.await
 			{
 				Ok(_) => {
 					let elapsed = start.elapsed();
-					trace!(target: sc_transaction_pool::LOG_TARGET, "import transaction: {elapsed:?}");
+					trace!(target: rc_transaction_pool::LOG_TARGET, "import transaction: {elapsed:?}");
 					TransactionImport::NewGood
 				},
 				Err(e) => match e.into_pool_error() {
-					Ok(sc_transaction_pool_api::error::Error::AlreadyImported(_)) => {
+					Ok(rc_transaction_pool_api::error::Error::AlreadyImported(_)) => {
 						TransactionImport::KnownGood
 					},
 					Ok(_) => TransactionImport::Bad,
@@ -574,8 +574,8 @@ where
 mod tests {
 	use super::*;
 	use futures::executor::block_on;
-	use sc_transaction_pool::BasicPool;
-	use sp_consensus::SelectChain;
+	use rc_transaction_pool::BasicPool;
+	use rp_consensus::SelectChain;
 	use substrate_test_runtime_client::{
 		prelude::*,
 		runtime::{ExtrinsicBuilder, Transfer, TransferData},
@@ -586,7 +586,7 @@ mod tests {
 		// given
 		let (client, longest_chain) = TestClientBuilder::new().build_with_longest_chain();
 		let client = Arc::new(client);
-		let spawner = sp_core::testing::TaskExecutor::new();
+		let spawner = rp_core::testing::TaskExecutor::new();
 		let pool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -594,7 +594,7 @@ mod tests {
 			spawner,
 			client.clone(),
 		));
-		let source = sp_runtime::transaction_validity::TransactionSource::External;
+		let source = rp_runtime::transaction_validity::TransactionSource::External;
 		let best = block_on(longest_chain.best_chain()).unwrap();
 		let transaction = Transfer {
 			amount: 5,

@@ -56,7 +56,7 @@ use alloc::{
 	vec,
 	vec::Vec,
 };
-use sp_arithmetic::traits::{Bounded, Zero};
+use rp_arithmetic::traits::{Bounded, Zero};
 
 /// Map type used for reduce_4. Can be easily swapped with HashMap.
 type Map<A> = BTreeMap<(A, A), A>;
@@ -492,7 +492,7 @@ fn reduce_all<A: IdentifierT>(assignments: &mut Vec<StakedAssignment<A>>) -> u32
 							Some(min_direction),
 						) => (min_value, min_target, min_voter, min_index, min_direction),
 						_ => {
-							sp_runtime::print("UNREACHABLE code reached in `reduce` algorithm. This must be a bug.");
+							rp_runtime::print("UNREACHABLE code reached in `reduce` algorithm. This must be a bug.");
 							break;
 						},
 					};

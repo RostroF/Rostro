@@ -1,5 +1,5 @@
 [package]
-name = "sp-io"
+name = "rp-io"
 version = "45.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "I/O for Substrate runtimes"
-documentation = "https://docs.rs/sp-io"
+documentation = "https://docs.rs/rp-io"
 readme = "README.md"
 build = "build.rs"
 
@@ -21,21 +21,21 @@ targets = ["x86_64-unknown-linux-gnu"]
 bytes = { workspace = true }
 codec = { features = ["bytes"], workspace = true }
 secp256k1 = { features = ["global-context", "recovery"], optional = true, workspace = true, default-features = true }
-sp-core = { workspace = true }
-sp-crypto-hashing = { workspace = true }
-sp-externalities = { workspace = true }
-sp-keystore = { optional = true, workspace = true }
-sp-runtime-interface = { workspace = true }
-sp-state-machine = { optional = true, workspace = true }
-sp-tracing = { workspace = true }
-sp-trie = { optional = true, workspace = true }
+rp-core = { workspace = true }
+rp-crypto-hashing = { workspace = true }
+rp-externalities = { workspace = true }
+rp-keystore = { optional = true, workspace = true }
+rp-runtime-interface = { workspace = true }
+rp-state-machine = { optional = true, workspace = true }
+rp-tracing = { workspace = true }
+rp-trie = { optional = true, workspace = true }
 tracing = { workspace = true }
 tracing-core = { workspace = true }
 
 [target.'cfg(not(substrate_runtime))'.dependencies]
-sp-keystore = { workspace = true, default-features = false }
-sp-trie = { workspace = true, default-features = false }
-sp-state-machine = { workspace = true, default-features = false }
+rp-keystore = { workspace = true, default-features = false }
+rp-trie = { workspace = true, default-features = false }
+rp-state-machine = { workspace = true, default-features = false }
 log = { workspace = true, default-features = true }
 libsecp256k1 = { workspace = true, default-features = false, features = ["static-context"] }
 secp256k1 = { workspace = true, default-features = false, features = ["alloc", "recovery"] }
@@ -61,19 +61,19 @@ std = [
 	"log/std",
 	"secp256k1/global-context",
 	"secp256k1/std",
-	"sp-core/std",
-	"sp-crypto-hashing/std",
-	"sp-externalities/std",
-	"sp-keystore/std",
-	"sp-runtime-interface/std",
-	"sp-state-machine/std",
-	"sp-tracing/std",
-	"sp-trie/std",
+	"rp-core/std",
+	"rp-crypto-hashing/std",
+	"rp-externalities/std",
+	"rp-keystore/std",
+	"rp-runtime-interface/std",
+	"rp-state-machine/std",
+	"rp-tracing/std",
+	"rp-trie/std",
 	"tracing-core/std",
 	"tracing/std",
 ]
 
-with-tracing = ["sp-tracing/with-tracing"]
+with-tracing = ["rp-tracing/with-tracing"]
 
 # These two features are used for `no_std` builds for the environments which already provides
 # `#[panic_handler]`, `#[alloc_error_handler]` and `#[global_allocator]`.
@@ -105,12 +105,12 @@ improved_panic_error_reporting = []
 # This feature adds BLS crypto primitives.
 # It should not be used in production since the implementation and interface may still
 # be subject to significant changes.
-bls-experimental = ["sp-core/bls-experimental", "sp-keystore/bls-experimental"]
+bls-experimental = ["rp-core/bls-experimental", "rp-keystore/bls-experimental"]
 
 # This feature adds Bandersnatch crypto primitives.
 # It should not be used in production since the implementation and interface may still
 # be subject to significant changes.
 bandersnatch-experimental = [
-	"sp-core/bandersnatch-experimental",
-	"sp-keystore/bandersnatch-experimental",
+	"rp-core/bandersnatch-experimental",
+	"rp-keystore/bandersnatch-experimental",
 ]

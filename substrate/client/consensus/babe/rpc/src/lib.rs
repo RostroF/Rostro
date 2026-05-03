@@ -29,17 +29,17 @@ use jsonrpsee::{
 };
 use serde::{Deserialize, Serialize};
 
-use sc_consensus_babe::{authorship, BabeWorkerHandle};
-use sc_consensus_epochs::Epoch as EpochT;
-use sc_rpc_api::{check_if_safe, UnsafeRpcError};
-use sp_api::ProvideRuntimeApi;
-use sp_application_crypto::AppCrypto;
-use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
-use sp_consensus::{Error as ConsensusError, SelectChain};
-use sp_consensus_babe::{digests::PreDigest, AuthorityId, BabeApi as BabeRuntimeApi};
-use sp_core::crypto::ByteArray;
-use sp_keystore::KeystorePtr;
-use sp_runtime::traits::{Block as BlockT, Header as _};
+use rc_consensus_babe::{authorship, BabeWorkerHandle};
+use rc_consensus_epochs::Epoch as EpochT;
+use rc_rpc_api::{check_if_safe, UnsafeRpcError};
+use rp_api::ProvideRuntimeApi;
+use rp_application_crypto::AppCrypto;
+use rp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
+use rp_consensus::{Error as ConsensusError, SelectChain};
+use rp_consensus_babe::{digests::PreDigest, AuthorityId, BabeApi as BabeRuntimeApi};
+use rp_core::crypto::ByteArray;
+use rp_keystore::KeystorePtr;
+use rp_runtime::traits::{Block as BlockT, Header as _};
 
 const BABE_ERROR: i32 = 9000;
 
@@ -193,13 +193,13 @@ impl From<Error> for ErrorObjectOwned {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sc_consensus_babe::ImportQueueParams;
-	use sc_rpc_api::DenyUnsafe;
-	use sc_transaction_pool_api::{OffchainTransactionPoolFactory, RejectAllTxPool};
-	use sp_consensus_babe::inherents::InherentDataProvider;
-	use sp_core::{crypto::key_types::BABE, testing::TaskExecutor};
-	use sp_keyring::Sr25519Keyring;
-	use sp_keystore::{testing::MemoryKeystore, Keystore};
+	use rc_consensus_babe::ImportQueueParams;
+	use rc_rpc_api::DenyUnsafe;
+	use rc_transaction_pool_api::{OffchainTransactionPoolFactory, RejectAllTxPool};
+	use rp_consensus_babe::inherents::InherentDataProvider;
+	use rp_core::{crypto::key_types::BABE, testing::TaskExecutor};
+	use rp_keyring::Sr25519Keyring;
+	use rp_keystore::{testing::MemoryKeystore, Keystore};
 	use substrate_test_runtime_client::{
 		runtime::Block, Backend, DefaultTestClientBuilderExt, TestClient, TestClientBuilder,
 		TestClientBuilderExt,
@@ -213,7 +213,7 @@ mod tests {
 		keystore.into()
 	}
 
-	fn test_babe_rpc_module() -> Babe<Block, TestClient, sc_consensus::LongestChain<Backend, Block>>
+	fn test_babe_rpc_module() -> Babe<Block, TestClient, rc_consensus::LongestChain<Backend, Block>>
 	{
 		let builder = TestClientBuilder::new();
 		let (client, longest_chain) = builder.build_with_longest_chain();
@@ -221,10 +221,10 @@ mod tests {
 		let task_executor = TaskExecutor::new();
 		let keystore = create_keystore(Sr25519Keyring::Alice);
 
-		let config = sc_consensus_babe::configuration(&*client).expect("config available");
+		let config = rc_consensus_babe::configuration(&*client).expect("config available");
 		let slot_duration = config.slot_duration();
 
-		let (block_import, link) = sc_consensus_babe::block_import(
+		let (block_import, link) = rc_consensus_babe::block_import(
 			config.clone(),
 			client.clone(),
 			client.clone(),
@@ -239,7 +239,7 @@ mod tests {
 		)
 		.expect("can initialize block-import");
 
-		let (_, babe_worker_handle) = sc_consensus_babe::import_queue(ImportQueueParams {
+		let (_, babe_worker_handle) = rc_consensus_babe::import_queue(ImportQueueParams {
 			link: link.clone(),
 			block_import: block_import.clone(),
 			justification_import: None,

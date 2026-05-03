@@ -24,7 +24,7 @@
 //! `cargo hfuzz run-debug normalize hfuzz_workspace/normalize/*.fuzz`.
 
 use honggfuzz::fuzz;
-use sp_arithmetic::Normalizable;
+use rp_arithmetic::Normalizable;
 
 type Ty = u64;
 

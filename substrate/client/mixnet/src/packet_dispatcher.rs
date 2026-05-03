@@ -23,8 +23,8 @@ use arrayvec::ArrayVec;
 use log::{debug, warn};
 use mixnet::core::{AddressedPacket, NetworkStatus, Packet, PeerId as CorePeerId};
 use parking_lot::Mutex;
-use sc_network::NotificationService;
-use sc_network_types::PeerId;
+use rc_network::NotificationService;
+use rc_network_types::PeerId;
 use std::{collections::HashMap, future::Future, sync::Arc};
 
 const LOG_TARGET: &str = "mixnet";

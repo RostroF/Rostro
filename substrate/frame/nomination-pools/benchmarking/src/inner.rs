@@ -37,11 +37,11 @@ use pallet_nomination_pools::{
 	Pallet as Pools, PoolId, PoolMembers, PoolRoles, PoolState, RewardPools, SubPoolsStorage,
 };
 use pallet_staking::MaxNominationsOf;
-use sp_runtime::{
+use rp_runtime::{
 	traits::{Bounded, StaticLookup, Zero},
 	Perbill,
 };
-use sp_staking::{EraIndex, StakingInterface, StakingUnchecked};
+use rp_staking::{EraIndex, StakingInterface, StakingUnchecked};
 // `frame_benchmarking::benchmarks!` macro needs this
 use pallet_nomination_pools::Call;
 

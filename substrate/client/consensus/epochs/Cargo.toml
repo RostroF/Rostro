@@ -1,5 +1,5 @@
 [package]
-name = "sc-consensus-epochs"
+name = "rc-consensus-epochs"
 version = "0.55.0"
 authors.workspace = true
 description = "Generic epochs-based utilities for consensus"
@@ -18,7 +18,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 codec = { features = ["derive"], workspace = true, default-features = true }
 fork-tree = { default-features = true, workspace = true }
-sc-client-api = { default-features = true, workspace = true }
-sc-consensus = { default-features = true, workspace = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
+rc-client-api = { default-features = true, workspace = true }
+rc-consensus = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }

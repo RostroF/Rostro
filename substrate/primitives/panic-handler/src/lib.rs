@@ -127,7 +127,7 @@ impl Drop for AbortGuard {
 	}
 }
 
-// NOTE: When making any changes here make sure to also change this function in `sc-tracing`.
+// NOTE: When making any changes here make sure to also change this function in `rc-tracing`.
 fn strip_control_codes(input: &str) -> std::borrow::Cow<'_, str> {
 	static RE: LazyLock<Regex> = LazyLock::new(|| {
 		Regex::new(

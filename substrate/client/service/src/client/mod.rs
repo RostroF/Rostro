@@ -22,17 +22,17 @@
 //! parts:
 //!
 //! - A database containing the blocks and chain state, generally referred to as
-//! the [`Backend`](sc_client_api::backend::Backend).
+//! the [`Backend`](rc_client_api::backend::Backend).
 //! - A runtime environment, generally referred to as the
-//! [`Executor`](sc_client_api::call_executor::CallExecutor).
+//! [`Executor`](rc_client_api::call_executor::CallExecutor).
 //!
 //! # Initialization
 //!
 //! Creating a [`Client`] is done by calling the `new` method and passing to it a
-//! [`Backend`](sc_client_api::backend::Backend) and an
-//! [`Executor`](sc_client_api::call_executor::CallExecutor).
+//! [`Backend`](rc_client_api::backend::Backend) and an
+//! [`Executor`](rc_client_api::call_executor::CallExecutor).
 //!
-//! The former is typically provided by the `sc-client-db` crate.
+//! The former is typically provided by the `rc-client-db` crate.
 //!
 //! The latter typically requires passing one of:
 //!

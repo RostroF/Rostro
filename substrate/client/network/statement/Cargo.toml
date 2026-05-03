@@ -1,13 +1,13 @@
 [package]
 description = "Substrate statement protocol"
-name = "sc-network-statement"
+name = "rc-network-statement"
 version = "0.38.0"
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 authors.workspace = true
 edition.workspace = true
 homepage.workspace = true
 repository.workspace = true
-documentation = "https://docs.rs/sc-network-statement"
+documentation = "https://docs.rs/rc-network-statement"
 
 [lints]
 workspace = true
@@ -27,24 +27,24 @@ governor = { workspace = true }
 log = { workspace = true, default-features = true }
 prometheus-endpoint = { default-features = true, workspace = true }
 rand = { workspace = true, default-features = true }
-sc-network = { default-features = true, workspace = true }
-sc-network-common = { default-features = true, workspace = true }
-sc-network-sync = { default-features = true, workspace = true }
-sc-network-types = { default-features = true, workspace = true }
-sp-consensus = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-statement-store = { default-features = true, workspace = true }
+rc-network = { default-features = true, workspace = true }
+rc-network-common = { default-features = true, workspace = true }
+rc-network-sync = { default-features = true, workspace = true }
+rc-network-types = { default-features = true, workspace = true }
+rp-consensus = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
+rp-statement-store = { default-features = true, workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
 criterion = { workspace = true, default-features = true }
-sc-keystore = { default-features = true, workspace = true }
-sc-statement-store = { default-features = true, workspace = true }
-sp-api = { default-features = true, workspace = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-keyring = { default-features = true, workspace = true }
+rc-keystore = { default-features = true, workspace = true }
+rc-statement-store = { default-features = true, workspace = true }
+rp-api = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-keyring = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tempfile = { workspace = true }
 

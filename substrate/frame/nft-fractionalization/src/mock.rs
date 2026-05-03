@@ -25,9 +25,9 @@ use frame_support::{
 	traits::{AsEnsureOriginWithArg, ConstU32, ConstU64, Everything},
 };
 use frame_system::{mocking::MockBlock, EnsureSigned};
-use sp_core::H256;
-use sp_io::TestExternalities;
-use sp_runtime::{
+use rp_core::H256;
+use rp_io::TestExternalities;
+use rp_runtime::{
 	traits::{BlakeTwo256, IdentifyAccount, IdentityLookup, Verify},
 	BuildStorage, MultiSignature,
 };

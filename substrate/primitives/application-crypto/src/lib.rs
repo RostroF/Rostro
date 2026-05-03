@@ -22,11 +22,11 @@
 
 extern crate alloc;
 
-pub use sp_core::crypto::{key_types, CryptoTypeId, DeriveJunction, KeyTypeId, Ss58Codec};
+pub use rp_core::crypto::{key_types, CryptoTypeId, DeriveJunction, KeyTypeId, Ss58Codec};
 #[doc(hidden)]
-pub use sp_core::crypto::{DeriveError, Pair, SecretStringError};
+pub use rp_core::crypto::{DeriveError, Pair, SecretStringError};
 #[doc(hidden)]
-pub use sp_core::{
+pub use rp_core::{
 	self,
 	crypto::{ByteArray, CryptoType, Derive, IsWrappedBy, Public, Signature, UncheckedFrom, Wraps},
 	proof_of_possession::{ProofOfPossessionGenerator, ProofOfPossessionVerifier},
@@ -62,7 +62,7 @@ pub use traits::*;
 /// types whose identifier is `$key_type`.
 ///
 /// ```rust
-/// # use sp_application_crypto::{app_crypto, ed25519, KeyTypeId};
+/// # use rp_application_crypto::{app_crypto, ed25519, KeyTypeId};
 /// // Declare a new set of crypto types using ed25519 logic that identifies as `KeyTypeId`
 /// // of value `b"fuba"`.
 /// app_crypto!(ed25519, KeyTypeId(*b"fuba"));
@@ -99,7 +99,7 @@ macro_rules! app_crypto {
 /// types whose identifier is `$key_type`.
 ///
 /// ```rust
-/// # use sp_application_crypto::{app_crypto, ed25519, KeyTypeId};
+/// # use rp_application_crypto::{app_crypto, ed25519, KeyTypeId};
 /// // Declare a new set of crypto types using ed25519 logic that identifies as `KeyTypeId`
 /// // of value `b"fuba"`.
 /// app_crypto!(ed25519, KeyTypeId(*b"fuba"));
@@ -720,7 +720,7 @@ macro_rules! app_crypto_proof_of_possession_common {
 /// Implement bidirectional `From` and on-way `AsRef`/`AsMut` for two types, `$inner` and `$outer`.
 ///
 /// ```rust
-/// sp_application_crypto::wrap! {
+/// rp_application_crypto::wrap! {
 ///     pub struct Wrapper(u32);
 /// }
 /// ```
@@ -770,7 +770,7 @@ macro_rules! wrap {
 /// # Example
 ///
 /// ```
-/// sp_application_crypto::with_pair! {
+/// rp_application_crypto::with_pair! {
 ///     pub type Pair = ();
 /// }
 /// ```

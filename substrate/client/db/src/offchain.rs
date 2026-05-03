@@ -42,7 +42,7 @@ impl LocalStorage {
 	#[cfg(any(feature = "test-helpers", test))]
 	pub fn new_test() -> Self {
 		let db = kvdb_memorydb::create(crate::utils::NUM_COLUMNS);
-		let db = sp_database::as_database(db);
+		let db = rp_database::as_database(db);
 		Self::new(db as _)
 	}
 
@@ -52,7 +52,7 @@ impl LocalStorage {
 	}
 }
 
-impl sp_core::offchain::OffchainStorage for LocalStorage {
+impl rp_core::offchain::OffchainStorage for LocalStorage {
 	fn set(&mut self, prefix: &[u8], key: &[u8], value: &[u8]) {
 		let mut tx = Transaction::new();
 		tx.set(columns::OFFCHAIN, &concatenate_prefix_and_key(prefix, key), value);
@@ -120,7 +120,7 @@ pub(crate) fn concatenate_prefix_and_key(prefix: &[u8], key: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sp_core::offchain::OffchainStorage;
+	use rp_core::offchain::OffchainStorage;
 
 	#[test]
 	fn should_compare_and_set_and_clear_the_locks_map() {

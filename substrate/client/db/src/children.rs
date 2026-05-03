@@ -20,8 +20,8 @@
 
 use crate::DbHash;
 use codec::{Decode, Encode};
-use sp_blockchain;
-use sp_database::{Database, Transaction};
+use rp_blockchain;
+use rp_database::{Database, Transaction};
 use std::hash::Hash;
 
 /// Returns the hashes of the children blocks of the block with `parent_hash`.
@@ -33,7 +33,7 @@ pub fn read_children<
 	column: u32,
 	prefix: &[u8],
 	parent_hash: K,
-) -> sp_blockchain::Result<Vec<V>> {
+) -> rp_blockchain::Result<Vec<V>> {
 	let mut buf = prefix.to_vec();
 	parent_hash.using_encoded(|s| buf.extend(s));
 
@@ -46,7 +46,7 @@ pub fn read_children<
 
 	let children: Vec<V> = match Decode::decode(&mut &raw_val[..]) {
 		Ok(children) => children,
-		Err(_) => return Err(sp_blockchain::Error::Backend("Error decoding children".into())),
+		Err(_) => return Err(rp_blockchain::Error::Backend("Error decoding children".into())),
 	};
 
 	Ok(children)
@@ -89,7 +89,7 @@ mod tests {
 	#[test]
 	fn children_write_read_remove() {
 		const PREFIX: &[u8] = b"children";
-		let db = Arc::new(sp_database::MemDb::default());
+		let db = Arc::new(rp_database::MemDb::default());
 
 		let mut tx = Transaction::new();
 

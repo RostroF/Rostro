@@ -18,9 +18,9 @@
 
 //! Tests for fork-aware transaction pool.
 
-use sc_transaction_pool::{ChainApi, PoolLimit};
-use sc_transaction_pool_api::ChainEvent;
-use sp_runtime::transaction_validity::TransactionSource;
+use rc_transaction_pool::{ChainApi, PoolLimit};
+use rc_transaction_pool_api::ChainEvent;
+use rp_runtime::transaction_validity::TransactionSource;
 use std::sync::Arc;
 use substrate_test_runtime_client::{
 	runtime::{Block, Hash, Header},
@@ -29,7 +29,7 @@ use substrate_test_runtime_client::{
 use substrate_test_runtime_transaction_pool::{uxt, TestApi};
 pub const LOG_TARGET: &str = "txpool";
 
-use sc_transaction_pool::ForkAwareTxPool;
+use rc_transaction_pool::ForkAwareTxPool;
 
 pub fn invalid_hash() -> Hash {
 	Default::default()
@@ -67,8 +67,8 @@ pub fn finalized_block_event(
 pub struct TestPoolBuilder {
 	api: Option<Arc<TestApi>>,
 	use_default_limits: bool,
-	ready_limits: sc_transaction_pool::PoolLimit,
-	future_limits: sc_transaction_pool::PoolLimit,
+	ready_limits: rc_transaction_pool::PoolLimit,
+	future_limits: rc_transaction_pool::PoolLimit,
 	mempool_max_transactions_count: usize,
 	finality_timeout_threshold: Option<usize>,
 }
@@ -328,7 +328,7 @@ pub mod test_chain_with_forks {
 
 	#[test]
 	fn test_chain_works() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let (api, f) = chain(None);
 		debug!(forks = ?f, "forks");
 		f[0].iter().for_each(|h| print_block(api.clone(), h.hash()));

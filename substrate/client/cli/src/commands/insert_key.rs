@@ -22,10 +22,10 @@ use crate::{
 	utils, with_crypto_scheme, CryptoScheme, Error, KeystoreParams, SharedParams, SubstrateCli,
 };
 use clap::Parser;
-use sc_keystore::LocalKeystore;
-use sc_service::config::{BasePath, KeystoreConfig};
-use sp_core::crypto::{KeyTypeId, SecretString};
-use sp_keystore::KeystorePtr;
+use rc_keystore::LocalKeystore;
+use rc_service::config::{BasePath, KeystoreConfig};
+use rp_core::crypto::{KeyTypeId, SecretString};
+use rp_keystore::KeystorePtr;
 
 /// The `insert` command
 #[derive(Debug, Clone, Parser)]
@@ -86,7 +86,7 @@ impl InsertKeyCmd {
 	}
 }
 
-fn to_vec<P: sp_core::Pair>(uri: &str, pass: Option<SecretString>) -> Result<Vec<u8>, Error> {
+fn to_vec<P: rp_core::Pair>(uri: &str, pass: Option<SecretString>) -> Result<Vec<u8>, Error> {
 	let p = utils::pair_from_suri::<P>(uri, pass)?;
 	Ok(p.public().as_ref().to_vec())
 }
@@ -94,9 +94,9 @@ fn to_vec<P: sp_core::Pair>(uri: &str, pass: Option<SecretString>) -> Result<Vec
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sc_service::{ChainSpec, ChainType, GenericChainSpec, NoExtension};
-	use sp_core::{sr25519::Pair, ByteArray, Pair as _};
-	use sp_keystore::Keystore;
+	use rc_service::{ChainSpec, ChainType, GenericChainSpec, NoExtension};
+	use rp_core::{sr25519::Pair, ByteArray, Pair as _};
+	use rp_keystore::Keystore;
 	use tempfile::TempDir;
 
 	struct Cli;

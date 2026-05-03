@@ -1,7 +1,0 @@
-title: Align Types between Bulletin and SDK
-doc:
-- audience: Runtime Dev
-  description: The PR aligns types between Bulletin and SDK.
-crates:
-- name: pallet-transaction-storage
-  bump: minor

@@ -24,8 +24,8 @@ use crate::{
 };
 use frame_election_provider_support::{ElectionProvider, NposSolution};
 use frame_support::storage::unhashed;
-use sp_core::bounded_vec;
-use sp_npos_elections::ElectionScore;
+use rp_core::bounded_vec;
+use rp_npos_elections::ElectionScore;
 
 pub type T = Runtime;
 
@@ -35,7 +35,7 @@ fn score_from(x: u128) -> ElectionScore {
 
 mod calls {
 	use super::*;
-	use sp_runtime::{DispatchError, TokenError::FundsUnavailable};
+	use rp_runtime::{DispatchError, TokenError::FundsUnavailable};
 
 	#[test]
 	fn cannot_register_with_insufficient_balance() {
@@ -925,7 +925,7 @@ mod e2e {
 						crate::verifier::Event::VerificationFailed(
 							1,
 							FeasibilityError::NposElection(
-								sp_npos_elections::Error::SolutionInvalidIndex
+								rp_npos_elections::Error::SolutionInvalidIndex
 							)
 						),
 					]
@@ -1124,7 +1124,7 @@ mod invulnerables {
 			// Should fail with non-admin origin
 			assert_noop!(
 				SignedPallet::set_invulnerables(RuntimeOrigin::signed(1), vec![99]),
-				sp_runtime::DispatchError::BadOrigin
+				rp_runtime::DispatchError::BadOrigin
 			);
 
 			// Should succeed with admin origin (root)

@@ -21,10 +21,10 @@
 use crate::{error::Error, worker::PersistedState, LOG_TARGET};
 use codec::{Decode, Encode};
 use log::{debug, trace, warn};
-use sc_client_api::{backend::AuxStore, Backend};
-use sp_blockchain::{Error as ClientError, Result as ClientResult};
-use sp_consensus_beefy::AuthorityIdBound;
-use sp_runtime::traits::Block as BlockT;
+use rc_client_api::{backend::AuxStore, Backend};
+use rp_blockchain::{Error as ClientError, Result as ClientResult};
+use rp_consensus_beefy::AuthorityIdBound;
+use rp_runtime::traits::Block as BlockT;
 
 const VERSION_KEY: &[u8] = b"beefy_auxschema_version";
 const WORKER_STATE_KEY: &[u8] = b"beefy_voter_state";
@@ -89,8 +89,8 @@ where
 pub(crate) mod tests {
 	use super::*;
 	use crate::tests::BeefyTestNet;
-	use sc_network_test::TestNetFactory;
-	use sp_consensus_beefy::ecdsa_crypto;
+	use rc_network_test::TestNetFactory;
+	use rp_consensus_beefy::ecdsa_crypto;
 
 	// also used in tests.rs
 	pub fn verify_persisted_version<B: BlockT, BE: Backend<B>>(backend: &BE) -> bool {

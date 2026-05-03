@@ -22,9 +22,9 @@ pub mod migration;
 
 use codec::{Decode, Encode};
 use fork_tree::{FilterAction, ForkTree};
-use sc_client_api::utils::is_descendent_of;
-use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
-use sp_runtime::traits::{Block as BlockT, NumberFor, One, Zero};
+use rc_client_api::utils::is_descendent_of;
+use rp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
+use rp_runtime::traits::{Block as BlockT, NumberFor, One, Zero};
 use std::{
 	borrow::{Borrow, BorrowMut},
 	collections::BTreeMap,
@@ -716,7 +716,7 @@ pub type EpochChangesFor<Block, Epoch> =
 
 /// A shared epoch changes tree.
 pub type SharedEpochChanges<Block, Epoch> =
-	sc_consensus::shared_data::SharedData<EpochChangesFor<Block, Epoch>>;
+	rc_consensus::shared_data::SharedData<EpochChangesFor<Block, Epoch>>;
 
 #[cfg(test)]
 mod tests {

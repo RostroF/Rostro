@@ -1,5 +1,5 @@
 [package]
-name = "sc-cli"
+name = "rc-cli"
 version = "0.58.0"
 authors.workspace = true
 description = "Substrate CLI interface."
@@ -30,33 +30,33 @@ names = { workspace = true }
 rand = { workspace = true, default-features = true }
 regex = { workspace = true }
 rpassword = { workspace = true }
-sc-client-api = { default-features = true, workspace = true }
-sc-client-db = { default-features = false, workspace = true }
-sc-keystore = { default-features = true, workspace = true }
-sc-mixnet = { default-features = true, workspace = true }
-sc-network = { default-features = true, workspace = true }
-sc-service = { default-features = false, workspace = true }
-sc-telemetry = { default-features = true, workspace = true }
-sc-tracing = { default-features = true, workspace = true }
-sc-transaction-pool = { default-features = true, workspace = true }
-sc-utils = { default-features = true, workspace = true }
+rc-client-api = { default-features = true, workspace = true }
+rc-client-db = { default-features = false, workspace = true }
+rc-keystore = { default-features = true, workspace = true }
+rc-mixnet = { default-features = true, workspace = true }
+rc-network = { default-features = true, workspace = true }
+rc-service = { default-features = false, workspace = true }
+rc-telemetry = { default-features = true, workspace = true }
+rc-tracing = { default-features = true, workspace = true }
+rc-transaction-pool = { default-features = true, workspace = true }
+rc-utils = { default-features = true, workspace = true }
 serde = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-keyring = { default-features = true, workspace = true }
-sp-keystore = { default-features = true, workspace = true }
-sp-panic-handler = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-version = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-keyring = { default-features = true, workspace = true }
+rp-keystore = { default-features = true, workspace = true }
+rp-panic-handler = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
+rp-version = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 tokio = { features = ["parking_lot", "rt-multi-thread", "signal"], workspace = true, default-features = true }
 
 [dev-dependencies]
 futures-timer = { workspace = true }
-sp-tracing = { default-features = true, workspace = true }
+rp-tracing = { default-features = true, workspace = true }
 tempfile = { workspace = true }
 
 [features]
 default = ["rocksdb"]
-rocksdb = ["sc-client-db/rocksdb"]
+rocksdb = ["rc-client-db/rocksdb"]

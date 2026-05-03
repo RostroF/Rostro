@@ -18,7 +18,7 @@
 
 //! Transaction pool error.
 
-use sc_transaction_pool_api::error::Error as TxPoolError;
+use rc_transaction_pool_api::error::Error as TxPoolError;
 
 /// Transaction pool result.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -32,7 +32,7 @@ pub enum Error {
 	Pool(#[from] TxPoolError),
 
 	#[error("Blockchain error: {0}")]
-	Blockchain(#[from] sp_blockchain::Error),
+	Blockchain(#[from] rp_blockchain::Error),
 
 	#[error("Block conversion error: {0}")]
 	BlockIdConversion(String),
@@ -41,7 +41,7 @@ pub enum Error {
 	RuntimeApi(String),
 }
 
-impl sc_transaction_pool_api::error::IntoPoolError for Error {
+impl rc_transaction_pool_api::error::IntoPoolError for Error {
 	fn into_pool_error(self) -> std::result::Result<TxPoolError, Self> {
 		match self {
 			Error::Pool(e) => Ok(e),
@@ -50,7 +50,7 @@ impl sc_transaction_pool_api::error::IntoPoolError for Error {
 	}
 }
 
-impl sc_transaction_pool_api::error::IntoMetricsLabel for Error {
+impl rc_transaction_pool_api::error::IntoMetricsLabel for Error {
 	fn label(&self) -> String {
 		self.as_ref().to_string()
 	}

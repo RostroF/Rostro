@@ -22,7 +22,7 @@ pub mod error;
 
 use error::Error;
 use jsonrpsee::proc_macros::rpc;
-use sp_core::Bytes;
+use rp_core::Bytes;
 
 #[rpc(client, server)]
 pub trait MixnetApi {

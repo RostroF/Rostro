@@ -20,9 +20,9 @@ use crate::{common::tracing_log_xt::log_xt_trace, LOG_TARGET};
 use async_trait::async_trait;
 use futures::channel::mpsc::Receiver;
 use indexmap::IndexMap;
-use sc_transaction_pool_api::error;
-use sp_blockchain::{HashAndNumber, TreeRoute};
-use sp_runtime::{
+use rc_transaction_pool_api::error;
+use rp_blockchain::{HashAndNumber, TreeRoute};
+use rp_runtime::{
 	generic::BlockId,
 	traits::{self, Block as BlockT, SaturatedConversion},
 	transaction_validity::{
@@ -609,8 +609,8 @@ mod tests {
 	use codec::Encode;
 	use futures::executor::block_on;
 	use parking_lot::Mutex;
-	use sc_transaction_pool_api::TransactionStatus;
-	use sp_runtime::transaction_validity::TransactionSource;
+	use rc_transaction_pool_api::TransactionStatus;
+	use rp_runtime::transaction_validity::TransactionSource;
 	use std::{collections::HashMap, time::Instant};
 	use substrate_test_runtime::{AccountId, ExtrinsicBuilder, Transfer, H256};
 	use substrate_test_runtime_client::Sr25519Keyring::{Alice, Bob};
@@ -648,7 +648,7 @@ mod tests {
 
 	#[test]
 	fn submit_at_preserves_order() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		// given
 		let (pool, api) = pool();
 
@@ -892,7 +892,7 @@ mod tests {
 
 	#[test]
 	fn should_limit_futures() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let xt = uxt(Transfer {
 			from: Alice.into(),
@@ -1246,7 +1246,7 @@ mod tests {
 					block_on(pool.submit_one(&api.expect_hash_and_number(1), SOURCE, xt.into()));
 				assert!(matches!(
 					result,
-					Err(sc_transaction_pool_api::error::Error::ImmediatelyDropped)
+					Err(rc_transaction_pool_api::error::Error::ImmediatelyDropped)
 				));
 			}
 			{

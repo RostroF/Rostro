@@ -42,9 +42,9 @@ use prometheus_endpoint::{
 use schnellru::{ByLength, LruMap};
 use tokio::time::{Interval, MissedTickBehavior};
 
-use sc_client_api::{BlockBackend, HeaderBackend, ProofProvider};
-use sc_consensus::{import_queue::ImportQueueService, IncomingBlock};
-use sc_network::{
+use rc_client_api::{BlockBackend, HeaderBackend, ProofProvider};
+use rc_consensus::{import_queue::ImportQueueService, IncomingBlock};
+use rc_network::{
 	config::{FullNetworkConfiguration, NotificationHandshake, ProtocolId, SetConfig},
 	peer_store::PeerStoreProvider,
 	request_responses::{OutboundFailure, RequestFailure},
@@ -56,15 +56,15 @@ use sc_network::{
 	utils::LruHashSet,
 	NetworkBackend, NotificationService, ReputationChange,
 };
-use sc_network_common::{
+use rc_network_common::{
 	role::Roles,
 	sync::message::{BlockAnnounce, BlockAnnouncesHandshake, BlockState},
 };
-use sc_network_types::PeerId;
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use sp_blockchain::{Error as ClientError, HeaderMetadata};
-use sp_consensus::{block_validation::BlockAnnounceValidator, BlockOrigin};
-use sp_runtime::{
+use rc_network_types::PeerId;
+use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
+use rp_blockchain::{Error as ClientError, HeaderMetadata};
+use rp_consensus::{block_validation::BlockAnnounceValidator, BlockOrigin};
+use rp_runtime::{
 	traits::{Block as BlockT, Header, NumberFor, Zero},
 	Justifications,
 };
@@ -89,7 +89,7 @@ const MAX_KNOWN_BLOCKS: usize = 1024; // ~32kb per peer + LruHashSet overhead
 const MAX_BLOCK_ANNOUNCE_SIZE: u64 = 1024 * 1024;
 
 mod rep {
-	use sc_network::ReputationChange as Rep;
+	use rc_network::ReputationChange as Rep;
 	/// Peer has different genesis.
 	pub const GENESIS_MISMATCH: Rep = Rep::new_fatal("Genesis mismatch");
 	/// Peer send us a block announcement that failed at validation.
@@ -249,7 +249,7 @@ pub struct SyncingEngine<B: BlockT, Client> {
 	/// Prometheus metrics.
 	metrics: Option<Metrics>,
 
-	/// Handle that is used to communicate with `sc_network::Notifications`.
+	/// Handle that is used to communicate with `rc_network::Notifications`.
 	notification_service: Box<dyn NotificationService>,
 
 	/// Handle to `PeerStore`.
@@ -267,7 +267,7 @@ where
 	B: BlockT,
 	Client: HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = sp_blockchain::Error>
+		+ HeaderMetadata<B, Error = rp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync
@@ -674,17 +674,17 @@ where
 			},
 			ToServiceCommand::JustificationImported(peer_id, hash, number, import_result) => {
 				let success =
-					matches!(import_result, sc_consensus::JustificationImportResult::Success);
+					matches!(import_result, rc_consensus::JustificationImportResult::Success);
 				self.strategy.on_justification_import(hash, number, success);
 
 				match import_result {
-					sc_consensus::JustificationImportResult::OutdatedJustification => {
+					rc_consensus::JustificationImportResult::OutdatedJustification => {
 						log::info!(
 							target: LOG_TARGET,
 							"💔 Outdated justification provided by {peer_id} for #{hash}",
 						);
 					},
-					sc_consensus::JustificationImportResult::Failure => {
+					rc_consensus::JustificationImportResult::Failure => {
 						log::info!(
 							target: LOG_TARGET,
 							"💔 Invalid justification provided by {peer_id} for #{hash}",
@@ -696,7 +696,7 @@ where
 							ReputationChange::new_fatal("Invalid justification"),
 						);
 					},
-					sc_consensus::JustificationImportResult::Success => {
+					rc_consensus::JustificationImportResult::Success => {
 						log::debug!(
 							target: LOG_TARGET,
 							"Justification for block #{hash} ({number}) imported from {peer_id} successfully",

@@ -18,10 +18,10 @@
 
 use console::style;
 use log::info;
-use sc_client_api::ClientInfo;
-use sc_network::NetworkStatus;
-use sc_network_sync::{SyncState, SyncStatus, WarpSyncPhase, WarpSyncProgress};
-use sp_runtime::traits::{Block as BlockT, CheckedDiv, NumberFor, Saturating, Zero};
+use rc_client_api::ClientInfo;
+use rc_network::NetworkStatus;
+use rc_network_sync::{SyncState, SyncStatus, WarpSyncPhase, WarpSyncProgress};
+use rp_runtime::traits::{Block as BlockT, CheckedDiv, NumberFor, Saturating, Zero};
 use std::{fmt, time::Instant};
 
 use crate::PrintFullHashOnDebugLogging;

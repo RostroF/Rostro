@@ -1,5 +1,5 @@
 [package]
-name = "sp-transaction-storage-proof"
+name = "rp-transaction-storage-proof"
 version = "41.0.0"
 authors.workspace = true
 description = "Transaction storage proof primitives"
@@ -19,11 +19,11 @@ targets = ["x86_64-unknown-linux-gnu"]
 async-trait = { optional = true, workspace = true }
 codec = { features = ["derive"], workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-sp-api = { workspace = true }
-sp-core = { optional = true, workspace = true }
-sp-inherents = { workspace = true }
-sp-runtime = { workspace = true }
-sp-trie = { optional = true, workspace = true }
+rp-api = { workspace = true }
+rp-core = { optional = true, workspace = true }
+rp-inherents = { workspace = true }
+rp-runtime = { workspace = true }
+rp-trie = { optional = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -31,9 +31,9 @@ std = [
 	"async-trait",
 	"codec/std",
 	"scale-info/std",
-	"sp-api/std",
-	"sp-core/std",
-	"sp-inherents/std",
-	"sp-runtime/std",
-	"sp-trie/std",
+	"rp-api/std",
+	"rp-core/std",
+	"rp-inherents/std",
+	"rp-runtime/std",
+	"rp-trie/std",
 ]

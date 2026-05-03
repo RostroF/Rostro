@@ -18,8 +18,8 @@
 
 use futures::prelude::*;
 
-use sc_consensus::{ImportQueue, Link};
-use sc_network::{
+use rc_consensus::{ImportQueue, Link};
+use rc_network::{
 	config::{self, FullNetworkConfiguration, MultiaddrWithPeerId, ProtocolId, TransportConfig},
 	event::Event,
 	peer_store::{PeerStore, PeerStoreProvider},
@@ -27,17 +27,17 @@ use sc_network::{
 	Multiaddr, NetworkEventStream, NetworkPeers, NetworkService, NetworkStateInfo, NetworkWorker,
 	NotificationMetrics, NotificationService, PeerId,
 };
-use sc_network_common::role::Roles;
-use sc_network_light::light_client_requests::handler::LightClientRequestHandler;
-use sc_network_sync::{
+use rc_network_common::role::Roles;
+use rc_network_light::light_client_requests::handler::LightClientRequestHandler;
+use rc_network_sync::{
 	block_request_handler::BlockRequestHandler,
 	engine::SyncingEngine,
 	service::network::NetworkServiceProvider,
 	state_request_handler::StateRequestHandler,
 	strategy::polkadot::{PolkadotSyncingStrategy, PolkadotSyncingStrategyConfig},
 };
-use sp_blockchain::HeaderBackend;
-use sp_runtime::traits::{Block as BlockT, Zero};
+use rp_blockchain::HeaderBackend;
+use rp_runtime::traits::{Block as BlockT, Zero};
 use substrate_test_runtime_client::{
 	runtime::{Block as TestBlock, Hash as TestHash},
 	TestClientBuilder, TestClientBuilderExt as _,
@@ -133,23 +133,23 @@ impl TestNetworkBuilder {
 		struct PassThroughVerifier(bool);
 
 		#[async_trait::async_trait]
-		impl<B: BlockT> sc_consensus::Verifier<B> for PassThroughVerifier {
+		impl<B: BlockT> rc_consensus::Verifier<B> for PassThroughVerifier {
 			async fn verify(
 				&self,
-				mut block: sc_consensus::BlockImportParams<B>,
-			) -> Result<sc_consensus::BlockImportParams<B>, String> {
+				mut block: rc_consensus::BlockImportParams<B>,
+			) -> Result<rc_consensus::BlockImportParams<B>, String> {
 				block.finalized = self.0;
-				block.fork_choice = Some(sc_consensus::ForkChoiceStrategy::LongestChain);
+				block.fork_choice = Some(rc_consensus::ForkChoiceStrategy::LongestChain);
 				Ok(block)
 			}
 		}
 
 		let mut import_queue =
-			self.import_queue.unwrap_or(Box::new(sc_consensus::BasicQueue::new(
+			self.import_queue.unwrap_or(Box::new(rc_consensus::BasicQueue::new(
 				PassThroughVerifier(false),
 				Box::new(client.clone()),
 				None,
-				&sp_core::testing::TaskExecutor::new(),
+				&rp_core::testing::TaskExecutor::new(),
 				None,
 			)));
 
@@ -227,7 +227,7 @@ impl TestNetworkBuilder {
 			&full_net_config,
 			protocol_id.clone(),
 			None,
-			Box::new(sp_consensus::block_validation::DefaultBlockAnnounceValidator),
+			Box::new(rp_consensus::block_validation::DefaultBlockAnnounceValidator),
 			syncing_strategy,
 			chain_sync_network_handle,
 			import_queue.service(),
@@ -460,7 +460,7 @@ async fn notifications_state_consistent() {
 
 #[tokio::test]
 async fn lots_of_incoming_peers_works() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let listen_addr = config::build_multiaddr![Memory(rand::random::<u64>())];
 
 	let (main_node, handle1) = TestNetworkBuilder::new()
@@ -588,7 +588,7 @@ async fn notifications_back_pressure() {
 
 #[tokio::test]
 async fn fallback_name_working() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	// Node 1 supports the protocols "new" and "old". Node 2 only supports "old". Checks whether
 	// they can connect.
 	const NEW_PROTOCOL_NAME: &str = "/new-shiny-protocol-that-isnt-PROTOCOL_NAME";

@@ -46,7 +46,7 @@
 //!
 //! ```
 //! use codec::Decode;
-//! use sp_inherents::{InherentIdentifier, InherentData};
+//! use rp_inherents::{InherentIdentifier, InherentData};
 //!
 //! // This needs to be unique for the runtime.
 //! const INHERENT_IDENTIFIER: InherentIdentifier = *b"testinh0";
@@ -55,11 +55,11 @@
 //! struct InherentDataProvider;
 //!
 //! #[async_trait::async_trait]
-//! impl sp_inherents::InherentDataProvider for InherentDataProvider {
+//! impl rp_inherents::InherentDataProvider for InherentDataProvider {
 //! 	async fn provide_inherent_data(
 //! 		&self,
 //! 		inherent_data: &mut InherentData,
-//! 	) -> Result<(), sp_inherents::Error> {
+//! 	) -> Result<(), rp_inherents::Error> {
 //! 		// We can insert any data that implements [`codec::Encode`].
 //! 		inherent_data.put_data(INHERENT_IDENTIFIER, &"hello")
 //! 	}
@@ -78,7 +78,7 @@
 //! 		&self,
 //! 		identifier: &InherentIdentifier,
 //! 		mut error: &[u8],
-//! 	) -> Option<Result<(), sp_inherents::Error>> {
+//! 	) -> Option<Result<(), rp_inherents::Error>> {
 //! 		// Check if this error belongs to us.
 //! 		if *identifier != INHERENT_IDENTIFIER {
 //! 			return None;
@@ -87,7 +87,7 @@
 //! 		// For demonstration purposes we are using a `String` as error type. In real
 //! 		// implementations it is advised to not use `String`.
 //! 		Some(Err(
-//! 			sp_inherents::Error::Application(Box::from(String::decode(&mut error).ok()?))
+//! 			rp_inherents::Error::Application(Box::from(String::decode(&mut error).ok()?))
 //! 		))
 //! 	}
 //! }
@@ -98,22 +98,22 @@
 //! and production.
 //!
 //! ```
-//! # use sp_runtime::testing::{MockCallU64, TestXt};
-//! # use sp_inherents::{InherentIdentifier, InherentData};
+//! # use rp_runtime::testing::{MockCallU64, TestXt};
+//! # use rp_inherents::{InherentIdentifier, InherentData};
 //! # use futures::FutureExt;
-//! # type Block = sp_runtime::testing::Block<TestXt<MockCallU64, ()>>;
+//! # type Block = rp_runtime::testing::Block<TestXt<MockCallU64, ()>>;
 //! # const INHERENT_IDENTIFIER: InherentIdentifier = *b"testinh0";
 //! # struct InherentDataProvider;
 //! # #[async_trait::async_trait]
-//! # impl sp_inherents::InherentDataProvider for InherentDataProvider {
-//! # 	async fn provide_inherent_data(&self, inherent_data: &mut InherentData) -> Result<(), sp_inherents::Error> {
+//! # impl rp_inherents::InherentDataProvider for InherentDataProvider {
+//! # 	async fn provide_inherent_data(&self, inherent_data: &mut InherentData) -> Result<(), rp_inherents::Error> {
 //! # 		inherent_data.put_data(INHERENT_IDENTIFIER, &"hello")
 //! # 	}
 //! # 	async fn try_handle_error(
 //! # 		&self,
 //! # 		_: &InherentIdentifier,
 //! # 		_: &[u8],
-//! # 	) -> Option<Result<(), sp_inherents::Error>> {
+//! # 	) -> Option<Result<(), rp_inherents::Error>> {
 //! # 		None
 //! # 	}
 //! # }
@@ -121,13 +121,13 @@
 //! async fn cool_consensus_block_production(
 //! 	// The second parameter to the trait are parameters that depend on what the caller
 //! 	// can provide on extra data.
-//! 	_: impl sp_inherents::CreateInherentDataProviders<Block, ()>,
+//! 	_: impl rp_inherents::CreateInherentDataProviders<Block, ()>,
 //! ) {
 //! 	// do cool stuff
 //! }
 //!
 //! async fn cool_consensus_block_import(
-//! 	_: impl sp_inherents::CreateInherentDataProviders<Block, ()>,
+//! 	_: impl rp_inherents::CreateInherentDataProviders<Block, ()>,
 //! ) {
 //! 	// do cool stuff
 //! }

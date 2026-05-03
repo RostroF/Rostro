@@ -1,5 +1,5 @@
 [package]
-name = "sp-state-machine-fuzz"
+name = "rp-state-machine-fuzz"
 version = "0.0.0"
 publish = false
 license = "Apache-2.0"
@@ -10,9 +10,9 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-sp-runtime = { workspace = true }
+rp-runtime = { workspace = true }
 
-[dependencies.sp-state-machine]
+[dependencies.rp-state-machine]
 features = ["fuzzing"]
 path = ".."
 

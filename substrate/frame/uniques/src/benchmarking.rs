@@ -29,7 +29,7 @@ use frame_support::{
 	BoundedVec,
 };
 use frame_system::RawOrigin as SystemOrigin;
-use sp_runtime::traits::Bounded;
+use rp_runtime::traits::Bounded;
 
 use crate::Pallet as Uniques;
 

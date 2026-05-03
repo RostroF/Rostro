@@ -1,5 +1,5 @@
 [package]
-name = "sc-telemetry"
+name = "rc-telemetry"
 version = "30.0.1"
 authors.workspace = true
 description = "Telemetry utils"
@@ -7,7 +7,7 @@ edition.workspace = true
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 homepage.workspace = true
 repository.workspace = true
-documentation = "https://docs.rs/sc-telemetry"
+documentation = "https://docs.rs/rc-telemetry"
 readme = "README.md"
 
 [lints]
@@ -24,7 +24,7 @@ log = { workspace = true, default-features = true }
 parking_lot = { workspace = true, default-features = true }
 pin-project = { workspace = true }
 rand = { workspace = true, default-features = true }
-sc-utils = { default-features = true, workspace = true }
+rc-utils = { default-features = true, workspace = true }
 serde = { features = ["derive"], workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
 thiserror = { workspace = true }

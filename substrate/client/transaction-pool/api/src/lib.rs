@@ -25,13 +25,13 @@ use async_trait::async_trait;
 use codec::Codec;
 use futures::Stream;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use sp_core::offchain::TransactionPoolExt;
-use sp_runtime::traits::{Block as BlockT, Member};
+use rp_core::offchain::TransactionPoolExt;
+use rp_runtime::traits::{Block as BlockT, Member};
 use std::{collections::HashMap, hash::Hash, marker::PhantomData, pin::Pin, sync::Arc};
 
 const LOG_TARGET: &str = "txpool::api";
 
-pub use sp_runtime::transaction_validity::{
+pub use rp_runtime::transaction_validity::{
 	TransactionLongevity, TransactionPriority, TransactionSource, TransactionTag,
 	TransactionValidityError,
 };
@@ -215,7 +215,7 @@ pub type TxInvalidityReportMap<H> = indexmap::IndexMap<H, Option<TransactionVali
 /// In-pool transaction interface.
 ///
 /// The pool is container of transactions that are implementing this trait.
-/// See `sp_runtime::ValidTransaction` for details about every field.
+/// See `rp_runtime::ValidTransaction` for details about every field.
 pub trait InPoolTransaction {
 	/// Transaction type.
 	type Transaction;
@@ -380,7 +380,7 @@ pub enum ChainEvent<B: BlockT> {
 		/// Tree route from old best to new best parent that was calculated on import.
 		///
 		/// If `None`, no re-org happened on import.
-		tree_route: Option<Arc<sp_blockchain::TreeRoute<B>>>,
+		tree_route: Option<Arc<rp_blockchain::TreeRoute<B>>>,
 	},
 	/// An existing block has been finalized.
 	Finalized {
@@ -510,13 +510,13 @@ impl<Block: BlockT> OffchainTransactionPoolFactory<Block> {
 	}
 }
 
-/// Wraps a `pool` and `block_hash` to implement [`sp_core::offchain::TransactionPool`].
+/// Wraps a `pool` and `block_hash` to implement [`rp_core::offchain::TransactionPool`].
 struct OffchainTransactionPool<Block: BlockT> {
 	block_hash: Block::Hash,
 	pool: Arc<dyn OffchainSubmitTransaction<Block>>,
 }
 
-impl<Block: BlockT> sp_core::offchain::TransactionPool for OffchainTransactionPool<Block> {
+impl<Block: BlockT> rp_core::offchain::TransactionPool for OffchainTransactionPool<Block> {
 	fn submit_transaction(&mut self, extrinsic: Vec<u8>) -> Result<(), ()> {
 		let extrinsic = match codec::Decode::decode(&mut &extrinsic[..]) {
 			Ok(t) => t,

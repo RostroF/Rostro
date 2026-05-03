@@ -1,9 +1,0 @@
-title: 'prospective-parachains: add more logs'
-doc:
-- audience: Node Dev
-  description: |-
-    Log all candidate processing errors (especially `FragmentValidityError`) to observe how many
-    are dropped and why.
-crates:
-- name: polkadot-node-core-prospective-parachains
-  bump: patch

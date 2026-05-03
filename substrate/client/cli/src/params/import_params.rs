@@ -103,14 +103,14 @@ pub enum TrieCacheWarmUpStrategy {
 	Blocking,
 }
 
-impl From<TrieCacheWarmUpStrategy> for sc_service::config::TrieCacheWarmUpStrategy {
+impl From<TrieCacheWarmUpStrategy> for rc_service::config::TrieCacheWarmUpStrategy {
 	fn from(strategy: TrieCacheWarmUpStrategy) -> Self {
 		match strategy {
 			TrieCacheWarmUpStrategy::NonBlocking => {
-				sc_service::config::TrieCacheWarmUpStrategy::NonBlocking
+				rc_service::config::TrieCacheWarmUpStrategy::NonBlocking
 			},
 			TrieCacheWarmUpStrategy::Blocking => {
-				sc_service::config::TrieCacheWarmUpStrategy::Blocking
+				rc_service::config::TrieCacheWarmUpStrategy::Blocking
 			},
 		}
 	}
@@ -132,7 +132,7 @@ impl ImportParams {
 	}
 
 	/// Get the WASM execution method from the parameters
-	pub fn wasm_method(&self) -> sc_service::config::WasmExecutionMethod {
+	pub fn wasm_method(&self) -> rc_service::config::WasmExecutionMethod {
 		self.execution_strategies.check_usage_and_print_deprecation_warning();
 
 		crate::execution_method_from_cli(self.wasm_method, self.wasmtime_instantiation_strategy)

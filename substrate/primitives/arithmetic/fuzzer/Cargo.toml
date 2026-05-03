@@ -1,5 +1,5 @@
 [package]
-name = "sp-arithmetic-fuzzer"
+name = "rp-arithmetic-fuzzer"
 version = "2.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Fuzzer for fixed point arithmetic primitives."
-documentation = "https://docs.rs/sp-arithmetic-fuzzer"
+documentation = "https://docs.rs/rp-arithmetic-fuzzer"
 publish = false
 
 [lints]
@@ -45,4 +45,4 @@ arbitrary = { workspace = true }
 fraction = { workspace = true }
 honggfuzz = { workspace = true }
 num-bigint = { workspace = true }
-sp-arithmetic = { default-features = true, workspace = true }
+rp-arithmetic = { default-features = true, workspace = true }

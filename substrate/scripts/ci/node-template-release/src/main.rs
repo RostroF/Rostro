@@ -377,7 +377,7 @@ scale-info = { version = "2.5.0", default-features = false, features = ["derive"
 
 [dependencies]
 scale-info = { version = "2.5.0", default-features = false, features = ["derive"] }
-sp-io = { version = "7.0.0", path = "../../../../primitives/io" }
+rp-io = { version = "7.0.0", path = "../../../../primitives/io" }
 frame-system = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/system" }
 "#;
 		let mut cargo_toml = toml.parse::<CargoToml>().expect("invalid doc");
@@ -387,9 +387,9 @@ frame-system = { version = "4.0.0-dev", default-features = false, path = "../../
 		assert_eq!(actual_deps.get("dependencies").unwrap().len(), 2);
 		assert_eq!(actual_deps.get("dev-dependencies").unwrap().len(), 0);
 		assert_eq!(
-			actual_deps.get("dependencies").unwrap().get("sp-io").unwrap(),
+			actual_deps.get("dependencies").unwrap().get("rp-io").unwrap(),
 			&Dependency {
-				name: "sp-io".into(),
+				name: "rp-io".into(),
 				version: Some("7.0.0".into()),
 				default_features: None
 			}
@@ -409,7 +409,7 @@ scale-info = { version = "2.5.0", default-features = false, features = ["derive"
 
 [dependencies]
 scale-info = { version = "2.5.0", default-features = false, features = ["derive"] }
-sp-io = { workspace = true }
+rp-io = { workspace = true }
 frame-system = { workspace = true }
 "#;
 		assert_eq!(cargo_toml.to_string(), expected_toml);
@@ -426,9 +426,9 @@ frame-system = { workspace = true }
 					"dependencies".into(),
 					HashMap::from([
 						(
-							"sp-io".into(),
+							"rp-io".into(),
 							Dependency {
-								name: "sp-io".into(),
+								name: "rp-io".into(),
 								version: Some("7.0.0".into()),
 								default_features: None,
 							},
@@ -458,7 +458,7 @@ edition = "2021"
 
 [workspace.dependencies]
 frame-system = { version = "4.0.0-dev", default-features = true, git = "https://github.com/paritytech/polkadot-sdk.git", rev = "commit_id" }
-sp-io = { version = "7.0.0", git = "https://github.com/paritytech/polkadot-sdk.git", rev = "commit_id" }
+rp-io = { version = "7.0.0", git = "https://github.com/paritytech/polkadot-sdk.git", rev = "commit_id" }
 
 [workspace.lints]
 

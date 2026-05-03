@@ -19,14 +19,14 @@
 use crate::types::{ExtendedPeerInfo, SyncEvent, SyncEventStream, SyncStatus, SyncStatusProvider};
 
 use futures::{channel::oneshot, Stream};
-use sc_network_types::PeerId;
+use rc_network_types::PeerId;
 
-use sc_consensus::{
+use rc_consensus::{
 	BlockImportError, BlockImportStatus, JustificationImportResult, JustificationSyncLink, Link,
 };
-use sc_network::{NetworkBlock, NetworkSyncForkRequest};
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
-use sp_runtime::traits::{Block as BlockT, NumberFor};
+use rc_network::{NetworkBlock, NetworkSyncForkRequest};
+use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
+use rp_runtime::traits::{Block as BlockT, NumberFor};
 
 use std::{
 	pin::Pin,
@@ -228,7 +228,7 @@ impl<B: BlockT> NetworkBlock<B::Hash, NumberFor<B>> for SyncingService<B> {
 	}
 }
 
-impl<B: BlockT> sp_consensus::SyncOracle for SyncingService<B> {
+impl<B: BlockT> rp_consensus::SyncOracle for SyncingService<B> {
 	fn is_major_syncing(&self) -> bool {
 		self.is_major_syncing.load(Ordering::Relaxed)
 	}

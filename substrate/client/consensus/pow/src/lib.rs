@@ -48,20 +48,20 @@ use codec::{Decode, Encode};
 use futures::{Future, StreamExt};
 use log::*;
 use prometheus_endpoint::Registry;
-use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
-use sc_consensus::{
+use rc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
+use rc_consensus::{
 	BasicQueue, BlockCheckParams, BlockImport, BlockImportParams, BoxBlockImport,
 	BoxJustificationImport, ForkChoiceStrategy, ImportResult, Verifier,
 };
-use sp_api::ProvideRuntimeApi;
-use sp_block_builder::BlockBuilder as BlockBuilderApi;
-use sp_blockchain::HeaderBackend;
-use sp_consensus::{
+use rp_api::ProvideRuntimeApi;
+use rp_block_builder::BlockBuilder as BlockBuilderApi;
+use rp_blockchain::HeaderBackend;
+use rp_consensus::{
 	Environment, Error as ConsensusError, ProposeArgs, Proposer, SelectChain, SyncOracle,
 };
-use sp_consensus_pow::{Seal, TotalDifficulty, POW_ENGINE_ID};
-use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
-use sp_runtime::{
+use rp_consensus_pow::{Seal, TotalDifficulty, POW_ENGINE_ID};
+use rp_inherents::{CreateInherentDataProviders, InherentDataProvider};
+use rp_runtime::{
 	generic::{BlockId, Digest, DigestItem},
 	traits::{Block as BlockT, Header as HeaderT},
 };
@@ -84,7 +84,7 @@ pub enum Error<B: BlockT> {
 	#[error("Fetching best header failed using select chain: {0}")]
 	BestHeaderSelectChain(ConsensusError),
 	#[error("Fetching best header failed: {0}")]
-	BestHeader(sp_blockchain::Error),
+	BestHeader(rp_blockchain::Error),
 	#[error("Best header does not exist")]
 	NoBestHeader,
 	#[error("Block proposing error: {0}")]
@@ -94,18 +94,18 @@ pub enum Error<B: BlockT> {
 	#[error("Error with block built on {0:?}: {1}")]
 	BlockBuiltError(B::Hash, ConsensusError),
 	#[error("Creating inherents failed: {0}")]
-	CreateInherents(sp_inherents::Error),
+	CreateInherents(rp_inherents::Error),
 	#[error("Checking inherents failed: {0}")]
-	CheckInherents(sp_inherents::Error),
+	CheckInherents(rp_inherents::Error),
 	#[error(
 		"Checking inherents unknown error for identifier: {}",
 		String::from_utf8_lossy(.0)
 	)]
-	CheckInherentsUnknownError(sp_inherents::InherentIdentifier),
+	CheckInherentsUnknownError(rp_inherents::InherentIdentifier),
 	#[error("Multiple pre-runtime digests")]
 	MultiplePreRuntimeDigests,
 	#[error(transparent)]
-	Client(sp_blockchain::Error),
+	Client(rp_blockchain::Error),
 	#[error(transparent)]
 	Codec(codec::Error),
 	#[error("{0}")]
@@ -270,13 +270,13 @@ where
 		at_hash: B::Hash,
 		inherent_data_providers: CIDP::InherentDataProviders,
 	) -> Result<(), Error<B>> {
-		use sp_block_builder::CheckInherentsError;
+		use rp_block_builder::CheckInherentsError;
 
 		if *block.header().number() < self.check_inherents_after {
 			return Ok(());
 		}
 
-		sp_block_builder::check_inherents(
+		rp_block_builder::check_inherents(
 			self.client.clone(),
 			at_hash,
 			block,
@@ -463,9 +463,9 @@ pub fn import_queue<B, Algorithm>(
 	block_import: BoxBlockImport<B>,
 	justification_import: Option<BoxJustificationImport<B>>,
 	algorithm: Algorithm,
-	spawner: &impl sp_core::traits::SpawnEssentialNamed,
+	spawner: &impl rp_core::traits::SpawnEssentialNamed,
 	registry: Option<&Registry>,
-) -> Result<PowImportQueue<B>, sp_consensus::Error>
+) -> Result<PowImportQueue<B>, rp_consensus::Error>
 where
 	B: BlockT,
 	Algorithm: PowAlgorithm<B> + Clone + Send + Sync + 'static,
@@ -508,7 +508,7 @@ where
 	E::Error: std::fmt::Debug,
 	E::Proposer: Proposer<Block>,
 	SO: SyncOracle + Clone + Send + Sync + 'static,
-	L: sc_consensus::JustificationSyncLink<Block>,
+	L: rc_consensus::JustificationSyncLink<Block>,
 	CIDP: CreateInherentDataProviders<Block, ()>,
 {
 	let mut timer = UntilImportedOrTimeout::new(client.import_notification_stream(), timeout);

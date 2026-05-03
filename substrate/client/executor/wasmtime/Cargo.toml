@@ -1,5 +1,5 @@
 [package]
-name = "sc-executor-wasmtime"
+name = "rc-executor-wasmtime"
 version = "0.44.0"
 authors.workspace = true
 edition.workspace = true
@@ -22,10 +22,10 @@ parking_lot = { workspace = true, default-features = true }
 # When bumping wasmtime do not forget to also bump rustix
 # to exactly the same version as used by wasmtime!
 anyhow = { workspace = true }
-sc-allocator = { default-features = true, workspace = true }
-sc-executor-common = { default-features = true, workspace = true }
-sp-runtime-interface = { default-features = true, workspace = true }
-sp-wasm-interface = { features = ["wasmtime"], workspace = true, default-features = true }
+rc-allocator = { default-features = true, workspace = true }
+rc-executor-common = { default-features = true, workspace = true }
+rp-runtime-interface = { default-features = true, workspace = true }
+rp-wasm-interface = { features = ["wasmtime"], workspace = true, default-features = true }
 wasmtime = { features = [
 	"addr2line",
 	"cache",
@@ -51,7 +51,7 @@ rustix = { features = ["fs", "mm", "param", "std", "use-libc"], workspace = true
 cargo_metadata = { workspace = true }
 codec = { workspace = true, default-features = true }
 paste = { workspace = true, default-features = true }
-sc-runtime-test = { workspace = true }
-sp-io = { default-features = true, workspace = true }
+rc-runtime-test = { workspace = true }
+rp-io = { default-features = true, workspace = true }
 tempfile = { workspace = true }
 wat = { workspace = true }

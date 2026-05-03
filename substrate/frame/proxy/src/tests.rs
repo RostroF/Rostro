@@ -29,9 +29,9 @@ use frame_support::{
 };
 use frame_system::mocking::MockBlock;
 use scale_info::TypeInfo;
-use sp_core::H256;
-use sp_io::TestExternalities as TestState;
-use sp_runtime::{
+use rp_core::H256;
+use rp_io::TestExternalities as TestState;
+use rp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 	BuildStorage,
 };

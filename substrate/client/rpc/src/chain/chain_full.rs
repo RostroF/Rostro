@@ -30,9 +30,9 @@ use futures::{
 	stream::{self, Stream, StreamExt},
 };
 use jsonrpsee::{core::async_trait, PendingSubscriptionSink};
-use sc_client_api::{BlockBackend, BlockchainEvents};
-use sp_blockchain::HeaderBackend;
-use sp_runtime::{generic::SignedBlock, traits::Block as BlockT};
+use rc_client_api::{BlockBackend, BlockchainEvents};
+use rp_blockchain::HeaderBackend;
+use rp_runtime::{generic::SignedBlock, traits::Block as BlockT};
 
 /// Blockchain API backend for full nodes. Reads all the data from local database.
 pub struct FullChain<Block: BlockT, Client> {

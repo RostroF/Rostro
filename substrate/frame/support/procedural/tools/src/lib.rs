@@ -28,7 +28,7 @@ use syn::parse::Error;
 
 pub mod syn_ext;
 
-// FIXME #1569, remove the following functions, which are copied from sp-api-macros
+// FIXME #1569, remove the following functions, which are copied from rp-api-macros
 use proc_macro2::{Span, TokenStream};
 use syn::Ident;
 
@@ -128,7 +128,7 @@ pub fn generate_hidden_includes(unique_id: &str, def_crate: &str) -> TokenStream
 fn get_frame_crate_path(def_crate: &str) -> Option<syn::Path> {
 	// This does not work if the frame crate is renamed.
 	if let Ok(FoundCrate::Name(name)) =
-		crate_name(&"polkadot-sdk-frame").or_else(|_| crate_name(&"frame"))
+		crate_name(&"rostro-frame").or_else(|_| crate_name(&"frame"))
 	{
 		let path = format!("{}::deps::{}", name, def_crate.to_string().replace("-", "_"));
 		Some(syn::parse_str::<syn::Path>(&path).expect("is a valid path; qed"))

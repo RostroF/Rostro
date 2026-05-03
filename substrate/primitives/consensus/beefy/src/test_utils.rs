@@ -21,12 +21,12 @@ use crate::{
 	ecdsa_crypto, AuthorityIdBound, Commitment, DoubleVotingProof, ForkVotingProof,
 	FutureBlockVotingProof, Payload, ValidatorSetId, VoteMessage,
 };
-use sp_application_crypto::{AppCrypto, AppPair, RuntimeAppPublic, Wraps};
-use sp_core::{ecdsa, Pair};
-use sp_runtime::traits::{BlockNumber, Header as HeaderT};
+use rp_application_crypto::{AppCrypto, AppPair, RuntimeAppPublic, Wraps};
+use rp_core::{ecdsa, Pair};
+use rp_runtime::traits::{BlockNumber, Header as HeaderT};
 
 use codec::Encode;
-use sp_crypto_hashing::keccak_256;
+use rp_crypto_hashing::keccak_256;
 use std::{collections::HashMap, marker::PhantomData, sync::LazyLock};
 use strum::IntoEnumIterator;
 
@@ -111,7 +111,7 @@ static PUBLIC_KEYS: LazyLock<HashMap<Keyring<ecdsa_crypto::AuthorityId>, ecdsa_c
 	LazyLock::new(|| {
 		PRIVATE_KEYS
 			.iter()
-			.map(|(name, pair)| (name.clone(), sp_application_crypto::Pair::public(pair)))
+			.map(|(name, pair)| (name.clone(), rp_application_crypto::Pair::public(pair)))
 			.collect()
 	});
 

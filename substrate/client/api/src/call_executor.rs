@@ -18,15 +18,15 @@
 
 //! A method call executor interface.
 
-use sc_executor::{RuntimeVersion, RuntimeVersionOf};
-use sp_core::traits::CallContext;
-use sp_externalities::Extensions;
-use sp_runtime::traits::{Block as BlockT, HashingFor};
-use sp_state_machine::{OverlayedChanges, StorageProof};
+use rc_executor::{RuntimeVersion, RuntimeVersionOf};
+use rp_core::traits::CallContext;
+use rp_externalities::Extensions;
+use rp_runtime::traits::{Block as BlockT, HashingFor};
+use rp_state_machine::{OverlayedChanges, StorageProof};
 use std::cell::RefCell;
 
 use crate::execution_extensions::ExecutionExtensions;
-use sp_api::ProofRecorder;
+use rp_api::ProofRecorder;
 
 /// Executor Provider
 pub trait ExecutorProvider<Block: BlockT> {
@@ -43,7 +43,7 @@ pub trait ExecutorProvider<Block: BlockT> {
 /// Method call executor.
 pub trait CallExecutor<B: BlockT>: RuntimeVersionOf {
 	/// Externalities error type.
-	type Error: sp_state_machine::Error;
+	type Error: rp_state_machine::Error;
 
 	/// The backend used by the node.
 	type Backend: crate::backend::Backend<B>;
@@ -60,7 +60,7 @@ pub trait CallExecutor<B: BlockT>: RuntimeVersionOf {
 		method: &str,
 		call_data: &[u8],
 		context: CallContext,
-	) -> Result<Vec<u8>, sp_blockchain::Error>;
+	) -> Result<Vec<u8>, rp_blockchain::Error>;
 
 	/// Execute a contextual call on top of state in a block of a given hash.
 	///
@@ -76,7 +76,7 @@ pub trait CallExecutor<B: BlockT>: RuntimeVersionOf {
 		proof_recorder: &Option<ProofRecorder<B>>,
 		call_context: CallContext,
 		extensions: &RefCell<Extensions>,
-	) -> sp_blockchain::Result<Vec<u8>>;
+	) -> rp_blockchain::Result<Vec<u8>>;
 
 	/// Extract RuntimeVersion of given block
 	///
@@ -85,7 +85,7 @@ pub trait CallExecutor<B: BlockT>: RuntimeVersionOf {
 		&self,
 		at_hash: B::Hash,
 		call_context: CallContext,
-	) -> Result<RuntimeVersion, sp_blockchain::Error>;
+	) -> Result<RuntimeVersion, rp_blockchain::Error>;
 
 	/// Prove the execution of the given `method`.
 	///
@@ -95,5 +95,5 @@ pub trait CallExecutor<B: BlockT>: RuntimeVersionOf {
 		at_hash: B::Hash,
 		method: &str,
 		call_data: &[u8],
-	) -> Result<(Vec<u8>, StorageProof), sp_blockchain::Error>;
+	) -> Result<(Vec<u8>, StorageProof), rp_blockchain::Error>;
 }

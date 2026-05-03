@@ -18,9 +18,9 @@
 
 use super::*;
 use crate::DenyUnsafe;
-use sc_block_builder::BlockBuilderBuilder;
-use sp_blockchain::HeaderBackend;
-use sp_consensus::BlockOrigin;
+use rc_block_builder::BlockBuilderBuilder;
+use rp_blockchain::HeaderBackend;
+use rp_consensus::BlockOrigin;
 use substrate_test_runtime_client::{prelude::*, runtime::Block};
 
 #[tokio::test]

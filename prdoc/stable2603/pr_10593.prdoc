@@ -1,7 +1,0 @@
-title: Align Common Functions between Bulletin and SDK
-doc:
-- audience: Runtime Dev
-  description: The PR aligns common functions between Bulletin and SDK.
-crates:
-- name: pallet-transaction-storage
-  bump: major

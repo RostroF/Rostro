@@ -32,20 +32,20 @@ use crate::{
 use futures::{channel::oneshot, FutureExt};
 use log::{debug, error, trace};
 use prost::Message;
-use sc_client_api::ProofProvider;
-use sc_consensus::{BlockImportError, BlockImportStatus, IncomingBlock};
-use sc_network::{IfDisconnected, ProtocolName};
-use sc_network_common::sync::message::BlockAnnounce;
-use sc_network_types::PeerId;
-use sp_consensus::BlockOrigin;
-use sp_runtime::{
+use rc_client_api::ProofProvider;
+use rc_consensus::{BlockImportError, BlockImportStatus, IncomingBlock};
+use rc_network::{IfDisconnected, ProtocolName};
+use rc_network_common::sync::message::BlockAnnounce;
+use rc_network_types::PeerId;
+use rp_consensus::BlockOrigin;
+use rp_runtime::{
 	traits::{Block as BlockT, Header, NumberFor},
 	Justifications, SaturatedConversion,
 };
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 mod rep {
-	use sc_network::ReputationChange as Rep;
+	use rc_network::ReputationChange as Rep;
 
 	/// Peer response data does not have requested bits.
 	pub const BAD_RESPONSE: Rep = Rep::new(-(1 << 12), "Incomplete response");
@@ -399,11 +399,11 @@ mod test {
 		strategy::state_sync::{ImportResult, StateSyncProgress, StateSyncProvider},
 	};
 	use codec::Decode;
-	use sc_block_builder::BlockBuilderBuilder;
-	use sc_client_api::KeyValueStates;
-	use sc_consensus::{ImportedAux, ImportedState};
-	use sp_core::H256;
-	use sp_runtime::traits::Zero;
+	use rc_block_builder::BlockBuilderBuilder;
+	use rc_client_api::KeyValueStates;
+	use rc_consensus::{ImportedAux, ImportedState};
+	use rp_core::H256;
+	use rp_runtime::traits::Zero;
 	use substrate_test_runtime_client::{
 		runtime::{Block, Hash},
 		BlockBuilderExt, DefaultTestClientBuilderExt, TestClientBuilder, TestClientBuilderExt,

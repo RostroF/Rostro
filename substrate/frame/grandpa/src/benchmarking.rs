@@ -20,7 +20,7 @@
 use super::*;
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
-use sp_core::H256;
+use rp_core::H256;
 
 #[benchmarks]
 mod benchmarks {
@@ -48,17 +48,17 @@ mod benchmarks {
 			165, 203, 92, 16, 146, 120, 190, 229, 251, 129, 29, 45, 32, 29, 6,
 		];
 
-		let equivocation_proof1: sp_consensus_grandpa::EquivocationProof<H256, u64> =
+		let equivocation_proof1: rp_consensus_grandpa::EquivocationProof<H256, u64> =
 			Decode::decode(&mut &EQUIVOCATION_PROOF_BLOB[..]).unwrap();
 
 		let equivocation_proof2 = equivocation_proof1.clone();
 
 		#[block]
 		{
-			sp_consensus_grandpa::check_equivocation_proof(equivocation_proof1);
+			rp_consensus_grandpa::check_equivocation_proof(equivocation_proof1);
 		}
 
-		assert!(sp_consensus_grandpa::check_equivocation_proof(equivocation_proof2));
+		assert!(rp_consensus_grandpa::check_equivocation_proof(equivocation_proof2));
 	}
 
 	#[benchmark]

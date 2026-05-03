@@ -20,14 +20,14 @@ use crate::{KeyTypeId, RuntimePublic};
 
 use alloc::vec::Vec;
 
-pub use sp_core::bls::{
+pub use rp_core::bls::{
 	bls381::{BlsEngine as Bls381Engine, *},
 	Pair as BLS_Pair, ProofOfPossession as BLSPoP,
 };
-use sp_core::{crypto::CryptoType, proof_of_possession::ProofOfPossessionVerifier};
+use rp_core::{crypto::CryptoType, proof_of_possession::ProofOfPossessionVerifier};
 
 mod app {
-	crate::app_crypto!(super, sp_core::testing::BLS381);
+	crate::app_crypto!(super, rp_core::testing::BLS381);
 }
 
 #[cfg(feature = "full_crypto")]
@@ -46,7 +46,7 @@ impl RuntimePublic for Public {
 	}
 
 	fn generate_pair(key_type: KeyTypeId, seed: Option<Vec<u8>>) -> Self {
-		sp_io::crypto::bls381_generate(key_type, seed)
+		rp_io::crypto::bls381_generate(key_type, seed)
 	}
 
 	/// Dummy implementation. Returns `None`.
@@ -64,7 +64,7 @@ impl RuntimePublic for Public {
 		key_type: KeyTypeId,
 		owner: &[u8],
 	) -> Option<Self::ProofOfPossession> {
-		sp_io::crypto::bls381_generate_proof_of_possession(key_type, self, owner)
+		rp_io::crypto::bls381_generate_proof_of_possession(key_type, self, owner)
 	}
 
 	fn verify_proof_of_possession(
@@ -81,6 +81,6 @@ impl RuntimePublic for Public {
 	}
 
 	fn to_raw_vec(&self) -> Vec<u8> {
-		sp_core::crypto::ByteArray::to_raw_vec(self)
+		rp_core::crypto::ByteArray::to_raw_vec(self)
 	}
 }

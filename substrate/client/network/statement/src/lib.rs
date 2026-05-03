@@ -45,7 +45,7 @@ use prometheus_endpoint::{
 	Registry, U64,
 };
 use rand::seq::IteratorRandom;
-use sc_network::{
+use rc_network::{
 	config::{NonReservedPeerMode, SetConfig},
 	error, multiaddr,
 	peer_store::PeerStoreProvider,
@@ -57,10 +57,10 @@ use sc_network::{
 	utils::{interval, LruHashSet},
 	NetworkBackend, NetworkEventStream, NetworkPeers,
 };
-use sc_network_sync::{SyncEvent, SyncEventStream};
-use sc_network_types::PeerId;
-use sp_runtime::traits::Block as BlockT;
-use sp_statement_store::{
+use rc_network_sync::{SyncEvent, SyncEventStream};
+use rc_network_types::PeerId;
+use rp_runtime::traits::Block as BlockT;
+use rp_statement_store::{
 	FilterDecision, Hash, Statement, StatementSource, StatementStore, SubmitResult,
 };
 use std::{
@@ -80,7 +80,7 @@ pub type Statements = Vec<Statement>;
 pub type StatementImportFuture = oneshot::Receiver<SubmitResult>;
 
 mod rep {
-	use sc_network::ReputationChange as Rep;
+	use rc_network::ReputationChange as Rep;
 	/// Reputation change when a peer sends us any statement.
 	///
 	/// This forces node to verify it, thus the negative value here. Once statement is verified,
@@ -302,7 +302,7 @@ impl StatementHandlerPrototype {
 	/// Gossiping is enabled when major syncing is done.
 	pub fn build<
 		N: NetworkPeers + NetworkEventStream,
-		S: SyncEventStream + sp_consensus::SyncOracle,
+		S: SyncEventStream + rp_consensus::SyncOracle,
 	>(
 		self,
 		network: N,
@@ -398,7 +398,7 @@ impl StatementHandlerPrototype {
 /// Handler for statements. Call [`StatementHandler::run`] to start the processing.
 pub struct StatementHandler<
 	N: NetworkPeers + NetworkEventStream,
-	S: SyncEventStream + sp_consensus::SyncOracle,
+	S: SyncEventStream + rp_consensus::SyncOracle,
 > {
 	protocol_name: ProtocolName,
 	/// Interval at which we call `propagate_statements`.
@@ -571,7 +571,7 @@ impl Peer {
 impl<N, S> StatementHandler<N, S>
 where
 	N: NetworkPeers + NetworkEventStream,
-	S: SyncEventStream + sp_consensus::SyncOracle,
+	S: SyncEventStream + rp_consensus::SyncOracle,
 {
 	/// Create a new `StatementHandler` for testing/benchmarking purposes.
 	#[cfg(any(test, feature = "test-helpers"))]
@@ -1226,9 +1226,9 @@ mod tests {
 
 	#[derive(Clone)]
 	struct TestNetwork {
-		reported_peers: Arc<Mutex<Vec<(PeerId, sc_network::ReputationChange)>>>,
+		reported_peers: Arc<Mutex<Vec<(PeerId, rc_network::ReputationChange)>>>,
 		disconnected_peers: Arc<Mutex<Vec<PeerId>>>,
-		added_reserved: Arc<Mutex<Vec<HashSet<sc_network::Multiaddr>>>>,
+		added_reserved: Arc<Mutex<Vec<HashSet<rc_network::Multiaddr>>>>,
 		removed_reserved: Arc<Mutex<Vec<Vec<PeerId>>>>,
 	}
 
@@ -1242,7 +1242,7 @@ mod tests {
 			}
 		}
 
-		fn get_reports(&self) -> Vec<(PeerId, sc_network::ReputationChange)> {
+		fn get_reports(&self) -> Vec<(PeerId, rc_network::ReputationChange)> {
 			self.reported_peers.lock().unwrap().clone()
 		}
 
@@ -1250,7 +1250,7 @@ mod tests {
 			self.disconnected_peers.lock().unwrap().clone()
 		}
 
-		fn get_added_reserved(&self) -> Vec<HashSet<sc_network::Multiaddr>> {
+		fn get_added_reserved(&self) -> Vec<HashSet<rc_network::Multiaddr>> {
 			self.added_reserved.lock().unwrap().clone()
 		}
 
@@ -1269,11 +1269,11 @@ mod tests {
 			unimplemented!()
 		}
 
-		fn add_known_address(&self, _: PeerId, _: sc_network::Multiaddr) {
+		fn add_known_address(&self, _: PeerId, _: rc_network::Multiaddr) {
 			unimplemented!()
 		}
 
-		fn report_peer(&self, peer_id: PeerId, cost_benefit: sc_network::ReputationChange) {
+		fn report_peer(&self, peer_id: PeerId, cost_benefit: rc_network::ReputationChange) {
 			self.reported_peers.lock().unwrap().push((peer_id, cost_benefit));
 		}
 
@@ -1281,7 +1281,7 @@ mod tests {
 			unimplemented!()
 		}
 
-		fn disconnect_peer(&self, peer: PeerId, _: sc_network::ProtocolName) {
+		fn disconnect_peer(&self, peer: PeerId, _: rc_network::ProtocolName) {
 			self.disconnected_peers.lock().unwrap().push(peer);
 		}
 
@@ -1295,7 +1295,7 @@ mod tests {
 
 		fn add_reserved_peer(
 			&self,
-			_: sc_network::config::MultiaddrWithPeerId,
+			_: rc_network::config::MultiaddrWithPeerId,
 		) -> Result<(), String> {
 			unimplemented!()
 		}
@@ -1306,16 +1306,16 @@ mod tests {
 
 		fn set_reserved_peers(
 			&self,
-			_: sc_network::ProtocolName,
-			_: std::collections::HashSet<sc_network::Multiaddr>,
+			_: rc_network::ProtocolName,
+			_: std::collections::HashSet<rc_network::Multiaddr>,
 		) -> Result<(), String> {
 			unimplemented!()
 		}
 
 		fn add_peers_to_reserved_set(
 			&self,
-			_: sc_network::ProtocolName,
-			addrs: std::collections::HashSet<sc_network::Multiaddr>,
+			_: rc_network::ProtocolName,
+			addrs: std::collections::HashSet<rc_network::Multiaddr>,
 		) -> Result<(), String> {
 			self.added_reserved.lock().unwrap().push(addrs);
 			Ok(())
@@ -1323,7 +1323,7 @@ mod tests {
 
 		fn remove_peers_from_reserved_set(
 			&self,
-			_: sc_network::ProtocolName,
+			_: rc_network::ProtocolName,
 			peers: Vec<PeerId>,
 		) -> Result<(), String> {
 			self.removed_reserved.lock().unwrap().push(peers);
@@ -1334,7 +1334,7 @@ mod tests {
 			unimplemented!()
 		}
 
-		fn peer_role(&self, _: PeerId, _: Vec<u8>) -> Option<sc_network::ObservedRole> {
+		fn peer_role(&self, _: PeerId, _: Vec<u8>) -> Option<rc_network::ObservedRole> {
 			unimplemented!()
 		}
 
@@ -1363,12 +1363,12 @@ mod tests {
 		fn event_stream(
 			&self,
 			_name: &'static str,
-		) -> Pin<Box<dyn Stream<Item = sc_network_sync::types::SyncEvent> + Send>> {
+		) -> Pin<Box<dyn Stream<Item = rc_network_sync::types::SyncEvent> + Send>> {
 			Box::pin(futures::stream::pending())
 		}
 	}
 
-	impl sp_consensus::SyncOracle for TestSync {
+	impl rp_consensus::SyncOracle for TestSync {
 		fn is_major_syncing(&self) -> bool {
 			self.major_syncing.load(Ordering::Relaxed)
 		}
@@ -1382,7 +1382,7 @@ mod tests {
 		fn event_stream(
 			&self,
 			_name: &'static str,
-		) -> Pin<Box<dyn Stream<Item = sc_network::Event> + Send>> {
+		) -> Pin<Box<dyn Stream<Item = rc_network::Event> + Send>> {
 			unimplemented!()
 		}
 	}
@@ -1420,7 +1420,7 @@ mod tests {
 			&mut self,
 			peer: &PeerId,
 			notification: Vec<u8>,
-		) -> Result<(), sc_network::error::Error> {
+		) -> Result<(), rc_network::error::Error> {
 			self.sent_notifications.lock().unwrap().push((*peer, notification));
 			Ok(())
 		}
@@ -1433,7 +1433,7 @@ mod tests {
 			unimplemented!()
 		}
 
-		async fn next_event(&mut self) -> Option<sc_network::service::traits::NotificationEvent> {
+		async fn next_event(&mut self) -> Option<rc_network::service::traits::NotificationEvent> {
 			None
 		}
 
@@ -1441,23 +1441,23 @@ mod tests {
 			unimplemented!()
 		}
 
-		fn protocol(&self) -> &sc_network::types::ProtocolName {
+		fn protocol(&self) -> &rc_network::types::ProtocolName {
 			unimplemented!()
 		}
 
 		fn message_sink(
 			&self,
 			_peer: &PeerId,
-		) -> Option<Box<dyn sc_network::service::traits::MessageSink>> {
+		) -> Option<Box<dyn rc_network::service::traits::MessageSink>> {
 			unimplemented!()
 		}
 	}
 
 	#[derive(Clone)]
 	struct TestStatementStore {
-		statements: Arc<Mutex<HashMap<sp_statement_store::Hash, sp_statement_store::Statement>>>,
+		statements: Arc<Mutex<HashMap<rp_statement_store::Hash, rp_statement_store::Statement>>>,
 		recent_statements:
-			Arc<Mutex<HashMap<sp_statement_store::Hash, sp_statement_store::Statement>>>,
+			Arc<Mutex<HashMap<rp_statement_store::Hash, rp_statement_store::Statement>>>,
 	}
 
 	impl TestStatementStore {
@@ -1469,45 +1469,45 @@ mod tests {
 	impl StatementStore for TestStatementStore {
 		fn statements(
 			&self,
-		) -> sp_statement_store::Result<
-			Vec<(sp_statement_store::Hash, sp_statement_store::Statement)>,
+		) -> rp_statement_store::Result<
+			Vec<(rp_statement_store::Hash, rp_statement_store::Statement)>,
 		> {
 			Ok(self.statements.lock().unwrap().iter().map(|(h, s)| (*h, s.clone())).collect())
 		}
 
 		fn take_recent_statements(
 			&self,
-		) -> sp_statement_store::Result<
-			Vec<(sp_statement_store::Hash, sp_statement_store::Statement)>,
+		) -> rp_statement_store::Result<
+			Vec<(rp_statement_store::Hash, rp_statement_store::Statement)>,
 		> {
 			Ok(self.recent_statements.lock().unwrap().drain().collect())
 		}
 
 		fn statement(
 			&self,
-			_hash: &sp_statement_store::Hash,
-		) -> sp_statement_store::Result<Option<sp_statement_store::Statement>> {
+			_hash: &rp_statement_store::Hash,
+		) -> rp_statement_store::Result<Option<rp_statement_store::Statement>> {
 			unimplemented!()
 		}
 
-		fn has_statement(&self, hash: &sp_statement_store::Hash) -> bool {
+		fn has_statement(&self, hash: &rp_statement_store::Hash) -> bool {
 			self.statements.lock().unwrap().contains_key(hash)
 		}
 
-		fn statement_hashes(&self) -> Vec<sp_statement_store::Hash> {
+		fn statement_hashes(&self) -> Vec<rp_statement_store::Hash> {
 			self.statements.lock().unwrap().keys().cloned().collect()
 		}
 
 		fn statements_by_hashes(
 			&self,
-			hashes: &[sp_statement_store::Hash],
+			hashes: &[rp_statement_store::Hash],
 			filter: &mut dyn FnMut(
-				&sp_statement_store::Hash,
+				&rp_statement_store::Hash,
 				&[u8],
-				&sp_statement_store::Statement,
+				&rp_statement_store::Statement,
 			) -> FilterDecision,
-		) -> sp_statement_store::Result<(
-			Vec<(sp_statement_store::Hash, sp_statement_store::Statement)>,
+		) -> rp_statement_store::Result<(
+			Vec<(rp_statement_store::Hash, rp_statement_store::Statement)>,
 			usize,
 		)> {
 			let statements = self.statements.lock().unwrap();
@@ -1535,63 +1535,63 @@ mod tests {
 
 		fn broadcasts(
 			&self,
-			_match_all_topics: &[sp_statement_store::Topic],
-		) -> sp_statement_store::Result<Vec<Vec<u8>>> {
+			_match_all_topics: &[rp_statement_store::Topic],
+		) -> rp_statement_store::Result<Vec<Vec<u8>>> {
 			unimplemented!()
 		}
 
 		fn posted(
 			&self,
-			_match_all_topics: &[sp_statement_store::Topic],
+			_match_all_topics: &[rp_statement_store::Topic],
 			_dest: [u8; 32],
-		) -> sp_statement_store::Result<Vec<Vec<u8>>> {
+		) -> rp_statement_store::Result<Vec<Vec<u8>>> {
 			unimplemented!()
 		}
 
 		fn posted_clear(
 			&self,
-			_match_all_topics: &[sp_statement_store::Topic],
+			_match_all_topics: &[rp_statement_store::Topic],
 			_dest: [u8; 32],
-		) -> sp_statement_store::Result<Vec<Vec<u8>>> {
+		) -> rp_statement_store::Result<Vec<Vec<u8>>> {
 			unimplemented!()
 		}
 
 		fn broadcasts_stmt(
 			&self,
-			_match_all_topics: &[sp_statement_store::Topic],
-		) -> sp_statement_store::Result<Vec<Vec<u8>>> {
+			_match_all_topics: &[rp_statement_store::Topic],
+		) -> rp_statement_store::Result<Vec<Vec<u8>>> {
 			unimplemented!()
 		}
 
 		fn posted_stmt(
 			&self,
-			_match_all_topics: &[sp_statement_store::Topic],
+			_match_all_topics: &[rp_statement_store::Topic],
 			_dest: [u8; 32],
-		) -> sp_statement_store::Result<Vec<Vec<u8>>> {
+		) -> rp_statement_store::Result<Vec<Vec<u8>>> {
 			unimplemented!()
 		}
 
 		fn posted_clear_stmt(
 			&self,
-			_match_all_topics: &[sp_statement_store::Topic],
+			_match_all_topics: &[rp_statement_store::Topic],
 			_dest: [u8; 32],
-		) -> sp_statement_store::Result<Vec<Vec<u8>>> {
+		) -> rp_statement_store::Result<Vec<Vec<u8>>> {
 			unimplemented!()
 		}
 
 		fn submit(
 			&self,
-			_statement: sp_statement_store::Statement,
-			_source: sp_statement_store::StatementSource,
-		) -> sp_statement_store::SubmitResult {
+			_statement: rp_statement_store::Statement,
+			_source: rp_statement_store::StatementSource,
+		) -> rp_statement_store::SubmitResult {
 			unimplemented!()
 		}
 
-		fn remove(&self, _hash: &sp_statement_store::Hash) -> sp_statement_store::Result<()> {
+		fn remove(&self, _hash: &rp_statement_store::Hash) -> rp_statement_store::Result<()> {
 			unimplemented!()
 		}
 
-		fn remove_by(&self, _who: [u8; 32]) -> sp_statement_store::Result<()> {
+		fn remove_by(&self, _who: [u8; 32]) -> rp_statement_store::Result<()> {
 			unimplemented!()
 		}
 	}
@@ -1635,7 +1635,7 @@ mod tests {
 			network: network.clone(),
 			sync: TestSync::new(),
 			sync_event_stream: (Box::pin(futures::stream::pending())
-				as Pin<Box<dyn Stream<Item = sc_network_sync::types::SyncEvent> + Send>>)
+				as Pin<Box<dyn Stream<Item = rc_network_sync::types::SyncEvent> + Send>>)
 				.fuse(),
 			peers,
 			statement_store: Arc::new(statement_store.clone()),
@@ -1846,7 +1846,7 @@ mod tests {
 			network: network.clone(),
 			sync: TestSync::new(),
 			sync_event_stream: (Box::pin(futures::stream::pending())
-				as Pin<Box<dyn Stream<Item = sc_network_sync::types::SyncEvent> + Send>>)
+				as Pin<Box<dyn Stream<Item = rc_network_sync::types::SyncEvent> + Send>>)
 				.fuse(),
 			peers: HashMap::new(),
 			statement_store: Arc::new(statement_store.clone()),
@@ -1893,7 +1893,7 @@ mod tests {
 		handler
 			.handle_notification_event(NotificationEvent::NotificationStreamOpened {
 				peer: peer_id,
-				direction: sc_network::service::traits::Direction::Inbound,
+				direction: rc_network::service::traits::Direction::Inbound,
 				handshake: vec![],
 				negotiated_fallback: None,
 			})
@@ -1978,7 +1978,7 @@ mod tests {
 			handler
 				.handle_notification_event(NotificationEvent::NotificationStreamOpened {
 					peer,
-					direction: sc_network::service::traits::Direction::Inbound,
+					direction: rc_network::service::traits::Direction::Inbound,
 					handshake: vec![],
 					negotiated_fallback: None,
 				})
@@ -2208,7 +2208,7 @@ mod tests {
 		handler
 			.handle_notification_event(NotificationEvent::NotificationStreamOpened {
 				peer: peer_id,
-				direction: sc_network::service::traits::Direction::Inbound,
+				direction: rc_network::service::traits::Direction::Inbound,
 				handshake: vec![],
 				negotiated_fallback: None,
 			})
@@ -2510,7 +2510,7 @@ mod tests {
 			network: network.clone(),
 			sync,
 			sync_event_stream: (Box::pin(futures::stream::pending())
-				as Pin<Box<dyn Stream<Item = sc_network_sync::types::SyncEvent> + Send>>)
+				as Pin<Box<dyn Stream<Item = rc_network_sync::types::SyncEvent> + Send>>)
 				.fuse(),
 			peers: HashMap::new(),
 			statement_store: Arc::new(statement_store),
@@ -2574,7 +2574,7 @@ mod tests {
 			network: network.clone(),
 			sync,
 			sync_event_stream: (Box::pin(futures::stream::pending())
-				as Pin<Box<dyn Stream<Item = sc_network_sync::types::SyncEvent> + Send>>)
+				as Pin<Box<dyn Stream<Item = rc_network_sync::types::SyncEvent> + Send>>)
 				.fuse(),
 			peers: HashMap::new(),
 			statement_store: Arc::new(statement_store),
@@ -2599,9 +2599,9 @@ mod tests {
 		let added = network.get_added_reserved();
 		assert_eq!(added.len(), 1);
 		let added_addrs = &added[0];
-		let expected_addr1: sc_network::Multiaddr =
+		let expected_addr1: rc_network::Multiaddr =
 			iter::once(multiaddr::Protocol::P2p(peer1.into())).collect();
-		let expected_addr2: sc_network::Multiaddr =
+		let expected_addr2: rc_network::Multiaddr =
 			iter::once(multiaddr::Protocol::P2p(peer2.into())).collect();
 		assert!(added_addrs.contains(&expected_addr1), "peer1 must be in added set");
 		assert!(added_addrs.contains(&expected_addr2), "peer2 must be in added set");
@@ -2646,7 +2646,7 @@ mod tests {
 			network: network.clone(),
 			sync,
 			sync_event_stream: (Box::pin(futures::stream::pending())
-				as Pin<Box<dyn Stream<Item = sc_network_sync::types::SyncEvent> + Send>>)
+				as Pin<Box<dyn Stream<Item = rc_network_sync::types::SyncEvent> + Send>>)
 				.fuse(),
 			peers,
 			statement_store: Arc::new(statement_store),
@@ -2741,7 +2741,7 @@ mod tests {
 					network,
 					sync,
 					sync_event_stream: (Box::pin(futures::stream::pending())
-						as Pin<Box<dyn Stream<Item = sc_network_sync::types::SyncEvent> + Send>>)
+						as Pin<Box<dyn Stream<Item = rc_network_sync::types::SyncEvent> + Send>>)
 						.fuse(),
 					peers,
 					statement_store: Arc::new(TestStatementStore::new()),

@@ -31,13 +31,13 @@ use futures::StreamExt;
 use litep2p::types::cid::{Cid, Error as CidError, Version as CidVersion};
 use log::{debug, error, trace};
 use prost::Message;
-use sc_client_api::BlockBackend;
-use sc_network_types::PeerId;
+use rc_client_api::BlockBackend;
+use rc_network_types::PeerId;
 use schema::bitswap::{
 	message::{wantlist::WantType, Block as MessageBlock, BlockPresence, BlockPresenceType},
 	Message as BitswapMessage,
 };
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 use std::{io, sync::Arc, time::Duration};
 use unsigned_varint::encode as varint_encode;
 
@@ -268,7 +268,7 @@ pub enum BitswapError {
 
 	/// Client backend error.
 	#[error(transparent)]
-	Client(#[from] sp_blockchain::Error),
+	Client(#[from] rp_blockchain::Error),
 
 	/// Error parsing CID
 	#[error(transparent)]
@@ -296,13 +296,13 @@ mod tests {
 	use super::*;
 	use futures::channel::oneshot;
 	use litep2p::types::multihash::Code;
-	use sc_block_builder::BlockBuilderBuilder;
+	use rc_block_builder::BlockBuilderBuilder;
 	use schema::bitswap::{
 		message::{wantlist::Entry, Wantlist},
 		Message as BitswapMessage,
 	};
-	use sp_consensus::BlockOrigin;
-	use sp_runtime::codec::Encode;
+	use rp_consensus::BlockOrigin;
+	use rp_runtime::codec::Encode;
 	use substrate_test_runtime::ExtrinsicBuilder;
 	use substrate_test_runtime_client::{self, prelude::*, TestClientBuilder};
 
@@ -506,7 +506,7 @@ mod tests {
 								0x70,
 								cid::multihash::Multihash::wrap(
 									u64::from(Code::Blake2b256),
-									&sp_crypto_hashing::blake2_256(&ext.encode()[pattern_index..]),
+									&rp_crypto_hashing::blake2_256(&ext.encode()[pattern_index..]),
 								)
 								.unwrap(),
 							)

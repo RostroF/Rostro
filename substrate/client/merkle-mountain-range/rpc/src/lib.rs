@@ -30,16 +30,16 @@ use jsonrpsee::{
 };
 use serde::{Deserialize, Serialize};
 
-use sp_api::{ApiExt, ProvideRuntimeApi};
-use sp_blockchain::HeaderBackend;
-use sp_core::{
+use rp_api::{ApiExt, ProvideRuntimeApi};
+use rp_blockchain::HeaderBackend;
+use rp_core::{
 	offchain::{storage::OffchainDb, OffchainDbExt, OffchainStorage},
 	Bytes,
 };
-use sp_mmr_primitives::{AncestryProof as MmrAncestryProof, Error as MmrError, LeafProof};
-use sp_runtime::traits::{Block as BlockT, NumberFor};
+use rp_mmr_primitives::{AncestryProof as MmrAncestryProof, Error as MmrError, LeafProof};
+use rp_runtime::traits::{Block as BlockT, NumberFor};
 
-pub use sp_mmr_primitives::MmrApi as MmrRuntimeApi;
+pub use rp_mmr_primitives::MmrApi as MmrRuntimeApi;
 
 const RUNTIME_ERROR: i32 = 8000;
 const MMR_ERROR: i32 = 8010;
@@ -52,13 +52,13 @@ pub struct LeavesProof<BlockHash> {
 	pub block_hash: BlockHash,
 	/// SCALE-encoded vector of `LeafData`.
 	pub leaves: Bytes,
-	/// SCALE-encoded proof data. See [sp_mmr_primitives::LeafProof].
+	/// SCALE-encoded proof data. See [rp_mmr_primitives::LeafProof].
 	pub proof: Bytes,
 }
 
 impl<BlockHash> LeavesProof<BlockHash> {
 	/// Create new `LeavesProof` from a given vector of `Leaf` and a
-	/// [sp_mmr_primitives::LeafProof].
+	/// [rp_mmr_primitives::LeafProof].
 	pub fn new<Leaf, MmrHash>(
 		block_hash: BlockHash,
 		leaves: Vec<Leaf>,
@@ -299,7 +299,7 @@ fn invalid_params(e: impl std::error::Error) -> ErrorObjectOwned {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sp_core::H256;
+	use rp_core::H256;
 
 	#[test]
 	fn should_serialize_leaf_proof() {

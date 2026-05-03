@@ -34,9 +34,9 @@
 use futures::{future::join_all, FutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
-use sc_transaction_pool_api::{error::IntoMetricsLabel, TransactionPriority, TransactionSource};
-use sp_blockchain::HashAndNumber;
-use sp_runtime::{
+use rc_transaction_pool_api::{error::IntoMetricsLabel, TransactionPriority, TransactionSource};
+use rp_blockchain::HashAndNumber;
+use rp_runtime::{
 	traits::Block as BlockT,
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
 };
@@ -469,7 +469,7 @@ where
 		&self,
 		tx_hash: ExtrinsicHash<ChainApi>,
 		tx: TxInMemPool<ChainApi, Block>,
-	) -> Result<InsertionInfo<ExtrinsicHash<ChainApi>>, sc_transaction_pool_api::error::Error> {
+	) -> Result<InsertionInfo<ExtrinsicHash<ChainApi>>, rc_transaction_pool_api::error::Error> {
 		let mut transactions = self.transactions.write().await;
 
 		let bytes = self.transactions.bytes();
@@ -484,9 +484,9 @@ where
 				Ok(InsertionInfo::new(tx_hash, source))
 			},
 			(_, true) => {
-				Err(sc_transaction_pool_api::error::Error::AlreadyImported(Box::new(tx_hash)))
+				Err(rc_transaction_pool_api::error::Error::AlreadyImported(Box::new(tx_hash)))
 			},
-			(true, _) => Err(sc_transaction_pool_api::error::Error::ImmediatelyDropped),
+			(true, _) => Err(rc_transaction_pool_api::error::Error::ImmediatelyDropped),
 		};
 		trace!(
 			target: LOG_TARGET,
@@ -516,18 +516,18 @@ where
 		source: TransactionSource,
 		validated_at: u64,
 		watched: bool,
-	) -> Result<InsertionInfo<ExtrinsicHash<ChainApi>>, sc_transaction_pool_api::error::Error> {
+	) -> Result<InsertionInfo<ExtrinsicHash<ChainApi>>, rc_transaction_pool_api::error::Error> {
 		let (hash, length) = self.api.hash_and_length(&new_tx);
 		let new_tx =
 			TxInMemPool::new_with_priority(watched, source, new_tx, length, priority, validated_at);
 		if new_tx.bytes > self.max_transactions_total_bytes {
-			return Err(sc_transaction_pool_api::error::Error::ImmediatelyDropped);
+			return Err(rc_transaction_pool_api::error::Error::ImmediatelyDropped);
 		}
 
 		let mut transactions = self.transactions.write().await;
 
 		if transactions.contains_key(&hash) {
-			return Err(sc_transaction_pool_api::error::Error::AlreadyImported(Box::new(hash)));
+			return Err(rc_transaction_pool_api::error::Error::AlreadyImported(Box::new(hash)));
 		}
 
 		// When pushing higher prio transaction, we need to find a number of lower prio txs, such
@@ -544,7 +544,7 @@ where
 		);
 		debug_assert!(!self.is_limit_exceeded(transactions.len(), self.transactions.bytes()));
 		match insertion_result {
-			None => Err(sc_transaction_pool_api::error::Error::ImmediatelyDropped),
+			None => Err(rc_transaction_pool_api::error::Error::ImmediatelyDropped),
 			Some(to_be_removed) => Ok(InsertionInfo::new_with_removed(hash, source, to_be_removed)),
 		}
 	}
@@ -558,7 +558,7 @@ where
 		source: TransactionSource,
 		validated_at: u64,
 		xts: &[ExtrinsicFor<ChainApi>],
-	) -> Vec<Result<InsertionInfo<ExtrinsicHash<ChainApi>>, sc_transaction_pool_api::error::Error>>
+	) -> Vec<Result<InsertionInfo<ExtrinsicHash<ChainApi>>, rc_transaction_pool_api::error::Error>>
 	{
 		let insert_futures = xts.into_iter().map(|xt| {
 			let api = self.api.clone();
@@ -580,7 +580,7 @@ where
 		source: TransactionSource,
 		validated_at: u64,
 		xt: ExtrinsicFor<ChainApi>,
-	) -> Result<InsertionInfo<ExtrinsicHash<ChainApi>>, sc_transaction_pool_api::error::Error> {
+	) -> Result<InsertionInfo<ExtrinsicHash<ChainApi>>, rc_transaction_pool_api::error::Error> {
 		let (hash, length) = self.api.hash_and_length(&xt);
 		self.try_insert(hash, TxInMemPool::new_watched(source, xt.clone(), length, validated_at))
 			.await
@@ -817,11 +817,11 @@ where
 
 /// Convenient return type of extend_unwatched
 type ExtendUnwatchedResult<ChainApi> =
-	Vec<Result<InsertionInfo<ExtrinsicHash<ChainApi>>, sc_transaction_pool_api::error::Error>>;
+	Vec<Result<InsertionInfo<ExtrinsicHash<ChainApi>>, rc_transaction_pool_api::error::Error>>;
 
 /// Convenient return type of try_insert_with_replacement
 type TryInsertWithReplacementResult<ChainApi> =
-	Result<InsertionInfo<ExtrinsicHash<ChainApi>>, sc_transaction_pool_api::error::Error>;
+	Result<InsertionInfo<ExtrinsicHash<ChainApi>>, rc_transaction_pool_api::error::Error>;
 
 /// Helper enum defining what requests can be made from sync code.
 enum TxMemPoolSyncRequest<ChainApi, Block>
@@ -972,7 +972,7 @@ where
 		source: TransactionSource,
 		validated_at: u64,
 		watched: bool,
-	) -> Result<InsertionInfo<ExtrinsicHash<ChainApi>>, sc_transaction_pool_api::error::Error> {
+	) -> Result<InsertionInfo<ExtrinsicHash<ChainApi>>, rc_transaction_pool_api::error::Error> {
 		let (response, request) = TxMemPoolSyncRequest::try_insert_with_replacement(
 			self.clone(),
 			new_tx,
@@ -990,7 +990,7 @@ where
 		source: TransactionSource,
 		validated_at: u64,
 		xts: Vec<ExtrinsicFor<ChainApi>>,
-	) -> Vec<Result<InsertionInfo<ExtrinsicHash<ChainApi>>, sc_transaction_pool_api::error::Error>>
+	) -> Vec<Result<InsertionInfo<ExtrinsicHash<ChainApi>>, rc_transaction_pool_api::error::Error>>
 	{
 		let (response, request) =
 			TxMemPoolSyncRequest::extend_unwatched(self.clone(), source, validated_at, xts);
@@ -1054,13 +1054,13 @@ mod tx_mem_pool_tests {
 		assert!(results.iter().take(max).all(Result::is_ok));
 		assert!(matches!(
 			results.into_iter().last().unwrap().unwrap_err(),
-			sc_transaction_pool_api::error::Error::ImmediatelyDropped
+			rc_transaction_pool_api::error::Error::ImmediatelyDropped
 		));
 	}
 
 	#[tokio::test]
 	async fn extend_unwatched_detects_already_imported() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let max = 10;
 		let api = Arc::from(TestApi::default());
 		let mempool = TxMemPool::new_test(api, max, usize::MAX);
@@ -1072,7 +1072,7 @@ mod tx_mem_pool_tests {
 		assert!(results.iter().take(max - 1).all(Result::is_ok));
 		assert!(matches!(
 			results.into_iter().last().unwrap().unwrap_err(),
-			sc_transaction_pool_api::error::Error::AlreadyImported(_)
+			rc_transaction_pool_api::error::Error::AlreadyImported(_)
 		));
 	}
 
@@ -1091,13 +1091,13 @@ mod tx_mem_pool_tests {
 		let result = mempool.push_watched(TransactionSource::External, 0, xt).await;
 		assert!(matches!(
 			result.unwrap_err(),
-			sc_transaction_pool_api::error::Error::ImmediatelyDropped
+			rc_transaction_pool_api::error::Error::ImmediatelyDropped
 		));
 		let xt = Arc::from(uxt(99));
 		let mut result = mempool.extend_unwatched(TransactionSource::External, 0, &[xt]).await;
 		assert!(matches!(
 			result.pop().unwrap().unwrap_err(),
-			sc_transaction_pool_api::error::Error::ImmediatelyDropped
+			rc_transaction_pool_api::error::Error::ImmediatelyDropped
 		));
 	}
 
@@ -1117,18 +1117,18 @@ mod tx_mem_pool_tests {
 		let result = mempool.push_watched(TransactionSource::External, 0, xt0).await;
 		assert!(matches!(
 			result.unwrap_err(),
-			sc_transaction_pool_api::error::Error::AlreadyImported(_)
+			rc_transaction_pool_api::error::Error::AlreadyImported(_)
 		));
 		let mut result = mempool.extend_unwatched(TransactionSource::External, 0, &[xt1]).await;
 		assert!(matches!(
 			result.pop().unwrap().unwrap_err(),
-			sc_transaction_pool_api::error::Error::AlreadyImported(_)
+			rc_transaction_pool_api::error::Error::AlreadyImported(_)
 		));
 	}
 
 	#[tokio::test]
 	async fn count_works() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		trace!(target:LOG_TARGET,line=line!(),"xxx");
 
 		let max = 100;
@@ -1165,7 +1165,7 @@ mod tx_mem_pool_tests {
 
 	#[tokio::test]
 	async fn push_obeys_size_limit() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let max = 10;
 		let api = Arc::from(TestApi::default());
 		let mempool = TxMemPool::new_test(api.clone(), usize::MAX, max * LARGE_XT_SIZE);
@@ -1182,20 +1182,20 @@ mod tx_mem_pool_tests {
 		let result = mempool.push_watched(TransactionSource::External, 0, xt).await;
 		assert!(matches!(
 			result.unwrap_err(),
-			sc_transaction_pool_api::error::Error::ImmediatelyDropped
+			rc_transaction_pool_api::error::Error::ImmediatelyDropped
 		));
 
 		let xt = Arc::from(large_uxt(99));
 		let mut result = mempool.extend_unwatched(TransactionSource::External, 0, &[xt]).await;
 		assert!(matches!(
 			result.pop().unwrap().unwrap_err(),
-			sc_transaction_pool_api::error::Error::ImmediatelyDropped
+			rc_transaction_pool_api::error::Error::ImmediatelyDropped
 		));
 	}
 
 	#[tokio::test]
 	async fn replacing_txs_works_for_same_tx_size() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let max = 10;
 		let api = Arc::from(TestApi::default());
 		let mempool = TxMemPool::new_test(api.clone(), usize::MAX, max * LARGE_XT_SIZE);
@@ -1235,7 +1235,7 @@ mod tx_mem_pool_tests {
 
 	#[tokio::test]
 	async fn replacing_txs_removes_proper_size_of_txs() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let max = 10;
 		let api = Arc::from(TestApi::default());
 		let mempool = TxMemPool::new_test(api.clone(), usize::MAX, max * LARGE_XT_SIZE);
@@ -1278,7 +1278,7 @@ mod tx_mem_pool_tests {
 
 	#[tokio::test]
 	async fn replacing_txs_removes_proper_size_and_prios() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		const COUNT: usize = 10;
 		let api = Arc::from(TestApi::default());
 		let mempool = TxMemPool::new_test(api.clone(), usize::MAX, COUNT * LARGE_XT_SIZE);
@@ -1321,7 +1321,7 @@ mod tx_mem_pool_tests {
 
 	#[tokio::test]
 	async fn replacing_txs_skips_lower_prio_tx() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		const COUNT: usize = 10;
 		let api = Arc::from(TestApi::default());
 		let mempool = TxMemPool::new_test(api.clone(), usize::MAX, COUNT * LARGE_XT_SIZE);
@@ -1356,13 +1356,13 @@ mod tx_mem_pool_tests {
 		// lower prio tx is rejected immediately
 		assert!(matches!(
 			result.unwrap_err(),
-			sc_transaction_pool_api::error::Error::ImmediatelyDropped
+			rc_transaction_pool_api::error::Error::ImmediatelyDropped
 		));
 	}
 
 	#[tokio::test]
 	async fn replacing_txs_is_skipped_if_prios_are_not_set() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		const COUNT: usize = 10;
 		let api = Arc::from(TestApi::default());
 		let mempool = TxMemPool::new_test(api.clone(), usize::MAX, COUNT * LARGE_XT_SIZE);
@@ -1390,7 +1390,7 @@ mod tx_mem_pool_tests {
 		// we did not update priorities (update_transaction_priority was not called):
 		assert!(matches!(
 			result.unwrap_err(),
-			sc_transaction_pool_api::error::Error::ImmediatelyDropped
+			rc_transaction_pool_api::error::Error::ImmediatelyDropped
 		));
 	}
 }

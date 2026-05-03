@@ -1,5 +1,5 @@
 [package]
-name = "sc-proposer-metrics"
+name = "rc-proposer-metrics"
 version = "0.20.0"
 authors.workspace = true
 edition.workspace = true

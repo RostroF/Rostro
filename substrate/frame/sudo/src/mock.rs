@@ -20,8 +20,8 @@
 use super::*;
 use crate as sudo;
 use frame_support::{derive_impl, traits::Contains};
-use sp_io;
-use sp_runtime::BuildStorage;
+use rp_io;
+use rp_runtime::BuildStorage;
 
 // Logger module to track execution.
 #[frame_support::pallet]
@@ -128,17 +128,17 @@ pub type SudoCall = sudo::Call<Test>;
 pub type LoggerCall = logger::Call<Test>;
 
 // Build test environment by setting the root `key` for the Genesis.
-pub fn new_test_ext(root_key: u64) -> sp_io::TestExternalities {
+pub fn new_test_ext(root_key: u64) -> rp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 	sudo::GenesisConfig::<Test> { key: Some(root_key) }
 		.assimilate_storage(&mut t)
 		.unwrap();
-	let mut ext: sp_io::TestExternalities = t.into();
+	let mut ext: rp_io::TestExternalities = t.into();
 	ext.execute_with(|| System::set_block_number(1));
 	ext
 }
 
 #[cfg(feature = "runtime-benchmarks")]
-pub fn new_bench_ext() -> sp_io::TestExternalities {
+pub fn new_bench_ext() -> rp_io::TestExternalities {
 	frame_system::GenesisConfig::<Test>::default().build_storage().unwrap().into()
 }

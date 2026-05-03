@@ -30,8 +30,8 @@ use frame_support::{
 	BoundedVec,
 };
 use pallet_balances::Error as BalancesError;
-use sp_io::storage;
-use sp_runtime::{
+use rp_io::storage;
+use rp_runtime::{
 	traits::{ConstU32, ConvertInto},
 	TokenError,
 };

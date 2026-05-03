@@ -31,9 +31,9 @@ use frame_support::{
 	traits::{AsEnsureOriginWithArg, ConstU32, ConstU64, Everything},
 };
 use frame_system::{mocking::MockBlock, EnsureSigned};
-use sp_core::H256;
-use sp_io::TestExternalities;
-use sp_runtime::{traits::{BlakeTwo256, IdentityLookup}, BuildStorage};
+use rp_core::H256;
+use rp_io::TestExternalities;
+use rp_runtime::{traits::{BlakeTwo256, IdentityLookup}, BuildStorage};
 use scale_info::TypeInfo;
 
 pub type AccountId = u64;

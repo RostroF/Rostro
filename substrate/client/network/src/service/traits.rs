@@ -18,7 +18,7 @@
 //
 // If you read this, you are very thorough, congratulations.
 
-//! Traits defined by `sc-network`.
+//! Traits defined by `rc-network`.
 
 use crate::{
 	config::{IncomingRequest, MultiaddrWithPeerId, NotificationHandshake, Params, SetConfig},
@@ -34,14 +34,14 @@ use crate::{
 use futures::{channel::oneshot, Stream};
 use prometheus_endpoint::Registry;
 
-use sc_client_api::BlockBackend;
-use sc_network_common::{role::ObservedRole, ExHashT};
-pub use sc_network_types::{
+use rc_client_api::BlockBackend;
+use rc_network_common::{role::ObservedRole, ExHashT};
+pub use rc_network_types::{
 	kad::{Key as KademliaKey, Record},
 	multiaddr::Multiaddr,
 	PeerId,
 };
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 
 use std::{
 	collections::HashSet,
@@ -119,7 +119,7 @@ pub trait NetworkBackend<B: BlockT + 'static, H: ExHashT>: Send + 'static {
 
 	/// Type implementing `NetworkService` for the networking backend.
 	///
-	/// `NetworkService` allows other subsystems of the blockchain to interact with `sc-network`
+	/// `NetworkService` allows other subsystems of the blockchain to interact with `rc-network`
 	/// using `NetworkService`.
 	type NetworkService<Block, Hash>: NetworkService + Clone;
 
@@ -186,7 +186,7 @@ pub trait NetworkSigner {
 	/// Returns `Err(())` if public cannot be parsed into a valid ed25519 public key.
 	fn verify(
 		&self,
-		peer_id: sc_network_types::PeerId,
+		peer_id: rc_network_types::PeerId,
 		public_key: &Vec<u8>,
 		signature: &Vec<u8>,
 		message: &Vec<u8>,
@@ -204,7 +204,7 @@ where
 
 	fn verify(
 		&self,
-		peer_id: sc_network_types::PeerId,
+		peer_id: rc_network_types::PeerId,
 		public_key: &Vec<u8>,
 		signature: &Vec<u8>,
 		message: &Vec<u8>,

@@ -1,5 +1,5 @@
 [package]
-name = "sc-allocator"
+name = "rc-allocator"
 version = "36.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Collection of allocator implementations."
-documentation = "https://docs.rs/sc-allocator"
+documentation = "https://docs.rs/rc-allocator"
 readme = "README.md"
 
 [lints]
@@ -18,6 +18,6 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 log = { workspace = true, default-features = true }
-sp-core = { default-features = true, workspace = true }
-sp-wasm-interface = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-wasm-interface = { default-features = true, workspace = true }
 thiserror = { workspace = true }

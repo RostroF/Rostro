@@ -23,11 +23,11 @@ use std::{fmt::Debug, sync::Arc};
 use codec::Codec;
 use fork_tree::ForkTree;
 use parking_lot::RwLock;
-use sp_api::ProvideRuntimeApi;
-use sp_blockchain::{HeaderBackend, HeaderMetadata};
-use sp_consensus_aura::{AuraApi, ConsensusLog, AURA_ENGINE_ID};
-use sp_core::Pair;
-use sp_runtime::{
+use rp_api::ProvideRuntimeApi;
+use rp_blockchain::{HeaderBackend, HeaderMetadata};
+use rp_consensus_aura::{AuraApi, ConsensusLog, AURA_ENGINE_ID};
+use rp_core::Pair;
+use rp_runtime::{
 	generic::OpaqueDigestItemId,
 	traits::{Block, Header, NumberFor},
 };
@@ -54,7 +54,7 @@ impl<P, B, C> AuthoritiesTracker<P, B, C>
 where
 	P: Pair,
 	B: Block,
-	C: HeaderBackend<B> + HeaderMetadata<B, Error = sp_blockchain::Error> + ProvideRuntimeApi<B>,
+	C: HeaderBackend<B> + HeaderMetadata<B, Error = rp_blockchain::Error> + ProvideRuntimeApi<B>,
 	P::Public: Codec + Debug,
 	C::Api: AuraApi<B, AuthorityId<P>>,
 {
@@ -72,7 +72,7 @@ where
 		// Fetch authorities from cache, if available.
 		let authorities = {
 			let is_descendent_of =
-				sc_client_api::utils::is_descendent_of(&*self.client, Some((hash, parent_hash)));
+				rc_client_api::utils::is_descendent_of(&*self.client, Some((hash, parent_hash)));
 			let authorities_cache = self.authorities.read();
 			authorities_cache
 				.find_node_where(&hash, &number, &is_descendent_of, &|_| true)
@@ -108,7 +108,7 @@ where
 					compatibility_mode,
 				)
 				.map_err(|e| format!("Could not fetch authorities at {:?}: {}", parent_hash, e))?;
-				let is_descendent_of = sc_client_api::utils::is_descendent_of(&*self.client, None);
+				let is_descendent_of = rc_client_api::utils::is_descendent_of(&*self.client, None);
 				let mut authorities_cache = self.authorities.write();
 				authorities_cache
 					.import(
@@ -139,7 +139,7 @@ where
 			);
 			self.prune_finalized()?;
 			let is_descendent_of =
-				sc_client_api::utils::is_descendent_of(&*self.client, Some((hash, parent_hash)));
+				rc_client_api::utils::is_descendent_of(&*self.client, Some((hash, parent_hash)));
 			let mut authorities_cache = self.authorities.write();
 			authorities_cache
 				.import(hash, number, authorities_change, &is_descendent_of)
@@ -153,7 +153,7 @@ where
 	}
 
 	fn prune_finalized(&self) -> Result<(), String> {
-		let is_descendent_of = sc_client_api::utils::is_descendent_of(&*self.client, None);
+		let is_descendent_of = rc_client_api::utils::is_descendent_of(&*self.client, None);
 		let info = self.client.info();
 		let mut authorities_cache = self.authorities.write();
 		let _pruned = authorities_cache

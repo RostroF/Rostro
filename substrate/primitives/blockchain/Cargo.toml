@@ -1,5 +1,5 @@
 [package]
-name = "sp-blockchain"
+name = "rp-blockchain"
 version = "44.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Substrate blockchain traits and primitives."
-documentation = "https://docs.rs/sp-blockchain"
+documentation = "https://docs.rs/rp-blockchain"
 readme = "README.md"
 
 [lints]
@@ -21,11 +21,11 @@ codec = { features = ["derive"], workspace = true }
 futures = { workspace = true }
 parking_lot = { workspace = true, default-features = true }
 schnellru = { workspace = true }
-sp-api = { default-features = true, workspace = true }
-sp-consensus = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-database = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-state-machine = { default-features = true, workspace = true }
+rp-api = { default-features = true, workspace = true }
+rp-consensus = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-database = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
+rp-state-machine = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true, default-features = true }

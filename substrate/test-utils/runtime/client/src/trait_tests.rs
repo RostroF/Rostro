@@ -26,13 +26,13 @@ use crate::{
 	BlockBuilderExt, ClientBlockImportExt, Sr25519Keyring, TestClientBuilder, TestClientBuilderExt,
 };
 use futures::executor::block_on;
-use sc_block_builder::BlockBuilderBuilder;
-use sc_client_api::{
+use rc_block_builder::BlockBuilderBuilder;
+use rc_client_api::{
 	backend,
 	blockchain::{Backend as BlockChainBackendT, HeaderBackend},
 };
-use sp_consensus::BlockOrigin;
-use sp_runtime::traits::Block as BlockT;
+use rp_consensus::BlockOrigin;
+use rp_runtime::traits::Block as BlockT;
 use substrate_test_runtime::Transfer;
 
 /// helper to test the `leaves` implementation for various backends

@@ -19,10 +19,10 @@
 //! Substrate mixnet API.
 
 use jsonrpsee::core::async_trait;
-use sc_mixnet::Api;
-use sc_rpc_api::mixnet::error::Error;
-pub use sc_rpc_api::mixnet::MixnetApiServer;
-use sp_core::Bytes;
+use rc_mixnet::Api;
+use rc_rpc_api::mixnet::error::Error;
+pub use rc_rpc_api::mixnet::MixnetApiServer;
+use rp_core::Bytes;
 
 /// Mixnet API.
 pub struct Mixnet(futures::lock::Mutex<Api>);

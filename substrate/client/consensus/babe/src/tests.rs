@@ -20,24 +20,24 @@
 
 use super::*;
 use authorship::claim_slot;
-use sc_block_builder::{BlockBuilder, BlockBuilderBuilder};
-use sc_client_api::{BlockchainEvents, Finalizer};
-use sc_consensus::{BoxBlockImport, BoxJustificationImport};
-use sc_consensus_epochs::{EpochIdentifier, EpochIdentifierPosition};
-use sc_consensus_slots::BackoffAuthoringOnFinalizedHeadLagging;
-use sc_network_test::{Block as TestBlock, *};
-use sc_transaction_pool_api::RejectAllTxPool;
-use sp_application_crypto::key_types::BABE;
-use sp_consensus::{NoNetwork as DummyOracle, Proposal, ProposeArgs};
-use sp_consensus_babe::{
+use rc_block_builder::{BlockBuilder, BlockBuilderBuilder};
+use rc_client_api::{BlockchainEvents, Finalizer};
+use rc_consensus::{BoxBlockImport, BoxJustificationImport};
+use rc_consensus_epochs::{EpochIdentifier, EpochIdentifierPosition};
+use rc_consensus_slots::BackoffAuthoringOnFinalizedHeadLagging;
+use rc_network_test::{Block as TestBlock, *};
+use rc_transaction_pool_api::RejectAllTxPool;
+use rp_application_crypto::key_types::BABE;
+use rp_consensus::{NoNetwork as DummyOracle, Proposal, ProposeArgs};
+use rp_consensus_babe::{
 	inherents::{BabeCreateInherentDataProviders, InherentDataProvider},
 	make_vrf_sign_data, AllowedSlots, AuthorityId, AuthorityPair, Slot,
 };
-use sp_consensus_slots::SlotDuration;
-use sp_core::crypto::Pair;
-use sp_keyring::Sr25519Keyring;
-use sp_keystore::{testing::MemoryKeystore, Keystore};
-use sp_runtime::{
+use rp_consensus_slots::SlotDuration;
+use rp_core::crypto::Pair;
+use rp_keyring::Sr25519Keyring;
+use rp_keystore::{testing::MemoryKeystore, Keystore};
+use rp_runtime::{
 	generic::{Digest, DigestItem},
 	traits::Block as BlockT,
 };
@@ -46,7 +46,7 @@ use substrate_test_runtime_client::DefaultTestClientBuilderExt;
 
 type Item = DigestItem;
 
-type Error = sp_blockchain::Error;
+type Error = rp_blockchain::Error;
 
 type TestClient = substrate_test_runtime_client::client::Client<
 	substrate_test_runtime_client::Backend,
@@ -69,7 +69,7 @@ type BabeBlockImport = PanickingBlockImport<
 		TestClient,
 		Arc<TestClient>,
 		BabeCreateInherentDataProviders<TestBlock>,
-		sc_consensus::LongestChain<substrate_test_runtime_client::Backend, Block>,
+		rc_consensus::LongestChain<substrate_test_runtime_client::Backend, Block>,
 	>,
 >;
 
@@ -219,7 +219,7 @@ impl TestNetFactory for BabeTestNet {
 			client.clone(),
 			client.clone(),
 			Arc::new(move |_, _| async {
-				let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+				let timestamp = rp_timestamp::InherentDataProvider::from_system_time();
 				let slot = InherentDataProvider::from_timestamp_and_slot_duration(
 					*timestamp,
 					SlotDuration::from_millis(SLOT_DURATION_MS),
@@ -286,7 +286,7 @@ impl TestNetFactory for BabeTestNet {
 #[tokio::test]
 #[should_panic(expected = "No BABE pre-runtime digest found")]
 async fn rejects_empty_block() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let mut net = BabeTestNet::new(3);
 	let block_builder = |builder: BlockBuilder<_, _>| builder.build().unwrap().block;
 	net.mut_peers(|peer| {
@@ -303,7 +303,7 @@ fn create_keystore(authority: Sr25519Keyring) -> KeystorePtr {
 }
 
 async fn run_one_test(mutator: impl Fn(&mut TestHeader, Stage) + Send + Sync + 'static) {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let mutator = Arc::new(mutator) as Mutator;
 
 	MUTATOR.with(|m| *m.borrow_mut() = mutator.clone());
@@ -457,7 +457,7 @@ async fn rejects_missing_consensus_digests() {
 
 #[test]
 fn wrong_consensus_engine_id_rejected() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let sig = AuthorityPair::generate().0.sign(b"");
 	let bad_seal: Item = DigestItem::Seal([0; 4], sig.to_vec());
 	assert!(bad_seal.as_babe_pre_digest().is_none());
@@ -466,14 +466,14 @@ fn wrong_consensus_engine_id_rejected() {
 
 #[test]
 fn malformed_pre_digest_rejected() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let bad_seal: Item = DigestItem::Seal(BABE_ENGINE_ID, [0; 64].to_vec());
 	assert!(bad_seal.as_babe_pre_digest().is_none());
 }
 
 #[test]
 fn sig_is_not_pre_digest() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let sig = AuthorityPair::generate().0.sign(b"");
 	let bad_seal: Item = DigestItem::Seal(BABE_ENGINE_ID, sig.to_vec());
 	assert!(bad_seal.as_babe_pre_digest().is_none());
@@ -494,7 +494,7 @@ fn claim_epoch_slots() {
 	let authority = Sr25519Keyring::Alice;
 	let keystore = create_keystore(authority);
 
-	let mut epoch: Epoch = sp_consensus_babe::Epoch {
+	let mut epoch: Epoch = rp_consensus_babe::Epoch {
 		start_slot: 0.into(),
 		authorities: vec![(authority.public().into(), 1)],
 		randomness: [0; 32],
@@ -545,7 +545,7 @@ fn claim_vrf_check() {
 
 	let public = authority.public();
 
-	let epoch: Epoch = sp_consensus_babe::Epoch {
+	let epoch: Epoch = rp_consensus_babe::Epoch {
 		start_slot: 0.into(),
 		authorities: vec![(public.into(), 1)],
 		randomness: [0; 32],
@@ -618,7 +618,7 @@ async fn propose_and_import_block(
 		parent_pre_digest.slot() + 1
 	});
 
-	let pre_digest = sp_runtime::generic::Digest {
+	let pre_digest = rp_runtime::generic::Digest {
 		logs: vec![Item::babe_pre_digest(PreDigest::SecondaryPlain(SecondaryPlainPreDigest {
 			authority_index: 0,
 			slot,

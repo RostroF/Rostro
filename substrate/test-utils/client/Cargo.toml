@@ -20,17 +20,17 @@ array-bytes = { workspace = true, default-features = true }
 async-trait = { workspace = true }
 codec = { workspace = true, default-features = true }
 futures = { workspace = true }
-sc-client-api = { default-features = true, workspace = true }
-sc-client-db = { features = ["test-helpers"], workspace = true, default-features = false }
-sc-consensus = { default-features = true, workspace = true }
-sc-executor = { default-features = true, workspace = true }
-sc-service = { default-features = false, workspace = true }
+rc-client-api = { default-features = true, workspace = true }
+rc-client-db = { features = ["test-helpers"], workspace = true, default-features = false }
+rc-consensus = { default-features = true, workspace = true }
+rc-executor = { default-features = true, workspace = true }
+rc-service = { default-features = false, workspace = true }
 serde = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-consensus = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-keyring = { default-features = true, workspace = true }
-sp-keystore = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-consensus = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-keyring = { default-features = true, workspace = true }
+rp-keystore = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
 tokio = { features = ["sync"], workspace = true, default-features = true }

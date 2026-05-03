@@ -322,16 +322,16 @@ use frame_support::{
 	BoundedVec, CloneNoBound, DebugNoBound, EqNoBound, PartialEqNoBound,
 };
 use scale_info::TypeInfo;
-use sp_runtime::{
+use rp_runtime::{
 	curve::PiecewiseLinear,
 	traits::{AtLeast32BitUnsigned, Convert, StaticLookup, Zero},
 	Debug, Perbill, Perquintill, Rounding, Saturating,
 };
-use sp_staking::{
+use rp_staking::{
 	offence::{Offence, OffenceError, OffenceSeverity, ReportOffence},
 	EraIndex, ExposurePage, OnStakingUpdate, Page, PagedExposureMetadata, SessionIndex,
 };
-pub use sp_staking::{Exposure, IndividualExposure, StakerStatus};
+pub use rp_staking::{Exposure, IndividualExposure, StakerStatus};
 pub use weights::WeightInfo;
 
 pub use pallet::{pallet::*, UseNominatorsAndValidatorsMap, UseValidatorsMap};
@@ -676,7 +676,7 @@ impl<T: Config> StakingLedger<T> {
 			return Zero::zero();
 		}
 
-		use sp_runtime::PerThing as _;
+		use rp_runtime::PerThing as _;
 		let mut remaining_slash = slash_amount;
 		let pre_slash_total = self.total;
 
@@ -1096,7 +1096,7 @@ impl<T: Config> Convert<T::AccountId, Option<Exposure<T::AccountId, BalanceOf<T>
 ///
 /// ```ignore
 /// impl pallet_session::historical::Config for Runtime {
-///     type FullIdentification = sp_staking::Exposure<AccountId, Balance>;
+///     type FullIdentification = rp_staking::Exposure<AccountId, Balance>;
 ///     type IdentificationOf = pallet_staking::DefaultExposureOf<Self>
 /// }
 /// ```

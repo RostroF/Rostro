@@ -18,11 +18,11 @@
 
 use crate::error::Error;
 use log::{info, warn};
-use sc_network::{multiaddr::Protocol, Multiaddr};
-use sc_network_types::PeerId;
+use rc_network::{multiaddr::Protocol, Multiaddr};
+use rc_network_types::PeerId;
 use serde::{Deserialize, Serialize};
-use sp_authority_discovery::AuthorityId;
-use sp_runtime::DeserializeOwned;
+use rp_authority_discovery::AuthorityId;
+use rp_runtime::DeserializeOwned;
 use std::{
 	collections::{hash_map::Entry, HashMap, HashSet},
 	fs::File,
@@ -301,10 +301,10 @@ mod tests {
 	use super::*;
 
 	use quickcheck::{Arbitrary, Gen, QuickCheck, TestResult};
-	use sc_network_types::multihash::{Code, Multihash};
+	use rc_network_types::multihash::{Code, Multihash};
 
-	use sp_authority_discovery::{AuthorityId, AuthorityPair};
-	use sp_core::crypto::Pair;
+	use rp_authority_discovery::{AuthorityId, AuthorityPair};
+	use rp_core::crypto::Pair;
 
 	#[derive(Clone, Debug)]
 	struct TestAuthorityId(AuthorityId);

@@ -23,12 +23,12 @@ use frame_support::{
 	pallet_prelude::{InvalidTransaction, TransactionValidityError},
 };
 use merkleized_metadata::{generate_metadata_digest, ExtraInfo};
-use sp_api::{Metadata, ProvideRuntimeApi};
-use sp_runtime::{
+use rp_api::{Metadata, ProvideRuntimeApi};
+use rp_runtime::{
 	traits::{ExtrinsicLike, TransactionExtension},
 	transaction_validity::{TransactionSource, UnknownTransaction},
 };
-use sp_transaction_pool::runtime_api::TaggedTransactionQueue;
+use rp_transaction_pool::runtime_api::TaggedTransactionQueue;
 use substrate_test_runtime_client::{
 	prelude::*,
 	runtime::{self, ExtrinsicBuilder},
@@ -77,7 +77,7 @@ fn generate_metadata_hash(metadata: RuntimeMetadataPrefixed) -> [u8; 32] {
 
 #[test]
 fn ensure_check_metadata_works_on_real_extrinsics() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let client = TestClientBuilder::new().build();
 	let runtime_api = client.runtime_api();
@@ -155,7 +155,7 @@ mod docs {
 
 		/// Unchecked extrinsic type as expected by this runtime.
 		pub type UncheckedExtrinsic =
-			sp_runtime::generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
+			rp_runtime::generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
 	}
 
 	// Put here to not have it in the docs as well.

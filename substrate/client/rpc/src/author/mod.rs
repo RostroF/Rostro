@@ -28,21 +28,21 @@ use crate::{
 };
 use codec::{Decode, Encode};
 use jsonrpsee::{core::async_trait, types::ErrorObject, Extensions, PendingSubscriptionSink};
-use sc_rpc_api::check_if_safe;
-use sc_transaction_pool_api::{
+use rc_rpc_api::check_if_safe;
+use rc_transaction_pool_api::{
 	error::IntoPoolError, BlockHash, InPoolTransaction, TransactionFor, TransactionPool,
 	TransactionSource, TxHash, TxInvalidityReportMap,
 };
-use sp_api::{ApiExt, ProvideRuntimeApi};
-use sp_blockchain::HeaderBackend;
-use sp_core::Bytes;
-use sp_keystore::{KeystoreExt, KeystorePtr};
-use sp_runtime::traits::Block as BlockT;
-use sp_session::SessionKeys;
+use rp_api::{ApiExt, ProvideRuntimeApi};
+use rp_blockchain::HeaderBackend;
+use rp_core::Bytes;
+use rp_keystore::{KeystoreExt, KeystorePtr};
+use rp_runtime::traits::Block as BlockT;
+use rp_session::SessionKeys;
 use std::sync::Arc;
 
 /// Re-export the API for backward compatibility.
-pub use sc_rpc_api::author::*;
+pub use rc_rpc_api::author::*;
 
 /// Authoring API
 pub struct Author<P, Client> {

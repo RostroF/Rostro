@@ -21,15 +21,15 @@
 #![warn(missing_docs)]
 
 use parking_lot::RwLock;
-use sp_consensus_beefy::AuthorityIdBound;
+use rp_consensus_beefy::AuthorityIdBound;
 use std::sync::Arc;
 
-use sc_rpc::{
+use rc_rpc::{
 	utils::{BoundedVecDeque, PendingSubscription},
 	SubscriptionTaskExecutor,
 };
-use sp_application_crypto::RuntimeAppPublic;
-use sp_runtime::traits::Block as BlockT;
+use rp_application_crypto::RuntimeAppPublic;
+use rp_runtime::traits::Block as BlockT;
 
 use futures::{task::SpawnError, FutureExt, StreamExt};
 use jsonrpsee::{
@@ -40,7 +40,7 @@ use jsonrpsee::{
 };
 use log::warn;
 
-use sc_consensus_beefy::communication::notification::{
+use rc_consensus_beefy::communication::notification::{
 	BeefyBestBlockStream, BeefyVersionedFinalityProofStream,
 };
 
@@ -148,7 +148,7 @@ where
 			.subscribe(100_000)
 			.map(|vfp| notification::EncodedVersionedFinalityProof::new::<Block, AuthorityId>(vfp));
 
-		sc_rpc::utils::spawn_subscription_task(
+		rc_rpc::utils::spawn_subscription_task(
 			&self.executor,
 			PendingSubscription::from(pending).pipe_from_stream(stream, BoundedVecDeque::default()),
 		);
@@ -165,12 +165,12 @@ mod tests {
 
 	use codec::{Decode, Encode};
 	use jsonrpsee::{core::EmptyServerParams as EmptyParams, RpcModule};
-	use sc_consensus_beefy::{
+	use rc_consensus_beefy::{
 		communication::notification::BeefyVersionedFinalityProofSender,
 		justification::BeefyVersionedFinalityProof,
 	};
-	use sp_consensus_beefy::{ecdsa_crypto, known_payloads, Payload, SignedCommitment};
-	use sp_runtime::traits::{BlakeTwo256, Hash};
+	use rp_consensus_beefy::{ecdsa_crypto, known_payloads, Payload, SignedCommitment};
+	use rp_runtime::traits::{BlakeTwo256, Hash};
 	use substrate_test_runtime_client::runtime::Block;
 
 	fn setup_io_handler() -> (
@@ -191,7 +191,7 @@ mod tests {
 			BeefyVersionedFinalityProofStream::<Block, ecdsa_crypto::AuthorityId>::channel();
 
 		let handler =
-			Beefy::new(finality_proof_stream, best_block_stream, sc_rpc::testing::test_executor())
+			Beefy::new(finality_proof_stream, best_block_stream, rc_rpc::testing::test_executor())
 				.expect("Setting up the BEEFY RPC handler works");
 
 		(handler.into_rpc(), finality_proof_sender)
@@ -271,7 +271,7 @@ mod tests {
 		let payload =
 			Payload::from_single_entry(known_payloads::MMR_ROOT_ID, "Hello World!".encode());
 		BeefyVersionedFinalityProof::<Block, ecdsa_crypto::AuthorityId>::V1(SignedCommitment {
-			commitment: sp_consensus_beefy::Commitment {
+			commitment: rp_consensus_beefy::Commitment {
 				payload,
 				block_number: 5,
 				validator_set_id: 0,
@@ -296,7 +296,7 @@ mod tests {
 		r.unwrap();
 
 		// Inspect what we received
-		let (bytes, recv_sub_id) = sub.next::<sp_core::Bytes>().await.unwrap().unwrap();
+		let (bytes, recv_sub_id) = sub.next::<rp_core::Bytes>().await.unwrap().unwrap();
 		let recv_finality_proof: BeefyVersionedFinalityProof<Block, ecdsa_crypto::AuthorityId> =
 			Decode::decode(&mut &bytes[..]).unwrap();
 		assert_eq!(&recv_sub_id, sub.subscription_id());

@@ -36,30 +36,30 @@ use futures::{channel::mpsc, future, stream::Fuse, FutureExt, Stream, StreamExt}
 use codec::{Decode, Encode};
 use ip_network::IpNetwork;
 use linked_hash_set::LinkedHashSet;
-use sc_network_types::kad::{Key, PeerRecord, Record};
+use rc_network_types::kad::{Key, PeerRecord, Record};
 
 use log::{debug, error, info, trace};
 use prometheus_endpoint::{register, Counter, CounterVec, Gauge, Opts, U64};
 use prost::Message;
 use rand::{seq::SliceRandom, thread_rng};
 
-use sc_network::{
+use rc_network::{
 	config::DEFAULT_KADEMLIA_REPLICATION_FACTOR, event::DhtEvent, multiaddr, KademliaKey,
 	Multiaddr, NetworkDHTProvider, NetworkSigner, NetworkStateInfo,
 };
-use sc_network_types::{multihash::Code, PeerId};
+use rc_network_types::{multihash::Code, PeerId};
 use schema::PeerSignature;
-use sp_api::{ApiError, ProvideRuntimeApi};
-use sp_authority_discovery::{
+use rp_api::{ApiError, ProvideRuntimeApi};
+use rp_authority_discovery::{
 	AuthorityDiscoveryApi, AuthorityId, AuthorityPair, AuthoritySignature,
 };
-use sp_blockchain::HeaderBackend;
-use sp_core::{
+use rp_blockchain::HeaderBackend;
+use rp_core::{
 	crypto::{key_types, ByteArray, Pair},
 	traits::SpawnNamed,
 };
-use sp_keystore::{Keystore, KeystorePtr};
-use sp_runtime::traits::Block as BlockT;
+use rp_keystore::{Keystore, KeystorePtr};
+use rp_runtime::traits::Block as BlockT;
 
 mod addr_cache;
 /// Dht payload schemas generated from Protobuf definitions via Prost crate in build.rs.
@@ -213,7 +213,7 @@ struct RecordInfo {
 	record: Record,
 }
 
-/// Wrapper for [`AuthorityDiscoveryApi`](sp_authority_discovery::AuthorityDiscoveryApi). Can be
+/// Wrapper for [`AuthorityDiscoveryApi`](rp_authority_discovery::AuthorityDiscoveryApi). Can be
 /// be implemented by any struct without dependency on the runtime.
 #[async_trait::async_trait]
 pub trait AuthorityDiscovery<Block: BlockT> {
@@ -1099,7 +1099,7 @@ impl AddressType {
 
 /// NetworkProvider provides [`Worker`] with all necessary hooks into the
 /// underlying Substrate networking. Using this trait abstraction instead of
-/// `sc_network::NetworkService` directly is necessary to unit test [`Worker`].
+/// `rc_network::NetworkService` directly is necessary to unit test [`Worker`].
 pub trait NetworkProvider:
 	NetworkDHTProvider + NetworkStateInfo + NetworkSigner + Send + Sync
 {

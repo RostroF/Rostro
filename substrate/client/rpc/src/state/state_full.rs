@@ -32,26 +32,26 @@ use crate::{
 
 use futures::{future, stream, StreamExt};
 use jsonrpsee::{core::async_trait, types::ErrorObject, PendingSubscriptionSink};
-use sc_client_api::{
+use rc_client_api::{
 	Backend, BlockBackend, BlockchainEvents, CallExecutor, ExecutorProvider, ProofProvider,
 	StorageProvider,
 };
-use sc_rpc_api::state::ReadProof;
-use sc_tracing::block::TracingExecuteBlock;
-use sp_api::{CallApiAt, Metadata, ProvideRuntimeApi};
-use sp_blockchain::{
+use rc_rpc_api::state::ReadProof;
+use rc_tracing::block::TracingExecuteBlock;
+use rp_api::{CallApiAt, Metadata, ProvideRuntimeApi};
+use rp_blockchain::{
 	CachedHeaderMetadata, Error as ClientError, HeaderBackend, HeaderMetadata,
 	Result as ClientResult,
 };
-use sp_core::{
+use rp_core::{
 	storage::{
 		ChildInfo, ChildType, PrefixedStorageKey, StorageChangeSet, StorageData, StorageKey,
 	},
 	traits::CallContext,
 	Bytes,
 };
-use sp_runtime::traits::Block as BlockT;
-use sp_version::RuntimeVersion;
+use rp_runtime::traits::Block as BlockT;
+use rp_version::RuntimeVersion;
 
 /// The maximum time allowed for an RPC call when running without unsafe RPC enabled.
 const MAXIMUM_SAFE_RPC_CALL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -76,7 +76,7 @@ where
 	Client: StorageProvider<Block, BE>
 		+ HeaderBackend<Block>
 		+ BlockBackend<Block>
-		+ HeaderMetadata<Block, Error = sp_blockchain::Error>,
+		+ HeaderMetadata<Block, Error = rp_blockchain::Error>,
 	Block: BlockT + 'static,
 {
 	/// Create new state API backend for full nodes.
@@ -184,7 +184,7 @@ where
 		+ StorageProvider<Block, BE>
 		+ ProofProvider<Block>
 		+ HeaderBackend<Block>
-		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
 		+ BlockchainEvents<Block>
 		+ CallApiAt<Block>
 		+ ProvideRuntimeApi<Block>
@@ -483,8 +483,8 @@ where
 		targets: Option<String>,
 		storage_keys: Option<String>,
 		methods: Option<String>,
-	) -> std::result::Result<sp_rpc::tracing::TraceBlockResponse, Error> {
-		sc_tracing::block::BlockExecutor::new(
+	) -> std::result::Result<rp_rpc::tracing::TraceBlockResponse, Error> {
+		rc_tracing::block::BlockExecutor::new(
 			self.client.clone(),
 			block,
 			targets,
@@ -506,7 +506,7 @@ where
 		+ ProofProvider<Block>
 		+ HeaderBackend<Block>
 		+ BlockBackend<Block>
-		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
 		+ BlockchainEvents<Block>
 		+ CallApiAt<Block>
 		+ ProvideRuntimeApi<Block>
@@ -527,7 +527,7 @@ where
 					Some((ChildType::ParentKeyId, storage_key)) => {
 						ChildInfo::new_default(storage_key)
 					},
-					None => return Err(sp_blockchain::Error::InvalidChildStorageKey),
+					None => return Err(rp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client
 					.read_child_proof(
@@ -554,7 +554,7 @@ where
 					Some((ChildType::ParentKeyId, storage_key)) => {
 						ChildInfo::new_default(storage_key)
 					},
-					None => return Err(sp_blockchain::Error::InvalidChildStorageKey),
+					None => return Err(rp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_keys(block, child_info, Some(&prefix), None)
 			})
@@ -576,7 +576,7 @@ where
 					Some((ChildType::ParentKeyId, storage_key)) => {
 						ChildInfo::new_default(storage_key)
 					},
-					None => return Err(sp_blockchain::Error::InvalidChildStorageKey),
+					None => return Err(rp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_keys(
 					block,
@@ -601,7 +601,7 @@ where
 					Some((ChildType::ParentKeyId, storage_key)) => {
 						ChildInfo::new_default(storage_key)
 					},
-					None => return Err(sp_blockchain::Error::InvalidChildStorageKey),
+					None => return Err(rp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage(block, &child_info, &key)
 			})
@@ -619,7 +619,7 @@ where
 		{
 			Arc::new(ChildInfo::new_default(storage_key))
 		} else {
-			return Err(client_err(sp_blockchain::Error::InvalidChildStorageKey));
+			return Err(client_err(rp_blockchain::Error::InvalidChildStorageKey));
 		};
 		let block = self.block_or_best(block).map_err(client_err)?;
 		let client = self.client.clone();
@@ -643,7 +643,7 @@ where
 					Some((ChildType::ParentKeyId, storage_key)) => {
 						ChildInfo::new_default(storage_key)
 					},
-					None => return Err(sp_blockchain::Error::InvalidChildStorageKey),
+					None => return Err(rp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_hash(block, &child_info, &key)
 			})

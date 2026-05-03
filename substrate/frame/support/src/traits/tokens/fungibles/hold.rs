@@ -31,11 +31,11 @@ use crate::{
 	},
 };
 use scale_info::TypeInfo;
-use sp_arithmetic::{
+use rp_arithmetic::{
 	traits::{CheckedAdd, CheckedSub, Zero},
 	ArithmeticError,
 };
-use sp_runtime::{DispatchError, DispatchResult, Saturating, TokenError};
+use rp_runtime::{DispatchError, DispatchResult, Saturating, TokenError};
 
 use super::*;
 

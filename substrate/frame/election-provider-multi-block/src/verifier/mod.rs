@@ -33,7 +33,7 @@
 //! per-page, and in order to do them we need to have the entire solution checked and verified.
 //!
 //! 1. Check that the total number of winners is sufficient (`DesiredTargets`).
-//! 2. Check that the claimed score ([`sp_npos_elections::ElectionScore`]) is correct,
+//! 2. Check that the claimed score ([`rp_npos_elections::ElectionScore`]) is correct,
 //!   * and more than the minimum score that can be specified via [`Verifier::set_minimum_score`].
 //! 3. Check that all of the bounds of the solution are respected, namely
 //!    [`Verifier::MaxBackersPerWinner`], [`Verifier::MaxWinnersPerPage`] and
@@ -80,10 +80,10 @@ use frame_election_provider_support::PageIndex;
 use frame_support::weights::WeightMeter;
 use impls::SupportsOfVerifier;
 pub use impls::{feasibility_check_page_inner_with_snapshot, pallet::*, Status};
-use sp_core::Get;
-use sp_npos_elections::ElectionScore;
-use sp_runtime::Weight;
-use sp_std::{fmt::Debug, prelude::*};
+use rp_core::Get;
+use rp_npos_elections::ElectionScore;
+use rp_runtime::Weight;
+use rp_std::{fmt::Debug, prelude::*};
 
 /// Errors that can happen in the feasibility check.
 #[derive(
@@ -122,15 +122,15 @@ pub enum FeasibilityError {
 	/// `MaxBackersPerWinnerFinal`
 	FailedToBoundSupport,
 	/// Internal error from the election crate.
-	NposElection(sp_npos_elections::Error),
+	NposElection(rp_npos_elections::Error),
 	/// The solution is incomplete, it has too few pages.
 	///
 	/// This is (somewhat) synonym to `WrongPageCount` in other places.
 	Incomplete,
 }
 
-impl From<sp_npos_elections::Error> for FeasibilityError {
-	fn from(e: sp_npos_elections::Error) -> Self {
+impl From<rp_npos_elections::Error> for FeasibilityError {
+	fn from(e: rp_npos_elections::Error) -> Self {
 		FeasibilityError::NposElection(e)
 	}
 }

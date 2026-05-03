@@ -25,9 +25,9 @@ use finality_grandpa::voter_set::VoterSet;
 use fork_tree::{FilterAction, ForkTree};
 use log::debug;
 use parking_lot::MappedMutexGuard;
-use sc_consensus::shared_data::{SharedData, SharedDataLocked};
-use sc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_INFO};
-use sp_consensus_grandpa::{AuthorityId, AuthorityList};
+use rc_consensus::shared_data::{SharedData, SharedDataLocked};
+use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_INFO};
+use rp_consensus_grandpa::{AuthorityId, AuthorityList};
 
 use crate::{SetId, LOG_TARGET};
 
@@ -785,7 +785,7 @@ impl<N: Ord + Clone> AuthoritySetChanges<N> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sp_core::crypto::{ByteArray, UncheckedFrom};
+	use rp_core::crypto::{ByteArray, UncheckedFrom};
 
 	fn static_is_descendent_of<A>(value: bool) -> impl Fn(&A, &A) -> Result<bool, std::io::Error> {
 		move |_, _| Ok(value)

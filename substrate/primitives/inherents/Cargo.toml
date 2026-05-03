@@ -1,5 +1,5 @@
 [package]
-name = "sp-inherents"
+name = "rp-inherents"
 version = "41.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Provides types and traits for creating and checking inherents."
-documentation = "https://docs.rs/sp-inherents"
+documentation = "https://docs.rs/rp-inherents"
 readme = "README.md"
 
 [lints]
@@ -21,7 +21,7 @@ async-trait = { optional = true, workspace = true }
 codec = { features = ["derive"], workspace = true }
 impl-trait-for-tuples = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-sp-runtime = { optional = true, workspace = true }
+rp-runtime = { optional = true, workspace = true }
 thiserror = { optional = true, workspace = true }
 
 [dev-dependencies]
@@ -33,6 +33,6 @@ std = [
 	"async-trait",
 	"codec/std",
 	"scale-info/std",
-	"sp-runtime/std",
+	"rp-runtime/std",
 	"thiserror",
 ]

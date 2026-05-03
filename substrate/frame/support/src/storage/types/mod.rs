@@ -20,7 +20,7 @@
 
 use alloc::vec::Vec;
 use codec::FullCodec;
-use sp_metadata_ir::{StorageEntryMetadataIR, StorageEntryModifierIR};
+use rp_metadata_ir::{StorageEntryMetadataIR, StorageEntryModifierIR};
 
 mod counted_map;
 mod counted_nmap;
@@ -142,7 +142,7 @@ where
 pub trait StorageEntryMetadataBuilder {
 	/// Build into `entries` the storage metadata entries of a storage given some `docs`.
 	fn build_metadata(
-		deprecation_status: sp_metadata_ir::ItemDeprecationInfoIR,
+		deprecation_status: rp_metadata_ir::ItemDeprecationInfoIR,
 		doc: Vec<&'static str>,
 		entries: &mut Vec<StorageEntryMetadataIR>,
 	);
@@ -155,7 +155,7 @@ mod test {
 		storage::types::ValueQuery,
 		traits::{Get, StorageInstance},
 	};
-	use sp_io::TestExternalities;
+	use rp_io::TestExternalities;
 
 	struct Prefix;
 	impl StorageInstance for Prefix {

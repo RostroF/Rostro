@@ -26,7 +26,7 @@ use crate::{
 };
 use futures::Future;
 use jsonrpsee::RpcModule;
-use sc_transaction_pool::*;
+use rc_transaction_pool::*;
 use std::{pin::Pin, sync::Arc};
 use substrate_test_runtime_client::{prelude::*, Client};
 use substrate_test_runtime_transaction_pool::TestApi;

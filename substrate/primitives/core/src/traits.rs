@@ -20,7 +20,7 @@
 use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
 use core::fmt::{Debug, Display};
 
-pub use sp_externalities::{Externalities, ExternalitiesExt};
+pub use rp_externalities::{Externalities, ExternalitiesExt};
 
 /// The context in which a call is done.
 ///
@@ -164,7 +164,7 @@ impl ReadRuntimeVersion for alloc::sync::Arc<dyn ReadRuntimeVersion> {
 	}
 }
 
-sp_externalities::decl_extension! {
+rp_externalities::decl_extension! {
 	/// An extension that provides functionality to read version information from a given wasm blob.
 	pub struct ReadRuntimeVersionExt(Box<dyn ReadRuntimeVersion>);
 }

@@ -21,8 +21,8 @@ use crate::{
 	NextEpochDescriptor, Randomness,
 };
 use codec::{Decode, Encode};
-use sc_consensus_epochs::Epoch as EpochT;
-use sp_consensus_slots::Slot;
+use rc_consensus_epochs::Epoch as EpochT;
+use rp_consensus_slots::Slot;
 
 /// BABE epoch information, version 0.
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug)]
@@ -66,7 +66,7 @@ impl EpochT for EpochV0 {
 impl EpochV0 {
 	/// Migrate the struct to current epoch version.
 	pub fn migrate(self, config: &BabeConfiguration) -> Epoch {
-		sp_consensus_babe::Epoch {
+		rp_consensus_babe::Epoch {
 			epoch_index: self.epoch_index,
 			start_slot: self.start_slot,
 			duration: self.duration,

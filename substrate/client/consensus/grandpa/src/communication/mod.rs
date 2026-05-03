@@ -46,11 +46,11 @@ use finality_grandpa::{
 	voter_set::VoterSet,
 	Message::{Precommit, Prevote, PrimaryPropose},
 };
-use sc_network::{NetworkBlock, NetworkSyncForkRequest, NotificationService, ReputationChange};
-use sc_network_gossip::{GossipEngine, Network as GossipNetwork};
-use sc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_INFO};
-use sp_keystore::KeystorePtr;
-use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT, NumberFor};
+use rc_network::{NetworkBlock, NetworkSyncForkRequest, NotificationService, ReputationChange};
+use rc_network_gossip::{GossipEngine, Network as GossipNetwork};
+use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_INFO};
+use rp_keystore::KeystorePtr;
+use rp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT, NumberFor};
 
 use crate::{
 	environment::HasVoted, CatchUp, Commit, CommunicationIn, CommunicationOutH, CompactCommit,
@@ -59,9 +59,9 @@ use crate::{
 use gossip::{
 	FullCatchUpMessage, FullCommitMessage, GossipMessage, GossipValidator, PeerReport, VoteMessage,
 };
-use sc_network_sync::SyncEventStream;
-use sc_utils::mpsc::TracingUnboundedReceiver;
-use sp_consensus_grandpa::{AuthorityId, AuthoritySignature, RoundNumber, SetId as SetIdNumber};
+use rc_network_sync::SyncEventStream;
+use rc_utils::mpsc::TracingUnboundedReceiver;
+use rp_consensus_grandpa::{AuthorityId, AuthoritySignature, RoundNumber, SetId as SetIdNumber};
 
 pub mod gossip;
 mod periodic;
@@ -73,8 +73,8 @@ pub(crate) mod tests;
 pub(crate) const NEIGHBOR_REBROADCAST_PERIOD: Duration = Duration::from_secs(2 * 60);
 
 pub mod grandpa_protocol_name {
-	use sc_chain_spec::ChainSpec;
-	use sc_network::types::ProtocolName;
+	use rc_chain_spec::ChainSpec;
+	use rc_network::types::ProtocolName;
 
 	pub(crate) const NAME: &str = "/grandpa/1";
 	/// Old names for the notifications protocol, used for backward compatibility.
@@ -98,7 +98,7 @@ pub mod grandpa_protocol_name {
 
 // cost scalars for reporting peers.
 mod cost {
-	use sc_network::ReputationChange as Rep;
+	use rc_network::ReputationChange as Rep;
 	pub(super) const PAST_REJECTION: Rep = Rep::new(-50, "Grandpa: Past message");
 	pub(super) const BAD_SIGNATURE: Rep = Rep::new(-100, "Grandpa: Bad signature");
 	pub(super) const MALFORMED_CATCH_UP: Rep = Rep::new(-1000, "Grandpa: Malformed cath-up");
@@ -126,7 +126,7 @@ mod cost {
 
 // benefit scalars for reporting peers.
 mod benefit {
-	use sc_network::ReputationChange as Rep;
+	use rc_network::ReputationChange as Rep;
 	pub(super) const NEIGHBOR_MESSAGE: Rep = Rep::new(100, "Grandpa: Neighbor message");
 	pub(super) const ROUND_MESSAGE: Rep = Rep::new(100, "Grandpa: Round message");
 	pub(super) const BASIC_VALIDATED_CATCH_UP: Rep = Rep::new(200, "Grandpa: Catch-up message");
@@ -508,7 +508,7 @@ impl<B: BlockT, N: Network<B>, S: Syncing<B>> NetworkBridge<B, N, S> {
 	/// connected to (NOTE: this assumption will change in the future #3629).
 	pub(crate) fn set_sync_fork_request(
 		&self,
-		peers: Vec<sc_network_types::PeerId>,
+		peers: Vec<rc_network_types::PeerId>,
 		hash: B::Hash,
 		number: NumberFor<B>,
 	) {
@@ -570,7 +570,7 @@ fn incoming_global<B: BlockT>(
 	let process_commit = {
 		let telemetry = telemetry.clone();
 		move |msg: FullCommitMessage<B>,
-		      mut notification: sc_network_gossip::TopicNotification,
+		      mut notification: rc_network_gossip::TopicNotification,
 		      gossip_engine: &Arc<Mutex<GossipEngine<B>>>,
 		      gossip_validator: &Arc<GossipValidator<B>>,
 		      voters: &VoterSet<AuthorityId>| {
@@ -638,7 +638,7 @@ fn incoming_global<B: BlockT>(
 	};
 
 	let process_catch_up = move |msg: FullCatchUpMessage<B>,
-	                             mut notification: sc_network_gossip::TopicNotification,
+	                             mut notification: rc_network_gossip::TopicNotification,
 	                             gossip_engine: &Arc<Mutex<GossipEngine<B>>>,
 	                             gossip_validator: &Arc<GossipValidator<B>>,
 	                             voters: &VoterSet<AuthorityId>| {
@@ -782,7 +782,7 @@ impl<Block: BlockT> Sink<Message<Block::Header>> for OutgoingMessages<Block> {
 		// when locals exist, sign messages on import
 		if let Some(ref keystore) = self.keystore {
 			let target_hash = *(msg.target().0);
-			let signed = sp_consensus_grandpa::sign_message(
+			let signed = rp_consensus_grandpa::sign_message(
 				keystore.keystore(),
 				msg,
 				keystore.local_id().clone(),
@@ -883,7 +883,7 @@ fn check_compact_commit<Block: BlockT>(
 		use crate::communication::gossip::Misbehavior;
 		use finality_grandpa::Message as GrandpaMessage;
 
-		if !sp_consensus_grandpa::check_message_signature_with_buffer(
+		if !rp_consensus_grandpa::check_message_signature_with_buffer(
 			&GrandpaMessage::Precommit(precommit.clone()),
 			id,
 			sig,
@@ -977,7 +977,7 @@ fn check_catch_up<Block: BlockT>(
 		for (msg, id, sig) in messages {
 			signatures_checked += 1;
 
-			if !sp_consensus_grandpa::check_message_signature_with_buffer(
+			if !rp_consensus_grandpa::check_message_signature_with_buffer(
 				&msg, id, sig, round, set_id, buf,
 			)
 			.is_valid()

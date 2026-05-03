@@ -1,5 +1,5 @@
 [package]
-name = "sc-client-db"
+name = "rc-client-db"
 version = "0.52.0"
 authors.workspace = true
 edition.workspace = true
@@ -15,10 +15,6 @@ workspace = true
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
-[[bench]]
-name = "state_access"
-harness = false
-
 [lib]
 bench = false
 
@@ -33,26 +29,25 @@ log = { workspace = true, default-features = true }
 parity-db = { workspace = true }
 parking_lot = { workspace = true, default-features = true }
 prometheus-endpoint = { default-features = true, workspace = true }
-sc-client-api = { default-features = true, workspace = true }
-sc-state-db = { default-features = true, workspace = true }
+rc-client-api = { default-features = true, workspace = true }
+rc-state-db = { default-features = true, workspace = true }
 schnellru = { workspace = true }
-sp-arithmetic = { default-features = true, workspace = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-database = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-state-machine = { default-features = true, workspace = true }
-sp-trie = { default-features = true, workspace = true }
+rp-arithmetic = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-database = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
+rp-state-machine = { default-features = true, workspace = true }
+rp-trie = { default-features = true, workspace = true }
 sysinfo = { workspace = true }
 
 [dev-dependencies]
 array-bytes = { workspace = true, default-features = true }
 criterion = { workspace = true, default-features = true }
-kitchensink-runtime = { workspace = true }
 kvdb-rocksdb = { workspace = true }
 rand = { workspace = true, default-features = true }
-sp-database = { default-features = true, features = ["rocksdb"], workspace = true }
-sp-tracing = { default-features = true, workspace = true }
+rp-database = { default-features = true, features = ["rocksdb"], workspace = true }
+rp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tempfile = { workspace = true }
 
@@ -60,8 +55,7 @@ tempfile = { workspace = true }
 default = []
 test-helpers = []
 runtime-benchmarks = [
-	"kitchensink-runtime/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
+	"rp-runtime/runtime-benchmarks",
 ]
-rocksdb = ["kvdb-rocksdb", "sp-database/rocksdb"]
+rocksdb = ["kvdb-rocksdb", "rp-database/rocksdb"]
 jemalloc-allocator = ["kvdb-rocksdb?/jemalloc"]

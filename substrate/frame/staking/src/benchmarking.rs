@@ -28,11 +28,11 @@ use frame_support::{
 	storage::bounded_vec::BoundedVec,
 	traits::{Get, Imbalance, UnfilteredDispatchable},
 };
-use sp_runtime::{
+use rp_runtime::{
 	traits::{Bounded, One, StaticLookup, TrailingZeroInput, Zero},
 	Perbill, Percent, Saturating,
 };
-use sp_staking::{currency_to_vote::CurrencyToVote, SessionIndex};
+use rp_staking::{currency_to_vote::CurrencyToVote, SessionIndex};
 
 pub use frame_benchmarking::{
 	impl_benchmark_test_suite, v2::*, whitelist_account, whitelisted_caller, BenchmarkError,

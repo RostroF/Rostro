@@ -22,21 +22,21 @@
 pub mod client_ext;
 
 pub use self::client_ext::{BlockOrigin, ClientBlockImportExt, ClientExt};
-pub use sc_client_api::{execution_extensions::ExecutionExtensions, BadBlocks, ForkBlocks};
-pub use sc_client_db::{self, Backend, BlocksPruning};
-pub use sc_executor::{self, WasmExecutionMethod, WasmExecutor};
-pub use sc_service::{client, RpcHandlers};
-pub use sp_consensus;
-pub use sp_keyring::{Ed25519Keyring, Sr25519Keyring};
-pub use sp_keystore::{Keystore, KeystorePtr};
-pub use sp_runtime::{Storage, StorageChild};
+pub use rc_client_api::{execution_extensions::ExecutionExtensions, BadBlocks, ForkBlocks};
+pub use rc_client_db::{self, Backend, BlocksPruning};
+pub use rc_executor::{self, WasmExecutionMethod, WasmExecutor};
+pub use rc_service::{client, RpcHandlers};
+pub use rp_consensus;
+pub use rp_keyring::{Ed25519Keyring, Sr25519Keyring};
+pub use rp_keystore::{Keystore, KeystorePtr};
+pub use rp_runtime::{Storage, StorageChild};
 
 use futures::{future::Future, stream::StreamExt};
-use sc_client_api::BlockchainEvents;
-use sc_service::client::{ClientConfig, LocalCallExecutor};
+use rc_client_api::BlockchainEvents;
+use rc_service::client::{ClientConfig, LocalCallExecutor};
 use serde::Deserialize;
-use sp_core::{storage::ChildInfo, testing::TaskExecutor};
-use sp_runtime::{
+use rp_core::{storage::ChildInfo, testing::TaskExecutor};
+use rp_runtime::{
 	codec::Encode,
 	traits::{Block as BlockT, Header},
 	OpaqueExtrinsic,
@@ -183,13 +183,13 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 		executor: ExecutorDispatch,
 	) -> (
 		client::Client<Backend, ExecutorDispatch, Block, RuntimeApi>,
-		sc_consensus::LongestChain<Backend, Block>,
+		rc_consensus::LongestChain<Backend, Block>,
 	)
 	where
 		ExecutorDispatch:
-			sc_client_api::CallExecutor<Block> + sc_executor::RuntimeVersionOf + Clone + 'static,
-		Backend: sc_client_api::backend::Backend<Block>,
-		<Backend as sc_client_api::backend::Backend<Block>>::OffchainStorage: 'static,
+			rc_client_api::CallExecutor<Block> + rc_executor::RuntimeVersionOf + Clone + 'static,
+		Backend: rc_client_api::backend::Backend<Block>,
+		<Backend as rc_client_api::backend::Backend<Block>>::OffchainStorage: 'static,
 	{
 		let storage = {
 			let mut storage = self.genesis_init.genesis_storage();
@@ -214,7 +214,7 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 			..Default::default()
 		};
 
-		let genesis_block_builder = sc_service::GenesisBlockBuilder::new(
+		let genesis_block_builder = rc_service::GenesisBlockBuilder::new(
 			&storage,
 			!client_config.no_genesis,
 			self.backend.clone(),
@@ -237,7 +237,7 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 		)
 		.expect("Creates new client");
 
-		let longest_chain = sc_consensus::LongestChain::new(self.backend);
+		let longest_chain = rc_consensus::LongestChain::new(self.backend);
 
 		(client, longest_chain)
 	}
@@ -257,12 +257,12 @@ impl<Block: BlockT, H, Backend, G: GenesisInit>
 			Block,
 			RuntimeApi,
 		>,
-		sc_consensus::LongestChain<Backend, Block>,
+		rc_consensus::LongestChain<Backend, Block>,
 	)
 	where
 		I: Into<Option<WasmExecutor<H>>>,
-		Backend: sc_client_api::backend::Backend<Block> + 'static,
-		H: sc_executor::HostFunctions,
+		Backend: rc_client_api::backend::Backend<Block> + 'static,
+		H: rc_executor::HostFunctions,
 	{
 		let executor = executor.into().unwrap_or_else(|| WasmExecutor::<H>::builder().build());
 		let executor = LocalCallExecutor::new(

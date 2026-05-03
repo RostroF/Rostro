@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Fuzzer for fixed point arithmetic primitives."
-documentation = "https://docs.rs/sp-arithmetic-fuzzer"
+documentation = "https://docs.rs/rp-arithmetic-fuzzer"
 publish = false
 
 [lints]
@@ -25,9 +25,9 @@ frame-support = { default-features = true, workspace = true }
 frame-system = { default-features = true, workspace = true }
 honggfuzz = { workspace = true }
 pallet-nomination-pools = { features = ["fuzzing"], workspace = true, default-features = true }
-sp-io = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-tracing = { default-features = true, workspace = true }
+rp-io = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
+rp-tracing = { default-features = true, workspace = true }
 
 log = { workspace = true, default-features = true }
 rand = { features = ["small_rng"], workspace = true, default-features = true }

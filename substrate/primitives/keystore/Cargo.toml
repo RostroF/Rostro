@@ -1,5 +1,5 @@
 [package]
-name = "sp-keystore"
+name = "rp-keystore"
 version = "0.46.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Keystore primitives."
-documentation = "https://docs.rs/sp-core"
+documentation = "https://docs.rs/rp-core"
 
 [lints]
 workspace = true
@@ -18,19 +18,19 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 codec = { features = ["derive"], workspace = true }
 parking_lot = { optional = true, workspace = true }
-sp-core = { workspace = true }
-sp-externalities = { workspace = true }
+rp-core = { workspace = true }
+rp-externalities = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["codec/std", "dep:parking_lot", "sp-core/std", "sp-externalities/std"]
+std = ["codec/std", "dep:parking_lot", "rp-core/std", "rp-externalities/std"]
 
 # This feature adds BLS crypto primitives.
 # It should not be used in production since the implementation and interface may still
 # be subject to significant changes.
-bls-experimental = ["sp-core/bls-experimental"]
+bls-experimental = ["rp-core/bls-experimental"]
 
 # This feature adds Bandersnatch crypto primitives.
 # It should not be used in production since the implementation and interface may still
 # be subject to significant changes.
-bandersnatch-experimental = ["sp-core/bandersnatch-experimental"]
+bandersnatch-experimental = ["rp-core/bandersnatch-experimental"]

@@ -36,12 +36,12 @@ use frame_support::{
 use mock::*;
 use pallet_balances::Error as BalancesError;
 use pallet_session::{disabling::UpToLimitWithReEnablingDisablingStrategy, Event as SessionEvent};
-use sp_runtime::{
+use rp_runtime::{
 	assert_eq_error_rate, bounded_vec,
 	traits::{BadOrigin, Dispatchable},
 	Perbill, Percent, Perquintill, Rounding, TokenError,
 };
-use sp_staking::{
+use rp_staking::{
 	offence::{OffenceDetails, OnOffenceHandler},
 	SessionIndex, StakingAccount,
 };
@@ -3596,7 +3596,7 @@ fn test_multi_page_payout_stakers_by_page() {
 
 		// verify we clean up history as we go
 		for era in 0..15 {
-			assert_eq!(ClaimedRewards::<Test>::get(era, &11), Vec::<sp_staking::Page>::new());
+			assert_eq!(ClaimedRewards::<Test>::get(era, &11), Vec::<rp_staking::Page>::new());
 		}
 
 		// verify only page 0 is marked as claimed
@@ -3862,7 +3862,7 @@ fn test_multi_page_payout_stakers_backward_compatible() {
 
 		// verify we clean up history as we go
 		for era in 0..15 {
-			assert_eq!(ClaimedRewards::<Test>::get(era, &11), Vec::<sp_staking::Page>::new());
+			assert_eq!(ClaimedRewards::<Test>::get(era, &11), Vec::<rp_staking::Page>::new());
 		}
 
 		// verify only page 0 is marked as claimed
@@ -6150,7 +6150,7 @@ fn proportional_ledger_slash_works() {
 		assert_eq!(LedgerSlashPerEra::get().1, BTreeMap::from([(4, 0), (5, 0), (6, 0), (7, 0)]));
 
 		// Given
-		use sp_runtime::PerThing as _;
+		use rp_runtime::PerThing as _;
 		let slash = u64::MAX as Balance * 2;
 		let value = u64::MAX as Balance * 2;
 		let unit = 100;
@@ -6564,11 +6564,11 @@ fn test_validator_exposure_is_backward_compatible_with_non_paged_rewards_payout(
 		assert_eq!(EraInfo::<Test>::get_page_count(1, &11), 2);
 
 		// validator is exposed
-		assert!(<Staking as sp_staking::StakingInterface>::is_exposed_in_era(&11, &1));
+		assert!(<Staking as rp_staking::StakingInterface>::is_exposed_in_era(&11, &1));
 		// nominators are exposed
 		for i in 10..15 {
 			let who: AccountId = 1000 + i;
-			assert!(<Staking as sp_staking::StakingInterface>::is_exposed_in_era(&who, &1));
+			assert!(<Staking as rp_staking::StakingInterface>::is_exposed_in_era(&who, &1));
 		}
 
 		// case 2: exposure exist in ErasStakers and ErasStakersClipped (legacy).
@@ -6607,11 +6607,11 @@ fn test_validator_exposure_is_backward_compatible_with_non_paged_rewards_payout(
 		assert_eq!(actual_exposure_full.total, total_exposure);
 
 		// validator is exposed
-		assert!(<Staking as sp_staking::StakingInterface>::is_exposed_in_era(&11, &1));
+		assert!(<Staking as rp_staking::StakingInterface>::is_exposed_in_era(&11, &1));
 		// nominators are exposed
 		for i in 10..15 {
 			let who: AccountId = 1000 + i;
-			assert!(<Staking as sp_staking::StakingInterface>::is_exposed_in_era(&who, &1));
+			assert!(<Staking as rp_staking::StakingInterface>::is_exposed_in_era(&who, &1));
 		}
 
 		// for pages other than 0, clipped storage returns empty exposure
@@ -6739,7 +6739,7 @@ fn test_runtime_api_pending_rewards() {
 
 mod staking_interface {
 	use frame_support::storage::with_storage_layer;
-	use sp_staking::StakingInterface;
+	use rp_staking::StakingInterface;
 
 	use super::*;
 
@@ -6860,7 +6860,7 @@ mod staking_interface {
 }
 
 mod staking_unchecked {
-	use sp_staking::{Stake, StakingInterface, StakingUnchecked};
+	use rp_staking::{Stake, StakingInterface, StakingUnchecked};
 
 	use super::*;
 
@@ -7171,7 +7171,7 @@ mod staking_unchecked {
 }
 mod ledger {
 	use super::*;
-	use sp_staking::StakingAccount;
+	use rp_staking::StakingAccount;
 
 	#[test]
 	fn paired_account_works() {
@@ -8475,11 +8475,11 @@ mod getters {
 		Forcing, Nominations, Nominators, Perbill, SlashRewardFraction, SlashingSpans,
 		ValidatorPrefs, Validators,
 	};
-	use sp_staking::{EraIndex, Exposure, IndividualExposure, Page, SessionIndex};
+	use rp_staking::{EraIndex, Exposure, IndividualExposure, Page, SessionIndex};
 
 	#[test]
 	fn get_validator_count_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let v: u32 = 12;
 			ValidatorCount::<Test>::put(v);
@@ -8494,7 +8494,7 @@ mod getters {
 
 	#[test]
 	fn get_minimum_validator_count_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let v: u32 = 12;
 			MinimumValidatorCount::<Test>::put(v);
@@ -8509,7 +8509,7 @@ mod getters {
 
 	#[test]
 	fn get_invulnerables_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let v: Vec<mock::AccountId> = vec![1, 2, 3];
 			Invulnerables::<Test>::put(v.clone());
@@ -8524,7 +8524,7 @@ mod getters {
 
 	#[test]
 	fn get_validators_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let account_id: mock::AccountId = 1;
 			let validator_prefs = ValidatorPrefs::default();
@@ -8541,7 +8541,7 @@ mod getters {
 
 	#[test]
 	fn get_nominators_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let account_id: mock::AccountId = 1;
 			let nominations: Nominations<Test> = Nominations {
@@ -8562,7 +8562,7 @@ mod getters {
 
 	#[test]
 	fn get_current_era_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let era: EraIndex = 12;
 			CurrentEra::<Test>::put(era);
@@ -8577,7 +8577,7 @@ mod getters {
 
 	#[test]
 	fn get_active_era_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let era = ActiveEraInfo { index: 2, start: None };
 			ActiveEra::<Test>::put(era);
@@ -8597,7 +8597,7 @@ mod getters {
 
 	#[test]
 	fn get_eras_start_session_index_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let era: EraIndex = 12;
 			let session_index: SessionIndex = 14;
@@ -8613,7 +8613,7 @@ mod getters {
 
 	#[test]
 	fn get_eras_stakers_clipped_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let era: EraIndex = 12;
 			let account_id: mock::AccountId = 1;
@@ -8634,7 +8634,7 @@ mod getters {
 
 	#[test]
 	fn get_claimed_rewards_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let era: EraIndex = 12;
 			let account_id: mock::AccountId = 1;
@@ -8651,7 +8651,7 @@ mod getters {
 
 	#[test]
 	fn get_eras_validator_prefs_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let era: EraIndex = 12;
 			let account_id: mock::AccountId = 1;
@@ -8669,7 +8669,7 @@ mod getters {
 
 	#[test]
 	fn get_eras_validator_reward_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let era: EraIndex = 12;
 			let balance_of = BalanceOf::<Test>::default();
@@ -8686,7 +8686,7 @@ mod getters {
 
 	#[test]
 	fn get_eras_reward_points_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let era: EraIndex = 12;
 			let reward_points = EraRewardPoints::<mock::AccountId> {
@@ -8705,7 +8705,7 @@ mod getters {
 
 	#[test]
 	fn get_eras_total_stake_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let era: EraIndex = 12;
 			let balance_of = BalanceOf::<Test>::default();
@@ -8722,7 +8722,7 @@ mod getters {
 
 	#[test]
 	fn get_force_era_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let forcing = Forcing::NotForcing;
 			ForceEra::<Test>::put(forcing);
@@ -8737,7 +8737,7 @@ mod getters {
 
 	#[test]
 	fn get_slash_reward_fraction_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let perbill = Perbill::one();
 			SlashRewardFraction::<Test>::put(perbill);
@@ -8752,7 +8752,7 @@ mod getters {
 
 	#[test]
 	fn get_canceled_payout_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let balance_of = BalanceOf::<Test>::default();
 			CanceledSlashPayout::<Test>::put(balance_of);
@@ -8767,7 +8767,7 @@ mod getters {
 
 	#[test]
 	fn get_slashing_spans_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let account_id: mock::AccountId = 1;
 			let spans = slashing::SlashingSpans::new(2);
@@ -8784,7 +8784,7 @@ mod getters {
 
 	#[test]
 	fn get_current_planned_session_returns_value_from_storage() {
-		sp_io::TestExternalities::default().execute_with(|| {
+		rp_io::TestExternalities::default().execute_with(|| {
 			// given
 			let session_index = SessionIndex::default();
 			CurrentPlannedSession::<Test>::put(session_index);
@@ -8801,7 +8801,7 @@ mod getters {
 mod hold_migration {
 	use super::*;
 	use frame_support::traits::fungible::Mutate;
-	use sp_staking::{Stake, StakingInterface};
+	use rp_staking::{Stake, StakingInterface};
 
 	#[test]
 	fn ledger_update_creates_hold() {

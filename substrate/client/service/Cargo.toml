@@ -1,5 +1,5 @@
 [package]
-name = "sc-service"
+name = "rc-service"
 version = "0.57.0"
 authors.workspace = true
 edition.workspace = true
@@ -28,45 +28,45 @@ parking_lot = { workspace = true, default-features = true }
 pin-project = { workspace = true }
 prometheus-endpoint = { default-features = true, workspace = true }
 rand = { workspace = true, default-features = true }
-sc-chain-spec = { default-features = true, workspace = true }
-sc-client-api = { default-features = true, workspace = true }
-sc-client-db = { workspace = true }
-sc-consensus = { default-features = true, workspace = true }
-sc-executor = { default-features = true, workspace = true }
-sc-informant = { default-features = true, workspace = true }
-sc-keystore = { default-features = true, workspace = true }
-sc-network = { default-features = true, workspace = true }
-sc-network-common = { default-features = true, workspace = true }
-sc-network-light = { default-features = true, workspace = true }
-sc-network-sync = { default-features = true, workspace = true }
-sc-network-transactions = { default-features = true, workspace = true }
-sc-network-types = { default-features = true, workspace = true }
-sc-rpc = { default-features = true, workspace = true }
-sc-rpc-server = { default-features = true, workspace = true }
-sc-rpc-spec-v2 = { default-features = true, workspace = true }
-sc-sysinfo = { default-features = true, workspace = true }
-sc-telemetry = { default-features = true, workspace = true }
-sc-tracing = { default-features = true, workspace = true }
-sc-transaction-pool = { default-features = true, workspace = true }
-sc-transaction-pool-api = { default-features = true, workspace = true }
-sc-utils = { default-features = true, workspace = true }
+rc-chain-spec = { default-features = true, workspace = true }
+rc-client-api = { default-features = true, workspace = true }
+rc-client-db = { workspace = true }
+rc-consensus = { default-features = true, workspace = true }
+rc-executor = { default-features = true, workspace = true }
+rc-informant = { default-features = true, workspace = true }
+rc-keystore = { default-features = true, workspace = true }
+rc-network = { default-features = true, workspace = true }
+rc-network-common = { default-features = true, workspace = true }
+rc-network-light = { default-features = true, workspace = true }
+rc-network-sync = { default-features = true, workspace = true }
+rc-network-transactions = { default-features = true, workspace = true }
+rc-network-types = { default-features = true, workspace = true }
+rc-rpc = { default-features = true, workspace = true }
+rc-rpc-server = { default-features = true, workspace = true }
+rc-rpc-spec-v2 = { default-features = true, workspace = true }
+rc-sysinfo = { default-features = true, workspace = true }
+rc-telemetry = { default-features = true, workspace = true }
+rc-tracing = { default-features = true, workspace = true }
+rc-transaction-pool = { default-features = true, workspace = true }
+rc-transaction-pool-api = { default-features = true, workspace = true }
+rc-utils = { default-features = true, workspace = true }
 schnellru = { workspace = true }
 serde = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
-sp-api = { default-features = true, workspace = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-consensus = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-externalities = { default-features = true, workspace = true }
-sp-keystore = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-session = { default-features = true, workspace = true }
-sp-state-machine = { default-features = true, workspace = true }
-sp-storage = { default-features = true, workspace = true }
-sp-transaction-pool = { default-features = true, workspace = true }
-sp-transaction-storage-proof = { default-features = true, workspace = true }
-sp-trie = { default-features = true, workspace = true }
-sp-version = { default-features = true, workspace = true }
+rp-api = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-consensus = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-externalities = { default-features = true, workspace = true }
+rp-keystore = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
+rp-session = { default-features = true, workspace = true }
+rp-state-machine = { default-features = true, workspace = true }
+rp-storage = { default-features = true, workspace = true }
+rp-transaction-pool = { default-features = true, workspace = true }
+rp-transaction-storage-proof = { default-features = true, workspace = true }
+rp-trie = { default-features = true, workspace = true }
+rp-version = { default-features = true, workspace = true }
 static_init = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
@@ -82,9 +82,9 @@ substrate-test-runtime-client = { workspace = true }
 default = ["rocksdb"]
 # The RocksDB feature activates the RocksDB database backend. If it is not activated, and you pass
 # a path to a database, an error will be produced at runtime.
-rocksdb = ["sc-client-db/rocksdb"]
+rocksdb = ["rc-client-db/rocksdb"]
 runtime-benchmarks = [
-	"sc-client-db/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
+	"rc-client-db/runtime-benchmarks",
+	"rp-runtime/runtime-benchmarks",
 ]
-jemalloc-allocator = ["sc-client-db/jemalloc-allocator"]
+jemalloc-allocator = ["rc-client-db/jemalloc-allocator"]

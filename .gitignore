@@ -44,4 +44,4 @@ target/
 rustc-ice-*
 /.claude/settings.local.json
 *.local.md
-./CLAUDE.md
+*CLAUDE*

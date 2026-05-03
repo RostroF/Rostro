@@ -33,9 +33,9 @@ mod transaction_pool_params;
 
 use crate::arg_enums::{CryptoScheme, OutputType};
 use clap::Args;
-use sc_service::config::{IpNetwork, RpcBatchRequestConfig};
-use sp_core::crypto::{Ss58AddressFormat, Ss58AddressFormatRegistry};
-use sp_runtime::{
+use rc_service::config::{IpNetwork, RpcBatchRequestConfig};
+use rp_core::crypto::{Ss58AddressFormat, Ss58AddressFormatRegistry};
+use rp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, NumberFor},
 };
@@ -166,8 +166,8 @@ pub struct NetworkSchemeFlag {
 mod tests {
 	use super::*;
 
-	type Header = sp_runtime::generic::Header<u32, sp_runtime::traits::BlakeTwo256>;
-	type Block = sp_runtime::generic::Block<Header, sp_runtime::OpaqueExtrinsic>;
+	type Header = rp_runtime::generic::Header<u32, rp_runtime::traits::BlakeTwo256>;
+	type Block = rp_runtime::generic::Block<Header, rp_runtime::OpaqueExtrinsic>;
 
 	#[test]
 	fn parse_block_number() {
@@ -178,7 +178,7 @@ mod tests {
 
 	#[test]
 	fn parse_block_hash() {
-		let hash = sp_core::H256::default();
+		let hash = rp_core::H256::default();
 		let hash_str = format!("{:?}", hash);
 		let block_number_or_hash = BlockNumberOrHash::from_str(&hash_str).unwrap();
 		let parsed = block_number_or_hash.parse::<Block>().unwrap();

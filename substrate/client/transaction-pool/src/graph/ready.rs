@@ -24,9 +24,9 @@ use std::{
 };
 
 use crate::LOG_TARGET;
-use sc_transaction_pool_api::error;
+use rc_transaction_pool_api::error;
 use serde::Serialize;
-use sp_runtime::{traits::Member, transaction_validity::TransactionTag as Tag};
+use rp_runtime::{traits::Member, transaction_validity::TransactionTag as Tag};
 use tracing::trace;
 
 use super::{
@@ -503,7 +503,7 @@ impl<Hash: hash::Hash + Member, Ex> BestIterator<Hash, Ex> {
 	}
 }
 
-impl<Hash: hash::Hash + Member, Ex> sc_transaction_pool_api::ReadyTransactions
+impl<Hash: hash::Hash + Member, Ex> rc_transaction_pool_api::ReadyTransactions
 	for BestIterator<Hash, Ex>
 {
 	fn report_invalid(&mut self, tx: &Self::Item) {

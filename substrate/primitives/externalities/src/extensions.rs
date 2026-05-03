@@ -113,7 +113,7 @@ impl Extension for Box<dyn Extension> {
 ///
 /// # Example
 /// ```
-/// # use sp_externalities::decl_extension;
+/// # use rp_externalities::decl_extension;
 /// decl_extension! {
 ///     /// Some test extension
 ///     struct TestExt(String);
@@ -123,7 +123,7 @@ impl Extension for Box<dyn Extension> {
 /// The [`Extension`] trait provides hooks that are called when starting, committing or rolling back
 /// a transaction. These can be implemented with the macro as well:
 /// ```
-/// # use sp_externalities::{decl_extension, TransactionType};
+/// # use rp_externalities::{decl_extension, TransactionType};
 /// decl_extension! {
 ///     /// Some test extension
 ///     struct TestExtWithCallback(String);

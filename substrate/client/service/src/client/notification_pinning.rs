@@ -21,7 +21,7 @@
 //! This file contains a worker that should be started when a new client instance is created.
 //! The goal is to avoid pruning of blocks that have active notifications in the node. Every
 //! recipient of notifications should receive the chance to act upon them. In addition, notification
-//! listeners can hold onto a [`sc_client_api::UnpinHandle`] to keep a block pinned. Once the handle
+//! listeners can hold onto a [`rc_client_api::UnpinHandle`] to keep a block pinned. Once the handle
 //! is dropped, a message is sent and the worker unpins the respective block.
 use std::{
 	marker::PhantomData,
@@ -29,11 +29,11 @@ use std::{
 };
 
 use futures::StreamExt;
-use sc_client_api::{Backend, UnpinWorkerMessage};
+use rc_client_api::{Backend, UnpinWorkerMessage};
 
-use sc_utils::mpsc::TracingUnboundedReceiver;
+use rc_utils::mpsc::TracingUnboundedReceiver;
 use schnellru::Limiter;
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 
 const LOG_TARGET: &str = "db::notification_pinning";
 const NOTIFICATION_PINNING_LIMIT: usize = 1024;
@@ -191,10 +191,10 @@ impl<Block: BlockT, Back: Backend<Block>> NotificationPinningWorker<Block, Back>
 mod tests {
 	use std::sync::Arc;
 
-	use sc_client_api::{Backend, UnpinWorkerMessage};
-	use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver};
-	use sp_core::H256;
-	use sp_runtime::traits::Block as BlockT;
+	use rc_client_api::{Backend, UnpinWorkerMessage};
+	use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver};
+	use rp_core::H256;
+	use rp_runtime::traits::Block as BlockT;
 
 	type Block = substrate_test_runtime_client::runtime::Block;
 
@@ -224,7 +224,7 @@ mod tests {
 	fn pinning_worker_handles_base_case() {
 		let (_tx, rx) = tracing_unbounded("testing", 1000);
 
-		let backend = Arc::new(sc_client_api::in_mem::Backend::<Block>::new());
+		let backend = Arc::new(rc_client_api::in_mem::Backend::<Block>::new());
 
 		let hash = H256::random();
 
@@ -247,7 +247,7 @@ mod tests {
 	fn pinning_worker_handles_multiple_pins() {
 		let (_tx, rx) = tracing_unbounded("testing", 1000);
 
-		let backend = Arc::new(sc_client_api::in_mem::Backend::<Block>::new());
+		let backend = Arc::new(rc_client_api::in_mem::Backend::<Block>::new());
 
 		let hash = H256::random();
 
@@ -279,7 +279,7 @@ mod tests {
 	fn pinning_worker_handles_too_many_unpins() {
 		let (_tx, rx) = tracing_unbounded("testing", 1000);
 
-		let backend = Arc::new(sc_client_api::in_mem::Backend::<Block>::new());
+		let backend = Arc::new(rc_client_api::in_mem::Backend::<Block>::new());
 
 		let hash = H256::random();
 		let hash2 = H256::random();
@@ -310,7 +310,7 @@ mod tests {
 	fn pinning_worker_should_evict_when_limit_reached() {
 		let (_tx, rx) = tracing_unbounded("testing", 1000);
 
-		let backend = Arc::new(sc_client_api::in_mem::Backend::<Block>::new());
+		let backend = Arc::new(rc_client_api::in_mem::Backend::<Block>::new());
 
 		let hash1 = H256::random();
 		let hash2 = H256::random();

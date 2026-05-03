@@ -42,20 +42,20 @@ use futures::{
 	prelude::*,
 };
 use parking_lot::Mutex;
-use sc_client_api::BlockchainEvents;
-use sc_network::{NetworkPeers, NetworkStateInfo};
-use sc_transaction_pool_api::OffchainTransactionPoolFactory;
-use sp_api::{ApiExt, ProvideRuntimeApi};
-use sp_core::{offchain, traits::SpawnNamed};
-use sp_externalities::Extension;
-use sp_keystore::{KeystoreExt, KeystorePtr};
-use sp_runtime::traits::{self, Header};
+use rc_client_api::BlockchainEvents;
+use rc_network::{NetworkPeers, NetworkStateInfo};
+use rc_transaction_pool_api::OffchainTransactionPoolFactory;
+use rp_api::{ApiExt, ProvideRuntimeApi};
+use rp_core::{offchain, traits::SpawnNamed};
+use rp_externalities::Extension;
+use rp_keystore::{KeystoreExt, KeystorePtr};
+use rp_runtime::traits::{self, Header};
 use threadpool::ThreadPool;
 
 mod api;
 
-pub use sp_core::offchain::storage::OffchainDb;
-pub use sp_offchain::{OffchainWorkerApi, STORAGE_PREFIX};
+pub use rp_core::offchain::storage::OffchainDb;
+pub use rp_offchain::{OffchainWorkerApi, STORAGE_PREFIX};
 
 const LOG_TARGET: &str = "offchain-worker";
 
@@ -327,16 +327,16 @@ where
 mod tests {
 	use super::*;
 	use futures::executor::block_on;
-	use sc_block_builder::BlockBuilderBuilder;
-	use sc_client_api::Backend as _;
-	use sc_network::{
+	use rc_block_builder::BlockBuilderBuilder;
+	use rc_client_api::Backend as _;
+	use rc_network::{
 		config::MultiaddrWithPeerId, types::ProtocolName, Multiaddr, ObservedRole, ReputationChange,
 	};
-	use sc_network_types::PeerId;
-	use sc_transaction_pool::BasicPool;
-	use sc_transaction_pool_api::{InPoolTransaction, TransactionPool};
-	use sp_consensus::BlockOrigin;
-	use sp_runtime::traits::Block as BlockT;
+	use rc_network_types::PeerId;
+	use rc_transaction_pool::BasicPool;
+	use rc_transaction_pool_api::{InPoolTransaction, TransactionPool};
+	use rp_consensus::BlockOrigin;
+	use rp_runtime::traits::Block as BlockT;
 	use std::{collections::HashSet, sync::Arc};
 	use substrate_test_runtime_client::{
 		runtime::{
@@ -442,10 +442,10 @@ mod tests {
 
 	#[test]
 	fn should_call_into_runtime_and_produce_extrinsic() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let client = Arc::new(substrate_test_runtime_client::new());
-		let spawner = sp_core::testing::TaskExecutor::new();
+		let spawner = rp_core::testing::TaskExecutor::new();
 		let pool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -480,9 +480,9 @@ mod tests {
 
 	#[test]
 	fn offchain_index_set_and_clear_works() {
-		use sp_core::offchain::OffchainStorage;
+		use rp_core::offchain::OffchainStorage;
 
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let (client, backend) = substrate_test_runtime_client::TestClientBuilder::new()
 			.enable_offchain_indexing_api()
@@ -503,7 +503,7 @@ mod tests {
 		let block = block_builder.build().unwrap().block;
 		block_on(client.import(BlockOrigin::Own, block.clone())).unwrap();
 
-		assert_eq!(value, &offchain_db.get(sp_offchain::STORAGE_PREFIX, &key).unwrap());
+		assert_eq!(value, &offchain_db.get(rp_offchain::STORAGE_PREFIX, &key).unwrap());
 
 		let mut block_builder = BlockBuilderBuilder::new(&*client)
 			.on_parent_block(block.hash())
@@ -516,6 +516,6 @@ mod tests {
 		let block = block_builder.build().unwrap().block;
 		block_on(client.import(BlockOrigin::Own, block)).unwrap();
 
-		assert!(offchain_db.get(sp_offchain::STORAGE_PREFIX, &key).is_none());
+		assert!(offchain_db.get(rp_offchain::STORAGE_PREFIX, &key).is_none());
 	}
 }

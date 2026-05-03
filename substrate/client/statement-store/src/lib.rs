@@ -18,7 +18,7 @@
 
 //! Disk-backed statement store.
 //!
-//! This module contains an implementation of `sp_statement_store::StatementStore` which is backed
+//! This module contains an implementation of `rp_statement_store::StatementStore` which is backed
 //! by a database.
 //!
 //! Constraint management.
@@ -55,18 +55,18 @@ use futures::FutureExt;
 use metrics::MetricsLink as PrometheusMetrics;
 use parking_lot::{lock_api::RwLockUpgradableReadGuard, RwLock};
 use prometheus_endpoint::Registry as PrometheusRegistry;
-use sc_client_api::{backend::StorageProvider, Backend, StorageKey};
-use sc_keystore::LocalKeystore;
-use sp_blockchain::HeaderBackend;
-use sp_core::{crypto::UncheckedFrom, hexdisplay::HexDisplay, traits::SpawnNamed, Decode, Encode};
-use sp_runtime::traits::Block as BlockT;
-use sp_statement_store::{
+use rc_client_api::{backend::StorageProvider, Backend, StorageKey};
+use rc_keystore::LocalKeystore;
+use rp_blockchain::HeaderBackend;
+use rp_core::{crypto::UncheckedFrom, hexdisplay::HexDisplay, traits::SpawnNamed, Decode, Encode};
+use rp_runtime::traits::Block as BlockT;
+use rp_statement_store::{
 	runtime_api::{StatementSource, StatementStoreExt},
 	AccountId, BlockHash, Channel, DecryptionKey, FilterDecision, Hash, InvalidReason,
 	OptimizedTopicFilter, Proof, RejectionReason, Result, SignatureVerificationResult, Statement,
 	StatementAllowance, StatementEvent, SubmitResult, Topic,
 };
-pub use sp_statement_store::{Error, StatementStore, MAX_TOPICS};
+pub use rp_statement_store::{Error, StatementStore, MAX_TOPICS};
 use std::{
 	collections::{BTreeMap, HashMap, HashSet},
 	sync::Arc,
@@ -89,7 +89,7 @@ pub const DEFAULT_MAX_TOTAL_SIZE: usize = 2 * 1024 * 1024 * 1024; // 2GiB
 /// The maximum size of a single statement in bytes.
 /// Accounts for the 1-byte vector length prefix when statements are gossiped as `Vec<Statement>`.
 pub const MAX_STATEMENT_SIZE: usize =
-	sc_network_statement::config::MAX_STATEMENT_NOTIFICATION_SIZE as usize - 1;
+	rc_network_statement::config::MAX_STATEMENT_NOTIFICATION_SIZE as usize - 1;
 
 /// Maximum number of statements to expire in a single iteration.
 const MAX_EXPIRY_STATEMENTS_PER_ITERATION: usize = 10_000;
@@ -181,7 +181,7 @@ impl StatementsForAccount {
 pub const DEFAULT_NETWORK_WORKERS: usize = 1;
 
 /// Default maximum statements per second per peer before rate limiting kicks in.
-pub use sc_network_statement::config::DEFAULT_STATEMENTS_PER_SECOND as DEFAULT_RATE_LIMIT;
+pub use rc_network_statement::config::DEFAULT_STATEMENTS_PER_SECOND as DEFAULT_RATE_LIMIT;
 
 /// Statement store and network handler configuration.
 #[derive(Debug, Clone, Copy)]
@@ -262,7 +262,7 @@ where
 		account_id: &AccountId,
 		allowance_block: AllowanceBlock,
 	) -> Result<Option<StatementAllowance>> {
-		use sp_statement_store::{statement_allowance_key, StatementAllowance};
+		use rp_statement_store::{statement_allowance_key, StatementAllowance};
 
 		let block_hash = match allowance_block {
 			AllowanceBlock::Block(hash) => hash.into(),
@@ -1098,9 +1098,9 @@ impl Store {
 			&OptimizedTopicFilter::MatchAll(match_all_topics.iter().cloned().collect()),
 			|statement| {
 				if let (Some(key), Some(_)) = (statement.decryption_key(), statement.data()) {
-					let public: sp_core::ed25519::Public = UncheckedFrom::unchecked_from(key);
-					let public: sp_statement_store::ed25519::Public = public.into();
-					match self.keystore.key_pair::<sp_statement_store::ed25519::Pair>(&public) {
+					let public: rp_core::ed25519::Public = UncheckedFrom::unchecked_from(key);
+					let public: rp_statement_store::ed25519::Public = public.into();
+					match self.keystore.key_pair::<rp_statement_store::ed25519::Pair>(&public) {
 						Err(e) => {
 							log::debug!(
 								target: LOG_TARGET,
@@ -1546,34 +1546,34 @@ impl StatementStoreSubscriptionApi for Store {
 mod tests {
 
 	use crate::{col, Store};
-	use sc_keystore::Keystore;
-	use sp_core::{Decode, Encode, Pair};
-	use sp_statement_store::{
+	use rc_keystore::Keystore;
+	use rp_core::{Decode, Encode, Pair};
+	use rp_statement_store::{
 		AccountId, Channel, DecryptionKey, InvalidReason, Proof, Statement, StatementSource,
 		StatementStore, SubmitResult, Topic,
 	};
 
-	type Extrinsic = sp_runtime::OpaqueExtrinsic;
-	type Hash = sp_core::H256;
-	type Hashing = sp_runtime::traits::BlakeTwo256;
+	type Extrinsic = rp_runtime::OpaqueExtrinsic;
+	type Hash = rp_core::H256;
+	type Hashing = rp_runtime::traits::BlakeTwo256;
 	type BlockNumber = u64;
-	type Header = sp_runtime::generic::Header<BlockNumber, Hashing>;
-	type Block = sp_runtime::generic::Block<Header, Extrinsic>;
+	type Header = rp_runtime::generic::Header<BlockNumber, Hashing>;
+	type Block = rp_runtime::generic::Block<Header, Extrinsic>;
 
 	const CORRECT_BLOCK_HASH: [u8; 32] = [1u8; 32];
 
 	#[derive(Clone)]
 	pub(crate) struct TestClient;
 
-	pub(crate) type TestBackend = sc_client_api::in_mem::Backend<Block>;
+	pub(crate) type TestBackend = rc_client_api::in_mem::Backend<Block>;
 
-	impl sc_client_api::StorageProvider<Block, TestBackend> for TestClient {
+	impl rc_client_api::StorageProvider<Block, TestBackend> for TestClient {
 		fn storage(
 			&self,
 			_hash: Hash,
-			key: &sc_client_api::StorageKey,
-		) -> sp_blockchain::Result<Option<sc_client_api::StorageData>> {
-			use sp_statement_store::StatementAllowance;
+			key: &rc_client_api::StorageKey,
+		) -> rp_blockchain::Result<Option<rc_client_api::StorageData>> {
+			use rp_statement_store::StatementAllowance;
 
 			assert_eq!(&key.0[0..21], b":statement_allowance:" as &[u8],);
 
@@ -1590,25 +1590,25 @@ mod tests {
 				42 => StatementAllowance::new(42, (42 * crate::MAX_STATEMENT_SIZE) as u32),
 				_ => StatementAllowance::new(100, 1000),
 			};
-			Ok(Some(sc_client_api::StorageData(allowance.encode())))
+			Ok(Some(rc_client_api::StorageData(allowance.encode())))
 		}
 
 		fn storage_hash(
 			&self,
 			_hash: Hash,
-			_key: &sc_client_api::StorageKey,
-		) -> sp_blockchain::Result<Option<Hash>> {
+			_key: &rc_client_api::StorageKey,
+		) -> rp_blockchain::Result<Option<Hash>> {
 			unimplemented!()
 		}
 
 		fn storage_keys(
 			&self,
 			_hash: Hash,
-			_prefix: Option<&sc_client_api::StorageKey>,
-			_start_key: Option<&sc_client_api::StorageKey>,
-		) -> sp_blockchain::Result<
-			sc_client_api::backend::KeysIter<
-				<TestBackend as sc_client_api::Backend<Block>>::State,
+			_prefix: Option<&rc_client_api::StorageKey>,
+			_start_key: Option<&rc_client_api::StorageKey>,
+		) -> rp_blockchain::Result<
+			rc_client_api::backend::KeysIter<
+				<TestBackend as rc_client_api::Backend<Block>>::State,
 				Block,
 			>,
 		> {
@@ -1618,11 +1618,11 @@ mod tests {
 		fn storage_pairs(
 			&self,
 			_hash: Hash,
-			_prefix: Option<&sc_client_api::StorageKey>,
-			_start_key: Option<&sc_client_api::StorageKey>,
-		) -> sp_blockchain::Result<
-			sc_client_api::backend::PairsIter<
-				<TestBackend as sc_client_api::Backend<Block>>::State,
+			_prefix: Option<&rc_client_api::StorageKey>,
+			_start_key: Option<&rc_client_api::StorageKey>,
+		) -> rp_blockchain::Result<
+			rc_client_api::backend::PairsIter<
+				<TestBackend as rc_client_api::Backend<Block>>::State,
 				Block,
 			>,
 		> {
@@ -1632,21 +1632,21 @@ mod tests {
 		fn child_storage(
 			&self,
 			_hash: Hash,
-			_child_info: &sc_client_api::ChildInfo,
-			_key: &sc_client_api::StorageKey,
-		) -> sp_blockchain::Result<Option<sc_client_api::StorageData>> {
+			_child_info: &rc_client_api::ChildInfo,
+			_key: &rc_client_api::StorageKey,
+		) -> rp_blockchain::Result<Option<rc_client_api::StorageData>> {
 			unimplemented!()
 		}
 
 		fn child_storage_keys(
 			&self,
 			_hash: Hash,
-			_child_info: sc_client_api::ChildInfo,
-			_prefix: Option<&sc_client_api::StorageKey>,
-			_start_key: Option<&sc_client_api::StorageKey>,
-		) -> sp_blockchain::Result<
-			sc_client_api::backend::KeysIter<
-				<TestBackend as sc_client_api::Backend<Block>>::State,
+			_child_info: rc_client_api::ChildInfo,
+			_prefix: Option<&rc_client_api::StorageKey>,
+			_start_key: Option<&rc_client_api::StorageKey>,
+		) -> rp_blockchain::Result<
+			rc_client_api::backend::KeysIter<
+				<TestBackend as rc_client_api::Backend<Block>>::State,
 				Block,
 			>,
 		> {
@@ -1656,36 +1656,36 @@ mod tests {
 		fn child_storage_hash(
 			&self,
 			_hash: Hash,
-			_child_info: &sc_client_api::ChildInfo,
-			_key: &sc_client_api::StorageKey,
-		) -> sp_blockchain::Result<Option<Hash>> {
+			_child_info: &rc_client_api::ChildInfo,
+			_key: &rc_client_api::StorageKey,
+		) -> rp_blockchain::Result<Option<Hash>> {
 			unimplemented!()
 		}
 
 		fn closest_merkle_value(
 			&self,
 			_hash: Hash,
-			_key: &sc_client_api::StorageKey,
-		) -> sp_blockchain::Result<Option<sc_client_api::MerkleValue<Hash>>> {
+			_key: &rc_client_api::StorageKey,
+		) -> rp_blockchain::Result<Option<rc_client_api::MerkleValue<Hash>>> {
 			unimplemented!()
 		}
 
 		fn child_closest_merkle_value(
 			&self,
 			_hash: Hash,
-			_child_info: &sc_client_api::ChildInfo,
-			_key: &sc_client_api::StorageKey,
-		) -> sp_blockchain::Result<Option<sc_client_api::MerkleValue<Hash>>> {
+			_child_info: &rc_client_api::ChildInfo,
+			_key: &rc_client_api::StorageKey,
+		) -> rp_blockchain::Result<Option<rc_client_api::MerkleValue<Hash>>> {
 			unimplemented!()
 		}
 	}
 
-	impl sp_blockchain::HeaderBackend<Block> for TestClient {
-		fn header(&self, _hash: Hash) -> sp_blockchain::Result<Option<Header>> {
+	impl rp_blockchain::HeaderBackend<Block> for TestClient {
+		fn header(&self, _hash: Hash) -> rp_blockchain::Result<Option<Header>> {
 			unimplemented!()
 		}
-		fn info(&self) -> sp_blockchain::Info<Block> {
-			sp_blockchain::Info {
+		fn info(&self) -> rp_blockchain::Info<Block> {
+			rp_blockchain::Info {
 				best_hash: CORRECT_BLOCK_HASH.into(),
 				best_number: 0,
 				genesis_hash: Default::default(),
@@ -1696,32 +1696,32 @@ mod tests {
 				block_gap: None,
 			}
 		}
-		fn status(&self, _hash: Hash) -> sp_blockchain::Result<sp_blockchain::BlockStatus> {
+		fn status(&self, _hash: Hash) -> rp_blockchain::Result<rp_blockchain::BlockStatus> {
 			unimplemented!()
 		}
-		fn number(&self, _hash: Hash) -> sp_blockchain::Result<Option<BlockNumber>> {
+		fn number(&self, _hash: Hash) -> rp_blockchain::Result<Option<BlockNumber>> {
 			unimplemented!()
 		}
-		fn hash(&self, _number: BlockNumber) -> sp_blockchain::Result<Option<Hash>> {
+		fn hash(&self, _number: BlockNumber) -> rp_blockchain::Result<Option<Hash>> {
 			unimplemented!()
 		}
 	}
 
 	fn test_store() -> (Store, tempfile::TempDir) {
-		sp_tracing::init_for_tests();
+		rp_tracing::init_for_tests();
 		let temp_dir = tempfile::Builder::new().tempdir().expect("Error creating test dir");
 
 		let client = std::sync::Arc::new(TestClient);
 		let mut path: std::path::PathBuf = temp_dir.path().into();
 		path.push("db");
-		let keystore = std::sync::Arc::new(sc_keystore::LocalKeystore::in_memory());
+		let keystore = std::sync::Arc::new(rc_keystore::LocalKeystore::in_memory());
 		let store = Store::new::<Block, TestClient, TestBackend>(
 			&path,
 			Default::default(),
 			client,
 			keystore,
 			None,
-			Box::new(sp_core::testing::TaskExecutor::new()),
+			Box::new(rp_core::testing::TaskExecutor::new()),
 		)
 		.unwrap();
 		(store, temp_dir) // return order is important. Store must be dropped before TempDir
@@ -1746,7 +1746,7 @@ mod tests {
 		if let Some(key) = dec_key {
 			statement.set_decryption_key(key);
 		}
-		let kp = sp_core::ed25519::Pair::from_string("//Alice", None).unwrap();
+		let kp = rp_core::ed25519::Pair::from_string("//Alice", None).unwrap();
 		statement.sign_ed25519_private(&kp);
 		statement
 	}
@@ -1825,7 +1825,7 @@ mod tests {
 			client,
 			keystore,
 			None,
-			Box::new(sp_core::testing::TaskExecutor::new()),
+			Box::new(rp_core::testing::TaskExecutor::new()),
 		)
 		.unwrap();
 		assert_eq!(store.statements().unwrap().len(), 3);
@@ -2037,7 +2037,7 @@ mod tests {
 			client,
 			keystore,
 			None,
-			Box::new(sp_core::testing::TaskExecutor::new()),
+			Box::new(rp_core::testing::TaskExecutor::new()),
 		)
 		.unwrap();
 		assert_eq!(store.statements().unwrap().len(), 0);
@@ -2049,7 +2049,7 @@ mod tests {
 		let (store, _temp) = test_store();
 		let public = store
 			.keystore
-			.ed25519_generate_new(sp_core::crypto::key_types::STATEMENT, None)
+			.ed25519_generate_new(rp_core::crypto::key_types::STATEMENT, None)
 			.unwrap();
 		let statement1 = statement(1, 1, None, 100);
 		let mut statement2 = statement(1, 2, None, 0);
@@ -2104,13 +2104,13 @@ mod tests {
 
 		let public1 = store
 			.keystore
-			.ed25519_generate_new(sp_core::crypto::key_types::STATEMENT, None)
+			.ed25519_generate_new(rp_core::crypto::key_types::STATEMENT, None)
 			.unwrap();
 		let dest: [u8; 32] = public1.into();
 
 		let public2 = store
 			.keystore
-			.ed25519_generate_new(sp_core::crypto::key_types::STATEMENT, None)
+			.ed25519_generate_new(rp_core::crypto::key_types::STATEMENT, None)
 			.unwrap();
 
 		// A statement that does have dec_key = dest
@@ -2147,13 +2147,13 @@ mod tests {
 
 		let public1 = store
 			.keystore
-			.ed25519_generate_new(sp_core::crypto::key_types::STATEMENT, None)
+			.ed25519_generate_new(rp_core::crypto::key_types::STATEMENT, None)
 			.unwrap();
 		let dest: [u8; 32] = public1.into();
 
 		let public2 = store
 			.keystore
-			.ed25519_generate_new(sp_core::crypto::key_types::STATEMENT, None)
+			.ed25519_generate_new(rp_core::crypto::key_types::STATEMENT, None)
 			.unwrap();
 
 		// A statement that does have dec_key = dest
@@ -2194,13 +2194,13 @@ mod tests {
 		// prepare two key-pairs
 		let public_dest = store
 			.keystore
-			.ed25519_generate_new(sp_core::crypto::key_types::STATEMENT, None)
+			.ed25519_generate_new(rp_core::crypto::key_types::STATEMENT, None)
 			.unwrap();
 		let dest: [u8; 32] = public_dest.into();
 
 		let public_other = store
 			.keystore
-			.ed25519_generate_new(sp_core::crypto::key_types::STATEMENT, None)
+			.ed25519_generate_new(rp_core::crypto::key_types::STATEMENT, None)
 			.unwrap();
 
 		// statement that SHOULD be returned (matches dest & topic 42)
@@ -2265,7 +2265,7 @@ mod tests {
 
 	#[test]
 	fn remove_by_covers_various_situations() {
-		use sp_statement_store::{StatementSource, StatementStore, SubmitResult};
+		use rp_statement_store::{StatementSource, StatementStore, SubmitResult};
 
 		// Use a fresh store and fixed time so we can control purging.
 		let (mut store, _temp) = test_store();

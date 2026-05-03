@@ -35,17 +35,17 @@ pub use core::{fmt::Debug, marker::PhantomData};
 use impl_trait_for_tuples::impl_for_tuples;
 #[cfg(feature = "serde")]
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use sp_application_crypto::AppCrypto;
-pub use sp_arithmetic::traits::{
+use rp_application_crypto::AppCrypto;
+pub use rp_arithmetic::traits::{
 	checked_pow, ensure_pow, AtLeast32Bit, AtLeast32BitUnsigned, Bounded, CheckedAdd, CheckedDiv,
 	CheckedMul, CheckedShl, CheckedShr, CheckedSub, Ensure, EnsureAdd, EnsureAddAssign, EnsureDiv,
 	EnsureDivAssign, EnsureFixedPointNumber, EnsureFrom, EnsureInto, EnsureMul, EnsureMulAssign,
 	EnsureOp, EnsureOpAssign, EnsureSub, EnsureSubAssign, IntegerSquareRoot, One,
 	SaturatedConversion, Saturating, UniqueSaturatedFrom, UniqueSaturatedInto, Zero,
 };
-use sp_core::{self, storage::StateVersion, Hasher, TypeId, U256};
+use rp_core::{self, storage::StateVersion, Hasher, TypeId, U256};
 #[doc(hidden)]
-pub use sp_core::{
+pub use rp_core::{
 	parameter_types, ConstBool, ConstI128, ConstI16, ConstI32, ConstI64, ConstI8, ConstInt,
 	ConstU128, ConstU16, ConstU32, ConstU64, ConstU8, ConstUint, Get, GetDefault, TryCollect,
 	TypedGet,
@@ -84,21 +84,21 @@ pub trait IdentifyAccount {
 	fn into_account(self) -> Self::AccountId;
 }
 
-impl IdentifyAccount for sp_core::ed25519::Public {
+impl IdentifyAccount for rp_core::ed25519::Public {
 	type AccountId = Self;
 	fn into_account(self) -> Self {
 		self
 	}
 }
 
-impl IdentifyAccount for sp_core::sr25519::Public {
+impl IdentifyAccount for rp_core::sr25519::Public {
 	type AccountId = Self;
 	fn into_account(self) -> Self {
 		self
 	}
 }
 
-impl IdentifyAccount for sp_core::ecdsa::Public {
+impl IdentifyAccount for rp_core::ecdsa::Public {
 	type AccountId = Self;
 	fn into_account(self) -> Self {
 		self
@@ -106,7 +106,7 @@ impl IdentifyAccount for sp_core::ecdsa::Public {
 }
 
 #[cfg(feature = "bls-experimental")]
-impl IdentifyAccount for sp_core::ecdsa_bls381::Public {
+impl IdentifyAccount for rp_core::ecdsa_bls381::Public {
 	type AccountId = Self;
 	fn into_account(self) -> Self {
 		self
@@ -127,28 +127,28 @@ pub trait Verify {
 	) -> bool;
 }
 
-impl Verify for sp_core::ed25519::Signature {
-	type Signer = sp_core::ed25519::Public;
+impl Verify for rp_core::ed25519::Signature {
+	type Signer = rp_core::ed25519::Public;
 
-	fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &sp_core::ed25519::Public) -> bool {
-		sp_io::crypto::ed25519_verify(self, msg.get(), signer)
+	fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &rp_core::ed25519::Public) -> bool {
+		rp_io::crypto::ed25519_verify(self, msg.get(), signer)
 	}
 }
 
-impl Verify for sp_core::sr25519::Signature {
-	type Signer = sp_core::sr25519::Public;
+impl Verify for rp_core::sr25519::Signature {
+	type Signer = rp_core::sr25519::Public;
 
-	fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &sp_core::sr25519::Public) -> bool {
-		sp_io::crypto::sr25519_verify(self, msg.get(), signer)
+	fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &rp_core::sr25519::Public) -> bool {
+		rp_io::crypto::sr25519_verify(self, msg.get(), signer)
 	}
 }
 
-impl Verify for sp_core::ecdsa::Signature {
-	type Signer = sp_core::ecdsa::Public;
-	fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &sp_core::ecdsa::Public) -> bool {
-		match sp_io::crypto::secp256k1_ecdsa_recover_compressed(
+impl Verify for rp_core::ecdsa::Signature {
+	type Signer = rp_core::ecdsa::Public;
+	fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &rp_core::ecdsa::Public) -> bool {
+		match rp_io::crypto::secp256k1_ecdsa_recover_compressed(
 			self.as_ref(),
-			&sp_io::hashing::blake2_256(msg.get()),
+			&rp_io::hashing::blake2_256(msg.get()),
 		) {
 			Ok(pubkey) => signer.0 == pubkey,
 			_ => false,
@@ -157,10 +157,10 @@ impl Verify for sp_core::ecdsa::Signature {
 }
 
 #[cfg(feature = "bls-experimental")]
-impl Verify for sp_core::ecdsa_bls381::Signature {
-	type Signer = sp_core::ecdsa_bls381::Public;
-	fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &sp_core::ecdsa_bls381::Public) -> bool {
-		<sp_core::ecdsa_bls381::Pair as sp_core::Pair>::verify(self, msg.get(), signer)
+impl Verify for rp_core::ecdsa_bls381::Signature {
+	type Signer = rp_core::ecdsa_bls381::Public;
+	fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &rp_core::ecdsa_bls381::Public) -> bool {
+		<rp_core::ecdsa_bls381::Pair as rp_core::Pair>::verify(self, msg.get(), signer)
 	}
 }
 
@@ -173,27 +173,27 @@ pub trait AppVerify {
 }
 
 impl<
-		S: Verify<Signer = <<T as AppCrypto>::Public as sp_application_crypto::AppPublic>::Generic>
+		S: Verify<Signer = <<T as AppCrypto>::Public as rp_application_crypto::AppPublic>::Generic>
 			+ From<T>,
-		T: sp_application_crypto::Wraps<Inner = S>
-			+ sp_application_crypto::AppCrypto
-			+ sp_application_crypto::AppSignature
+		T: rp_application_crypto::Wraps<Inner = S>
+			+ rp_application_crypto::AppCrypto
+			+ rp_application_crypto::AppSignature
 			+ AsRef<S>
 			+ AsMut<S>
 			+ From<S>,
 	> AppVerify for T
 where
 	<S as Verify>::Signer: IdentifyAccount<AccountId = <S as Verify>::Signer>,
-	<<T as AppCrypto>::Public as sp_application_crypto::AppPublic>::Generic: IdentifyAccount<
-		AccountId = <<T as AppCrypto>::Public as sp_application_crypto::AppPublic>::Generic,
+	<<T as AppCrypto>::Public as rp_application_crypto::AppPublic>::Generic: IdentifyAccount<
+		AccountId = <<T as AppCrypto>::Public as rp_application_crypto::AppPublic>::Generic,
 	>,
 {
 	type AccountId = <T as AppCrypto>::Public;
 	fn verify<L: Lazy<[u8]>>(&self, msg: L, signer: &<T as AppCrypto>::Public) -> bool {
-		use sp_application_crypto::IsWrappedBy;
+		use rp_application_crypto::IsWrappedBy;
 		let inner: &S = self.as_ref();
 		let inner_pubkey =
-			<<T as AppCrypto>::Public as sp_application_crypto::AppPublic>::Generic::from_ref(
+			<<T as AppCrypto>::Public as rp_application_crypto::AppPublic>::Generic::from_ref(
 				signer,
 			);
 		Verify::verify(inner, msg, inner_pubkey)
@@ -402,8 +402,8 @@ impl<T1, T2, T3, T4> Morph<(T1, T2, T3, T4)> for TakeFirst {
 /// # Examples
 ///
 /// ```
-/// # use sp_runtime::{morph_types, traits::{Morph, TryMorph, TypedGet, ConstU32}};
-/// # use sp_arithmetic::traits::CheckedSub;
+/// # use rp_runtime::{morph_types, traits::{Morph, TryMorph, TypedGet, ConstU32}};
+/// # use rp_arithmetic::traits::CheckedSub;
 ///
 /// morph_types! {
 ///    /// Replace by some other value; produce both `Morph` and `TryMorph` implementations
@@ -1061,24 +1061,24 @@ impl<T> HashOutput for T where
 pub struct BlakeTwo256;
 
 impl Hasher for BlakeTwo256 {
-	type Out = sp_core::H256;
+	type Out = rp_core::H256;
 	type StdHasher = hash256_std_hasher::Hash256StdHasher;
 	const LENGTH: usize = 32;
 
 	fn hash(s: &[u8]) -> Self::Out {
-		sp_io::hashing::blake2_256(s).into()
+		rp_io::hashing::blake2_256(s).into()
 	}
 }
 
 impl Hash for BlakeTwo256 {
-	type Output = sp_core::H256;
+	type Output = rp_core::H256;
 
 	fn ordered_trie_root(input: Vec<Vec<u8>>, version: StateVersion) -> Self::Output {
-		sp_io::trie::blake2_256_ordered_root(input, version)
+		rp_io::trie::blake2_256_ordered_root(input, version)
 	}
 
 	fn trie_root(input: Vec<(Vec<u8>, Vec<u8>)>, version: StateVersion) -> Self::Output {
-		sp_io::trie::blake2_256_root(input, version)
+		rp_io::trie::blake2_256_root(input, version)
 	}
 }
 
@@ -1088,24 +1088,24 @@ impl Hash for BlakeTwo256 {
 pub struct Keccak256;
 
 impl Hasher for Keccak256 {
-	type Out = sp_core::H256;
+	type Out = rp_core::H256;
 	type StdHasher = hash256_std_hasher::Hash256StdHasher;
 	const LENGTH: usize = 32;
 
 	fn hash(s: &[u8]) -> Self::Out {
-		sp_io::hashing::keccak_256(s).into()
+		rp_io::hashing::keccak_256(s).into()
 	}
 }
 
 impl Hash for Keccak256 {
-	type Output = sp_core::H256;
+	type Output = rp_core::H256;
 
 	fn ordered_trie_root(input: Vec<Vec<u8>>, version: StateVersion) -> Self::Output {
-		sp_io::trie::keccak_256_ordered_root(input, version)
+		rp_io::trie::keccak_256_ordered_root(input, version)
 	}
 
 	fn trie_root(input: Vec<(Vec<u8>, Vec<u8>)>, version: StateVersion) -> Self::Output {
-		sp_io::trie::keccak_256_root(input, version)
+		rp_io::trie::keccak_256_root(input, version)
 	}
 }
 
@@ -1115,10 +1115,10 @@ pub trait CheckEqual {
 	fn check_equal(&self, other: &Self);
 }
 
-impl CheckEqual for sp_core::H256 {
+impl CheckEqual for rp_core::H256 {
 	#[cfg(feature = "std")]
 	fn check_equal(&self, other: &Self) {
-		use sp_core::hexdisplay::HexDisplay;
+		use rp_core::hexdisplay::HexDisplay;
 		if self != other {
 			println!(
 				"Hash: given={}, expected={}",
@@ -1156,7 +1156,7 @@ impl CheckEqual for super::generic::DigestItem {
 	}
 }
 
-sp_core::impl_maybe_marker!(
+rp_core::impl_maybe_marker!(
 	/// A type that implements Display when in std environment.
 	trait MaybeDisplay: Display;
 
@@ -1167,7 +1167,7 @@ sp_core::impl_maybe_marker!(
 	trait MaybeHash: core::hash::Hash;
 );
 
-sp_core::impl_maybe_marker_std_or_serde!(
+rp_core::impl_maybe_marker_std_or_serde!(
 	/// A type that implements Serialize when in std environment or serde feature is activated.
 	trait MaybeSerialize: Serialize;
 
@@ -1564,7 +1564,7 @@ impl<T: BlindCheckable, Context> Checkable<Context> for T {
 /// A type that can handle weight refunds.
 pub trait RefundWeight {
 	/// Refund some unspent weight.
-	fn refund(&mut self, weight: sp_weights::Weight);
+	fn refund(&mut self, weight: rp_weights::Weight);
 }
 
 /// A type that can handle weight refunds and incorporate extension weights into the call weight
@@ -1575,7 +1575,7 @@ pub trait ExtensionPostDispatchWeightHandler<DispatchInfo>: RefundWeight {
 }
 
 impl RefundWeight for () {
-	fn refund(&mut self, _weight: sp_weights::Weight) {}
+	fn refund(&mut self, _weight: rp_weights::Weight) {}
 }
 
 impl ExtensionPostDispatchWeightHandler<()> for () {
@@ -2180,7 +2180,7 @@ macro_rules! impl_opaque_keys_inner {
 			#[allow(dead_code)]
 			pub fn generate(
 				owner: &[u8],
-				seed: Option<$crate::sp_std::vec::Vec<u8>>,
+				seed: Option<$crate::rp_std::vec::Vec<u8>>,
 			) -> $crate::traits::GeneratedSessionKeys<
 				Self,
 				(
@@ -2257,7 +2257,7 @@ macro_rules! impl_opaque_keys_inner {
 			pub fn create_ownership_proof(
 				&mut self,
 				owner: &[u8],
-			) -> $crate::sp_std::result::Result<
+			) -> $crate::rp_std::result::Result<
 				(
 					$(
 						<
@@ -2362,7 +2362,7 @@ pub struct GeneratedSessionKeys<Keys, Proof> {
 /// struct. Each signature is created by signing the `owner` given to the `generate` function.
 ///
 /// ```rust
-/// use sp_runtime::{
+/// use rp_runtime::{
 /// 	impl_opaque_keys, KeyTypeId, BoundToRuntimeAppPublic, app_crypto::{sr25519, ed25519}
 /// };
 ///
@@ -2468,25 +2468,25 @@ impl Printable for usize {
 
 impl Printable for u64 {
 	fn print(&self) {
-		sp_io::misc::print_num(*self);
+		rp_io::misc::print_num(*self);
 	}
 }
 
 impl Printable for &[u8] {
 	fn print(&self) {
-		sp_io::misc::print_hex(self);
+		rp_io::misc::print_hex(self);
 	}
 }
 
 impl<const N: usize> Printable for [u8; N] {
 	fn print(&self) {
-		sp_io::misc::print_hex(&self[..]);
+		rp_io::misc::print_hex(&self[..]);
 	}
 }
 
 impl Printable for &str {
 	fn print(&self) {
-		sp_io::misc::print_utf8(self.as_bytes());
+		rp_io::misc::print_utf8(self.as_bytes());
 	}
 }
 
@@ -2500,7 +2500,7 @@ impl Printable for bool {
 	}
 }
 
-impl Printable for sp_weights::Weight {
+impl Printable for rp_weights::Weight {
 	fn print(&self) {
 		self.ref_time().print()
 	}
@@ -2559,7 +2559,7 @@ pub trait BlockNumberProvider {
 	/// Provides an abstraction over an arbitrary way of providing the
 	/// current block number.
 	///
-	/// In case of using crate `sp_runtime` with the crate `frame-system`,
+	/// In case of using crate `rp_runtime` with the crate `frame-system`,
 	/// it is already implemented for
 	/// `frame_system::Pallet<T: Config>` as:
 	///
@@ -2592,8 +2592,8 @@ mod tests {
 	use super::*;
 	use crate::codec::{Decode, Encode, Input};
 	#[cfg(feature = "bls-experimental")]
-	use sp_core::ecdsa_bls381;
-	use sp_core::{
+	use rp_core::ecdsa_bls381;
+	use rp_core::{
 		crypto::{Pair, UncheckedFrom},
 		ecdsa, ed25519,
 		proof_of_possession::ProofOfPossessionGenerator,
@@ -2616,8 +2616,8 @@ mod tests {
 	}
 
 	mod t {
-		use sp_application_crypto::{app_crypto, sr25519};
-		use sp_core::crypto::KeyTypeId;
+		use rp_application_crypto::{app_crypto, sr25519};
+		use rp_core::crypto::KeyTypeId;
 		app_crypto!(sr25519, KeyTypeId(*b"test"));
 	}
 
@@ -2747,17 +2747,17 @@ mod tests {
 
 	pub struct Sr25519Key;
 	impl crate::BoundToRuntimeAppPublic for Sr25519Key {
-		type Public = sp_application_crypto::sr25519::AppPublic;
+		type Public = rp_application_crypto::sr25519::AppPublic;
 	}
 
 	pub struct Ed25519Key;
 	impl crate::BoundToRuntimeAppPublic for Ed25519Key {
-		type Public = sp_application_crypto::ed25519::AppPublic;
+		type Public = rp_application_crypto::ed25519::AppPublic;
 	}
 
 	pub struct EcdsaKey;
 	impl crate::BoundToRuntimeAppPublic for EcdsaKey {
-		type Public = sp_application_crypto::ecdsa::AppPublic;
+		type Public = rp_application_crypto::ecdsa::AppPublic;
 	}
 
 	impl_opaque_keys! {
@@ -2771,9 +2771,9 @@ mod tests {
 
 	#[test]
 	fn opaque_keys_ownership_proof_works() {
-		let mut sr25519 = sp_core::sr25519::Pair::generate().0;
-		let mut ed25519 = sp_core::ed25519::Pair::generate().0;
-		let mut ecdsa = sp_core::ecdsa::Pair::generate().0;
+		let mut sr25519 = rp_core::sr25519::Pair::generate().0;
+		let mut ed25519 = rp_core::ed25519::Pair::generate().0;
+		let mut ecdsa = rp_core::ecdsa::Pair::generate().0;
 
 		let session_keys = SessionKeys {
 			sr25519: sr25519.public().into(),
@@ -2821,9 +2821,9 @@ mod tests {
 		let proof = (&sr25519_sig, &ed25519_sig, &ecdsa_sig, "hello").encode();
 		assert!(!session_keys.ownership_proof_is_valid(owner, &proof));
 
-		let mut ext = sp_io::TestExternalities::default();
-		ext.register_extension(sp_keystore::KeystoreExt(Arc::new(
-			sp_keystore::testing::MemoryKeystore::new(),
+		let mut ext = rp_io::TestExternalities::default();
+		ext.register_extension(rp_keystore::KeystoreExt(Arc::new(
+			rp_keystore::testing::MemoryKeystore::new(),
 		)));
 
 		ext.execute_with(|| {

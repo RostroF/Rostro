@@ -56,14 +56,14 @@ use futures::{
 };
 use parking_lot::Mutex;
 use prometheus_endpoint::Registry as PrometheusRegistry;
-use sc_transaction_pool_api::{
+use rc_transaction_pool_api::{
 	error::Error as TxPoolApiError, ChainEvent, ImportNotificationStream,
 	MaintainedTransactionPool, PoolStatus, TransactionFor, TransactionPool, TransactionSource,
 	TransactionStatusStreamFor, TxHash, TxInvalidityReportMap,
 };
-use sp_blockchain::{HashAndNumber, TreeRoute};
-use sp_core::traits::SpawnEssentialNamed;
-use sp_runtime::{
+use rp_blockchain::{HashAndNumber, TreeRoute};
+use rp_core::traits::SpawnEssentialNamed;
+use rp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, NumberFor},
 	transaction_validity::{TransactionTag as Tag, TransactionValidityError, ValidTransaction},
@@ -1148,7 +1148,7 @@ where
 	}
 }
 
-impl<ChainApi, Block> sc_transaction_pool_api::LocalTransactionPool
+impl<ChainApi, Block> rc_transaction_pool_api::LocalTransactionPool
 	for ForkAwareTxPool<ChainApi, Block>
 where
 	Block: BlockT,
@@ -1162,7 +1162,7 @@ where
 	fn submit_local(
 		&self,
 		at: Block::Hash,
-		xt: sc_transaction_pool_api::LocalTransactionFor<Self>,
+		xt: rc_transaction_pool_api::LocalTransactionFor<Self>,
 	) -> Result<Self::Hash, Self::Error> {
 		trace!(
 			target: LOG_TARGET,
@@ -2069,17 +2069,17 @@ where
 impl<Block, Client> ForkAwareTxPool<FullChainApi<Client, Block>, Block>
 where
 	Block: BlockT,
-	Client: sp_api::ProvideRuntimeApi<Block>
-		+ sc_client_api::BlockBackend<Block>
-		+ sc_client_api::blockchain::HeaderBackend<Block>
-		+ sp_runtime::traits::BlockIdTo<Block>
-		+ sc_client_api::ExecutorProvider<Block>
-		+ sc_client_api::UsageProvider<Block>
-		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>
+	Client: rp_api::ProvideRuntimeApi<Block>
+		+ rc_client_api::BlockBackend<Block>
+		+ rc_client_api::blockchain::HeaderBackend<Block>
+		+ rp_runtime::traits::BlockIdTo<Block>
+		+ rc_client_api::ExecutorProvider<Block>
+		+ rc_client_api::UsageProvider<Block>
+		+ rp_blockchain::HeaderMetadata<Block, Error = rp_blockchain::Error>
 		+ Send
 		+ Sync
 		+ 'static,
-	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
+	Client::Api: rp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
 	<Block as BlockT>::Hash: std::marker::Unpin,
 {
 	/// Create new fork aware transaction pool for a full node with the provided api.
@@ -2108,7 +2108,7 @@ where
 #[cfg(test)]
 mod reduce_multiview_result_tests {
 	use super::*;
-	use sp_core::H256;
+	use rp_core::H256;
 	#[derive(Debug, PartialEq, Clone)]
 	enum Error {
 		Custom(u8),
@@ -2116,7 +2116,7 @@ mod reduce_multiview_result_tests {
 
 	#[test]
 	fn empty() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let input = HashMap::default();
 		let r = reduce_multiview_result::<H256, H256, Error>(input);
 		assert!(r.is_empty());
@@ -2124,7 +2124,7 @@ mod reduce_multiview_result_tests {
 
 	#[test]
 	fn errors_only() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let v: Vec<(H256, Vec<Result<H256, Error>>)> = vec![
 			(
 				H256::repeat_byte(0x13),
@@ -2165,7 +2165,7 @@ mod reduce_multiview_result_tests {
 	#[should_panic]
 	#[cfg(debug_assertions)]
 	fn invalid_lengths() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let v: Vec<(H256, Vec<Result<H256, Error>>)> = vec![
 			(H256::repeat_byte(0x13), vec![Err(Error::Custom(12)), Err(Error::Custom(13))]),
 			(H256::repeat_byte(0x14), vec![Err(Error::Custom(23))]),
@@ -2176,7 +2176,7 @@ mod reduce_multiview_result_tests {
 
 	#[test]
 	fn only_hashes() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let v: Vec<(H256, Vec<Result<H256, Error>>)> = vec![
 			(
@@ -2196,7 +2196,7 @@ mod reduce_multiview_result_tests {
 
 	#[test]
 	fn one_view() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let v: Vec<(H256, Vec<Result<H256, Error>>)> = vec![(
 			H256::repeat_byte(0x13),
 			vec![Ok(H256::repeat_byte(0x10)), Err(Error::Custom(11))],
@@ -2209,7 +2209,7 @@ mod reduce_multiview_result_tests {
 
 	#[test]
 	fn mix() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let v: Vec<(H256, Vec<Result<H256, Error>>)> = vec![
 			(
 				H256::repeat_byte(0x13),

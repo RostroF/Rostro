@@ -22,9 +22,9 @@ use crate::testing::{allow_unsafe, test_executor, timeout_secs};
 use assert_matches::assert_matches;
 use futures::executor;
 use jsonrpsee::{core::EmptyServerParams as EmptyParams, MethodsError as RpcError};
-use sc_block_builder::BlockBuilderBuilder;
-use sp_consensus::BlockOrigin;
-use sp_core::{hash::H256, storage::ChildInfo};
+use rc_block_builder::BlockBuilderBuilder;
+use rp_consensus::BlockOrigin;
+use rp_core::{hash::H256, storage::ChildInfo};
 use std::sync::Arc;
 use substrate_test_runtime_client::{
 	prelude::*,
@@ -253,9 +253,9 @@ async fn should_send_initial_storage_changes_and_notifications() {
 		let (api, _child) = new_full(client.clone(), test_executor(), None);
 
 		let alice_balance_key = [
-			sp_crypto_hashing::twox_128(b"System"),
-			sp_crypto_hashing::twox_128(b"Account"),
-			sp_crypto_hashing::blake2_128(&Sr25519Keyring::Alice.public()),
+			rp_crypto_hashing::twox_128(b"System"),
+			rp_crypto_hashing::twox_128(b"Account"),
+			rp_crypto_hashing::blake2_128(&Sr25519Keyring::Alice.public()),
 		]
 		.concat()
 		.iter()

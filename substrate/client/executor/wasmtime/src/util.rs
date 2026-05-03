@@ -17,11 +17,11 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::{runtime::StoreData, InstantiationStrategy};
-use sc_executor_common::{
+use rc_executor_common::{
 	error::{Error, Result},
 	util::checked_range,
 };
-use sp_wasm_interface::Pointer;
+use rp_wasm_interface::Pointer;
 use wasmtime::{AsContext, AsContextMut};
 
 /// Read data from the instance memory into a slice.

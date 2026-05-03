@@ -29,11 +29,11 @@ use frame_support::{
 	weights::Weight,
 	OrdNoBound, PartialOrdNoBound,
 };
-use sp_io::{
+use rp_io::{
 	hashing::{blake2_128, twox_128, twox_64},
 	TestExternalities,
 };
-use sp_runtime::{DispatchError, ModuleError};
+use rp_runtime::{DispatchError, ModuleError};
 
 #[frame_support::pallet(dev_mode)]
 pub mod pallet {
@@ -305,10 +305,10 @@ impl frame_system::Config for Runtime {
 	type RuntimeOrigin = RuntimeOrigin;
 	type Nonce = u64;
 	type RuntimeCall = RuntimeCall;
-	type Hash = sp_runtime::testing::H256;
-	type Hashing = sp_runtime::traits::BlakeTwo256;
+	type Hash = rp_runtime::testing::H256;
+	type Hashing = rp_runtime::traits::BlakeTwo256;
 	type AccountId = u64;
-	type Lookup = sp_runtime::traits::IdentityLookup<Self::AccountId>;
+	type Lookup = rp_runtime::traits::IdentityLookup<Self::AccountId>;
 	type Block = Block;
 	type RuntimeEvent = RuntimeEvent;
 	type BlockWeights = ();
@@ -341,9 +341,9 @@ impl pallet2::Config<pallet::Instance1> for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 }
 
-pub type Header = sp_runtime::generic::Header<u32, sp_runtime::traits::BlakeTwo256>;
-pub type Block = sp_runtime::generic::Block<Header, UncheckedExtrinsic>;
-pub type UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic<u32, RuntimeCall, (), ()>;
+pub type Header = rp_runtime::generic::Header<u32, rp_runtime::traits::BlakeTwo256>;
+pub type Block = rp_runtime::generic::Block<Header, UncheckedExtrinsic>;
+pub type UncheckedExtrinsic = rp_runtime::generic::UncheckedExtrinsic<u32, RuntimeCall, (), ()>;
 
 frame_support::construct_runtime!(
 	pub struct Runtime
@@ -771,7 +771,7 @@ fn metadata() {
 			},
 			PalletConstantMetadata {
 				name: "Version",
-				ty: scale_info::meta_type::<sp_version::RuntimeVersion>(),
+				ty: scale_info::meta_type::<rp_version::RuntimeVersion>(),
 				value: vec![],
 				docs: vec![],
 			},

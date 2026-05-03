@@ -17,7 +17,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use clap::{Args, ValueEnum};
-use sc_transaction_pool::TransactionPoolOptions;
+use rc_transaction_pool::TransactionPoolOptions;
 
 /// Type of transaction pool to be used
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -29,13 +29,13 @@ pub enum TransactionPoolType {
 	ForkAware,
 }
 
-impl Into<sc_transaction_pool::TransactionPoolType> for TransactionPoolType {
-	fn into(self) -> sc_transaction_pool::TransactionPoolType {
+impl Into<rc_transaction_pool::TransactionPoolType> for TransactionPoolType {
+	fn into(self) -> rc_transaction_pool::TransactionPoolType {
 		match self {
 			TransactionPoolType::SingleState => {
-				sc_transaction_pool::TransactionPoolType::SingleState
+				rc_transaction_pool::TransactionPoolType::SingleState
 			},
-			TransactionPoolType::ForkAware => sc_transaction_pool::TransactionPoolType::ForkAware,
+			TransactionPoolType::ForkAware => rc_transaction_pool::TransactionPoolType::ForkAware,
 		}
 	}
 }

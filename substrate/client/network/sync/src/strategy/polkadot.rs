@@ -34,13 +34,13 @@ use crate::{
 };
 use log::{debug, error, info, warn};
 use prometheus_endpoint::Registry;
-use sc_client_api::{BlockBackend, ProofProvider};
-use sc_consensus::{BlockImportError, BlockImportStatus};
-use sc_network::ProtocolName;
-use sc_network_common::sync::{message::BlockAnnounce, SyncMode};
-use sc_network_types::PeerId;
-use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
-use sp_runtime::traits::{Block as BlockT, Header, NumberFor};
+use rc_client_api::{BlockBackend, ProofProvider};
+use rc_consensus::{BlockImportError, BlockImportStatus};
+use rc_network::ProtocolName;
+use rc_network_common::sync::{message::BlockAnnounce, SyncMode};
+use rc_network_types::PeerId;
+use rp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
+use rp_runtime::traits::{Block as BlockT, Header, NumberFor};
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 /// Corresponding `ChainSync` mode.
@@ -101,7 +101,7 @@ where
 	B: BlockT,
 	Client: HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = sp_blockchain::Error>
+		+ HeaderMetadata<B, Error = rp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync
@@ -340,7 +340,7 @@ where
 	B: BlockT,
 	Client: HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = sp_blockchain::Error>
+		+ HeaderMetadata<B, Error = rp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync

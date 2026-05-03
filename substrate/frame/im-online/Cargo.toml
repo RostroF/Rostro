@@ -23,11 +23,11 @@ frame-system = { workspace = true }
 log = { workspace = true }
 pallet-authorship = { workspace = true }
 scale-info = { features = ["derive", "serde"], workspace = true }
-sp-application-crypto = { features = ["serde"], workspace = true }
-sp-core = { features = ["serde"], workspace = true }
-sp-io = { workspace = true }
-sp-runtime = { features = ["serde"], workspace = true }
-sp-staking = { features = ["serde"], workspace = true }
+rp-application-crypto = { features = ["serde"], workspace = true }
+rp-core = { features = ["serde"], workspace = true }
+rp-io = { workspace = true }
+rp-runtime = { features = ["serde"], workspace = true }
+rp-staking = { features = ["serde"], workspace = true }
 
 [dev-dependencies]
 pallet-balances = { workspace = true, default-features = false }
@@ -44,11 +44,11 @@ std = [
 	"pallet-authorship/std",
 	"pallet-balances/std",
 	"scale-info/std",
-	"sp-application-crypto/std",
-	"sp-core/std",
-	"sp-io/std",
-	"sp-runtime/std",
-	"sp-staking/std",
+	"rp-application-crypto/std",
+	"rp-core/std",
+	"rp-io/std",
+	"rp-runtime/std",
+	"rp-staking/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
@@ -56,8 +56,8 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-session/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
-	"sp-staking/runtime-benchmarks",
+	"rp-runtime/runtime-benchmarks",
+	"rp-staking/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
@@ -65,5 +65,5 @@ try-runtime = [
 	"pallet-authorship/try-runtime",
 	"pallet-balances/try-runtime",
 	"pallet-session/try-runtime",
-	"sp-runtime/try-runtime",
+	"rp-runtime/try-runtime",
 ]

@@ -18,7 +18,7 @@
 mod test {
 	#![allow(unexpected_cfgs)]
 
-    use sp_runtime_interface::runtime_interface;
+    use rp_runtime_interface::runtime_interface;
 
 	#[runtime_interface]
     trait Test {

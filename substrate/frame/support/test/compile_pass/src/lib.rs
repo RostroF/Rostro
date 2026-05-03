@@ -26,12 +26,12 @@ use frame_support::{
 	construct_runtime, derive_impl, parameter_types,
 	traits::{ConstU16, ConstU32, ConstU64, Everything},
 };
-use sp_core::{sr25519, H256};
-use sp_runtime::{
+use rp_core::{sr25519, H256};
+use rp_runtime::{
 	generic,
 	traits::{BlakeTwo256, IdentityLookup, Verify},
 };
-use sp_version::RuntimeVersion;
+use rp_version::RuntimeVersion;
 
 pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: alloc::borrow::Cow::Borrowed("frame-support-test-compile-pass"),
@@ -39,7 +39,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	authoring_version: 0,
 	spec_version: 0,
 	impl_version: 0,
-	apis: sp_version::create_apis_vec!([]),
+	apis: rp_version::create_apis_vec!([]),
 	transaction_version: 0,
 	system_version: 0,
 };

@@ -31,15 +31,15 @@ extern crate alloc;
 use alloc::{vec, vec::Vec};
 pub use pallet::*;
 use pallet_session::historical::IdentificationTuple;
-use sp_runtime::{traits::Convert, Perbill};
-use sp_staking::offence::{Kind, Offence, OnOffenceHandler};
+use rp_runtime::{traits::Convert, Perbill};
+use rp_staking::offence::{Kind, Offence, OnOffenceHandler};
 
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use sp_staking::{offence::ReportOffence, SessionIndex};
+	use rp_staking::{offence::ReportOffence, SessionIndex};
 
 	/// Custom offence type for testing spam scenarios.
 	///
@@ -122,7 +122,7 @@ pub mod pallet {
 		FailedToGetActiveEra,
 	}
 
-	type OffenceDetails<T> = sp_staking::offence::OffenceDetails<
+	type OffenceDetails<T> = rp_staking::offence::OffenceDetails<
 		<T as frame_system::Config>::AccountId,
 		IdentificationTuple<T>,
 	>;

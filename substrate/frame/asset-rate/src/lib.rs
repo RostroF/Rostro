@@ -66,7 +66,7 @@ use frame_support::traits::{
 	fungible::Inspect,
 	tokens::{ConversionFromAssetBalance, ConversionToAssetBalance},
 };
-use sp_runtime::{
+use rp_runtime::{
 	traits::{CheckedDiv, Zero},
 	FixedPointNumber, FixedU128,
 };

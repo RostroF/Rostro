@@ -1,5 +1,5 @@
 [package]
-name = "sc-authority-discovery"
+name = "rc-authority-discovery"
 version = "0.56.0"
 authors.workspace = true
 edition.workspace = true
@@ -27,25 +27,25 @@ log = { workspace = true, default-features = true }
 prometheus-endpoint = { default-features = true, workspace = true }
 prost = { workspace = true }
 rand = { workspace = true, default-features = true }
-sc-client-api = { default-features = true, workspace = true }
-sc-network = { default-features = true, workspace = true }
-sc-network-types = { default-features = true, workspace = true }
-sc-service = { workspace = true }
+rc-client-api = { default-features = true, workspace = true }
+rc-network = { default-features = true, workspace = true }
+rc-network-types = { default-features = true, workspace = true }
+rc-service = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sp-api = { default-features = true, workspace = true }
-sp-authority-discovery = { default-features = true, workspace = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-keystore = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
+rp-api = { default-features = true, workspace = true }
+rp-authority-discovery = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-keystore = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }
 quickcheck = { workspace = true }
-sp-tracing = { default-features = true, workspace = true }
+rp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tempfile = { workspace = true }
 

@@ -22,7 +22,7 @@
 
 use crate::{mock::*, *};
 use frame_support::storage::{StorageAppender, StoragePrefixedContainer};
-use sp_io::TestExternalities;
+use rp_io::TestExternalities;
 
 #[docify::export]
 #[test]

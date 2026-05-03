@@ -21,7 +21,7 @@
 use std::{future::Future, sync::Arc};
 
 use jsonrpsee::Extensions;
-use sc_rpc_api::DenyUnsafe;
+use rc_rpc_api::DenyUnsafe;
 
 /// A task executor that can be used for running RPC tests.
 ///
@@ -42,7 +42,7 @@ impl Default for TokioTestExecutor {
 	}
 }
 
-impl sp_core::traits::SpawnNamed for TokioTestExecutor {
+impl rp_core::traits::SpawnNamed for TokioTestExecutor {
 	fn spawn_blocking(
 		&self,
 		_name: &'static str,

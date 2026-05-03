@@ -19,7 +19,7 @@
 
 use crate::{mock::*, *};
 use frame_support::{assert_noop, assert_ok};
-use sp_runtime::{bounded_vec, traits::BadOrigin};
+use rp_runtime::{bounded_vec, traits::BadOrigin};
 
 #[test]
 fn basic_setup_works() {

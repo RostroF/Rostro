@@ -31,19 +31,19 @@ use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use sp_runtime::{traits::Header, ConsensusEngineId};
+use rp_runtime::{traits::Header, ConsensusEngineId};
 
 use crate::digests::{NextConfigDescriptor, NextEpochDescriptor};
 
-pub use sp_core::sr25519::vrf::{
+pub use rp_core::sr25519::vrf::{
 	VrfInput, VrfPreOutput, VrfProof, VrfSignData, VrfSignature, VrfTranscript,
 };
 
 /// Key type for BABE module.
-pub const KEY_TYPE: sp_core::crypto::KeyTypeId = sp_application_crypto::key_types::BABE;
+pub const KEY_TYPE: rp_core::crypto::KeyTypeId = rp_application_crypto::key_types::BABE;
 
 mod app {
-	use sp_application_crypto::{app_crypto, key_types::BABE, sr25519};
+	use rp_application_crypto::{app_crypto, key_types::BABE, sr25519};
 	app_crypto!(sr25519, BABE);
 }
 
@@ -82,10 +82,10 @@ pub const MEDIAN_ALGORITHM_CARDINALITY: usize = 1200; // arbitrary suggestion by
 /// The index of an authority.
 pub type AuthorityIndex = u32;
 
-pub use sp_consensus_slots::{Slot, SlotDuration};
+pub use rp_consensus_slots::{Slot, SlotDuration};
 
 /// An equivocation proof for multiple block authorships on the same slot (i.e. double vote).
-pub type EquivocationProof<H> = sp_consensus_slots::EquivocationProof<H, AuthorityId>;
+pub type EquivocationProof<H> = rp_consensus_slots::EquivocationProof<H, AuthorityId>;
 
 /// The weight of an authority.
 // NOTE: we use a unique name for the weight to avoid conflicts with other
@@ -284,7 +284,7 @@ where
 	H: Header,
 {
 	use digests::*;
-	use sp_application_crypto::RuntimeAppPublic;
+	use rp_application_crypto::RuntimeAppPublic;
 
 	let find_pre_digest =
 		|header: &H| header.digest().logs().iter().find_map(|log| log.as_babe_pre_digest());
@@ -394,7 +394,7 @@ pub fn epoch_start_slot(epoch_index: u64, genesis_slot: Slot, epoch_duration: u6
 		.into()
 }
 
-sp_api::decl_runtime_apis! {
+rp_api::decl_runtime_apis! {
 	/// API necessary for block authorship with BABE.
 	#[api_version(2)]
 	pub trait BabeApi {

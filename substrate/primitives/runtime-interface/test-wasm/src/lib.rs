@@ -21,7 +21,7 @@
 
 extern crate alloc;
 
-use sp_runtime_interface::{
+use rp_runtime_interface::{
 	pass_by::{
 		AllocateAndReturnByCodec, AllocateAndReturnFatPointer, AllocateAndReturnPointer, PassAs,
 		PassFatPointerAndDecode, PassFatPointerAndDecodeSlice, PassFatPointerAndRead,
@@ -35,7 +35,7 @@ use sp_runtime_interface::{
 use core::mem;
 
 use alloc::{vec, vec::Vec};
-use sp_core::{sr25519::Public, wasm_export_functions};
+use rp_core::{sr25519::Public, wasm_export_functions};
 
 // Include the WASM binary
 #[cfg(feature = "std")]
@@ -234,11 +234,11 @@ impl TryFrom<u32> for Opaque {
 	}
 }
 
-/// This function is not used, but we require it for the compiler to include `sp-io`.
-/// `sp-io` is required for its panic and oom handler.
+/// This function is not used, but we require it for the compiler to include `rp-io`.
+/// `rp-io` is required for its panic and oom handler.
 #[no_mangle]
 pub fn import_sp_io() {
-	sp_io::misc::print_utf8(&[]);
+	rp_io::misc::print_utf8(&[]);
 }
 
 wasm_export_functions! {
@@ -353,7 +353,7 @@ wasm_export_functions! {
 
 	fn test_versioning_works() {
 		// we fix new api to accept only 42 as a proper input
-		// as opposed to sp-runtime-interface-test-wasm-deprecated::test_api::verify_input
+		// as opposed to rp-runtime-interface-test-wasm-deprecated::test_api::verify_input
 		// which accepted 42 and 50.
 		assert!(test_api::test_versioning(42));
 

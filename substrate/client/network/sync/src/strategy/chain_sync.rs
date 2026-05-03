@@ -49,17 +49,17 @@ use futures::{channel::oneshot, FutureExt};
 use log::{debug, error, info, trace, warn};
 use prometheus_endpoint::{register, Gauge, PrometheusError, Registry, U64};
 use prost::Message;
-use sc_client_api::{blockchain::BlockGap, BlockBackend, ProofProvider};
-use sc_consensus::{BlockImportError, BlockImportStatus, IncomingBlock};
-use sc_network::{IfDisconnected, ProtocolName};
-use sc_network_common::sync::message::{
+use rc_client_api::{blockchain::BlockGap, BlockBackend, ProofProvider};
+use rc_consensus::{BlockImportError, BlockImportStatus, IncomingBlock};
+use rc_network::{IfDisconnected, ProtocolName};
+use rc_network_common::sync::message::{
 	BlockAnnounce, BlockAttributes, BlockData, BlockRequest, BlockResponse, Direction, FromBlock,
 };
-use sc_network_types::PeerId;
-use sp_arithmetic::traits::Saturating;
-use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
-use sp_consensus::{BlockOrigin, BlockStatus};
-use sp_runtime::{
+use rc_network_types::PeerId;
+use rp_arithmetic::traits::Saturating;
+use rp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
+use rp_consensus::{BlockOrigin, BlockStatus};
+use rp_runtime::{
 	traits::{
 		Block as BlockT, CheckedSub, Header as HeaderT, NumberFor, One, SaturatedConversion, Zero,
 	},
@@ -98,7 +98,7 @@ const STATE_SYNC_FINALITY_THRESHOLD: u32 = 8;
 const MAJOR_SYNC_BLOCKS: u8 = 5;
 
 mod rep {
-	use sc_network::ReputationChange as Rep;
+	use rc_network::ReputationChange as Rep;
 	/// Reputation change when a peer sent us a message that led to a
 	/// database read error.
 	pub const BLOCKCHAIN_READ_ERROR: Rep = Rep::new(-(1 << 16), "DB Error");
@@ -440,7 +440,7 @@ where
 	B: BlockT,
 	Client: HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = sp_blockchain::Error>
+		+ HeaderMetadata<B, Error = rp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync
@@ -1045,7 +1045,7 @@ where
 	B: BlockT,
 	Client: HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = sp_blockchain::Error>
+		+ HeaderMetadata<B, Error = rp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync
@@ -2474,16 +2474,16 @@ fn is_descendent_of<Block, T>(
 	client: &T,
 	base: &Block::Hash,
 	block: &Block::Hash,
-) -> sp_blockchain::Result<bool>
+) -> rp_blockchain::Result<bool>
 where
 	Block: BlockT,
-	T: HeaderMetadata<Block, Error = sp_blockchain::Error> + ?Sized,
+	T: HeaderMetadata<Block, Error = rp_blockchain::Error> + ?Sized,
 {
 	if base == block {
 		return Ok(false);
 	}
 
-	let ancestor = sp_blockchain::lowest_common_ancestor(client, *block, *base)?;
+	let ancestor = rp_blockchain::lowest_common_ancestor(client, *block, *base)?;
 
 	Ok(ancestor.hash == *base)
 }

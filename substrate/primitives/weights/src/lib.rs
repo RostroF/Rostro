@@ -19,7 +19,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-extern crate self as sp_weights;
+extern crate self as rp_weights;
 
 mod weight_meter;
 mod weight_v2;
@@ -30,7 +30,7 @@ use scale_info::TypeInfo;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use sp_arithmetic::{
+use rp_arithmetic::{
 	traits::{BaseArithmetic, SaturatedConversion, Unsigned},
 	Perbill,
 };
@@ -245,7 +245,7 @@ pub type NoFee<T> = FixedFee<0, T>;
 ///
 /// ```
 /// # use bounded_collections::ConstU128;
-/// # use sp_weights::ConstantMultiplier;
+/// # use rp_weights::ConstantMultiplier;
 /// // Results in a multiplier of 10 for each unit of weight (or length)
 /// type LengthToFee = ConstantMultiplier::<u128, ConstU128<10u128>>;
 /// ```

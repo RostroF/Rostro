@@ -129,7 +129,7 @@ pub mod weights;
 #[cfg(doc)]
 pub use frame_support::traits::Hooks;
 #[cfg(doc)]
-pub use sp_staking::StakingInterface;
+pub use rp_staking::StakingInterface;
 
 /// The logging target of this pallet.
 pub const LOG_TARGET: &'static str = "runtime::fast-unstake";
@@ -154,12 +154,12 @@ pub mod pallet {
 		traits::{Defensive, ReservableCurrency, StorageVersion},
 	};
 	use frame_system::pallet_prelude::*;
-	use sp_runtime::{traits::Zero, DispatchResult};
-	use sp_staking::{EraIndex, StakingInterface};
+	use rp_runtime::{traits::Zero, DispatchResult};
+	use rp_staking::{EraIndex, StakingInterface};
 	pub use weights::WeightInfo;
 
 	#[cfg(feature = "try-runtime")]
-	use sp_runtime::TryRuntimeError;
+	use rp_runtime::TryRuntimeError;
 
 	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 

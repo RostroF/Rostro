@@ -29,9 +29,9 @@ use log::{debug, trace, warn};
 use prometheus_endpoint::{
 	prometheus::core::GenericGauge, register, GaugeVec, Opts, PrometheusError, Registry, U64,
 };
-use sc_network_types::PeerId;
-use sp_blockchain::Error as ClientError;
-use sp_runtime::traits::{Block as BlockT, NumberFor, Zero};
+use rc_network_types::PeerId;
+use rp_blockchain::Error as ClientError;
+use rp_runtime::traits::{Block as BlockT, NumberFor, Zero};
 use std::{
 	collections::{HashMap, HashSet, VecDeque},
 	time::{Duration, Instant},
@@ -442,8 +442,8 @@ mod tests {
 	use super::*;
 	use crate::strategy::chain_sync::PeerSync;
 	use quickcheck::{Arbitrary, Gen, QuickCheck};
-	use sp_blockchain::Error as ClientError;
-	use sp_test_primitives::{Block, BlockNumber, Hash};
+	use rp_blockchain::Error as ClientError;
+	use rp_test_primitives::{Block, BlockNumber, Hash};
 	use std::collections::{HashMap, HashSet};
 
 	#[test]
@@ -568,7 +568,7 @@ mod tests {
 
 	#[test]
 	fn request_is_rescheduled_when_earlier_block_is_finalized() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let mut finality_proofs = ExtraRequests::<Block>::new("test", None);
 

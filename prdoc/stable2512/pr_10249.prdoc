@@ -1,7 +1,0 @@
-title: 'remote-externalities: Remove old code'
-doc:
-- audience: Runtime Dev
-  description: The underlying issue was solved by now.
-crates:
-- name: frame-remote-externalities
-  bump: patch

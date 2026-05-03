@@ -29,15 +29,15 @@ use codec::Codec;
 #[cfg(feature = "std")]
 use hash_db::HashDB;
 use hash_db::Hasher;
-use sp_core::storage::{ChildInfo, StateVersion};
+use rp_core::storage::{ChildInfo, StateVersion};
 #[cfg(feature = "std")]
-use sp_trie::{
+use rp_trie::{
 	cache::{LocalTrieCache, TrieCache},
 	MemoryDB,
 };
 #[cfg(not(feature = "std"))]
-use sp_trie::{Error, NodeCodec};
-use sp_trie::{MerkleValue, PrefixedMemoryDB, StorageProof, TrieRecorderProvider};
+use rp_trie::{Error, NodeCodec};
+use rp_trie::{MerkleValue, PrefixedMemoryDB, StorageProof, TrieRecorderProvider};
 
 use trie_db::TrieCache as TrieCacheT;
 #[cfg(not(feature = "std"))]
@@ -46,7 +46,7 @@ use trie_db::{node::NodeOwned, CachedValue};
 /// A provider of trie caches that are compatible with [`trie_db::TrieDB`].
 pub trait TrieCacheProvider<H: Hasher> {
 	/// Cache type that implements [`trie_db::TrieCache`].
-	type Cache<'a>: TrieCacheT<sp_trie::NodeCodec<H>> + 'a
+	type Cache<'a>: TrieCacheT<rp_trie::NodeCodec<H>> + 'a
 	where
 		Self: 'a;
 
@@ -168,7 +168,7 @@ impl<H: Hasher> TrieCacheProvider<H> for UnimplementedCacheProvider<H> {
 #[cfg(not(feature = "std"))]
 pub struct UnimplementedRecorderProvider<H> {
 	// Not strictly necessary, but the H bound allows to use this as a drop-in
-	// replacement for the [`sp_trie::recorder::Recorder`] in no-std contexts.
+	// replacement for the [`rp_trie::recorder::Recorder`] in no-std contexts.
 	_phantom: core::marker::PhantomData<H>,
 }
 
@@ -206,7 +206,7 @@ type DefaultCache<H> = LocalTrieCache<H>;
 type DefaultCache<H> = UnimplementedCacheProvider<H>;
 
 #[cfg(feature = "std")]
-type DefaultRecorder<H> = sp_trie::recorder::Recorder<H>;
+type DefaultRecorder<H> = rp_trie::recorder::Recorder<H>;
 
 #[cfg(not(feature = "std"))]
 type DefaultRecorder<H> = UnimplementedRecorderProvider<H>;
@@ -577,9 +577,9 @@ pub mod tests {
 
 	use super::*;
 	use codec::Encode;
-	use sp_core::H256;
-	use sp_runtime::traits::BlakeTwo256;
-	use sp_trie::{
+	use rp_core::H256;
+	use rp_runtime::traits::BlakeTwo256;
+	use rp_trie::{
 		cache::{CacheSize, SharedTrieCache},
 		trie_types::{TrieDBBuilder, TrieDBMutBuilderV0, TrieDBMutBuilderV1},
 		KeySpacedDBMut, PrefixedMemoryDB, Trie, TrieCache, TrieMut,
@@ -589,7 +589,7 @@ pub mod tests {
 
 	const CHILD_KEY_1: &[u8] = b"sub1";
 
-	type Recorder = sp_trie::recorder::Recorder<BlakeTwo256>;
+	type Recorder = rp_trie::recorder::Recorder<BlakeTwo256>;
 	type Cache = LocalTrieCache<BlakeTwo256>;
 	type SharedCache = SharedTrieCache<BlakeTwo256>;
 
@@ -656,8 +656,8 @@ pub mod tests {
 			let mut sub_root = Vec::new();
 			root.encode_to(&mut sub_root);
 
-			fn build<L: sp_trie::TrieLayout>(
-				mut trie: sp_trie::TrieDBMut<L>,
+			fn build<L: rp_trie::TrieLayout>(
+				mut trie: rp_trie::TrieDBMut<L>,
 				child_info: &ChildInfo,
 				sub_root: &[u8],
 			) {
@@ -1372,9 +1372,9 @@ pub mod tests {
 				let hash = BlakeTwo256::hash(&node);
 				// Only insert the node/value that contains the important data.
 				if hash != value_hash {
-					let node = sp_trie::NodeCodec::<BlakeTwo256>::decode(&node)
+					let node = rp_trie::NodeCodec::<BlakeTwo256>::decode(&node)
 						.unwrap()
-						.to_owned_node::<sp_trie::LayoutV1<BlakeTwo256>>()
+						.to_owned_node::<rp_trie::LayoutV1<BlakeTwo256>>()
 						.unwrap();
 
 					if let Some(data) = node.data() {

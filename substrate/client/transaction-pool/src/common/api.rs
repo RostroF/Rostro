@@ -27,16 +27,16 @@ use async_trait::async_trait;
 use codec::Encode;
 use futures::future::{Future, FutureExt};
 use prometheus_endpoint::Registry as PrometheusRegistry;
-use sc_client_api::{blockchain::HeaderBackend, BlockBackend};
-use sp_api::{ApiExt, ProvideRuntimeApi};
-use sp_blockchain::{HeaderMetadata, TreeRoute};
-use sp_core::traits::SpawnEssentialNamed;
-use sp_runtime::{
+use rc_client_api::{blockchain::HeaderBackend, BlockBackend};
+use rp_api::{ApiExt, ProvideRuntimeApi};
+use rp_blockchain::{HeaderMetadata, TreeRoute};
+use rp_core::traits::SpawnEssentialNamed;
+use rp_runtime::{
 	generic::BlockId,
 	traits::{self, Block as BlockT, BlockIdTo},
 	transaction_validity::{TransactionSource, TransactionValidity},
 };
-use sp_transaction_pool::runtime_api::TaggedTransactionQueue;
+use rp_transaction_pool::runtime_api::TaggedTransactionQueue;
 use std::{
 	marker::PhantomData,
 	pin::Pin,
@@ -190,7 +190,7 @@ where
 		+ BlockBackend<Block>
 		+ BlockIdTo<Block>
 		+ HeaderBackend<Block>
-		+ HeaderMetadata<Block, Error = sp_blockchain::Error>,
+		+ HeaderMetadata<Block, Error = rp_blockchain::Error>,
 	Client: Send + Sync + 'static,
 	Client::Api: TaggedTransactionQueue<Block>,
 {
@@ -307,7 +307,7 @@ where
 		from: <Self::Block as BlockT>::Hash,
 		to: <Self::Block as BlockT>::Hash,
 	) -> Result<TreeRoute<Self::Block>, Self::Error> {
-		sp_blockchain::tree_route::<Block, Client>(&*self.client, from, to).map_err(Into::into)
+		rp_blockchain::tree_route::<Block, Client>(&*self.client, from, to).map_err(Into::into)
 	}
 }
 
@@ -325,17 +325,17 @@ where
 		+ BlockBackend<Block>
 		+ BlockIdTo<Block>
 		+ HeaderBackend<Block>
-		+ HeaderMetadata<Block, Error = sp_blockchain::Error>,
+		+ HeaderMetadata<Block, Error = rp_blockchain::Error>,
 	Client: Send + Sync + 'static,
 	Client::Api: TaggedTransactionQueue<Block>,
 {
 	let s = std::time::Instant::now();
 	let tx_hash = uxt.using_encoded(|x| <traits::HashingFor<Block> as traits::Hash>::hash(x));
 
-	let result = sp_tracing::within_span!(sp_tracing::Level::TRACE, "validate_transaction";
+	let result = rp_tracing::within_span!(rp_tracing::Level::TRACE, "validate_transaction";
 	{
 		let runtime_api = client.runtime_api();
-		let api_version = sp_tracing::within_span! { sp_tracing::Level::TRACE, "check_version";
+		let api_version = rp_tracing::within_span! { rp_tracing::Level::TRACE, "check_version";
 			runtime_api
 				.api_version::<dyn TaggedTransactionQueue<Block>>(at)
 				.map_err(|e| Error::RuntimeApi(e.to_string()))?
@@ -344,10 +344,10 @@ where
 				))
 		}?;
 
-		use sp_api::Core;
+		use rp_api::Core;
 
-		sp_tracing::within_span!(
-			sp_tracing::Level::TRACE, "runtime::validate_transaction";
+		rp_tracing::within_span!(
+			rp_tracing::Level::TRACE, "runtime::validate_transaction";
 		{
 			if api_version >= 3 {
 				runtime_api.validate_transaction(at, source, (*uxt).clone(), at)
@@ -360,8 +360,8 @@ where
 					)?;
 
 				// The old versions require us to call `initialize_block` before.
-				runtime_api.initialize_block(at, &sp_runtime::traits::Header::new(
-					block_number + sp_runtime::traits::One::one(),
+				runtime_api.initialize_block(at, &rp_runtime::traits::Header::new(
+					block_number + rp_runtime::traits::One::one(),
 					Default::default(),
 					Default::default(),
 					at,

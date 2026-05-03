@@ -17,8 +17,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::types::BadPeer;
-use sc_network::ReputationChange as Rep;
-use sc_network_types::PeerId;
+use rc_network::ReputationChange as Rep;
+use rc_network_types::PeerId;
 use schnellru::{ByLength, LruMap};
 
 const LOG_TARGET: &str = "sync::disconnected_peers";

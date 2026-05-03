@@ -20,7 +20,7 @@
 //! This macro is deprecated. Use `#[derive(Debug)]` directly instead.
 //!
 //! ```rust
-//! #[derive(sp_debug_derive::RuntimeDebug)]
+//! #[derive(rp_debug_derive::RuntimeDebug)]
 //! struct MyStruct;
 //!
 //! assert_eq!(format!("{:?}", MyStruct), "MyStruct");

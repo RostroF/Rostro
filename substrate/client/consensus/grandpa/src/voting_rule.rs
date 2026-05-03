@@ -26,8 +26,8 @@ use std::{future::Future, pin::Pin, sync::Arc};
 
 use dyn_clone::DynClone;
 
-use sc_client_api::blockchain::HeaderBackend;
-use sp_runtime::traits::{Block as BlockT, Header, NumberFor, One, Zero};
+use rc_client_api::blockchain::HeaderBackend;
+use rp_runtime::traits::{Block as BlockT, Header, NumberFor, One, Zero};
 
 /// A future returned by a `VotingRule` to restrict a given vote, if any restriction is necessary.
 pub type VotingRuleResult<Block> =
@@ -99,7 +99,7 @@ where
 		best_target: &Block::Header,
 		current_target: &Block::Header,
 	) -> VotingRuleResult<Block> {
-		use sp_arithmetic::traits::Saturating;
+		use rp_arithmetic::traits::Saturating;
 
 		if current_target.number().is_zero() {
 			return Box::pin(async { None });
@@ -330,9 +330,9 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sc_block_builder::BlockBuilderBuilder;
-	use sp_consensus::BlockOrigin;
-	use sp_runtime::traits::Header as _;
+	use rc_block_builder::BlockBuilderBuilder;
+	use rp_consensus::BlockOrigin;
+	use rp_runtime::traits::Header as _;
 
 	use substrate_test_runtime_client::{
 		runtime::{Block, Header},

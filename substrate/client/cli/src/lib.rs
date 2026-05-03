@@ -26,7 +26,7 @@
 
 use clap::{CommandFactory, FromArgMatches, Parser};
 use log::warn;
-use sc_service::Configuration;
+use rc_service::Configuration;
 
 pub mod arg_enums;
 pub mod commands;
@@ -43,10 +43,10 @@ pub use config::*;
 pub use error::*;
 pub use params::*;
 pub use runner::*;
-pub use sc_service::{ChainSpec, Role};
-pub use sc_tracing::logging::LoggerBuilder;
+pub use rc_service::{ChainSpec, Role};
+pub use rc_tracing::logging::LoggerBuilder;
 pub use signals::Signals;
-pub use sp_version::RuntimeVersion;
+pub use rp_version::RuntimeVersion;
 
 /// Substrate client CLI
 ///
@@ -188,15 +188,15 @@ pub trait SubstrateCli: Sized {
 	///
 	/// Example:
 	/// ```
-	/// use sc_tracing::{SpanDatum, TraceEvent};
+	/// use rc_tracing::{SpanDatum, TraceEvent};
 	/// struct TestProfiler;
 	///
-	/// impl sc_tracing::TraceHandler for TestProfiler {
+	/// impl rc_tracing::TraceHandler for TestProfiler {
 	///  	fn handle_span(&self, sd: &SpanDatum) {}
 	/// 		fn handle_event(&self, _event: &TraceEvent) {}
 	/// };
 	///
-	/// fn logger_hook() -> impl FnOnce(&mut sc_cli::LoggerBuilder, &sc_service::Configuration) -> () {
+	/// fn logger_hook() -> impl FnOnce(&mut rc_cli::LoggerBuilder, &rc_service::Configuration) -> () {
 	/// 	|logger_builder, config| {
 	/// 			logger_builder.with_custom_profiling(Box::new(TestProfiler{}));
 	/// 	}

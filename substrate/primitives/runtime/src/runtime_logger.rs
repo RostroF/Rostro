@@ -41,7 +41,7 @@ impl RuntimeLogger {
 		let _ = log::set_logger(&LOGGER);
 
 		// Use the same max log level as used by the host.
-		log::set_max_level(sp_io::logging::max_level().into());
+		log::set_max_level(rp_io::logging::max_level().into());
 	}
 }
 
@@ -57,7 +57,7 @@ impl log::Log for RuntimeLogger {
 		let mut msg = alloc::string::String::default();
 		let _ = ::core::write!(&mut msg, "{}", record.args());
 
-		sp_io::logging::log(record.level().into(), record.target(), msg.as_bytes());
+		rp_io::logging::log(record.level().into(), record.target(), msg.as_bytes());
 	}
 
 	fn flush(&self) {}
@@ -65,7 +65,7 @@ impl log::Log for RuntimeLogger {
 
 #[cfg(test)]
 mod tests {
-	use sp_api::ProvideRuntimeApi;
+	use rp_api::ProvideRuntimeApi;
 	use std::env;
 	use substrate_test_runtime_client::{
 		runtime::TestAPI, DefaultTestClientBuilderExt, TestClientBuilder, TestClientBuilderExt,
@@ -74,7 +74,7 @@ mod tests {
 	#[test]
 	fn ensure_runtime_logger_works() {
 		if env::var("RUN_TEST").is_ok() {
-			sp_tracing::try_init_simple();
+			rp_tracing::try_init_simple();
 
 			let client = TestClientBuilder::new().build();
 			let runtime_api = client.runtime_api();

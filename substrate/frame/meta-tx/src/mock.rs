@@ -24,9 +24,9 @@ use frame_support::{
 	construct_runtime, derive_impl,
 	weights::{FixedFee, NoFee},
 };
-use sp_core::ConstU8;
-use sp_keystore::{testing::MemoryKeystore, KeystoreExt};
-use sp_runtime::{
+use rp_core::ConstU8;
+use rp_keystore::{testing::MemoryKeystore, KeystoreExt};
+use rp_runtime::{
 	traits::{IdentifyAccount, IdentityLookup, Verify},
 	MultiSignature,
 };
@@ -47,7 +47,7 @@ mod tx_ext {
 	use super::*;
 
 	pub type UncheckedExtrinsic =
-		sp_runtime::generic::UncheckedExtrinsic<AccountId, RuntimeCall, Signature, TxExtension>;
+		rp_runtime::generic::UncheckedExtrinsic<AccountId, RuntimeCall, Signature, TxExtension>;
 
 	/// Transaction extension.
 	pub type TxExtension = (pallet_verify_signature::VerifySignature<Runtime>, TxBareExtension);
@@ -136,8 +136,8 @@ construct_runtime!(
 	}
 );
 
-pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
-	let mut ext = sp_io::TestExternalities::new(Default::default());
+pub(crate) fn new_test_ext() -> rp_io::TestExternalities {
+	let mut ext = rp_io::TestExternalities::new(Default::default());
 	ext.execute_with(|| {
 		frame_system::GenesisConfig::<Runtime>::default().build();
 		System::set_block_number(1);

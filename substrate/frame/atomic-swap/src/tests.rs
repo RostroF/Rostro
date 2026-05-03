@@ -20,8 +20,8 @@
 use super::*;
 use crate as pallet_atomic_swap;
 use frame_support::{construct_runtime, derive_impl, traits::ConstU32};
-use sp_io::{hashing::blake2_256, TestExternalities};
-use sp_runtime::BuildStorage;
+use rp_io::{hashing::blake2_256, TestExternalities};
+use rp_runtime::BuildStorage;
 
 type Block = frame_system::mocking::MockBlock<Test>;
 

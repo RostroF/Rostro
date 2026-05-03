@@ -21,7 +21,7 @@
 
 use codec::{Decode, Encode};
 use core::time::Duration;
-use sp_inherents::{InherentData, InherentIdentifier, IsFatalError};
+use rp_inherents::{InherentData, InherentIdentifier, IsFatalError};
 
 /// The identifier for the `timestamp` inherent.
 pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"timstap0";
@@ -169,11 +169,11 @@ impl InherentError {
 /// Auxiliary trait to extract timestamp inherent data.
 pub trait TimestampInherentData {
 	/// Get timestamp inherent data.
-	fn timestamp_inherent_data(&self) -> Result<Option<InherentType>, sp_inherents::Error>;
+	fn timestamp_inherent_data(&self) -> Result<Option<InherentType>, rp_inherents::Error>;
 }
 
 impl TimestampInherentData for InherentData {
-	fn timestamp_inherent_data(&self) -> Result<Option<InherentType>, sp_inherents::Error> {
+	fn timestamp_inherent_data(&self) -> Result<Option<InherentType>, rp_inherents::Error> {
 		self.get_data(&INHERENT_IDENTIFIER)
 	}
 }
@@ -229,11 +229,11 @@ impl core::ops::Deref for InherentDataProvider {
 
 #[cfg(feature = "std")]
 #[async_trait::async_trait]
-impl sp_inherents::InherentDataProvider for InherentDataProvider {
+impl rp_inherents::InherentDataProvider for InherentDataProvider {
 	async fn provide_inherent_data(
 		&self,
 		inherent_data: &mut InherentData,
-	) -> Result<(), sp_inherents::Error> {
+	) -> Result<(), rp_inherents::Error> {
 		inherent_data.put_data(INHERENT_IDENTIFIER, &self.timestamp)
 	}
 
@@ -241,8 +241,8 @@ impl sp_inherents::InherentDataProvider for InherentDataProvider {
 		&self,
 		identifier: &InherentIdentifier,
 		error: &[u8],
-	) -> Option<Result<(), sp_inherents::Error>> {
-		Some(Err(sp_inherents::Error::Application(Box::from(InherentError::try_from(
+	) -> Option<Result<(), rp_inherents::Error>> {
+		Some(Err(rp_inherents::Error::Application(Box::from(InherentError::try_from(
 			identifier, error,
 		)?))))
 	}

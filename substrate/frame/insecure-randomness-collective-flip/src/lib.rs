@@ -73,8 +73,8 @@ use safe_mix::TripletMix;
 use codec::Encode;
 use frame_support::{pallet_prelude::*, traits::Randomness};
 use frame_system::pallet_prelude::*;
-use sp_core::Hasher;
-use sp_runtime::traits::Saturating;
+use rp_core::Hasher;
+use rp_runtime::traits::Saturating;
 
 const RANDOM_MATERIAL_LEN: u32 = 81;
 
@@ -167,9 +167,9 @@ mod tests {
 	use crate as pallet_insecure_randomness_collective_flip;
 	use frame_support::{construct_runtime, derive_impl, parameter_types};
 	use frame_system::limits;
-	use sp_core::H256;
-	use sp_io::TestExternalities;
-	use sp_runtime::{traits::Header as _, BuildStorage};
+	use rp_core::H256;
+	use rp_io::TestExternalities;
+	use rp_runtime::{traits::Header as _, BuildStorage};
 
 	type Block = frame_system::mocking::MockBlock<Test>;
 

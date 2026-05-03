@@ -20,18 +20,18 @@
 //! that expect this inherent.
 
 use crate::Error;
-use sc_client_api::{AuxStore, UsageProvider};
-use sp_api::ProvideRuntimeApi;
-use sp_blockchain::HeaderBackend;
-use sp_consensus_aura::{
+use rc_client_api::{AuxStore, UsageProvider};
+use rp_api::ProvideRuntimeApi;
+use rp_blockchain::HeaderBackend;
+use rp_consensus_aura::{
 	sr25519::{AuthorityId, AuthoritySignature},
 	AuraApi,
 };
-use sp_consensus_babe::BabeApi;
-use sp_consensus_slots::{Slot, SlotDuration};
-use sp_inherents::{InherentData, InherentDataProvider, InherentIdentifier};
-use sp_runtime::traits::{Block as BlockT, Zero};
-use sp_timestamp::{InherentType, INHERENT_IDENTIFIER};
+use rp_consensus_babe::BabeApi;
+use rp_consensus_slots::{Slot, SlotDuration};
+use rp_inherents::{InherentData, InherentDataProvider, InherentIdentifier};
+use rp_runtime::traits::{Block as BlockT, Zero};
+use rp_timestamp::{InherentType, INHERENT_IDENTIFIER};
 use std::{
 	sync::{atomic, Arc},
 	time::SystemTime,
@@ -60,10 +60,10 @@ impl SlotTimestampProvider {
 		C: AuxStore + HeaderBackend<B> + ProvideRuntimeApi<B> + UsageProvider<B>,
 		C::Api: BabeApi<B>,
 	{
-		let slot_duration = sc_consensus_babe::configuration(&*client)?.slot_duration();
+		let slot_duration = rc_consensus_babe::configuration(&*client)?.slot_duration();
 
 		let time = Self::with_header(&client, slot_duration, |header| {
-			let slot_number = *sc_consensus_babe::find_pre_digest::<B>(&header)
+			let slot_number = *rc_consensus_babe::find_pre_digest::<B>(&header)
 				.map_err(|err| format!("{}", err))?
 				.slot();
 			Ok(slot_number)
@@ -79,10 +79,10 @@ impl SlotTimestampProvider {
 		C: AuxStore + HeaderBackend<B> + ProvideRuntimeApi<B> + UsageProvider<B>,
 		C::Api: AuraApi<B, AuthorityId>,
 	{
-		let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
+		let slot_duration = rc_consensus_aura::slot_duration(&*client)?;
 
 		let time = Self::with_header(&client, slot_duration, |header| {
-			let slot_number = *sc_consensus_aura::find_pre_digest::<B, AuthoritySignature>(&header)
+			let slot_number = *rc_consensus_aura::find_pre_digest::<B, AuthoritySignature>(&header)
 				.map_err(|err| format!("{}", err))?;
 			Ok(slot_number)
 		})?;
@@ -131,8 +131,8 @@ impl SlotTimestampProvider {
 	}
 
 	/// Gets the current time stamp.
-	pub fn timestamp(&self) -> sp_timestamp::Timestamp {
-		sp_timestamp::Timestamp::new(self.unix_millis.load(atomic::Ordering::SeqCst))
+	pub fn timestamp(&self) -> rp_timestamp::Timestamp {
+		rp_timestamp::Timestamp::new(self.unix_millis.load(atomic::Ordering::SeqCst))
 	}
 }
 
@@ -141,7 +141,7 @@ impl InherentDataProvider for SlotTimestampProvider {
 	async fn provide_inherent_data(
 		&self,
 		inherent_data: &mut InherentData,
-	) -> Result<(), sp_inherents::Error> {
+	) -> Result<(), rp_inherents::Error> {
 		// we update the time here.
 		let new_time: InherentType = self
 			.unix_millis
@@ -155,7 +155,7 @@ impl InherentDataProvider for SlotTimestampProvider {
 		&self,
 		_: &InherentIdentifier,
 		_: &[u8],
-	) -> Option<Result<(), sp_inherents::Error>> {
+	) -> Option<Result<(), rp_inherents::Error>> {
 		None
 	}
 }

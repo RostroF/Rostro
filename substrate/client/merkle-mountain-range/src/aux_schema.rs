@@ -21,9 +21,9 @@
 use crate::LOG_TARGET;
 use codec::{Decode, Encode};
 use log::{info, trace};
-use sc_client_api::backend::AuxStore;
-use sp_blockchain::{Error as ClientError, Result as ClientResult};
-use sp_runtime::traits::{Block, NumberFor};
+use rc_client_api::backend::AuxStore;
+use rp_blockchain::{Error as ClientError, Result as ClientResult};
+use rp_runtime::traits::{Block, NumberFor};
 
 const VERSION_KEY: &[u8] = b"mmr_auxschema_version";
 const GADGET_STATE: &[u8] = b"mmr_gadget_state";
@@ -81,7 +81,7 @@ where
 pub(crate) fn load_or_init_state<B, BE>(
 	backend: &BE,
 	default: NumberFor<B>,
-) -> sp_blockchain::Result<NumberFor<B>>
+) -> rp_blockchain::Result<NumberFor<B>>
 where
 	B: Block,
 	BE: AuxStore,
@@ -107,7 +107,7 @@ pub(crate) mod tests {
 	use super::*;
 	use crate::test_utils::{run_test_with_mmr_gadget_pre_post_using_client, MmrBlock, MockClient};
 	use parking_lot::Mutex;
-	use sp_runtime::generic::BlockId;
+	use rp_runtime::generic::BlockId;
 	use std::{sync::Arc, time::Duration};
 	use substrate_test_runtime_client::{runtime::Block, Backend};
 
@@ -130,7 +130,7 @@ pub(crate) mod tests {
 
 	#[test]
 	fn should_persist_progress_across_runs() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let client = Arc::new(MockClient::new());
 		let backend = client.backend.clone();
@@ -180,7 +180,7 @@ pub(crate) mod tests {
 
 	#[test]
 	fn should_resume_from_persisted_state() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let client = Arc::new(MockClient::new());
 		let blocks = Arc::new(Mutex::new(Vec::<MmrBlock>::new()));

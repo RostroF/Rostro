@@ -18,8 +18,8 @@
 
 //! Warp syncing strategy. Bootstraps chain by downloading warp proofs and state.
 
-use sc_consensus::IncomingBlock;
-use sp_consensus::BlockOrigin;
+use rc_consensus::IncomingBlock;
+use rp_consensus::BlockOrigin;
 
 use crate::{
 	block_relay_protocol::{BlockDownloader, BlockResponseError},
@@ -34,13 +34,13 @@ use crate::{
 use codec::{Decode, Encode};
 use futures::{channel::oneshot, FutureExt};
 use log::{debug, error, trace, warn};
-use sc_network::{IfDisconnected, ProtocolName};
-use sc_network_common::sync::message::{
+use rc_network::{IfDisconnected, ProtocolName};
+use rc_network_common::sync::message::{
 	BlockAnnounce, BlockAttributes, BlockData, BlockRequest, Direction, FromBlock,
 };
-use sc_network_types::PeerId;
-use sp_blockchain::HeaderBackend;
-use sp_runtime::{
+use rc_network_types::PeerId;
+use rp_blockchain::HeaderBackend;
+use rp_runtime::{
 	traits::{Block as BlockT, Header, NumberFor, Zero},
 	Justifications, SaturatedConversion,
 };
@@ -93,7 +93,7 @@ pub trait WarpSyncProvider<Block: BlockT>: Send + Sync {
 }
 
 mod rep {
-	use sc_network::ReputationChange as Rep;
+	use rc_network::ReputationChange as Rep;
 
 	/// Unexpected response received form a peer
 	pub const UNEXPECTED_RESPONSE: Rep = Rep::new(-(1 << 29), "Unexpected response");
@@ -788,10 +788,10 @@ where
 mod test {
 	use super::*;
 	use crate::{mock::MockBlockDownloader, service::network::NetworkServiceProvider};
-	use sc_block_builder::BlockBuilderBuilder;
-	use sp_blockchain::{BlockStatus, Error as BlockchainError, HeaderBackend, Info};
-	use sp_core::H256;
-	use sp_runtime::{
+	use rc_block_builder::BlockBuilderBuilder;
+	use rp_blockchain::{BlockStatus, Error as BlockchainError, HeaderBackend, Info};
+	use rp_core::H256;
+	use rp_runtime::{
 		traits::{Block as BlockT, Header as HeaderT, NumberFor},
 		ConsensusEngineId,
 	};
@@ -1372,7 +1372,7 @@ mod test {
 	#[test]
 	fn complete_warp_proof_advances_phase() {
 		// Initialize logging
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let client = Arc::new(TestClientBuilder::new().set_no_genesis().build());
 		let mut provider = MockWarpSyncProvider::<Block>::new();
@@ -1741,7 +1741,7 @@ mod test {
 
 	#[test]
 	fn target_block_response_with_wrong_block_drops_peer() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let client = Arc::new(TestClientBuilder::new().set_no_genesis().build());
 		let mut provider = MockWarpSyncProvider::<Block>::new();

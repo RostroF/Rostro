@@ -33,7 +33,7 @@ use futures::{prelude::*, stream::FuturesUnordered};
 use log::{debug, trace, warn};
 
 use prometheus_endpoint::{register, Counter, PrometheusError, Registry, U64};
-use sc_network::{
+use rc_network::{
 	config::{NonReservedPeerMode, ProtocolId, SetConfig},
 	error, multiaddr,
 	peer_store::PeerStoreProvider,
@@ -45,11 +45,11 @@ use sc_network::{
 	utils::{interval, LruHashSet},
 	NetworkBackend, NetworkEventStream, NetworkPeers,
 };
-use sc_network_common::{role::ObservedRole, ExHashT};
-use sc_network_sync::{SyncEvent, SyncEventStream};
-use sc_network_types::PeerId;
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use sp_runtime::traits::Block as BlockT;
+use rc_network_common::{role::ObservedRole, ExHashT};
+use rc_network_sync::{SyncEvent, SyncEventStream};
+use rc_network_types::PeerId;
+use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
+use rp_runtime::traits::Block as BlockT;
 
 use std::{
 	collections::{hash_map::Entry, HashMap},
@@ -69,7 +69,7 @@ pub type Transactions<E> = Vec<E>;
 const LOG_TARGET: &str = "sync";
 
 mod rep {
-	use sc_network::ReputationChange as Rep;
+	use rc_network::ReputationChange as Rep;
 	/// Reputation change when a peer sends us any transaction.
 	///
 	/// This forces node to verify it, thus the negative value here. Once transaction is verified,
@@ -125,7 +125,7 @@ pub struct TransactionsHandlerPrototype {
 	/// Name of the transaction protocol.
 	protocol_name: ProtocolName,
 
-	/// Handle that is used to communicate with `sc_network::Notifications`.
+	/// Handle that is used to communicate with `rc_network::Notifications`.
 	notification_service: Box<dyn NotificationService>,
 }
 
@@ -176,7 +176,7 @@ impl TransactionsHandlerPrototype {
 		B: BlockT + 'static,
 		H: ExHashT,
 		N: NetworkPeers + NetworkEventStream,
-		S: SyncEventStream + sp_consensus::SyncOracle,
+		S: SyncEventStream + rp_consensus::SyncOracle,
 	>(
 		self,
 		network: N,
@@ -247,7 +247,7 @@ pub struct TransactionsHandler<
 	B: BlockT + 'static,
 	H: ExHashT,
 	N: NetworkPeers + NetworkEventStream,
-	S: SyncEventStream + sp_consensus::SyncOracle,
+	S: SyncEventStream + rp_consensus::SyncOracle,
 > {
 	protocol_name: ProtocolName,
 	/// Interval at which we call `propagate_transactions`.
@@ -271,7 +271,7 @@ pub struct TransactionsHandler<
 	from_controller: TracingUnboundedReceiver<ToHandler<H>>,
 	/// Prometheus metrics.
 	metrics: Option<Metrics>,
-	/// Handle that is used to communicate with `sc_network::Notifications`.
+	/// Handle that is used to communicate with `rc_network::Notifications`.
 	notification_service: Box<dyn NotificationService>,
 }
 
@@ -288,7 +288,7 @@ where
 	B: BlockT + 'static,
 	H: ExHashT,
 	N: NetworkPeers + NetworkEventStream,
-	S: SyncEventStream + sp_consensus::SyncOracle,
+	S: SyncEventStream + rp_consensus::SyncOracle,
 {
 	/// Turns the [`TransactionsHandler`] into a future that should run forever and not be
 	/// interrupted.

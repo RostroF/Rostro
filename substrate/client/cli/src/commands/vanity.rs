@@ -23,8 +23,8 @@ use crate::{
 };
 use clap::Parser;
 use rand::{rngs::OsRng, RngCore};
-use sp_core::crypto::{unwrap_or_default_ss58_version, Ss58AddressFormat, Ss58Codec};
-use sp_runtime::traits::IdentifyAccount;
+use rp_core::crypto::{unwrap_or_default_ss58_version, Ss58AddressFormat, Ss58Codec};
+use rp_runtime::traits::IdentifyAccount;
 use utils::print_from_uri;
 
 /// The `vanity` command
@@ -78,7 +78,7 @@ fn generate_key<Pair>(
 	network_override: Ss58AddressFormat,
 ) -> Result<String, &'static str>
 where
-	Pair: sp_core::Pair,
+	Pair: rp_core::Pair,
 	Pair::Public: IdentifyAccount,
 	<Pair::Public as IdentifyAccount>::AccountId: Ss58Codec,
 {
@@ -162,7 +162,7 @@ fn assert_non_empty_string(pattern: &str) -> Result<String, &'static str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sp_core::{
+	use rp_core::{
 		crypto::{default_ss58_version, Ss58AddressFormatRegistry, Ss58Codec},
 		sr25519, Pair,
 	};

@@ -25,10 +25,10 @@ extern crate alloc;
 pub mod testing;
 
 #[cfg(feature = "bandersnatch-experimental")]
-use sp_core::bandersnatch;
+use rp_core::bandersnatch;
 #[cfg(feature = "bls-experimental")]
-use sp_core::{bls381, ecdsa_bls381};
-use sp_core::{
+use rp_core::{bls381, ecdsa_bls381};
+use rp_core::{
 	crypto::{ByteArray, CryptoTypeId, KeyTypeId},
 	ecdsa, ed25519, sr25519,
 };
@@ -692,7 +692,7 @@ impl<T: Keystore + ?Sized> Keystore for Arc<T> {
 /// A shared pointer to a keystore implementation.
 pub type KeystorePtr = Arc<dyn Keystore>;
 
-sp_externalities::decl_extension! {
+rp_externalities::decl_extension! {
 	/// The keystore extension to register/retrieve from the externalities.
 	pub struct KeystoreExt(KeystorePtr);
 }
@@ -711,13 +711,13 @@ impl KeystoreExt {
 	}
 }
 
-sp_core::generate_feature_enabled_macro!(
+rp_core::generate_feature_enabled_macro!(
 	bandersnatch_experimental_enabled,
 	feature = "bandersnatch-experimental",
 	$
 );
 
-sp_core::generate_feature_enabled_macro!(
+rp_core::generate_feature_enabled_macro!(
 	bls_experimental_enabled,
 	feature = "bls-experimental",
 	$

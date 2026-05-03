@@ -27,16 +27,16 @@ use codec::{Decode, Encode};
 use futures::{channel::oneshot, stream::StreamExt};
 use log::{debug, trace};
 use prost::Message;
-use sc_network_types::PeerId;
+use rc_network_types::PeerId;
 use schnellru::{ByLength, LruMap};
 
-use sc_client_api::{BlockBackend, ProofProvider};
-use sc_network::{
+use rc_client_api::{BlockBackend, ProofProvider};
+use rc_network::{
 	config::ProtocolId,
 	request_responses::{IncomingRequest, OutgoingResponse},
 	NetworkBackend, MAX_RESPONSE_SIZE,
 };
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 
 use std::{
 	hash::{Hash, Hasher},
@@ -48,7 +48,7 @@ const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024; // Actual reponse may be bigg
 const MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER: usize = 2;
 
 mod rep {
-	use sc_network::ReputationChange as Rep;
+	use rc_network::ReputationChange as Rep;
 
 	/// Reputation change when a peer sent us the same request multiple times.
 	pub const SAME_REQUEST: Rep = Rep::new(i32::MIN, "Same state request multiple times");
@@ -249,11 +249,11 @@ where
 				response.entries.get(0).and_then(|top| top
 					.entries
 					.first()
-					.map(|e| sp_core::hexdisplay::HexDisplay::from(&e.key))),
+					.map(|e| rp_core::hexdisplay::HexDisplay::from(&e.key))),
 				response.entries.get(0).and_then(|top| top
 					.entries
 					.last()
-					.map(|e| sp_core::hexdisplay::HexDisplay::from(&e.key))),
+					.map(|e| rp_core::hexdisplay::HexDisplay::from(&e.key))),
 			);
 			if let Some(value) = self.seen_requests.get(&key) {
 				// If this is the first time we have processed this request, we need to change
@@ -288,7 +288,7 @@ enum HandleRequestError {
 	InvalidHash(#[from] codec::Error),
 
 	#[error(transparent)]
-	Client(#[from] sp_blockchain::Error),
+	Client(#[from] rp_blockchain::Error),
 
 	#[error("Failed to send response.")]
 	SendResponse,

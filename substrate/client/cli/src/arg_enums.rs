@@ -70,26 +70,26 @@ impl std::fmt::Display for WasmExecutionMethod {
 pub fn execution_method_from_cli(
 	execution_method: WasmExecutionMethod,
 	instantiation_strategy: WasmtimeInstantiationStrategy,
-) -> sc_service::config::WasmExecutionMethod {
+) -> rc_service::config::WasmExecutionMethod {
 	if let WasmExecutionMethod::Interpreted = execution_method {
 		log::warn!(
 			"`interpreted-i-know-what-i-do` is deprecated and will be removed in the future. Defaults to `compiled` execution mode."
 		);
 	}
 
-	sc_service::config::WasmExecutionMethod::Compiled {
+	rc_service::config::WasmExecutionMethod::Compiled {
 		instantiation_strategy: match instantiation_strategy {
 			WasmtimeInstantiationStrategy::PoolingCopyOnWrite => {
-				sc_service::config::WasmtimeInstantiationStrategy::PoolingCopyOnWrite
+				rc_service::config::WasmtimeInstantiationStrategy::PoolingCopyOnWrite
 			},
 			WasmtimeInstantiationStrategy::RecreateInstanceCopyOnWrite => {
-				sc_service::config::WasmtimeInstantiationStrategy::RecreateInstanceCopyOnWrite
+				rc_service::config::WasmtimeInstantiationStrategy::RecreateInstanceCopyOnWrite
 			},
 			WasmtimeInstantiationStrategy::Pooling => {
-				sc_service::config::WasmtimeInstantiationStrategy::Pooling
+				rc_service::config::WasmtimeInstantiationStrategy::Pooling
 			},
 			WasmtimeInstantiationStrategy::RecreateInstance => {
-				sc_service::config::WasmtimeInstantiationStrategy::RecreateInstance
+				rc_service::config::WasmtimeInstantiationStrategy::RecreateInstance
 			},
 		},
 	}
@@ -106,10 +106,10 @@ pub enum TracingReceiver {
 	Log,
 }
 
-impl Into<sc_tracing::TracingReceiver> for TracingReceiver {
-	fn into(self) -> sc_tracing::TracingReceiver {
+impl Into<rc_tracing::TracingReceiver> for TracingReceiver {
+	fn into(self) -> rc_tracing::TracingReceiver {
 		match self {
-			TracingReceiver::Log => sc_tracing::TracingReceiver::Log,
+			TracingReceiver::Log => rc_tracing::TracingReceiver::Log,
 		}
 	}
 }
@@ -185,12 +185,12 @@ impl FromStr for RpcMethods {
 	}
 }
 
-impl Into<sc_service::config::RpcMethods> for RpcMethods {
-	fn into(self) -> sc_service::config::RpcMethods {
+impl Into<rc_service::config::RpcMethods> for RpcMethods {
+	fn into(self) -> rc_service::config::RpcMethods {
 		match self {
-			RpcMethods::Auto => sc_service::config::RpcMethods::Auto,
-			RpcMethods::Safe => sc_service::config::RpcMethods::Safe,
-			RpcMethods::Unsafe => sc_service::config::RpcMethods::Unsafe,
+			RpcMethods::Auto => rc_service::config::RpcMethods::Auto,
+			RpcMethods::Safe => rc_service::config::RpcMethods::Safe,
+			RpcMethods::Unsafe => rc_service::config::RpcMethods::Unsafe,
 		}
 	}
 }
@@ -300,19 +300,19 @@ pub enum SyncMode {
 	Warp,
 }
 
-impl Into<sc_network::config::SyncMode> for SyncMode {
-	fn into(self) -> sc_network::config::SyncMode {
+impl Into<rc_network::config::SyncMode> for SyncMode {
+	fn into(self) -> rc_network::config::SyncMode {
 		match self {
-			SyncMode::Full => sc_network::config::SyncMode::Full,
-			SyncMode::Fast => sc_network::config::SyncMode::LightState {
+			SyncMode::Full => rc_network::config::SyncMode::Full,
+			SyncMode::Fast => rc_network::config::SyncMode::LightState {
 				skip_proofs: false,
 				storage_chain_mode: false,
 			},
-			SyncMode::FastUnsafe => sc_network::config::SyncMode::LightState {
+			SyncMode::FastUnsafe => rc_network::config::SyncMode::LightState {
 				skip_proofs: true,
 				storage_chain_mode: false,
 			},
-			SyncMode::Warp => sc_network::config::SyncMode::Warp,
+			SyncMode::Warp => rc_network::config::SyncMode::Warp,
 		}
 	}
 }
@@ -328,11 +328,11 @@ pub enum NetworkBackendType {
 	Litep2p,
 }
 
-impl Into<sc_network::config::NetworkBackendType> for NetworkBackendType {
-	fn into(self) -> sc_network::config::NetworkBackendType {
+impl Into<rc_network::config::NetworkBackendType> for NetworkBackendType {
+	fn into(self) -> rc_network::config::NetworkBackendType {
 		match self {
-			Self::Libp2p => sc_network::config::NetworkBackendType::Libp2p,
-			Self::Litep2p => sc_network::config::NetworkBackendType::Litep2p,
+			Self::Libp2p => rc_network::config::NetworkBackendType::Libp2p,
+			Self::Litep2p => rc_network::config::NetworkBackendType::Litep2p,
 		}
 	}
 }

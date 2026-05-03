@@ -19,8 +19,8 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use sp_core::wasm_export_functions;
-use sp_runtime_interface::runtime_interface;
+use rp_core::wasm_export_functions;
+use rp_runtime_interface::runtime_interface;
 
 // Include the WASM binary
 #[cfg(feature = "std")]
@@ -35,12 +35,12 @@ pub fn wasm_binary_unwrap() -> &'static [u8] {
 	)
 }
 
-/// This function is not used, but we require it for the compiler to include `sp-io`.
-/// `sp-io` is required for its panic and oom handler.
+/// This function is not used, but we require it for the compiler to include `rp-io`.
+/// `rp-io` is required for its panic and oom handler.
 #[cfg(not(feature = "std"))]
 #[no_mangle]
 pub fn import_sp_io() {
-	sp_io::misc::print_utf8(&[]);
+	rp_io::misc::print_utf8(&[]);
 }
 
 #[runtime_interface]

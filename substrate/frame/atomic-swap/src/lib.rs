@@ -56,7 +56,7 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::*;
 use scale_info::TypeInfo;
-use sp_io::hashing::blake2_256;
+use rp_io::hashing::blake2_256;
 
 /// Pending atomic swap operation.
 #[derive(

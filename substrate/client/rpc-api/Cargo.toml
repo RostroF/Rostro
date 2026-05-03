@@ -1,5 +1,5 @@
 [package]
-name = "sc-rpc-api"
+name = "rc-rpc-api"
 version = "0.55.0"
 authors.workspace = true
 edition.workspace = true
@@ -18,15 +18,15 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 codec = { workspace = true, default-features = true }
 jsonrpsee = { features = ["client-core", "macros", "server-core"], workspace = true }
-sc-chain-spec = { default-features = true, workspace = true }
-sc-mixnet = { default-features = true, workspace = true }
-sc-transaction-pool-api = { default-features = true, workspace = true }
+rc-chain-spec = { default-features = true, workspace = true }
+rc-mixnet = { default-features = true, workspace = true }
+rc-transaction-pool-api = { default-features = true, workspace = true }
 scale-info = { features = ["derive"], workspace = true }
 serde = { features = ["derive"], workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
-sp-core = { default-features = true, workspace = true }
-sp-rpc = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-statement-store = { features = ["serde"], workspace = true, default-features = true }
-sp-version = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-rpc = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
+rp-statement-store = { features = ["serde"], workspace = true, default-features = true }
+rp-version = { default-features = true, workspace = true }
 thiserror = { workspace = true }

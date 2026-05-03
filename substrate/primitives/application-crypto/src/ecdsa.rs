@@ -21,11 +21,11 @@ use crate::{KeyTypeId, RuntimePublic};
 
 use alloc::vec::Vec;
 
-pub use sp_core::ecdsa::*;
-use sp_core::proof_of_possession::NonAggregatable;
+pub use rp_core::ecdsa::*;
+use rp_core::proof_of_possession::NonAggregatable;
 
 mod app {
-	crate::app_crypto!(super, sp_core::testing::ECDSA);
+	crate::app_crypto!(super, rp_core::testing::ECDSA);
 }
 
 pub use app::{
@@ -38,19 +38,19 @@ impl RuntimePublic for Public {
 	type ProofOfPossession = Signature;
 
 	fn all(key_type: KeyTypeId) -> crate::Vec<Self> {
-		sp_io::crypto::ecdsa_public_keys(key_type)
+		rp_io::crypto::ecdsa_public_keys(key_type)
 	}
 
 	fn generate_pair(key_type: KeyTypeId, seed: Option<Vec<u8>>) -> Self {
-		sp_io::crypto::ecdsa_generate(key_type, seed)
+		rp_io::crypto::ecdsa_generate(key_type, seed)
 	}
 
 	fn sign<M: AsRef<[u8]>>(&self, key_type: KeyTypeId, msg: &M) -> Option<Self::Signature> {
-		sp_io::crypto::ecdsa_sign(key_type, self, msg.as_ref())
+		rp_io::crypto::ecdsa_sign(key_type, self, msg.as_ref())
 	}
 
 	fn verify<M: AsRef<[u8]>>(&self, msg: &M, signature: &Self::Signature) -> bool {
-		sp_io::crypto::ecdsa_verify(signature, msg.as_ref(), self)
+		rp_io::crypto::ecdsa_verify(signature, msg.as_ref(), self)
 	}
 
 	fn generate_proof_of_possession(
@@ -59,7 +59,7 @@ impl RuntimePublic for Public {
 		owner: &[u8],
 	) -> Option<Self::Signature> {
 		let proof_of_possession_statement = Pair::proof_of_possession_statement(owner);
-		sp_io::crypto::ecdsa_sign(key_type, self, &proof_of_possession_statement)
+		rp_io::crypto::ecdsa_sign(key_type, self, &proof_of_possession_statement)
 	}
 
 	fn verify_proof_of_possession(
@@ -68,10 +68,10 @@ impl RuntimePublic for Public {
 		proof_of_possession: &Self::Signature,
 	) -> bool {
 		let proof_of_possession_statement = Pair::proof_of_possession_statement(owner);
-		sp_io::crypto::ecdsa_verify(&proof_of_possession, &proof_of_possession_statement, &self)
+		rp_io::crypto::ecdsa_verify(&proof_of_possession, &proof_of_possession_statement, &self)
 	}
 
 	fn to_raw_vec(&self) -> Vec<u8> {
-		sp_core::crypto::ByteArray::to_raw_vec(self)
+		rp_core::crypto::ByteArray::to_raw_vec(self)
 	}
 }

@@ -36,8 +36,8 @@ use hyper::body::Body as _;
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::{client::legacy as client, rt::TokioExecutor};
 use once_cell::sync::Lazy;
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use sp_core::offchain::{HttpError, HttpRequestId, HttpRequestStatus, Timestamp};
+use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
+use rp_core::offchain::{HttpError, HttpRequestId, HttpRequestStatus, Timestamp};
 use std::{
 	fmt,
 	io::Read as _,
@@ -783,7 +783,7 @@ mod tests {
 	use core::convert::Infallible;
 	use futures::future;
 	use http_body_util::BodyExt;
-	use sp_core::offchain::{Duration, Externalities, HttpError, HttpRequestId, HttpRequestStatus};
+	use rp_core::offchain::{Duration, Externalities, HttpError, HttpRequestId, HttpRequestStatus};
 	use std::sync::LazyLock;
 
 	// Using LazyLock to avoid spawning lots of different SharedClients,

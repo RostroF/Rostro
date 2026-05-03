@@ -35,8 +35,8 @@ use rand::{
 	seq::IteratorRandom,
 };
 
-use sc_network_common::types::ReputationChange;
-use sc_network_types::PeerId;
+use rc_network_common::types::ReputationChange;
+use rc_network_types::PeerId;
 
 use std::{
 	collections::{HashMap, HashSet},
@@ -46,7 +46,7 @@ use std::{
 #[tokio::test]
 #[cfg(debug_assertions)]
 async fn run() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	for _ in 0..50 {
 		test_once().await;

@@ -28,9 +28,9 @@ use frame_support::{
 	traits::{Currency, KeyOwnerProofSystem, OnFinalize, OneSessionHandler},
 };
 use frame_system::{EventRecord, Phase};
-use sp_core::H256;
-use sp_keyring::Ed25519Keyring;
-use sp_runtime::testing::Digest;
+use rp_core::H256;
+use rp_keyring::Ed25519Keyring;
+use rp_runtime::testing::Digest;
 
 #[test]
 fn authorities_change_logged() {
@@ -357,7 +357,7 @@ fn report_equivocation_current_set_works() {
 
 		// create the key ownership proof
 		let key_owner_proof =
-			Historical::prove((sp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
+			Historical::prove((rp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
 
 		// report the equivocation and the tx should be dispatched successfully
 		assert_ok!(Grandpa::report_equivocation_unsigned(
@@ -410,7 +410,7 @@ fn report_equivocation_old_set_works() {
 
 		// create the key ownership proof in the "old" set
 		let key_owner_proof =
-			Historical::prove((sp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
+			Historical::prove((rp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
 
 		start_era(2);
 
@@ -488,7 +488,7 @@ fn report_equivocation_invalid_set_id() {
 		let equivocation_keyring = extract_keyring(equivocation_key);
 
 		let key_owner_proof =
-			Historical::prove((sp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
+			Historical::prove((rp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
 
 		let set_id = CurrentSetId::<Test>::get();
 
@@ -526,7 +526,7 @@ fn report_equivocation_invalid_session() {
 
 		// generate a key ownership proof at set id = 1
 		let key_owner_proof =
-			Historical::prove((sp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
+			Historical::prove((rp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
 
 		start_era(2);
 
@@ -565,7 +565,7 @@ fn report_equivocation_invalid_key_owner_proof() {
 
 		// generate a key ownership proof for the authority at index 1
 		let invalid_key_owner_proof =
-			Historical::prove((sp_consensus_grandpa::KEY_TYPE, &invalid_owner_key)).unwrap();
+			Historical::prove((rp_consensus_grandpa::KEY_TYPE, &invalid_owner_key)).unwrap();
 
 		let equivocation_authority_index = 0;
 		let equivocation_key = &authorities[equivocation_authority_index].0;
@@ -612,7 +612,7 @@ fn report_equivocation_invalid_equivocation_proof() {
 
 		// generate a key ownership proof at set id = 1
 		let key_owner_proof =
-			Historical::prove((sp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
+			Historical::prove((rp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
 
 		let set_id = CurrentSetId::<Test>::get();
 
@@ -662,7 +662,7 @@ fn report_equivocation_invalid_equivocation_proof() {
 
 #[test]
 fn report_equivocation_validate_unsigned_prevents_duplicates() {
-	use sp_runtime::transaction_validity::{
+	use rp_runtime::transaction_validity::{
 		InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
 		ValidTransaction,
 	};
@@ -687,7 +687,7 @@ fn report_equivocation_validate_unsigned_prevents_duplicates() {
 		);
 
 		let key_owner_proof =
-			Historical::prove((sp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
+			Historical::prove((rp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
 
 		let call = Call::report_equivocation_unsigned {
 			equivocation_proof: Box::new(equivocation_proof.clone()),
@@ -696,7 +696,7 @@ fn report_equivocation_validate_unsigned_prevents_duplicates() {
 
 		// only local/inblock reports are allowed
 		assert_eq!(
-			<Grandpa as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+			<Grandpa as rp_runtime::traits::ValidateUnsigned>::validate_unsigned(
 				TransactionSource::External,
 				&call,
 			),
@@ -707,7 +707,7 @@ fn report_equivocation_validate_unsigned_prevents_duplicates() {
 		let tx_tag = (equivocation_key, set_id, 1u64);
 
 		assert_eq!(
-			<Grandpa as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+			<Grandpa as rp_runtime::traits::ValidateUnsigned>::validate_unsigned(
 				TransactionSource::Local,
 				&call,
 			),
@@ -721,7 +721,7 @@ fn report_equivocation_validate_unsigned_prevents_duplicates() {
 		);
 
 		// the pre dispatch checks should also pass
-		assert_ok!(<Grandpa as sp_runtime::traits::ValidateUnsigned>::pre_dispatch(&call));
+		assert_ok!(<Grandpa as rp_runtime::traits::ValidateUnsigned>::pre_dispatch(&call));
 
 		// we submit the report
 		Grandpa::report_equivocation_unsigned(
@@ -734,7 +734,7 @@ fn report_equivocation_validate_unsigned_prevents_duplicates() {
 		// the report should now be considered stale and the transaction is invalid
 		// the check for staleness should be done on both `validate_unsigned` and on `pre_dispatch`
 		assert_err!(
-			<Grandpa as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+			<Grandpa as rp_runtime::traits::ValidateUnsigned>::validate_unsigned(
 				TransactionSource::Local,
 				&call,
 			),
@@ -742,7 +742,7 @@ fn report_equivocation_validate_unsigned_prevents_duplicates() {
 		);
 
 		assert_err!(
-			<Grandpa as sp_runtime::traits::ValidateUnsigned>::pre_dispatch(&call),
+			<Grandpa as rp_runtime::traits::ValidateUnsigned>::pre_dispatch(&call),
 			InvalidTransaction::Stale,
 		);
 	});
@@ -875,7 +875,7 @@ fn valid_equivocation_reports_dont_pay_fees() {
 
 		// create the key ownership proof.
 		let key_owner_proof =
-			Historical::prove((sp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
+			Historical::prove((rp_consensus_grandpa::KEY_TYPE, &equivocation_key)).unwrap();
 
 		// check the dispatch info for the call.
 		let info = Call::<Test>::report_equivocation_unsigned {

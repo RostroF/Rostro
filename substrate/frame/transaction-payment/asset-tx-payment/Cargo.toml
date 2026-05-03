@@ -20,8 +20,8 @@ frame-benchmarking = { optional = true, workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 pallet-transaction-payment = { workspace = true }
-sp-io = { workspace = true }
-sp-runtime = { workspace = true }
+rp-io = { workspace = true }
+rp-runtime = { workspace = true }
 
 # Other dependencies
 codec = { features = ["derive"], workspace = true }
@@ -43,8 +43,8 @@ std = [
 	"pallet-transaction-payment/std",
 	"scale-info/std",
 	"serde",
-	"sp-io/std",
-	"sp-runtime/std",
+	"rp-io/std",
+	"rp-runtime/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
@@ -53,7 +53,7 @@ runtime-benchmarks = [
 	"pallet-assets/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
+	"rp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
@@ -62,5 +62,5 @@ try-runtime = [
 	"pallet-authorship/try-runtime",
 	"pallet-balances/try-runtime",
 	"pallet-transaction-payment/try-runtime",
-	"sp-runtime/try-runtime",
+	"rp-runtime/try-runtime",
 ]

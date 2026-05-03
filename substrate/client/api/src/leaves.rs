@@ -19,12 +19,12 @@
 //! Helper for managing the set of available leaves in the chain for DB implementations.
 
 use codec::{Decode, Encode};
-use sp_blockchain::{Error, Result};
-use sp_database::{Database, Transaction};
-use sp_runtime::traits::AtLeast32Bit;
+use rp_blockchain::{Error, Result};
+use rp_database::{Database, Transaction};
+use rp_runtime::traits::AtLeast32Bit;
 use std::{cmp::Reverse, collections::BTreeMap};
 
-type DbHash = sp_core::H256;
+type DbHash = rp_core::H256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LeafSetItem<H, N> {
@@ -403,7 +403,7 @@ mod tests {
 	#[test]
 	fn flush_to_disk() {
 		const PREFIX: &[u8] = b"abcdefg";
-		let db = Arc::new(sp_database::MemDb::default());
+		let db = Arc::new(rp_database::MemDb::default());
 
 		let mut set = LeafSet::new();
 		set.import(0u32, 0u32, 0u32);

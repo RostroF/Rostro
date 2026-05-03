@@ -26,14 +26,14 @@ use fatp_common::{
 	finalized_block_event, invalid_hash, new_best_block_event, TestPoolBuilder, LOG_TARGET, SOURCE,
 };
 use futures::{executor::block_on, FutureExt};
-use sc_transaction_pool::ChainApi;
-use sc_transaction_pool_api::{MaintainedTransactionPool, TransactionPool, TransactionStatus};
+use rc_transaction_pool::ChainApi;
+use rc_transaction_pool_api::{MaintainedTransactionPool, TransactionPool, TransactionStatus};
 use substrate_test_runtime_client::Sr25519Keyring::*;
 use substrate_test_runtime_transaction_pool::uxt;
 
 #[test]
 fn fatp_finality_timeout_works() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	const FINALITY_TIMEOUT_THRESHOLD: usize = 10;
 
@@ -104,7 +104,7 @@ fn fatp_finality_timeout_works() {
 
 #[test]
 fn fatp_finalized_still_works_after_finality_stall() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	const FINALITY_TIMEOUT_THRESHOLD: usize = 10;
 
@@ -190,7 +190,7 @@ fn fatp_finalized_still_works_after_finality_stall() {
 
 #[test]
 fn fatp_finality_timeout_works_for_txs_included_before_finalized() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	const FINALITY_TIMEOUT_THRESHOLD: usize = 10;
 

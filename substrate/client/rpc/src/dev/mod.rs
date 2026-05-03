@@ -23,11 +23,11 @@
 mod tests;
 
 use jsonrpsee::Extensions;
-use sc_client_api::{BlockBackend, HeaderBackend};
-use sc_rpc_api::{check_if_safe, dev::error::Error};
-use sp_api::{ApiExt, Core, ProvideRuntimeApi};
-use sp_core::Encode;
-use sp_runtime::{
+use rc_client_api::{BlockBackend, HeaderBackend};
+use rc_rpc_api::{check_if_safe, dev::error::Error};
+use rp_api::{ApiExt, Core, ProvideRuntimeApi};
+use rp_core::Encode;
+use rp_runtime::{
 	generic::DigestItem,
 	traits::{Block as BlockT, Header},
 };
@@ -36,7 +36,7 @@ use std::{
 	sync::Arc,
 };
 
-pub use sc_rpc_api::dev::{BlockStats, DevApiServer};
+pub use rc_rpc_api::dev::{BlockStats, DevApiServer};
 
 type HasherOf<Block> = <<Block as BlockT>::Header as Header>::Hashing;
 

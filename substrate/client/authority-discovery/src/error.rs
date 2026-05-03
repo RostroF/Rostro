@@ -35,10 +35,10 @@ pub enum Error {
 	VerifyingDhtPayload,
 
 	#[error("Failed to hash the authority id to be used as a dht key.")]
-	HashingAuthorityId(#[from] sc_network_types::multihash::Error),
+	HashingAuthorityId(#[from] rc_network_types::multihash::Error),
 
 	#[error("Failed calling into the Substrate runtime: {0}")]
-	CallingRuntime(#[from] sp_blockchain::Error),
+	CallingRuntime(#[from] rp_blockchain::Error),
 
 	#[error("Received a dht record with a key that does not match any in-flight awaited keys.")]
 	ReceivingUnexpectedRecord,
@@ -56,7 +56,7 @@ pub enum Error {
 	EncodingDecodingAddrCache(String),
 
 	#[error("Failed to parse a libp2p multi address.")]
-	ParsingMultiaddress(#[from] sc_network::multiaddr::ParseError),
+	ParsingMultiaddress(#[from] rc_network::multiaddr::ParseError),
 
 	#[error("Failed to parse a libp2p key: {0}")]
 	ParsingLibp2pIdentity(String),

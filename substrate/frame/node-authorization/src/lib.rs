@@ -51,9 +51,9 @@ extern crate alloc;
 use alloc::{collections::btree_set::BTreeSet, vec::Vec};
 use frame_support::{pallet_prelude::*, traits::EnsureOrigin, DefaultNoBound};
 use frame_system::pallet_prelude::*;
-use sp_core::OpaquePeerId as PeerId;
-use sp_io;
-use sp_runtime::traits::StaticLookup;
+use rp_core::OpaquePeerId as PeerId;
+use rp_io;
+use rp_runtime::traits::StaticLookup;
 pub use pallet::*;
 pub use weights::WeightInfo;
 
@@ -176,7 +176,7 @@ pub mod pallet {
 		/// Set reserved node every block. It may not be enabled depends on the offchain
 		/// worker settings when starting the node.
 		fn offchain_worker(now: BlockNumberFor<T>) {
-			let network_state = sp_io::offchain::network_state();
+			let network_state = rp_io::offchain::network_state();
 			match network_state {
 				Err(_) => log::error!(
 					target: "runtime::node-authorization",
@@ -191,7 +191,7 @@ pub mod pallet {
 							"Error: failed to decode PeerId at {:?}",
 							now,
 						),
-						Ok(node) => sp_io::offchain::set_authorized_nodes(
+						Ok(node) => rp_io::offchain::set_authorized_nodes(
 							Self::get_authorized_nodes(&PeerId(node)),
 							true,
 						),

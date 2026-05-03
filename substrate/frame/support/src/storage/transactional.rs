@@ -26,8 +26,8 @@
 //!
 //! [`with_transaction`] provides a way to run a given closure in a transactional context.
 
-use sp_io::storage::{commit_transaction, rollback_transaction, start_transaction};
-use sp_runtime::{DispatchError, TransactionOutcome, TransactionalError};
+use rp_io::storage::{commit_transaction, rollback_transaction, start_transaction};
+use rp_runtime::{DispatchError, TransactionOutcome, TransactionalError};
 
 /// The type that is being used to store the current number of active layers.
 pub type Layer = u32;
@@ -220,8 +220,8 @@ where
 mod tests {
 	use super::*;
 	use crate::{assert_noop, assert_ok};
-	use sp_io::TestExternalities;
-	use sp_runtime::DispatchResult;
+	use rp_io::TestExternalities;
+	use rp_runtime::DispatchResult;
 
 	#[test]
 	fn is_transactional_should_return_false() {
@@ -281,7 +281,7 @@ mod tests {
 			assert_ok!(recursive_transactional(255));
 			assert_noop!(
 				recursive_transactional(256),
-				sp_runtime::TransactionalError::LimitReached
+				rp_runtime::TransactionalError::LimitReached
 			);
 
 			assert_eq!(get_transaction_level(), 0);

@@ -42,10 +42,10 @@ pub mod __private {
 	pub use frame_support::{storage, traits};
 	pub use log;
 	pub use paste;
-	pub use sp_core::defer;
-	pub use sp_io::storage::root as storage_root;
-	pub use sp_runtime::{traits::Zero, StateVersion};
-	pub use sp_storage::{well_known_keys, TrackedStorageKey};
+	pub use rp_core::defer;
+	pub use rp_io::storage::root as storage_root;
+	pub use rp_runtime::{traits::Zero, StateVersion};
+	pub use rp_storage::{well_known_keys, TrackedStorageKey};
 }
 
 #[cfg(feature = "std")]

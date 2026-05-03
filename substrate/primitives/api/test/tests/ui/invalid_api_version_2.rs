@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-sp_api::decl_runtime_apis! {
+rp_api::decl_runtime_apis! {
 	#[api_version("1")]
 	pub trait Api {
 		fn test(data: u64);

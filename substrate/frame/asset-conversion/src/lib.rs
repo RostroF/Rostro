@@ -89,8 +89,8 @@ use frame_support::{
 	},
 	PalletId,
 };
-use sp_core::Get;
-use sp_runtime::{
+use rp_core::Get;
+use rp_runtime::{
 	traits::{
 		CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, Ensure, IntegerSquareRoot, MaybeDisplay,
 		One, TrailingZeroInput, Zero,
@@ -103,7 +103,7 @@ pub mod pallet {
 	use super::*;
 	use frame_support::{pallet_prelude::*, traits::fungibles::Refund};
 	use frame_system::pallet_prelude::*;
-	use sp_arithmetic::{traits::Unsigned, Permill};
+	use rp_arithmetic::{traits::Unsigned, Permill};
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -1360,7 +1360,7 @@ pub mod pallet {
 	}
 }
 
-sp_api::decl_runtime_apis! {
+rp_api::decl_runtime_apis! {
 	/// This runtime api allows people to query the size of the liquidity pools
 	/// and quote prices for swaps.
 	pub trait AssetConversionApi<Balance, AssetId>
@@ -1395,4 +1395,4 @@ sp_api::decl_runtime_apis! {
 	}
 }
 
-sp_core::generate_feature_enabled_macro!(runtime_benchmarks_enabled, feature = "runtime-benchmarks", $);
+rp_core::generate_feature_enabled_macro!(runtime_benchmarks_enabled, feature = "runtime-benchmarks", $);

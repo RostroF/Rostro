@@ -27,7 +27,7 @@ use frame_support::{
 	pallet_prelude::*,
 };
 use frame_system::RawOrigin;
-use sp_runtime::traits::{
+use rp_runtime::traits::{
 	AsSystemOriginSigner, AsTransactionAuthorizedOrigin, DispatchTransaction, Dispatchable,
 };
 

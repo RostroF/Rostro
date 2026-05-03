@@ -23,17 +23,17 @@ use frame_support::{
 	derive_impl,
 	traits::{ConstU32, OnFinalize, OnInitialize},
 };
-use sp_consensus_sassafras::{
+use rp_consensus_sassafras::{
 	digests::SlotClaim,
 	vrf::{RingProver, VrfSignature},
 	AuthorityIndex, AuthorityPair, EpochConfiguration, Slot, TicketBody, TicketEnvelope, TicketId,
 };
-use sp_core::{
+use rp_core::{
 	crypto::{ByteArray, Pair, UncheckedFrom, VrfSecret, Wraps},
 	ed25519::Public as EphemeralPublic,
 	H256, U256,
 };
-use sp_runtime::{
+use rp_runtime::{
 	testing::{Digest, DigestItem, Header},
 	BuildStorage,
 };
@@ -87,7 +87,7 @@ pub const TEST_EPOCH_CONFIGURATION: EpochConfiguration =
 	EpochConfiguration { redundancy_factor: u32::MAX, attempts_number: 5 };
 
 /// Build and returns test storage externalities
-pub fn new_test_ext(authorities_len: usize) -> sp_io::TestExternalities {
+pub fn new_test_ext(authorities_len: usize) -> rp_io::TestExternalities {
 	new_test_ext_with_pairs(authorities_len, false).1
 }
 
@@ -96,7 +96,7 @@ pub fn new_test_ext(authorities_len: usize) -> sp_io::TestExternalities {
 pub fn new_test_ext_with_pairs(
 	authorities_len: usize,
 	with_ring_context: bool,
-) -> (Vec<AuthorityPair>, sp_io::TestExternalities) {
+) -> (Vec<AuthorityPair>, rp_io::TestExternalities) {
 	let pairs = (0..authorities_len)
 		.map(|i| AuthorityPair::from_seed(&U256::from(i).to_big_endian()))
 		.collect::<Vec<_>>();
@@ -113,7 +113,7 @@ pub fn new_test_ext_with_pairs(
 	.assimilate_storage(&mut storage)
 	.unwrap();
 
-	let mut ext: sp_io::TestExternalities = storage.into();
+	let mut ext: rp_io::TestExternalities = storage.into();
 
 	if with_ring_context {
 		ext.execute_with(|| {
@@ -164,7 +164,7 @@ pub fn make_prover(pair: &AuthorityPair) -> RingProver {
 
 	let ring_ctx = RingContext::<Test>::get().unwrap();
 
-	let pks: Vec<sp_core::bandersnatch::Public> = Authorities::<Test>::get()
+	let pks: Vec<rp_core::bandersnatch::Public> = Authorities::<Test>::get()
 		.iter()
 		.enumerate()
 		.map(|(idx, auth)| {
@@ -218,7 +218,7 @@ pub fn make_ticket_body(attempt_idx: u32, pair: &AuthorityPair) -> (TicketId, Ti
 }
 
 pub fn make_dummy_ticket_body(attempt_idx: u32) -> (TicketId, TicketBody) {
-	let hash = sp_crypto_hashing::blake2_256(&attempt_idx.to_le_bytes());
+	let hash = rp_crypto_hashing::blake2_256(&attempt_idx.to_le_bytes());
 
 	let erased_public = EphemeralPublic::unchecked_from(hash);
 	let revealed_public = erased_public;

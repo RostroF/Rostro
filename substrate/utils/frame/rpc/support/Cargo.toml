@@ -18,14 +18,14 @@ targets = ["x86_64-unknown-linux-gnu"]
 codec = { workspace = true, default-features = true }
 frame-support = { default-features = true, workspace = true }
 jsonrpsee = { features = ["jsonrpsee-types"], workspace = true }
-sc-rpc-api = { default-features = true, workspace = true }
+rc-rpc-api = { default-features = true, workspace = true }
 scale-info = { workspace = true, default-features = true }
 serde = { workspace = true, default-features = true }
-sp-storage = { default-features = true, workspace = true }
+rp-storage = { default-features = true, workspace = true }
 
 [dev-dependencies]
 frame-system = { default-features = true, workspace = true }
 jsonrpsee = { features = ["jsonrpsee-types", "ws-client"], workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
 tokio = { workspace = true, default-features = true }

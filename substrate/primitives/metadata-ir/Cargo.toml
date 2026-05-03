@@ -1,5 +1,5 @@
 [package]
-name = "sp-metadata-ir"
+name = "rp-metadata-ir"
 version = "0.12.3"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Intermediate representation of the runtime metadata."
-documentation = "https://docs.rs/sp-metadata-ir"
+documentation = "https://docs.rs/rp-metadata-ir"
 
 [lints]
 workspace = true

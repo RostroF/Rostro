@@ -1,5 +1,5 @@
 [package]
-name = "sc-service-test"
+name = "rc-service-test"
 version = "2.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -22,24 +22,24 @@ fdlimit = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true, default-features = true }
 parking_lot = { workspace = true, default-features = true }
-sc-block-builder = { default-features = true, workspace = true }
-sc-client-api = { default-features = true, workspace = true }
-sc-client-db = { workspace = true }
-sc-consensus = { default-features = true, workspace = true }
-sc-executor = { default-features = true, workspace = true }
-sc-network = { default-features = true, workspace = true }
-sc-network-sync = { default-features = true, workspace = true }
-sc-service = { default-features = true, workspace = true }
-sc-transaction-pool-api = { default-features = true, workspace = true }
-sp-api = { default-features = true, workspace = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-consensus = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-io = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-state-machine = { default-features = true, workspace = true }
-sp-storage = { default-features = true, workspace = true }
-sp-tracing = { default-features = true, workspace = true }
+rc-block-builder = { default-features = true, workspace = true }
+rc-client-api = { default-features = true, workspace = true }
+rc-client-db = { workspace = true }
+rc-consensus = { default-features = true, workspace = true }
+rc-executor = { default-features = true, workspace = true }
+rc-network = { default-features = true, workspace = true }
+rc-network-sync = { default-features = true, workspace = true }
+rc-service = { default-features = true, workspace = true }
+rc-transaction-pool-api = { default-features = true, workspace = true }
+rp-api = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-consensus = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-io = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
+rp-state-machine = { default-features = true, workspace = true }
+rp-storage = { default-features = true, workspace = true }
+rp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime = { workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tempfile = { workspace = true }

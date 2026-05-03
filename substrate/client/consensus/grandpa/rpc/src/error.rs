@@ -32,7 +32,7 @@ pub enum Error {
 	VoterStateReportsUnreasonablyLargeNumbers,
 	/// GRANDPA prove finality failed.
 	#[error("GRANDPA prove finality rpc failed: {0}")]
-	ProveFinalityFailed(#[from] sc_consensus_grandpa::FinalityProofError),
+	ProveFinalityFailed(#[from] rc_consensus_grandpa::FinalityProofError),
 }
 
 /// The error codes returned by jsonrpc.

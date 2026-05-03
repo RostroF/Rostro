@@ -47,7 +47,7 @@ use litep2p::{
 	PeerId, ProtocolName,
 };
 use parking_lot::RwLock;
-use sc_network_types::kad::Key as KademliaKey;
+use rc_network_types::kad::Key as KademliaKey;
 use schnellru::{ByLength, LruMap};
 
 use std::{
@@ -430,7 +430,7 @@ impl Discovery {
 	pub async fn put_value_to_peers(
 		&mut self,
 		record: Record,
-		peers: Vec<sc_network_types::PeerId>,
+		peers: Vec<rc_network_types::PeerId>,
 		update_local_storage: bool,
 	) -> QueryId {
 		self.kademlia_handle
@@ -450,7 +450,7 @@ impl Discovery {
 		&mut self,
 		key: KademliaKey,
 		value: Vec<u8>,
-		publisher: Option<sc_network_types::PeerId>,
+		publisher: Option<rc_network_types::PeerId>,
 		expires: Option<Instant>,
 	) {
 		log::debug!(
@@ -813,8 +813,8 @@ mod tests {
 		peer_store::{PeerStore, PeerStoreProvider},
 	};
 	use futures::{stream::FuturesUnordered, StreamExt};
-	use sp_core::H256;
-	use sp_tracing::tracing_subscriber;
+	use rp_core::H256;
+	use rp_tracing::tracing_subscriber;
 
 	use litep2p::{
 		config::ConfigBuilder as Litep2pConfigBuilder, transport::tcp::config::Config as TcpConfig,

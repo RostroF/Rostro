@@ -17,8 +17,8 @@
 
 use frame_support::derive_impl;
 use frame_system::pallet_prelude::BlockNumberFor;
-use sp_core::sr25519;
-use sp_runtime::{
+use rp_core::sr25519;
+use rp_runtime::{
 	generic,
 	traits::{BlakeTwo256, Verify},
 };

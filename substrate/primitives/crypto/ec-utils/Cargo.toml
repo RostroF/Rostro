@@ -1,5 +1,5 @@
 [package]
-name = "sp-crypto-ec-utils"
+name = "rp-crypto-ec-utils"
 version = "0.20.0"
 authors.workspace = true
 description = "Host functions for common Arkworks elliptic curve operations"
@@ -31,7 +31,7 @@ ark-pallas-ext = { optional = true, workspace = true }
 ark-scale = { features = ["hazmat"], optional = true, workspace = true }
 ark-vesta = { optional = true, workspace = true }
 ark-vesta-ext = { optional = true, workspace = true }
-sp-runtime-interface = { optional = true, workspace = true }
+rp-runtime-interface = { optional = true, workspace = true }
 
 [dev-dependencies]
 ark-ff = { workspace = true }
@@ -59,9 +59,9 @@ std = [
 	"ark-std/std",
 	"ark-vesta-ext?/std",
 	"ark-vesta?/std",
-	"sp-runtime-interface?/std",
+	"rp-runtime-interface?/std",
 ]
-common = ["ark-ec", "ark-scale", "sp-runtime-interface"]
+common = ["ark-ec", "ark-scale", "rp-runtime-interface"]
 bls12-377 = ["ark-bls12-377", "ark-bls12-377-ext", "common"]
 bls12-381 = ["ark-bls12-381", "ark-bls12-381-ext", "common"]
 bw6-761 = ["ark-bw6-761", "ark-bw6-761-ext", "common"]

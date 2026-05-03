@@ -94,12 +94,12 @@ use frame_support::{
 	PalletId,
 };
 use scale_info::TypeInfo;
-use sp_core::Get;
-use sp_runtime::{
+use rp_core::Get;
+use rp_runtime::{
 	traits::{BadOrigin, BlockNumberProvider, EnsureAdd, MaybeDisplay, Zero},
 	DispatchError, DispatchResult,
 };
-use sp_std::boxed::Box;
+use rp_std::boxed::Box;
 
 #[cfg(feature = "runtime-benchmarks")]
 pub mod benchmarking;
@@ -166,7 +166,7 @@ pub struct PoolInfo<AccountId, AssetId, Balance, BlockNumber> {
 	account: AccountId,
 }
 
-sp_api::decl_runtime_apis! {
+rp_api::decl_runtime_apis! {
 	/// The runtime API for the asset rewards pallet.
 	pub trait AssetRewards<Cost: MaybeDisplay + Codec> {
 		/// Get the cost of creating a pool.
@@ -190,7 +190,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::{
 		ensure_signed, BlockNumberFor as SystemBlockNumberFor, OriginFor,
 	};
-	use sp_runtime::{
+	use rp_runtime::{
 		traits::{
 			AccountIdConversion, BadOrigin, EnsureAdd, EnsureAddAssign, EnsureDiv, EnsureMul,
 			EnsureSub, EnsureSubAssign,

@@ -25,13 +25,13 @@ pallet-authorship = { workspace = true }
 pallet-session = { workspace = true }
 pallet-timestamp = { workspace = true }
 scale-info = { features = ["derive", "serde"], workspace = true }
-sp-application-crypto = { features = ["serde"], workspace = true }
-sp-consensus-babe = { features = ["serde"], workspace = true }
-sp-core = { features = ["serde"], workspace = true }
-sp-io = { workspace = true }
-sp-runtime = { features = ["serde"], workspace = true }
-sp-session = { workspace = true }
-sp-staking = { features = ["serde"], workspace = true }
+rp-application-crypto = { features = ["serde"], workspace = true }
+rp-consensus-babe = { features = ["serde"], workspace = true }
+rp-core = { features = ["serde"], workspace = true }
+rp-io = { workspace = true }
+rp-runtime = { features = ["serde"], workspace = true }
+rp-session = { workspace = true }
+rp-staking = { features = ["serde"], workspace = true }
 
 [dev-dependencies]
 frame-election-provider-support = { default-features = true, workspace = true }
@@ -39,8 +39,8 @@ pallet-balances = { default-features = true, workspace = true }
 pallet-offences = { default-features = true, workspace = true }
 pallet-staking = { default-features = true, workspace = true }
 pallet-staking-reward-curve = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-tracing = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-tracing = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -54,13 +54,13 @@ std = [
 	"pallet-session/std",
 	"pallet-timestamp/std",
 	"scale-info/std",
-	"sp-application-crypto/std",
-	"sp-consensus-babe/std",
-	"sp-core/std",
-	"sp-io/std",
-	"sp-runtime/std",
-	"sp-session/std",
-	"sp-staking/std",
+	"rp-application-crypto/std",
+	"rp-consensus-babe/std",
+	"rp-core/std",
+	"rp-io/std",
+	"rp-runtime/std",
+	"rp-session/std",
+	"rp-staking/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
@@ -72,8 +72,8 @@ runtime-benchmarks = [
 	"pallet-session/runtime-benchmarks",
 	"pallet-staking/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
-	"sp-staking/runtime-benchmarks",
+	"rp-runtime/runtime-benchmarks",
+	"rp-staking/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-election-provider-support/try-runtime",
@@ -85,5 +85,5 @@ try-runtime = [
 	"pallet-session/try-runtime",
 	"pallet-staking/try-runtime",
 	"pallet-timestamp/try-runtime",
-	"sp-runtime/try-runtime",
+	"rp-runtime/try-runtime",
 ]

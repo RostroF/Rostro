@@ -52,7 +52,7 @@ use frame_support::traits::{
 	AccountTouch,
 };
 use pallet_asset_conversion::{PoolLocator, Pools};
-use sp_runtime::traits::{TryConvert, Zero};
+use rp_runtime::traits::{TryConvert, Zero};
 
 #[frame_support::pallet]
 pub mod pallet {

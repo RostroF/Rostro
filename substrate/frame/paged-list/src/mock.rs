@@ -22,8 +22,8 @@
 use crate::{paged_list::StoragePagedListMeta, Config, ListPrefix};
 use frame_support::{construct_runtime, derive_impl, parameter_types};
 use frame_system::mocking::MockBlock;
-use sp_io::TestExternalities as TestState;
-use sp_runtime::{traits::IdentityLookup, BuildStorage};
+use rp_io::TestExternalities as TestState;
+use rp_runtime::{traits::IdentityLookup, BuildStorage};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 

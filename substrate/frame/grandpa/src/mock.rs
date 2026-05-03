@@ -31,17 +31,17 @@ use frame_support::{
 	traits::{ConstU128, ConstU32, ConstU64, OnFinalize, OnInitialize},
 };
 use pallet_session::historical as pallet_session_historical;
-use sp_consensus_grandpa::{RoundNumber, SetId, GRANDPA_ENGINE_ID};
-use sp_core::{ConstBool, H256};
-use sp_keyring::Ed25519Keyring;
-use sp_runtime::{
+use rp_consensus_grandpa::{RoundNumber, SetId, GRANDPA_ENGINE_ID};
+use rp_core::{ConstBool, H256};
+use rp_keyring::Ed25519Keyring;
+use rp_runtime::{
 	curve::PiecewiseLinear,
 	impl_opaque_keys,
 	testing::{TestXt, UintAuthorityId},
 	traits::OpaqueKeys,
 	BuildStorage, DigestItem, Perbill,
 };
-use sp_staking::{EraIndex, SessionIndex};
+use rp_staking::{EraIndex, SessionIndex};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -98,7 +98,7 @@ parameter_types! {
 impl pallet_session::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorId = u64;
-	type ValidatorIdOf = sp_runtime::traits::ConvertInto;
+	type ValidatorIdOf = rp_runtime::traits::ConvertInto;
 	type ShouldEndSession = pallet_session::PeriodicSessions<ConstU64<1>, ConstU64<0>>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<ConstU64<1>, ConstU64<0>>;
 	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Self, Staking>;
@@ -203,7 +203,7 @@ impl Config for Test {
 	type MaxAuthorities = ConstU32<100>;
 	type MaxNominators = ConstU32<1000>;
 	type MaxSetIdSessionEntries = MaxSetIdSessionEntries;
-	type KeyOwnerProof = sp_session::MembershipProof;
+	type KeyOwnerProof = rp_session::MembershipProof;
 	type EquivocationReportSystem =
 		super::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
 }
@@ -224,12 +224,12 @@ pub fn extract_keyring(id: &AuthorityId) -> Ed25519Keyring {
 	Ed25519Keyring::from_raw_public(raw_public).unwrap()
 }
 
-pub fn new_test_ext(vec: Vec<(u64, u64)>) -> sp_io::TestExternalities {
+pub fn new_test_ext(vec: Vec<(u64, u64)>) -> rp_io::TestExternalities {
 	new_test_ext_raw_authorities(to_authorities(vec))
 }
 
-pub fn new_test_ext_raw_authorities(authorities: AuthorityList) -> sp_io::TestExternalities {
-	sp_tracing::try_init_simple();
+pub fn new_test_ext_raw_authorities(authorities: AuthorityList) -> rp_io::TestExternalities {
+	rp_tracing::try_init_simple();
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
 	let balances: Vec<_> = (0..authorities.len()).map(|i| (i as u64, 10_000_000)).collect();
@@ -318,12 +318,12 @@ pub fn generate_equivocation_proof(
 	set_id: SetId,
 	vote1: (RoundNumber, H256, u64, &Ed25519Keyring),
 	vote2: (RoundNumber, H256, u64, &Ed25519Keyring),
-) -> sp_consensus_grandpa::EquivocationProof<H256, u64> {
+) -> rp_consensus_grandpa::EquivocationProof<H256, u64> {
 	let signed_prevote = |round, hash, number, keyring: &Ed25519Keyring| {
 		let prevote = finality_grandpa::Prevote { target_hash: hash, target_number: number };
 
 		let prevote_msg = finality_grandpa::Message::Prevote(prevote.clone());
-		let payload = sp_consensus_grandpa::localized_payload(round, set_id, &prevote_msg);
+		let payload = rp_consensus_grandpa::localized_payload(round, set_id, &prevote_msg);
 		let signed = keyring.sign(&payload).into();
 		(prevote, signed)
 	};
@@ -331,9 +331,9 @@ pub fn generate_equivocation_proof(
 	let (prevote1, signed1) = signed_prevote(vote1.0, vote1.1, vote1.2, vote1.3);
 	let (prevote2, signed2) = signed_prevote(vote2.0, vote2.1, vote2.2, vote2.3);
 
-	sp_consensus_grandpa::EquivocationProof::new(
+	rp_consensus_grandpa::EquivocationProof::new(
 		set_id,
-		sp_consensus_grandpa::Equivocation::Prevote(finality_grandpa::Equivocation {
+		rp_consensus_grandpa::Equivocation::Prevote(finality_grandpa::Equivocation {
 			round_number: vote1.0,
 			identity: vote1.3.public().into(),
 			first: (prevote1, signed1),

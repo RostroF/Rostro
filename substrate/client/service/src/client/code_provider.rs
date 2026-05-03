@@ -17,11 +17,11 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use super::{client::ClientConfig, wasm_override::WasmOverride, wasm_substitutes::WasmSubstitutes};
-use sc_client_api::{backend, TrieCacheContext};
-use sc_executor::{RuntimeVersion, RuntimeVersionOf};
-use sp_core::traits::{FetchRuntimeCode, RuntimeCode};
-use sp_runtime::traits::Block as BlockT;
-use sp_state_machine::{backend::TryPendingCode, Ext, OverlayedChanges};
+use rc_client_api::{backend, TrieCacheContext};
+use rc_executor::{RuntimeVersion, RuntimeVersionOf};
+use rp_core::traits::{FetchRuntimeCode, RuntimeCode};
+use rp_runtime::traits::Block as BlockT;
+use rp_state_machine::{backend::TryPendingCode, Ext, OverlayedChanges};
 use std::sync::Arc;
 
 /// Provider for fetching `:code` of a block.
@@ -57,7 +57,7 @@ where
 		client_config: &ClientConfig<Block>,
 		executor: Executor,
 		backend: Arc<Backend>,
-	) -> sp_blockchain::Result<Self> {
+	) -> rp_blockchain::Result<Self> {
 		let wasm_override = client_config
 			.wasm_runtime_overrides
 			.as_ref()
@@ -78,18 +78,18 @@ where
 	/// Returns the `:code` (or `:pending_code`) for the given `block`.
 	///
 	/// This takes into account potential substitutes, but ignores overrides.
-	pub fn code_at_ignoring_overrides(&self, block: Block::Hash) -> sp_blockchain::Result<Vec<u8>> {
+	pub fn code_at_ignoring_overrides(&self, block: Block::Hash) -> rp_blockchain::Result<Vec<u8>> {
 		let state = self.backend.state_at(block, TrieCacheContext::Untrusted)?;
 
 		let state_runtime_code =
-			sp_state_machine::backend::BackendRuntimeCode::new(&state, TryPendingCode::Yes);
+			rp_state_machine::backend::BackendRuntimeCode::new(&state, TryPendingCode::Yes);
 		let runtime_code =
-			state_runtime_code.runtime_code().map_err(sp_blockchain::Error::RuntimeCode)?;
+			state_runtime_code.runtime_code().map_err(rp_blockchain::Error::RuntimeCode)?;
 
 		self.maybe_override_code_internal(runtime_code, &state, block, true)
 			.and_then(|r| {
 				r.0.fetch_runtime_code().map(Into::into).ok_or_else(|| {
-					sp_blockchain::Error::Backend("Could not find `:code` in backend.".into())
+					rp_blockchain::Error::Backend("Could not find `:code` in backend.".into())
 				})
 			})
 	}
@@ -102,7 +102,7 @@ where
 		onchain_code: RuntimeCode<'a>,
 		state: &Backend::State,
 		hash: Block::Hash,
-	) -> sp_blockchain::Result<(RuntimeCode<'a>, RuntimeVersion)> {
+	) -> rp_blockchain::Result<(RuntimeCode<'a>, RuntimeVersion)> {
 		self.maybe_override_code_internal(onchain_code, state, hash, false)
 	}
 
@@ -115,7 +115,7 @@ where
 		state: &Backend::State,
 		hash: Block::Hash,
 		ignore_overrides: bool,
-	) -> sp_blockchain::Result<(RuntimeCode<'a>, RuntimeVersion)> {
+	) -> rp_blockchain::Result<(RuntimeCode<'a>, RuntimeVersion)> {
 		let on_chain_version = self.on_chain_runtime_version(&onchain_code, state)?;
 		let code_and_version = if let Some(d) = self.wasm_override.as_ref().as_ref().and_then(|o| {
 			if ignore_overrides {
@@ -153,14 +153,14 @@ where
 		&self,
 		code: &RuntimeCode,
 		state: &Backend::State,
-	) -> sp_blockchain::Result<RuntimeVersion> {
+	) -> rp_blockchain::Result<RuntimeVersion> {
 		let mut overlay = OverlayedChanges::default();
 
 		let mut ext = Ext::new(&mut overlay, state, None);
 
 		self.executor
 			.runtime_version(&mut ext, code)
-			.map_err(|e| sp_blockchain::Error::VersionInvalid(e.to_string()))
+			.map_err(|e| rp_blockchain::Error::VersionInvalid(e.to_string()))
 	}
 }
 
@@ -168,9 +168,9 @@ where
 mod tests {
 	use super::*;
 	use backend::Backend;
-	use sc_client_api::{in_mem, HeaderBackend};
-	use sc_executor::WasmExecutor;
-	use sp_core::{
+	use rc_client_api::{in_mem, HeaderBackend};
+	use rc_executor::WasmExecutor;
+	use rp_core::{
 		testing::TaskExecutor,
 		traits::{FetchRuntimeCode, WrappedRuntimeCode},
 	};
@@ -311,9 +311,9 @@ mod tests {
 		let backend = Arc::new(in_mem::Backend::<runtime::Block>::new());
 
 		// Let's only override the `spec_name` for our testing purposes.
-		let substitute = sp_version::embed::embed_runtime_version(
+		let substitute = rp_version::embed::embed_runtime_version(
 			&substrate_test_runtime::WASM_BINARY_BLOATY.unwrap(),
-			sp_version::RuntimeVersion {
+			rp_version::RuntimeVersion {
 				spec_name: SUBSTITUTE_SPEC_NAME.into(),
 				..substrate_test_runtime::VERSION
 			},
@@ -347,7 +347,7 @@ mod tests {
 			.expect("Creates a client");
 
 		let version = client
-			.runtime_version_at(client.chain_info().genesis_hash, sp_api::CallContext::Offchain)
+			.runtime_version_at(client.chain_info().genesis_hash, rp_api::CallContext::Offchain)
 			.unwrap();
 
 		assert_eq!(SUBSTITUTE_SPEC_NAME, &*version.spec_name);

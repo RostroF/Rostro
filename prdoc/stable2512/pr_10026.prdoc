@@ -1,7 +1,0 @@
-title: 'pallet_revive: Fix incorrect `block.gaslimit`'
-doc:
-- audience: Runtime User
-  description: Fixes https://github.com/paritytech/contract-issues/issues/112
-crates:
-- name: pallet-revive
-  bump: patch

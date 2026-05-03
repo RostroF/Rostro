@@ -23,7 +23,7 @@ use crate::{
 };
 use frame_support::traits::ConstU32;
 use rand::SeedableRng;
-use sp_npos_elections::{Support, Supports};
+use rp_npos_elections::{Support, Supports};
 
 mod solution_type {
 	use super::*;
@@ -43,7 +43,7 @@ mod solution_type {
 			struct InnerTestSolutionIsolated::<
 				VoterIndex = u32,
 				TargetIndex = u8,
-				Accuracy = sp_runtime::Percent,
+				Accuracy = rp_runtime::Percent,
 				MaxVoters = crate::tests::ConstU32::<20>,
 			>(12)
 		);

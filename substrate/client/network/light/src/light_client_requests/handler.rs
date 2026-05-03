@@ -27,18 +27,18 @@ use codec::{self, Decode, Encode};
 use futures::prelude::*;
 use log::{debug, trace};
 use prost::Message;
-use sc_client_api::{BlockBackend, ProofProvider};
-use sc_network::{
+use rc_client_api::{BlockBackend, ProofProvider};
+use rc_network::{
 	config::ProtocolId,
 	request_responses::{IncomingRequest, OutgoingResponse},
 	NetworkBackend, ReputationChange,
 };
-use sc_network_types::PeerId;
-use sp_core::{
+use rc_network_types::PeerId;
+use rp_core::{
 	hexdisplay::HexDisplay,
 	storage::{ChildInfo, ChildType, PrefixedStorageKey},
 };
-use sp_runtime::traits::Block;
+use rp_runtime::traits::Block;
 use std::{marker::PhantomData, sync::Arc};
 
 const LOG_TARGET: &str = "light-client-request-handler";
@@ -259,7 +259,7 @@ where
 		let prefixed_key = PrefixedStorageKey::new_ref(&request.storage_key);
 		let child_info = match ChildType::from_prefixed_key(prefixed_key) {
 			Some((ChildType::ParentKeyId, storage_key)) => Ok(ChildInfo::new_default(storage_key)),
-			None => Err(sp_blockchain::Error::InvalidChildStorageKey),
+			None => Err(rp_blockchain::Error::InvalidChildStorageKey),
 		};
 		let response = match child_info.and_then(|child_info| {
 			self.client.read_child_proof(

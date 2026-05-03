@@ -20,7 +20,7 @@
 use crate::*;
 use mock::*;
 
-use sp_consensus_sassafras::Slot;
+use rp_consensus_sassafras::Slot;
 
 fn h2b<const N: usize>(hex: &str) -> [u8; N] {
 	array_bytes::hex2array_unchecked(hex)
@@ -288,8 +288,8 @@ fn on_first_block_after_genesis() {
 		assert_eq!(header.digest.logs[0], digest.logs[0]);
 
 		// Genesis epoch start deposits consensus
-		let consensus_log = sp_consensus_sassafras::digests::ConsensusLog::NextEpochData(
-			sp_consensus_sassafras::digests::NextEpochDescriptor {
+		let consensus_log = rp_consensus_sassafras::digests::ConsensusLog::NextEpochData(
+			rp_consensus_sassafras::digests::NextEpochDescriptor {
 				authorities: NextAuthorities::<Test>::get().into_inner(),
 				randomness: NextRandomness::<Test>::get(),
 				config: None,
@@ -426,8 +426,8 @@ fn produce_epoch_change_digest_no_config() {
 		assert_eq!(header.digest.logs.len(), 2);
 		assert_eq!(header.digest.logs[0], digest.logs[0]);
 		// Deposits consensus log on epoch change
-		let consensus_log = sp_consensus_sassafras::digests::ConsensusLog::NextEpochData(
-			sp_consensus_sassafras::digests::NextEpochDescriptor {
+		let consensus_log = rp_consensus_sassafras::digests::ConsensusLog::NextEpochData(
+			rp_consensus_sassafras::digests::NextEpochDescriptor {
 				authorities: NextAuthorities::<Test>::get().into_inner(),
 				randomness: NextRandomness::<Test>::get(),
 				config: None,
@@ -465,8 +465,8 @@ fn produce_epoch_change_digest_with_config() {
 		assert_eq!(header.digest.logs.len(), 2);
 		assert_eq!(header.digest.logs[0], digest.logs[0]);
 		// Deposits consensus log on epoch change
-		let consensus_log = sp_consensus_sassafras::digests::ConsensusLog::NextEpochData(
-			sp_consensus_sassafras::digests::NextEpochDescriptor {
+		let consensus_log = rp_consensus_sassafras::digests::ConsensusLog::NextEpochData(
+			rp_consensus_sassafras::digests::NextEpochDescriptor {
 				authorities: NextAuthorities::<Test>::get().into_inner(),
 				randomness: NextRandomness::<Test>::get(),
 				config: Some(config),
@@ -790,7 +790,7 @@ fn trivial_fisher_yates_shuffle<T>(vector: &mut Vec<T>, random_seed: u64) {
 // `submit_ticket` call which tests for ticket validity.
 #[test]
 fn submit_tickets_with_ring_proof_check_works() {
-	use sp_core::Pair as _;
+	use rp_core::Pair as _;
 
 	let (authorities, mut tickets): (Vec<AuthorityId>, Vec<TicketEnvelope>) =
 		data_read(TICKETS_FILE);
@@ -845,7 +845,7 @@ fn submit_tickets_with_ring_proof_check_works() {
 #[ignore = "test tickets data generator"]
 fn make_tickets_data() {
 	use super::*;
-	use sp_core::crypto::Pair;
+	use rp_core::crypto::Pair;
 
 	// Number of authorities who produces tickets (for the sake of this test)
 	let tickets_authors_count = 5;

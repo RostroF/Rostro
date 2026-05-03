@@ -88,49 +88,49 @@ use log::{debug, info, log, trace, warn};
 use parking_lot::Mutex;
 use prometheus_endpoint::Registry;
 
-use sc_client_api::{
+use rc_client_api::{
 	backend::AuxStore, AuxDataOperations, Backend as BackendT, FinalityNotification,
 	PreCommitActions, UsageProvider,
 };
-use sc_consensus::{
+use rc_consensus::{
 	block_import::{
 		BlockCheckParams, BlockImport, BlockImportParams, ForkChoiceStrategy, ImportResult,
 		StateAction,
 	},
 	import_queue::{BasicQueue, BoxJustificationImport, DefaultImportQueue, Verifier},
 };
-use sc_consensus_epochs::{
+use rc_consensus_epochs::{
 	descendent_query, Epoch as EpochT, EpochChangesFor, SharedEpochChanges, ViableEpoch,
 	ViableEpochDescriptor,
 };
-use sc_consensus_slots::{
+use rc_consensus_slots::{
 	check_equivocation, BackoffAuthoringBlocksStrategy, CheckedHeader, InherentDataProviderExt,
 	SlotInfo, StorageChanges,
 };
-use sc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_TRACE};
-use sc_transaction_pool_api::OffchainTransactionPoolFactory;
-use sp_api::{ApiExt, ProvideRuntimeApi};
-use sp_application_crypto::AppCrypto;
-use sp_block_builder::BlockBuilder as BlockBuilderApi;
-use sp_blockchain::{
+use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_TRACE};
+use rc_transaction_pool_api::OffchainTransactionPoolFactory;
+use rp_api::{ApiExt, ProvideRuntimeApi};
+use rp_application_crypto::AppCrypto;
+use rp_block_builder::BlockBuilder as BlockBuilderApi;
+use rp_blockchain::{
 	Backend as _, BlockStatus, Error as ClientError, HeaderBackend, HeaderMetadata,
 	Result as ClientResult,
 };
-use sp_consensus::{BlockOrigin, Environment, Error as ConsensusError, Proposer, SelectChain};
-use sp_consensus_babe::{inherents::BabeInherentData, SlotDuration};
-use sp_consensus_slots::Slot;
-use sp_core::traits::SpawnEssentialNamed;
-use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
-use sp_keystore::KeystorePtr;
-use sp_runtime::{
+use rp_consensus::{BlockOrigin, Environment, Error as ConsensusError, Proposer, SelectChain};
+use rp_consensus_babe::{inherents::BabeInherentData, SlotDuration};
+use rp_consensus_slots::Slot;
+use rp_core::traits::SpawnEssentialNamed;
+use rp_inherents::{CreateInherentDataProviders, InherentDataProvider};
+use rp_keystore::KeystorePtr;
+use rp_runtime::{
 	generic::OpaqueDigestItemId,
 	traits::{Block as BlockT, Header, NumberFor, SaturatedConversion, Zero},
 	DigestItem,
 };
 
-pub use sc_consensus_slots::SlotProportion;
-pub use sp_consensus::SyncOracle;
-pub use sp_consensus_babe::{
+pub use rc_consensus_slots::SlotProportion;
+pub use rp_consensus::SyncOracle;
+pub use rp_consensus_babe::{
 	digests::{
 		CompatibleDigestItem, NextConfigDescriptor, NextEpochDescriptor, PreDigest,
 		PrimaryPreDigest, SecondaryPlainPreDigest,
@@ -140,7 +140,7 @@ pub use sp_consensus_babe::{
 };
 
 pub use aux_schema::load_block_weight as block_weight;
-use sp_timestamp::Timestamp;
+use rp_timestamp::Timestamp;
 
 mod migration;
 mod verification;
@@ -160,10 +160,10 @@ const AUTHORING_SCORE_LENGTH: usize = 16;
 
 /// BABE epoch information
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
-pub struct Epoch(sp_consensus_babe::Epoch);
+pub struct Epoch(rp_consensus_babe::Epoch);
 
 impl Deref for Epoch {
-	type Target = sp_consensus_babe::Epoch;
+	type Target = rp_consensus_babe::Epoch;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
@@ -176,8 +176,8 @@ impl DerefMut for Epoch {
 	}
 }
 
-impl From<sp_consensus_babe::Epoch> for Epoch {
-	fn from(epoch: sp_consensus_babe::Epoch) -> Self {
+impl From<rp_consensus_babe::Epoch> for Epoch {
+	fn from(epoch: rp_consensus_babe::Epoch) -> Self {
 		Epoch(epoch)
 	}
 }
@@ -190,7 +190,7 @@ impl EpochT for Epoch {
 		&self,
 		(descriptor, config): (NextEpochDescriptor, BabeEpochConfiguration),
 	) -> Epoch {
-		sp_consensus_babe::Epoch {
+		rp_consensus_babe::Epoch {
 			epoch_index: self.epoch_index + 1,
 			start_slot: self.start_slot + self.duration,
 			duration: self.duration,
@@ -215,7 +215,7 @@ impl Epoch {
 	///
 	/// This is defined to start at the slot of the first block, so that has to be provided.
 	pub fn genesis(genesis_config: &BabeConfiguration, slot: Slot) -> Epoch {
-		sp_consensus_babe::Epoch {
+		rp_consensus_babe::Epoch {
 			epoch_index: 0,
 			start_slot: slot,
 			duration: genesis_config.epoch_length,
@@ -321,7 +321,7 @@ pub enum Error<B: BlockT> {
 	VrfThresholdExceeded(u128),
 	/// Could not fetch parent header
 	#[error("Could not fetch parent header: {0}")]
-	FetchParentHeader(sp_blockchain::Error),
+	FetchParentHeader(rp_blockchain::Error),
 	/// Expected epoch change to happen.
 	#[error("Expected epoch change to happen at {0:?}, s{1}")]
 	ExpectedEpochChange(B::Hash, Slot),
@@ -336,25 +336,25 @@ pub enum Error<B: BlockT> {
 	ParentBlockNoAssociatedWeight(B::Hash),
 	/// Check inherents error
 	#[error("Checking inherents failed: {0}")]
-	CheckInherents(sp_inherents::Error),
+	CheckInherents(rp_inherents::Error),
 	/// Unhandled check inherents error
 	#[error("Checking inherents unhandled error: {}", String::from_utf8_lossy(.0))]
-	CheckInherentsUnhandled(sp_inherents::InherentIdentifier),
+	CheckInherentsUnhandled(rp_inherents::InherentIdentifier),
 	/// Create inherents error.
 	#[error("Creating inherents failed: {0}")]
-	CreateInherents(sp_inherents::Error),
+	CreateInherents(rp_inherents::Error),
 	/// Background worker is not running and therefore requests cannot be answered.
 	#[error("Background worker is not running")]
 	BackgroundWorkerTerminated,
 	/// Client error
 	#[error(transparent)]
-	Client(sp_blockchain::Error),
+	Client(rp_blockchain::Error),
 	/// Runtime Api error.
 	#[error(transparent)]
-	RuntimeApi(sp_api::ApiError),
+	RuntimeApi(rp_api::ApiError),
 	/// Fork tree error
 	#[error(transparent)]
-	ForkTree(Box<fork_tree::Error<sp_blockchain::Error>>),
+	ForkTree(Box<fork_tree::Error<rp_blockchain::Error>>),
 }
 
 impl<B: BlockT> From<Error<B>> for String {
@@ -402,7 +402,7 @@ where
 		},
 		Some(2) => runtime_api.configuration(at_hash)?,
 		_ => {
-			return Err(sp_blockchain::Error::VersionInvalid(
+			return Err(rp_blockchain::Error::VersionInvalid(
 				"Unsupported or invalid BabeApi version".to_string(),
 			))
 		},
@@ -495,7 +495,7 @@ where
 	E::Proposer: Proposer<B, Error = Error>,
 	I: BlockImport<B, Error = ConsensusError> + Send + Sync + 'static,
 	SO: SyncOracle + Send + Sync + Clone + 'static,
-	L: sc_consensus::JustificationSyncLink<B> + 'static,
+	L: rc_consensus::JustificationSyncLink<B> + 'static,
 	CIDP: CreateInherentDataProviders<B, ()> + Send + Sync + 'static,
 	CIDP::InherentDataProviders: InherentDataProviderExt + Send,
 	BS: BackoffAuthoringBlocksStrategy<NumberFor<B>> + Send + Sync + 'static,
@@ -522,10 +522,10 @@ where
 
 	info!(target: LOG_TARGET, "👶 Starting BABE Authorship worker");
 
-	let slot_worker = sc_consensus_slots::start_slot_worker(
+	let slot_worker = rc_consensus_slots::start_slot_worker(
 		babe_link.config.slot_duration(),
 		select_chain,
-		sc_consensus_slots::SimpleSlotWorkerToSlotWorker(worker),
+		rc_consensus_slots::SimpleSlotWorkerToSlotWorker(worker),
 		sync_oracle,
 		create_inherent_data_providers,
 	);
@@ -709,7 +709,7 @@ struct BabeSlotWorker<B: BlockT, C, E, I, SO, L, BS> {
 }
 
 #[async_trait::async_trait]
-impl<B, C, E, I, Error, SO, L, BS> sc_consensus_slots::SimpleSlotWorker<B>
+impl<B, C, E, I, Error, SO, L, BS> rc_consensus_slots::SimpleSlotWorker<B>
 	for BabeSlotWorker<B, C, E, I, SO, L, BS>
 where
 	B: BlockT,
@@ -719,7 +719,7 @@ where
 	E::Proposer: Proposer<B, Error = Error>,
 	I: BlockImport<B> + Send + Sync + 'static,
 	SO: SyncOracle + Send + Clone + Sync,
-	L: sc_consensus::JustificationSyncLink<B>,
+	L: rc_consensus::JustificationSyncLink<B>,
 	BS: BackoffAuthoringBlocksStrategy<NumberFor<B>> + Send + Sync,
 	Error: std::error::Error + Send + From<ConsensusError> + From<I::Error> + 'static,
 {
@@ -803,7 +803,7 @@ where
 		});
 	}
 
-	fn pre_digest_data(&self, _slot: Slot, claim: &Self::Claim) -> Vec<sp_runtime::DigestItem> {
+	fn pre_digest_data(&self, _slot: Slot, claim: &Self::Claim) -> Vec<rp_runtime::DigestItem> {
 		vec![<DigestItem as CompatibleDigestItem>::babe_pre_digest(claim.0.clone())]
 	}
 
@@ -833,7 +833,7 @@ where
 		import_block.post_digests.push(digest_item);
 		import_block.body = Some(body);
 		import_block.state_action =
-			StateAction::ApplyChanges(sc_consensus::StorageChanges::Changes(storage_changes));
+			StateAction::ApplyChanges(rc_consensus::StorageChanges::Changes(storage_changes));
 		import_block
 			.insert_intermediate(INTERMEDIATE_KEY, BabeIntermediate::<B> { epoch_descriptor });
 
@@ -880,12 +880,12 @@ where
 	fn proposing_remaining_duration(&self, slot_info: &SlotInfo<B>) -> Duration {
 		let parent_slot = find_pre_digest::<B>(&slot_info.chain_head).ok().map(|d| d.slot());
 
-		sc_consensus_slots::proposing_remaining_duration(
+		rc_consensus_slots::proposing_remaining_duration(
 			parent_slot,
 			slot_info,
 			&self.block_proposal_slot_portion,
 			self.max_block_proposal_slot_portion.as_ref(),
-			sc_consensus_slots::SlotLenienceType::Exponential,
+			rc_consensus_slots::SlotLenienceType::Exponential,
 			self.logging_target(),
 		)
 	}
@@ -992,7 +992,7 @@ pub struct BabeVerifier<Block: BlockT, Client> {
 impl<Block, Client> Verifier<Block> for BabeVerifier<Block, Client>
 where
 	Block: BlockT,
-	Client: HeaderMetadata<Block, Error = sp_blockchain::Error>
+	Client: HeaderMetadata<Block, Error = rp_blockchain::Error>
 		+ HeaderBackend<Block>
 		+ ProvideRuntimeApi<Block>
 		+ Send
@@ -1173,7 +1173,7 @@ where
 	Inner: BlockImport<Block> + Send + Sync,
 	Inner::Error: Into<ConsensusError>,
 	Client: HeaderBackend<Block>
-		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
 		+ AuxStore
 		+ ProvideRuntimeApi<Block>
 		+ Send
@@ -1181,7 +1181,7 @@ where
 	Client::Api: BlockBuilderApi<Block> + BabeApi<Block> + ApiExt<Block>,
 	CIDP: CreateInherentDataProviders<Block, ()>,
 	CIDP::InherentDataProviders: InherentDataProviderExt + Send,
-	SC: sp_consensus::SelectChain<Block> + 'static,
+	SC: rp_consensus::SelectChain<Block> + 'static,
 {
 	/// Import whole state after warp sync.
 	// This function makes multiple transactions to the DB. If one of them fails we may
@@ -1317,9 +1317,9 @@ where
 				.map_err(|e| ConsensusError::Other(Box::new(e)))?;
 			inherent_data.babe_replace_inherent_data(slot);
 
-			use sp_block_builder::CheckInherentsError;
+			use rp_block_builder::CheckInherentsError;
 
-			sp_block_builder::check_inherents_with_data(
+			rp_block_builder::check_inherents_with_data(
 				self.client.clone(),
 				at_hash,
 				new_block.clone(),
@@ -1444,7 +1444,7 @@ where
 	Inner: BlockImport<Block> + Send + Sync,
 	Inner::Error: Into<ConsensusError>,
 	Client: HeaderBackend<Block>
-		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
 		+ AuxStore
 		+ ProvideRuntimeApi<Block>
 		+ Send
@@ -1757,7 +1757,7 @@ fn prune_finalized<Block, Client>(
 ) -> Result<(), ConsensusError>
 where
 	Block: BlockT,
-	Client: HeaderBackend<Block> + HeaderMetadata<Block, Error = sp_blockchain::Error>,
+	Client: HeaderBackend<Block> + HeaderMetadata<Block, Error = rp_blockchain::Error>,
 {
 	let info = client.info();
 
@@ -1802,7 +1802,7 @@ pub fn block_import<Client, Block: BlockT, I, CIDP, SC>(
 where
 	Client: AuxStore
 		+ HeaderBackend<Block>
-		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
 		+ PreCommitActions<Block>
 		+ 'static,
 {
@@ -1882,7 +1882,7 @@ where
 	BI: BlockImport<Block, Error = ConsensusError> + Send + Sync + 'static,
 	Client: ProvideRuntimeApi<Block>
 		+ HeaderBackend<Block>
-		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
 		+ AuxStore
 		+ Send
 		+ Sync
@@ -1924,7 +1924,7 @@ pub fn revert<Block, Client, Backend>(
 where
 	Block: BlockT,
 	Client: AuxStore
-		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
 		+ HeaderBackend<Block>
 		+ ProvideRuntimeApi<Block>
 		+ UsageProvider<Block>,
@@ -1963,7 +1963,7 @@ where
 	let mut weight_keys = HashSet::with_capacity(revertible.saturated_into());
 
 	let leaves = backend.blockchain().leaves()?.into_iter().filter(|&leaf| {
-		sp_blockchain::tree_route(&*client, revert_up_to_hash, leaf)
+		rp_blockchain::tree_route(&*client, revert_up_to_hash, leaf)
 			.map(|route| route.retracted().is_empty())
 			.unwrap_or_default()
 	});
@@ -2003,7 +2003,7 @@ fn query_epoch_changes<Block, Client>(
 >
 where
 	Block: BlockT,
-	Client: HeaderBackend<Block> + HeaderMetadata<Block, Error = sp_blockchain::Error>,
+	Client: HeaderBackend<Block> + HeaderMetadata<Block, Error = rp_blockchain::Error>,
 {
 	let epoch_changes = epoch_changes.shared_data();
 	let epoch_descriptor = epoch_changes

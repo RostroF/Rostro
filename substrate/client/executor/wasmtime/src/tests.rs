@@ -17,16 +17,16 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use codec::{Decode as _, Encode as _};
-use sc_executor_common::{
+use rc_executor_common::{
 	error::Error,
 	runtime_blob::RuntimeBlob,
 	wasm_runtime::{HeapAllocStrategy, WasmModule, DEFAULT_HEAP_ALLOC_STRATEGY},
 };
-use sc_runtime_test::wasm_binary_unwrap;
+use rc_runtime_test::wasm_binary_unwrap;
 
 use crate::InstantiationStrategy;
 
-type HostFunctions = sp_io::SubstrateHostFunctions;
+type HostFunctions = rp_io::SubstrateHostFunctions;
 
 #[macro_export]
 macro_rules! test_wasm_execution {
@@ -505,7 +505,7 @@ fn test_rustix_version_matches_with_wasmtime() {
 	let our_rustix = metadata
 		.packages
 		.iter()
-		.find(|pkg| pkg.name == "sc-executor-wasmtime")
+		.find(|pkg| pkg.name == "rc-executor-wasmtime")
 		.unwrap()
 		.dependencies
 		.iter()
@@ -515,7 +515,7 @@ fn test_rustix_version_matches_with_wasmtime() {
 	if wasmtime_rustix.req != our_rustix.req {
 		panic!(
 			"our version of rustix ({0}) doesn't match wasmtime's ({1}); \
-				bump the version in `sc-executor-wasmtime`'s `Cargo.toml' to '{1}' and try again",
+				bump the version in `rc-executor-wasmtime`'s `Cargo.toml' to '{1}' and try again",
 			our_rustix.req, wasmtime_rustix.req,
 		);
 	}

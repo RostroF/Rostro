@@ -46,7 +46,7 @@ impl<F: FnOnce()> Drop for DeferGuard<F> {
 /// # Example
 ///
 /// ```rust
-/// use sp_core::defer;
+/// use rp_core::defer;
 ///
 /// let message = std::cell::RefCell::new("".to_string());
 /// {

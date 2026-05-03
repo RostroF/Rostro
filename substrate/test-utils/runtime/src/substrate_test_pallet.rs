@@ -23,8 +23,8 @@
 
 use alloc::{vec, vec::Vec};
 use frame_support::{pallet_prelude::*, storage};
-use sp_core::sr25519::Public;
-use sp_runtime::{
+use rp_core::sr25519::Public;
+use rp_runtime::{
 	traits::Hash,
 	transaction_validity::{
 		InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
@@ -40,8 +40,8 @@ pub mod pallet {
 	use super::*;
 	use crate::TransferData;
 	use frame_system::pallet_prelude::*;
-	use sp_core::storage::well_known_keys;
-	use sp_runtime::{traits::BlakeTwo256, transaction_validity::TransactionPriority, Perbill};
+	use rp_core::storage::well_known_keys;
+	use rp_runtime::{traits::BlakeTwo256, transaction_validity::TransactionPriority, Perbill};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -110,7 +110,7 @@ pub mod pallet {
 			value: Vec<u8>,
 		) -> DispatchResult {
 			frame_system::ensure_signed(origin)?;
-			sp_io::offchain_index::set(&key, &value);
+			rp_io::offchain_index::set(&key, &value);
 			Ok(())
 		}
 
@@ -119,7 +119,7 @@ pub mod pallet {
 		#[pallet::weight(100)]
 		pub fn offchain_index_clear(origin: OriginFor<T>, key: Vec<u8>) -> DispatchResult {
 			frame_system::ensure_signed(origin)?;
-			sp_io::offchain_index::clear(&key);
+			rp_io::offchain_index::clear(&key);
 			Ok(())
 		}
 
@@ -128,10 +128,10 @@ pub mod pallet {
 		#[pallet::weight(100)]
 		pub fn indexed_call(origin: OriginFor<T>, data: Vec<u8>) -> DispatchResult {
 			frame_system::ensure_signed(origin)?;
-			let content_hash = sp_io::hashing::blake2_256(&data);
+			let content_hash = rp_io::hashing::blake2_256(&data);
 			let extrinsic_index: u32 =
 				storage::unhashed::get(well_known_keys::EXTRINSIC_INDEX).unwrap();
-			sp_io::transaction_index::index(extrinsic_index, data.len() as u32, content_hash);
+			rp_io::transaction_index::index(extrinsic_index, data.len() as u32, content_hash);
 			Ok(())
 		}
 
@@ -141,7 +141,7 @@ pub mod pallet {
 		#[pallet::weight(100)]
 		pub fn deposit_log_digest_item(
 			_origin: OriginFor<T>,
-			log: sp_runtime::generic::DigestItem,
+			log: rp_runtime::generic::DigestItem,
 		) -> DispatchResult {
 			<frame_system::Pallet<T>>::deposit_log(log);
 			Ok(())
@@ -195,9 +195,9 @@ pub mod pallet {
 		fn execute_read(read: u32, panic_at_end: bool) -> DispatchResult {
 			let mut next_key = vec![];
 			for _ in 0..(read as usize) {
-				if let Some(next) = sp_io::storage::next_key(&next_key) {
+				if let Some(next) = rp_io::storage::next_key(&next_key) {
 					// Read the value
-					sp_io::storage::get(&next);
+					rp_io::storage::get(&next);
 
 					next_key = next;
 				} else {

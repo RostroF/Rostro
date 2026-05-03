@@ -20,9 +20,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use sp_runtime::traits::{Block as BlockT, NumberFor};
+use rp_runtime::traits::{Block as BlockT, NumberFor};
 
-use sc_client_api::{BadBlocks, ForkBlocks};
+use rc_client_api::{BadBlocks, ForkBlocks};
 
 /// Chain specification rules lookup result.
 pub enum LookupResult<B: BlockT> {

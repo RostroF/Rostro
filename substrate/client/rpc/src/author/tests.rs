@@ -22,19 +22,19 @@ use crate::testing::{test_executor, timeout_secs};
 use assert_matches::assert_matches;
 use codec::Encode;
 use jsonrpsee::{core::EmptyServerParams as EmptyParams, MethodsError as RpcError, RpcModule};
-use sc_rpc_api::DenyUnsafe;
-use sc_transaction_pool::{BasicPool, FullChainApi};
-use sc_transaction_pool_api::TransactionStatus;
-use sp_core::{
+use rc_rpc_api::DenyUnsafe;
+use rc_transaction_pool::{BasicPool, FullChainApi};
+use rc_transaction_pool_api::TransactionStatus;
+use rp_core::{
 	bytes::to_hex,
 	crypto::{ByteArray, Pair},
 	ed25519,
 	testing::{ED25519, SR25519},
 	H256,
 };
-use sp_crypto_hashing::blake2_256;
-use sp_keystore::{testing::MemoryKeystore, Keystore};
-use sp_runtime::Perbill;
+use rp_crypto_hashing::blake2_256;
+use rp_keystore::{testing::MemoryKeystore, Keystore};
+use rp_runtime::Perbill;
 use std::sync::Arc;
 use substrate_test_runtime_client::{
 	self,
@@ -65,7 +65,7 @@ impl Default for TestSetup {
 		let keystore = Arc::new(MemoryKeystore::new());
 		let client = Arc::new(substrate_test_runtime_client::TestClientBuilder::new().build());
 
-		let spawner = sp_core::testing::TaskExecutor::new();
+		let spawner = rp_core::testing::TaskExecutor::new();
 		let pool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),

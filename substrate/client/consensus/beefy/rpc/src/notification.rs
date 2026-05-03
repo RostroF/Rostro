@@ -19,18 +19,18 @@
 use codec::Encode;
 use serde::{Deserialize, Serialize};
 
-use sp_consensus_beefy::AuthorityIdBound;
-use sp_runtime::traits::Block as BlockT;
+use rp_consensus_beefy::AuthorityIdBound;
+use rp_runtime::traits::Block as BlockT;
 
 /// An encoded finality proof proving that the given header has been finalized.
 /// The given bytes should be the SCALE-encoded representation of a
-/// `sp_consensus_beefy::VersionedFinalityProof`.
+/// `rp_consensus_beefy::VersionedFinalityProof`.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct EncodedVersionedFinalityProof(sp_core::Bytes);
+pub struct EncodedVersionedFinalityProof(rp_core::Bytes);
 
 impl EncodedVersionedFinalityProof {
 	pub fn new<Block, AuthorityId>(
-		finality_proof: sc_consensus_beefy::justification::BeefyVersionedFinalityProof<
+		finality_proof: rc_consensus_beefy::justification::BeefyVersionedFinalityProof<
 			Block,
 			AuthorityId,
 		>,

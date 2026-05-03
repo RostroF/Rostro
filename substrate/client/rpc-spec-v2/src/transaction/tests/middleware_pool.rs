@@ -18,8 +18,8 @@
 
 use async_trait::async_trait;
 use codec::Encode;
-use sc_transaction_pool::BasicPool;
-use sc_transaction_pool_api::{
+use rc_transaction_pool::BasicPool;
+use rc_transaction_pool_api::{
 	ImportNotificationStream, PoolStatus, ReadyTransactions, TransactionFor, TransactionPool,
 	TransactionSource, TransactionStatusStreamFor, TxHash, TxInvalidityReportMap,
 };
@@ -27,7 +27,7 @@ use sc_transaction_pool_api::{
 use crate::hex_string;
 use futures::StreamExt;
 
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 use substrate_test_runtime_transaction_pool::TestApi;
 use tokio::sync::mpsc;
@@ -35,9 +35,9 @@ use tokio::sync::mpsc;
 pub type Block = substrate_test_runtime_client::runtime::Block;
 
 pub type TxTestPool = MiddlewarePool;
-pub type TxStatusType<Pool> = sc_transaction_pool_api::TransactionStatus<
-	sc_transaction_pool_api::TxHash<Pool>,
-	sc_transaction_pool_api::BlockHash<Pool>,
+pub type TxStatusType<Pool> = rc_transaction_pool_api::TransactionStatus<
+	rc_transaction_pool_api::TxHash<Pool>,
+	rc_transaction_pool_api::BlockHash<Pool>,
 >;
 pub type TxStatusTypeTest = TxStatusType<TxTestPool>;
 
@@ -46,7 +46,7 @@ pub type TxStatusTypeTest = TxStatusType<TxTestPool>;
 pub enum MiddlewarePoolEvent {
 	TransactionStatus {
 		transaction: String,
-		status: sc_transaction_pool_api::TransactionStatus<
+		status: rc_transaction_pool_api::TransactionStatus<
 			<Block as BlockT>::Hash,
 			<Block as BlockT>::Hash,
 		>,

@@ -35,22 +35,22 @@ use std::{fmt::Debug, marker::PhantomData, pin::Pin, sync::Arc};
 use codec::Codec;
 use futures::prelude::*;
 
-use sc_client_api::{backend::AuxStore, BlockOf};
-use sc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy, StateAction};
-use sc_consensus_slots::{
+use rc_client_api::{backend::AuxStore, BlockOf};
+use rc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy, StateAction};
+use rc_consensus_slots::{
 	BackoffAuthoringBlocksStrategy, InherentDataProviderExt, SimpleSlotWorkerToSlotWorker,
 	SlotInfo, StorageChanges,
 };
-use sc_telemetry::TelemetryHandle;
-use sp_api::{ApiExt, Core, ProvideRuntimeApi};
-use sp_application_crypto::AppPublic;
-use sp_blockchain::HeaderBackend;
-use sp_consensus::{BlockOrigin, Environment, Error as ConsensusError, Proposer, SelectChain};
-use sp_consensus_slots::Slot;
-use sp_core::crypto::Pair;
-use sp_inherents::CreateInherentDataProviders;
-use sp_keystore::KeystorePtr;
-use sp_runtime::traits::{Block as BlockT, Header, Member, NumberFor};
+use rc_telemetry::TelemetryHandle;
+use rp_api::{ApiExt, Core, ProvideRuntimeApi};
+use rp_application_crypto::AppPublic;
+use rp_blockchain::HeaderBackend;
+use rp_consensus::{BlockOrigin, Environment, Error as ConsensusError, Proposer, SelectChain};
+use rp_consensus_slots::Slot;
+use rp_core::crypto::Pair;
+use rp_inherents::CreateInherentDataProviders;
+use rp_keystore::KeystorePtr;
+use rp_runtime::traits::{Block as BlockT, Header, Member, NumberFor};
 
 mod authorities_tracker;
 mod import_queue;
@@ -62,9 +62,9 @@ pub use import_queue::{
 	build_verifier, import_queue, AuraVerifier, BuildVerifierParams, CheckForEquivocation,
 	ImportQueueParams,
 };
-pub use sc_consensus_slots::SlotProportion;
-pub use sp_consensus::SyncOracle;
-pub use sp_consensus_aura::{
+pub use rc_consensus_slots::SlotProportion;
+pub use rp_consensus::SyncOracle;
+pub use rp_consensus_aura::{
 	digests::CompatibleDigestItem,
 	inherents::{InherentDataProvider, InherentType as AuraInherent, INHERENT_IDENTIFIER},
 	AuraApi, ConsensusLog, SlotDuration, AURA_ENGINE_ID,
@@ -184,7 +184,7 @@ where
 	PF: Environment<B, Error = Error> + Send + Sync + 'static,
 	PF::Proposer: Proposer<B, Error = Error>,
 	SO: SyncOracle + Send + Sync + Clone,
-	L: sc_consensus::JustificationSyncLink<B>,
+	L: rc_consensus::JustificationSyncLink<B>,
 	CIDP: CreateInherentDataProviders<B, ()> + Send + 'static,
 	CIDP::InherentDataProviders: InherentDataProviderExt + Send,
 	BS: BackoffAuthoringBlocksStrategy<NumberFor<B>> + Send + Sync + 'static,
@@ -205,7 +205,7 @@ where
 		compatibility_mode,
 	});
 
-	Ok(sc_consensus_slots::start_slot_worker(
+	Ok(rc_consensus_slots::start_slot_worker(
 		slot_duration,
 		select_chain,
 		SimpleSlotWorkerToSlotWorker(worker),
@@ -267,7 +267,7 @@ pub fn build_aura_worker<P, B, C, PF, I, SO, L, BS, Error>(
 		force_authoring,
 		compatibility_mode,
 	}: BuildAuraWorkerParams<C, I, PF, SO, L, BS, NumberFor<B>>,
-) -> impl sc_consensus_slots::SimpleSlotWorker<
+) -> impl rc_consensus_slots::SimpleSlotWorker<
 	B,
 	Proposer = PF::Proposer,
 	BlockImport = I,
@@ -288,7 +288,7 @@ where
 	I: BlockImport<B> + Send + Sync + 'static,
 	Error: std::error::Error + Send + From<ConsensusError> + 'static,
 	SO: SyncOracle + Send + Sync + Clone,
-	L: sc_consensus::JustificationSyncLink<B>,
+	L: rc_consensus::JustificationSyncLink<B>,
 	BS: BackoffAuthoringBlocksStrategy<NumberFor<B>> + Send + Sync + 'static,
 {
 	AuraWorker {
@@ -325,7 +325,7 @@ struct AuraWorker<C, E, I, P, SO, L, BS, N> {
 }
 
 #[async_trait::async_trait]
-impl<B, C, E, I, P, Error, SO, L, BS> sc_consensus_slots::SimpleSlotWorker<B>
+impl<B, C, E, I, P, Error, SO, L, BS> rc_consensus_slots::SimpleSlotWorker<B>
 	for AuraWorker<C, E, I, P, SO, L, BS, NumberFor<B>>
 where
 	B: BlockT,
@@ -338,7 +338,7 @@ where
 	P::Public: AppPublic + Member,
 	P::Signature: TryFrom<Vec<u8>> + Member + Codec,
 	SO: SyncOracle + Send + Clone + Sync,
-	L: sc_consensus::JustificationSyncLink<B>,
+	L: rc_consensus::JustificationSyncLink<B>,
 	BS: BackoffAuthoringBlocksStrategy<NumberFor<B>> + Send + Sync + 'static,
 	Error: std::error::Error + Send + From<ConsensusError> + 'static,
 {
@@ -381,7 +381,7 @@ where
 		crate::standalone::claim_slot::<P>(slot, authorities, &self.keystore).await
 	}
 
-	fn pre_digest_data(&self, slot: Slot, _claim: &Self::Claim) -> Vec<sp_runtime::DigestItem> {
+	fn pre_digest_data(&self, slot: Slot, _claim: &Self::Claim) -> Vec<rp_runtime::DigestItem> {
 		vec![crate::standalone::pre_digest::<P>(slot)]
 	}
 
@@ -393,7 +393,7 @@ where
 		storage_changes: StorageChanges<B>,
 		public: Self::Claim,
 		_authorities: Self::AuxData,
-	) -> Result<sc_consensus::BlockImportParams<B>, ConsensusError> {
+	) -> Result<rc_consensus::BlockImportParams<B>, ConsensusError> {
 		let signature_digest_item =
 			crate::standalone::seal::<_, P>(header_hash, &public, &self.keystore)?;
 
@@ -401,7 +401,7 @@ where
 		import_block.post_digests.push(signature_digest_item);
 		import_block.body = Some(body);
 		import_block.state_action =
-			StateAction::ApplyChanges(sc_consensus::StorageChanges::Changes(storage_changes));
+			StateAction::ApplyChanges(rc_consensus::StorageChanges::Changes(storage_changes));
 		import_block.fork_choice = Some(ForkChoiceStrategy::LongestChain);
 
 		Ok(import_block)
@@ -448,12 +448,12 @@ where
 	fn proposing_remaining_duration(&self, slot_info: &SlotInfo<B>) -> std::time::Duration {
 		let parent_slot = find_pre_digest::<B, P::Signature>(&slot_info.chain_head).ok();
 
-		sc_consensus_slots::proposing_remaining_duration(
+		rc_consensus_slots::proposing_remaining_duration(
 			parent_slot,
 			slot_info,
 			&self.block_proposal_slot_portion,
 			self.max_block_proposal_slot_portion.as_ref(),
-			sc_consensus_slots::SlotLenienceType::Exponential,
+			rc_consensus_slots::SlotLenienceType::Exponential,
 			self.logging_target(),
 		)
 	}
@@ -482,10 +482,10 @@ pub enum Error<B: BlockT> {
 	BadSignature(B::Hash),
 	/// Client Error
 	#[error(transparent)]
-	Client(sp_blockchain::Error),
+	Client(rp_blockchain::Error),
 	/// Inherents Error
 	#[error("Inherent error: {0}")]
-	Inherent(sp_inherents::Error),
+	Inherent(rp_inherents::Error),
 }
 
 impl<B: BlockT> From<Error<B>> for String {
@@ -538,7 +538,7 @@ where
 		},
 	}
 
-	runtime_api.set_call_context(sp_core::traits::CallContext::Onchain);
+	runtime_api.set_call_context(rp_core::traits::CallContext::Onchain);
 	runtime_api
 		.authorities(parent_hash)
 		.ok()
@@ -549,19 +549,19 @@ where
 mod tests {
 	use super::*;
 	use parking_lot::Mutex;
-	use sc_block_builder::BlockBuilderBuilder;
-	use sc_client_api::BlockchainEvents;
-	use sc_consensus::BoxJustificationImport;
-	use sc_consensus_slots::{BackoffAuthoringOnFinalizedHeadLagging, SimpleSlotWorker};
-	use sc_keystore::LocalKeystore;
-	use sc_network_test::{Block as TestBlock, *};
-	use sp_application_crypto::{key_types::AURA, AppCrypto};
-	use sp_consensus::{NoNetwork as DummyOracle, Proposal, ProposeArgs};
-	use sp_consensus_aura::sr25519::AuthorityPair;
-	use sp_keyring::sr25519::Keyring;
-	use sp_keystore::Keystore;
-	use sp_runtime::traits::{Block as BlockT, Header as _};
-	use sp_timestamp::Timestamp;
+	use rc_block_builder::BlockBuilderBuilder;
+	use rc_client_api::BlockchainEvents;
+	use rc_consensus::BoxJustificationImport;
+	use rc_consensus_slots::{BackoffAuthoringOnFinalizedHeadLagging, SimpleSlotWorker};
+	use rc_keystore::LocalKeystore;
+	use rc_network_test::{Block as TestBlock, *};
+	use rp_application_crypto::{key_types::AURA, AppCrypto};
+	use rp_consensus::{NoNetwork as DummyOracle, Proposal, ProposeArgs};
+	use rp_consensus_aura::sr25519::AuthorityPair;
+	use rp_keyring::sr25519::Keyring;
+	use rp_keystore::Keystore;
+	use rp_runtime::traits::{Block as BlockT, Header as _};
+	use rp_timestamp::Timestamp;
 	use std::{
 		task::Poll,
 		time::{Duration, Instant},
@@ -573,7 +573,7 @@ mod tests {
 
 	const SLOT_DURATION_MS: u64 = 1000;
 
-	type Error = sp_blockchain::Error;
+	type Error = rp_blockchain::Error;
 
 	struct DummyFactory(Arc<TestClient>);
 	struct DummyProposer(Arc<TestClient>);
@@ -682,7 +682,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn authoring_blocks() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let net = AuraTestNet::new(3);
 
 		let peers = &[(0, Keyring::Alice), (1, Keyring::Bob), (2, Keyring::Charlie)];

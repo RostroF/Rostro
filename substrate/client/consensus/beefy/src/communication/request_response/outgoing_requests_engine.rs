@@ -22,13 +22,13 @@ use codec::Encode;
 use futures::channel::{oneshot, oneshot::Canceled};
 use log::{debug, warn};
 use parking_lot::Mutex;
-use sc_network::{
+use rc_network::{
 	request_responses::{IfDisconnected, RequestFailure},
 	NetworkRequest, ProtocolName,
 };
-use sc_network_types::PeerId;
-use sp_consensus_beefy::{AuthorityIdBound, ValidatorSet};
-use sp_runtime::traits::{Block, NumberFor};
+use rc_network_types::PeerId;
+use rp_consensus_beefy::{AuthorityIdBound, ValidatorSet};
+use rp_runtime::traits::{Block, NumberFor};
 use std::{collections::VecDeque, result::Result, sync::Arc};
 
 use crate::{
@@ -181,7 +181,7 @@ impl<B: Block, AuthorityId: AuthorityIdBound> OnDemandJustificationsEngine<B, Au
 			.map_err(|e| {
 				debug!(
 					target: BEEFY_SYNC_LOG_TARGET,
-					"🥩 on-demand sc-network channel sender closed, err: {:?}", e
+					"🥩 on-demand rc-network channel sender closed, err: {:?}", e
 				);
 				Error::ResponseError
 			})?

@@ -1,5 +1,5 @@
 [package]
-name = "sc-transaction-pool"
+name = "rc-transaction-pool"
 version = "45.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -29,17 +29,17 @@ itertools = { workspace = true }
 linked-hash-map = { workspace = true }
 parking_lot = { workspace = true, default-features = true }
 prometheus-endpoint = { default-features = true, workspace = true }
-sc-client-api = { default-features = true, workspace = true }
-sc-transaction-pool-api = { default-features = true, workspace = true }
-sc-utils = { default-features = true, workspace = true }
+rc-client-api = { default-features = true, workspace = true }
+rc-transaction-pool-api = { default-features = true, workspace = true }
+rc-utils = { default-features = true, workspace = true }
 serde = { features = ["derive"], workspace = true, default-features = true }
-sp-api = { default-features = true, workspace = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-crypto-hashing = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-tracing = { default-features = true, workspace = true }
-sp-transaction-pool = { default-features = true, workspace = true }
+rp-api = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-crypto-hashing = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
+rp-tracing = { default-features = true, workspace = true }
+rp-transaction-pool = { default-features = true, workspace = true }
 strum = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, default-features = true, features = ["macros", "time"] }
@@ -51,13 +51,12 @@ anyhow = { workspace = true }
 assert_matches = { workspace = true }
 chrono = { workspace = true }
 criterion = { workspace = true, default-features = true }
-cumulus-zombienet-sdk-helpers = { workspace = true, default-features = false }
 env_logger = { workspace = true }
 rstest = { workspace = true }
-sc-block-builder = { default-features = true, workspace = true }
+rc-block-builder = { default-features = true, workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sp-consensus = { default-features = true, workspace = true }
+rp-consensus = { default-features = true, workspace = true }
 substrate-test-runtime = { workspace = true }
 substrate-test-runtime-client = { workspace = true }
 substrate-test-runtime-transaction-pool = { workspace = true }

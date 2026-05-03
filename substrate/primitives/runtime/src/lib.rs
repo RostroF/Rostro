@@ -58,21 +58,21 @@ pub use scale_info;
 #[doc(hidden)]
 pub use serde;
 #[doc(hidden)]
-pub use sp_std;
+pub use rp_std;
 
 #[doc(hidden)]
 pub use paste;
 #[doc(hidden)]
-pub use sp_arithmetic::traits::Saturating;
+pub use rp_arithmetic::traits::Saturating;
 
 #[doc(hidden)]
-pub use sp_application_crypto as app_crypto;
+pub use rp_application_crypto as app_crypto;
 
-pub use sp_core::storage::StateVersion;
+pub use rp_core::storage::StateVersion;
 #[cfg(feature = "std")]
-pub use sp_core::storage::{Storage, StorageChild};
+pub use rp_core::storage::{Storage, StorageChild};
 
-use sp_core::{
+use rp_core::{
 	crypto::{self, ByteArray, FromEntropy},
 	ecdsa, ed25519,
 	hash::{H256, H512},
@@ -104,32 +104,32 @@ use proving_trie::TrieError;
 /// Re-export these since they're only "kind of" generic.
 pub use generic::{Digest, DigestItem};
 
-pub use sp_application_crypto::{BoundToRuntimeAppPublic, RuntimeAppPublic};
+pub use rp_application_crypto::{BoundToRuntimeAppPublic, RuntimeAppPublic};
 /// Re-export this since it's part of the API of this crate.
-pub use sp_core::{
+pub use rp_core::{
 	bounded::{BoundedBTreeMap, BoundedBTreeSet, BoundedSlice, BoundedVec, WeakBoundedVec},
 	crypto::{key_types, AccountId32, CryptoType, CryptoTypeId, KeyTypeId},
 	TypeId,
 };
 /// Re-export bounded_vec and bounded_btree_map macros only when std is enabled.
 #[cfg(feature = "std")]
-pub use sp_core::{bounded_btree_map, bounded_vec};
+pub use rp_core::{bounded_btree_map, bounded_vec};
 
 /// Re-export `Debug`, to avoid dependency clutter.
 pub use core::fmt::Debug;
 
 /// Re-export big_uint stuff.
-pub use sp_arithmetic::biguint;
+pub use rp_arithmetic::biguint;
 /// Re-export 128 bit helpers.
-pub use sp_arithmetic::helpers_128bit;
+pub use rp_arithmetic::helpers_128bit;
 /// Re-export top-level arithmetic stuff.
-pub use sp_arithmetic::{
+pub use rp_arithmetic::{
 	traits::SaturatedConversion, ArithmeticError, FixedI128, FixedI64, FixedPointNumber,
 	FixedPointOperand, FixedU128, FixedU64, InnerOf, PerThing, PerU16, Perbill, Percent, Permill,
 	Perquintill, Rational128, Rounding, UpperOf,
 };
 /// Re-export this since it's part of the API of this crate.
-pub use sp_weights::Weight;
+pub use rp_weights::Weight;
 
 pub use either::Either;
 
@@ -224,13 +224,13 @@ pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[cfg(feature = "std")]
 pub trait BuildStorage {
 	/// Build the storage out of this builder.
-	fn build_storage(&self) -> Result<sp_core::storage::Storage, String> {
+	fn build_storage(&self) -> Result<rp_core::storage::Storage, String> {
 		let mut storage = Default::default();
 		self.assimilate_storage(&mut storage)?;
 		Ok(storage)
 	}
 	/// Assimilate the storage for this module into pre-existing overlays.
-	fn assimilate_storage(&self, storage: &mut sp_core::storage::Storage) -> Result<(), String>;
+	fn assimilate_storage(&self, storage: &mut rp_core::storage::Storage) -> Result<(), String>;
 }
 
 /// Something that can build the genesis storage of a module.
@@ -242,13 +242,13 @@ pub trait BuildModuleGenesisStorage<T, I>: Sized {
 	/// Create the module genesis storage into the given `storage` and `child_storage`.
 	fn build_module_genesis_storage(
 		&self,
-		storage: &mut sp_core::storage::Storage,
+		storage: &mut rp_core::storage::Storage,
 	) -> Result<(), String>;
 }
 
 #[cfg(feature = "std")]
-impl BuildStorage for sp_core::storage::Storage {
-	fn assimilate_storage(&self, storage: &mut sp_core::storage::Storage) -> Result<(), String> {
+impl BuildStorage for rp_core::storage::Storage {
+	fn assimilate_storage(&self, storage: &mut rp_core::storage::Storage) -> Result<(), String> {
 		storage.top.extend(self.top.iter().map(|(k, v)| (k.clone(), v.clone())));
 		for (k, other_map) in self.children_default.iter() {
 			let k = k.clone();
@@ -267,7 +267,7 @@ impl BuildStorage for sp_core::storage::Storage {
 
 #[cfg(feature = "std")]
 impl BuildStorage for () {
-	fn assimilate_storage(&self, _: &mut sp_core::storage::Storage) -> Result<(), String> {
+	fn assimilate_storage(&self, _: &mut rp_core::storage::Storage) -> Result<(), String> {
 		Err("`assimilate_storage` not implemented for `()`".into())
 	}
 }
@@ -399,12 +399,12 @@ impl traits::IdentifyAccount for MultiSigner {
 		match self {
 			Self::Ed25519(who) => <[u8; 32]>::from(who).into(),
 			Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
-			Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
+			Self::Ecdsa(who) => rp_io::hashing::blake2_256(who.as_ref()).into(),
 			Self::Eth(who) => {
 				// It is important that the account id is based off the eth address rather
 				// than its pubkey. This is because in many cases we don't know the pubkey
 				// of an eth account.
-				let eth_address = &sp_io::hashing::keccak_256(who.as_ref())[12..];
+				let eth_address = &rp_io::hashing::keccak_256(who.as_ref())[12..];
 				// This is by convention: `pallet_revive` maps eth addresses to account ids
 				// by filling up the additional 12 bytes with 0xEE.
 				let mut address = [0xEE; 32];
@@ -486,13 +486,13 @@ impl Verify for MultiSignature {
 			Self::Ed25519(sig) => sig.verify(msg, &who.into()),
 			Self::Sr25519(sig) => sig.verify(msg, &who.into()),
 			Self::Ecdsa(sig) => {
-				let m = sp_io::hashing::blake2_256(msg.get());
-				sp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m)
-					.map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == who)
+				let m = rp_io::hashing::blake2_256(msg.get());
+				rp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m)
+					.map_or(false, |pubkey| rp_io::hashing::blake2_256(&pubkey) == who)
 			},
 			Self::Eth(sig) => {
-				let m = sp_io::hashing::keccak_256(msg.get());
-				sp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m)
+				let m = rp_io::hashing::keccak_256(msg.get());
+				rp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m)
 					.map_or(false, |pubkey| {
 						&MultiSigner::Eth(pubkey.into()).into_account() == signer
 					})
@@ -942,15 +942,15 @@ pub fn verify_encoded_lazy<V: Verify, T: codec::Encode>(
 ///
 /// ```rust
 /// # fn main() {
-/// sp_runtime::assert_eq_error_rate!(10, 10, 0);
-/// sp_runtime::assert_eq_error_rate!(10, 11, 1);
-/// sp_runtime::assert_eq_error_rate!(12, 10, 2);
+/// rp_runtime::assert_eq_error_rate!(10, 10, 0);
+/// rp_runtime::assert_eq_error_rate!(10, 11, 1);
+/// rp_runtime::assert_eq_error_rate!(12, 10, 2);
 /// # }
 /// ```
 ///
 /// ```rust,should_panic
 /// # fn main() {
-/// sp_runtime::assert_eq_error_rate!(12, 10, 1);
+/// rp_runtime::assert_eq_error_rate!(12, 10, 1);
 /// # }
 /// ```
 #[macro_export]
@@ -1033,7 +1033,7 @@ impl LazyExtrinsic for OpaqueExtrinsic {
 impl core::fmt::Debug for OpaqueExtrinsic {
 	#[cfg(feature = "std")]
 	fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
-		write!(fmt, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
+		write!(fmt, "{}", rp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
 	}
 
 	#[cfg(not(feature = "std"))]
@@ -1048,7 +1048,7 @@ impl ::serde::Serialize for OpaqueExtrinsic {
 	where
 		S: ::serde::Serializer,
 	{
-		codec::Encode::using_encoded(&self.0, |bytes| ::sp_core::bytes::serialize(bytes, seq))
+		codec::Encode::using_encoded(&self.0, |bytes| ::rp_core::bytes::serialize(bytes, seq))
 	}
 }
 
@@ -1058,7 +1058,7 @@ impl<'a> ::serde::Deserialize<'a> for OpaqueExtrinsic {
 	where
 		D: ::serde::Deserializer<'a>,
 	{
-		let r = ::sp_core::bytes::deserialize(de)?;
+		let r = ::rp_core::bytes::deserialize(de)?;
 		Decode::decode(&mut &r[..])
 			.map_err(|e| ::serde::de::Error::custom(alloc::format!("Decode error: {}", e)))
 	}
@@ -1085,7 +1085,7 @@ pub fn print(print: impl traits::Printable) {
 /// # Example
 ///
 /// ```rust
-/// # use sp_runtime::str_array;
+/// # use rp_runtime::str_array;
 /// const MY_STR: [u8; 6] = str_array("data");
 /// assert_eq!(MY_STR, *b"data\0\0");
 /// ```
@@ -1144,7 +1144,7 @@ impl OpaqueValue {
 	}
 }
 
-// TODO: Remove in future versions and clean up `parse_str_literal` in `sp-version-proc-macro`
+// TODO: Remove in future versions and clean up `parse_str_literal` in `rp-version-proc-macro`
 /// Deprecated `Cow::Borrowed()` wrapper.
 #[macro_export]
 #[deprecated = "Use Cow::Borrowed() instead of create_runtime_str!()"]
@@ -1168,9 +1168,9 @@ mod tests {
 
 	use super::*;
 	use codec::{Decode, Encode};
-	use sp_core::{crypto::Pair, hex2array};
-	use sp_io::TestExternalities;
-	use sp_state_machine::create_proof_check_backend;
+	use rp_core::{crypto::Pair, hex2array};
+	use rp_io::TestExternalities;
+	use rp_state_machine::create_proof_check_backend;
 
 	#[test]
 	fn opaque_extrinsic_serialization() {
@@ -1282,7 +1282,7 @@ mod tests {
 	#[test]
 	fn execute_and_generate_proof_works() {
 		use codec::Encode;
-		use sp_state_machine::Backend;
+		use rp_state_machine::Backend;
 		let mut ext = TestExternalities::default();
 
 		ext.insert(b"a".to_vec(), vec![1u8; 33]);
@@ -1292,10 +1292,10 @@ mod tests {
 
 		let pre_root = *ext.backend.root();
 		let (_, proof) = ext.execute_and_prove(|| {
-			sp_io::storage::get(b"a");
-			sp_io::storage::get(b"b");
-			sp_io::storage::get(b"v");
-			sp_io::storage::get(b"d");
+			rp_io::storage::get(b"a");
+			rp_io::storage::get(b"b");
+			rp_io::storage::get(b"v");
+			rp_io::storage::get(b"d");
 		});
 
 		let compact_proof = proof.clone().into_compact_proof::<BlakeTwo256>(pre_root).unwrap();
@@ -1311,24 +1311,24 @@ mod tests {
 		assert_eq!(proof_check.storage(b"a",).unwrap().unwrap(), vec![1u8; 33]);
 
 		let _ = ext.execute_and_prove(|| {
-			sp_io::storage::set(b"a", &vec![1u8; 44]);
+			rp_io::storage::set(b"a", &vec![1u8; 44]);
 		});
 
 		// ensure that these changes are propagated to the backend.
 
 		ext.execute_with(|| {
-			assert_eq!(sp_io::storage::get(b"a").unwrap(), vec![1u8; 44]);
-			assert_eq!(sp_io::storage::get(b"b").unwrap(), vec![2u8; 33]);
+			assert_eq!(rp_io::storage::get(b"a").unwrap(), vec![1u8; 44]);
+			assert_eq!(rp_io::storage::get(b"b").unwrap(), vec![2u8; 33]);
 		});
 	}
 }
 
-// NOTE: we have to test the sp_core stuff also from a different crate to check that the macro
-// can access the sp_core crate.
+// NOTE: we have to test the rp_core stuff also from a different crate to check that the macro
+// can access the rp_core crate.
 #[cfg(test)]
 mod sp_core_tests {
-	sp_core::generate_feature_enabled_macro!(if_test, test, $);
-	sp_core::generate_feature_enabled_macro!(if_not_test, not(test), $);
+	rp_core::generate_feature_enabled_macro!(if_test, test, $);
+	rp_core::generate_feature_enabled_macro!(if_not_test, not(test), $);
 
 	#[test]
 	#[should_panic]

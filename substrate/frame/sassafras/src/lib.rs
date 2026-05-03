@@ -64,13 +64,13 @@ use frame_system::{
 	offchain::{CreateBare, SubmitTransaction},
 	pallet_prelude::BlockNumberFor,
 };
-use sp_consensus_sassafras::{
+use rp_consensus_sassafras::{
 	digests::{ConsensusLog, NextEpochDescriptor, SlotClaim},
 	vrf, AuthorityId, Epoch, EpochConfiguration, Randomness, Slot, TicketBody, TicketEnvelope,
 	TicketId, RANDOMNESS_LENGTH, SASSAFRAS_ENGINE_ID,
 };
-use sp_io::hashing;
-use sp_runtime::{
+use rp_io::hashing;
+use rp_runtime::{
 	generic::DigestItem,
 	traits::{One, Zero},
 	BoundToRuntimeAppPublic,
@@ -386,7 +386,7 @@ pub mod pallet {
 			// Compute tickets threshold
 			let next_config =
 				NextEpochConfig::<T>::get().unwrap_or_else(|| EpochConfig::<T>::get());
-			let ticket_threshold = sp_consensus_sassafras::ticket_id_threshold(
+			let ticket_threshold = rp_consensus_sassafras::ticket_id_threshold(
 				next_config.redundancy_factor,
 				epoch_length as u32,
 				next_config.attempts_number,

@@ -28,9 +28,9 @@ use crate::{
 };
 use futures::{Future, FutureExt, Stream, StreamExt};
 use parking_lot::RwLock;
-use sc_transaction_pool_api::{TransactionStatus, TransactionStatusStream, TxIndex};
-use sc_utils::mpsc;
-use sp_runtime::traits::Block as BlockT;
+use rc_transaction_pool_api::{TransactionStatus, TransactionStatusStream, TxIndex};
+use rc_utils::mpsc;
+use rp_runtime::traits::Block as BlockT;
 use std::{
 	collections::{hash_map::Entry, HashMap, HashSet},
 	pin::Pin,
@@ -245,7 +245,7 @@ where
 ///
 /// For every view, an aggregated stream of transactions events can be added. The events are
 /// flattened and sent out to the external listener for individual transactions. (The *external*
-/// term here means that it can be exposed to [`sc_transaction_pool_api::TransactionPool`] API
+/// term here means that it can be exposed to [`rc_transaction_pool_api::TransactionPool`] API
 /// client e.g. over RPC.)
 ///
 /// The listener allows to add and remove view's stream.
@@ -564,7 +564,7 @@ where
 	///
 	/// This method initializes an `ExternalWatcherContext` for the provided transaction hash, sets
 	/// up the necessary communication channel with listener's task, and unfolds an external
-	/// (meaning that it can be exposed to [`sc_transaction_pool_api::TransactionPool`] API client
+	/// (meaning that it can be exposed to [`rc_transaction_pool_api::TransactionPool`] API client
 	/// e.g. rpc) stream of transaction status events. If an external watcher is already present for
 	/// the given transaction, it returns `None`.
 	///
@@ -806,7 +806,7 @@ mod tests {
 	use super::*;
 	use crate::common::tests::TestApi;
 	use futures::{stream, StreamExt};
-	use sp_core::H256;
+	use rp_core::H256;
 	use tokio::{select, task::JoinHandle};
 	use tracing::debug;
 
@@ -830,7 +830,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test01() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash = H256::repeat_byte(0x01);
@@ -859,7 +859,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test02() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash0 = H256::repeat_byte(0x01);
@@ -908,7 +908,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test03() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash0 = H256::repeat_byte(0x01);
@@ -955,7 +955,7 @@ mod tests {
 	//
 	#[tokio::test]
 	async fn test032() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash0 = H256::repeat_byte(0x01);
@@ -1028,7 +1028,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test04() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash0 = H256::repeat_byte(0x01);
@@ -1077,7 +1077,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test05() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash0 = H256::repeat_byte(0x01);

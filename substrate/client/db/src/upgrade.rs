@@ -27,7 +27,7 @@ use std::{
 use crate::{columns, utils::DatabaseType};
 use codec::{Decode, Encode};
 use kvdb_rocksdb::{Database, DatabaseConfig};
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 
 /// Version file name.
 const VERSION_FILE_NAME: &str = "db_version";
@@ -141,7 +141,7 @@ fn migrate_2_to_3<Block: BlockT>(db_path: &Path, _db_type: DatabaseType) -> Upgr
 			// call encode on it.
 			let justification = Vec::<u8>::decode(&mut &justification[..])
 				.map_err(|_| UpgradeError::DecodingJustificationBlock)?;
-			let justifications = sp_runtime::Justifications::from((*b"FRNK", justification));
+			let justifications = rp_runtime::Justifications::from((*b"FRNK", justification));
 			transaction.put_vec(columns::JUSTIFICATIONS, &key, justifications.encode());
 		}
 	}
@@ -204,14 +204,14 @@ mod tests {
 		}
 	}
 
-	fn open_database(db_path: &Path, db_type: DatabaseType) -> sp_blockchain::Result<()> {
+	fn open_database(db_path: &Path, db_type: DatabaseType) -> rp_blockchain::Result<()> {
 		crate::utils::open_database::<Block>(
 			&DatabaseSource::RocksDb { path: db_path.to_owned(), cache_size: 128 },
 			db_type,
 			true,
 		)
 		.map(|_| ())
-		.map_err(|e| sp_blockchain::Error::Backend(e.to_string()))
+		.map_err(|e| rp_blockchain::Error::Backend(e.to_string()))
 	}
 
 	#[test]

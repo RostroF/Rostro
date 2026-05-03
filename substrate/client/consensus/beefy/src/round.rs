@@ -20,12 +20,12 @@ use crate::LOG_TARGET;
 
 use codec::{Decode, Encode};
 use log::{debug, info};
-use sp_application_crypto::RuntimeAppPublic;
-use sp_consensus_beefy::{
+use rp_application_crypto::RuntimeAppPublic;
+use rp_consensus_beefy::{
 	AuthorityIdBound, Commitment, DoubleVotingProof, SignedCommitment, ValidatorSet,
 	ValidatorSetId, VoteMessage,
 };
-use sp_runtime::traits::{Block, NumberFor};
+use rp_runtime::traits::{Block, NumberFor};
 use std::collections::BTreeMap;
 
 /// Tracks for each round which validators have voted/signed and
@@ -219,9 +219,9 @@ where
 
 #[cfg(test)]
 mod tests {
-	use sc_network_test::Block;
+	use rc_network_test::Block;
 
-	use sp_consensus_beefy::{
+	use rp_consensus_beefy::{
 		ecdsa_crypto, known_payloads::MMR_ROOT_ID, test_utils::Keyring, Commitment,
 		DoubleVotingProof, Payload, SignedCommitment, ValidatorSet, VoteMessage,
 	};
@@ -278,7 +278,7 @@ mod tests {
 
 	#[test]
 	fn new_rounds() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let validators = ValidatorSet::<ecdsa_crypto::AuthorityId>::new(
 			vec![Keyring::Alice.public(), Keyring::Bob.public(), Keyring::Charlie.public()],
@@ -303,7 +303,7 @@ mod tests {
 
 	#[test]
 	fn add_and_conclude_votes() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let validators = ValidatorSet::<ecdsa_crypto::AuthorityId>::new(
 			vec![
@@ -369,7 +369,7 @@ mod tests {
 
 	#[test]
 	fn old_rounds_not_accepted() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let validators = ValidatorSet::<ecdsa_crypto::AuthorityId>::new(
 			vec![Keyring::Alice.public(), Keyring::Bob.public(), Keyring::Charlie.public()],
@@ -415,7 +415,7 @@ mod tests {
 
 	#[test]
 	fn multiple_rounds() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let validators = ValidatorSet::<ecdsa_crypto::AuthorityId>::new(
 			vec![Keyring::Alice.public(), Keyring::Bob.public(), Keyring::Charlie.public()],
@@ -490,7 +490,7 @@ mod tests {
 
 	#[test]
 	fn should_provide_equivocation_proof() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let validators = ValidatorSet::<ecdsa_crypto::AuthorityId>::new(
 			vec![Keyring::Alice.public(), Keyring::Bob.public()],

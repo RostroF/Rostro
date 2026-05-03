@@ -19,7 +19,7 @@
 /// runtime.
 struct Runtime {}
 
-sp_api::decl_runtime_apis! {
+rp_api::decl_runtime_apis! {
 	pub trait Api {
 		#[changed_in(2)]
 		fn test(data: u64);

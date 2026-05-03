@@ -21,7 +21,7 @@
 
 extern crate alloc;
 
-/// Copied from `sp-runtime` and documented there.
+/// Copied from `rp-runtime` and documented there.
 #[macro_export]
 macro_rules! assert_eq_error_rate {
 	($x:expr, $y:expr, $error:expr $(,)?) => {

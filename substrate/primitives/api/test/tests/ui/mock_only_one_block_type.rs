@@ -17,7 +17,7 @@
 
 struct Block2;
 
-sp_api::decl_runtime_apis! {
+rp_api::decl_runtime_apis! {
 	pub trait Api {
 		fn test(data: u64);
 	}
@@ -29,7 +29,7 @@ sp_api::decl_runtime_apis! {
 
 struct MockApi;
 
-sp_api::mock_impl_runtime_apis! {
+rp_api::mock_impl_runtime_apis! {
 	impl Api<Block> for MockApi {
 		fn test(data: u64) {}
 	}

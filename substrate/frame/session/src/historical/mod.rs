@@ -33,13 +33,13 @@ mod shared;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use core::fmt::Debug;
-use sp_runtime::{
+use rp_runtime::{
 	traits::{Convert, OpaqueKeys},
 	KeyTypeId,
 };
-use sp_session::{MembershipProof, ValidatorCount};
-use sp_staking::SessionIndex;
-use sp_trie::{
+use rp_session::{MembershipProof, ValidatorCount};
+use rp_staking::SessionIndex;
+use rp_trie::{
 	trie_types::{TrieDBBuilder, TrieDBMutBuilderV0},
 	LayoutV0, MemoryDB, RandomState, Recorder, StorageProof, Trie, TrieMut, TrieRecorder,
 };
@@ -55,7 +55,7 @@ const LOG_TARGET: &'static str = "runtime::historical";
 use crate::{self as pallet_session, Pallet as Session};
 
 pub use pallet::*;
-use sp_trie::{accessed_nodes_tracker::AccessedNodesTracker, recorder_ext::RecorderExt};
+use rp_trie::{accessed_nodes_tracker::AccessedNodesTracker, recorder_ext::RecorderExt};
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -153,7 +153,7 @@ impl<T: Config> ValidatorSet<T::AccountId> for Pallet<T> {
 	type ValidatorId = T::ValidatorId;
 	type ValidatorIdOf = T::ValidatorIdOf;
 
-	fn session_index() -> sp_staking::SessionIndex {
+	fn session_index() -> rp_staking::SessionIndex {
 		super::Pallet::<T>::current_index()
 	}
 
@@ -398,14 +398,14 @@ pub(crate) mod tests {
 	};
 	use alloc::vec;
 
-	use sp_runtime::{key_types::DUMMY, testing::UintAuthorityId, BuildStorage};
-	use sp_state_machine::BasicExternalities;
+	use rp_runtime::{key_types::DUMMY, testing::UintAuthorityId, BuildStorage};
+	use rp_state_machine::BasicExternalities;
 
 	use frame_support::traits::{KeyOwnerProofSystem, OnInitialize};
 
 	type Historical = Pallet<Test>;
 
-	pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
+	pub(crate) fn new_test_ext() -> rp_io::TestExternalities {
 		let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 		let keys: Vec<_> = NextValidators::get()
 			.iter()
@@ -420,7 +420,7 @@ pub(crate) mod tests {
 		pallet_session::GenesisConfig::<Test> { keys, ..Default::default() }
 			.assimilate_storage(&mut t)
 			.unwrap();
-		sp_io::TestExternalities::new(t)
+		rp_io::TestExternalities::new(t)
 	}
 
 	#[test]

@@ -20,7 +20,7 @@
 
 use std::path::PathBuf;
 
-use sp_core::crypto;
+use rp_core::crypto;
 
 /// Result type alias for the CLI.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -36,10 +36,10 @@ pub enum Error {
 	Cli(#[from] clap::Error),
 
 	#[error(transparent)]
-	Service(#[from] sc_service::Error),
+	Service(#[from] rc_service::Error),
 
 	#[error(transparent)]
-	Client(#[from] sp_blockchain::Error),
+	Client(#[from] rp_blockchain::Error),
 
 	#[error(transparent)]
 	Codec(#[from] codec::Error),
@@ -69,7 +69,7 @@ pub enum Error {
 	KeystoreOperation,
 
 	#[error("Key storage issue encountered")]
-	KeyStorage(#[from] sc_keystore::Error),
+	KeyStorage(#[from] rc_keystore::Error),
 
 	#[error("Invalid hexadecimal string data, {0:?}")]
 	HexDataConversion(array_bytes::Error),
@@ -79,7 +79,7 @@ pub enum Error {
 	Application(#[from] Box<dyn std::error::Error + Send + Sync + 'static>),
 
 	#[error(transparent)]
-	GlobalLoggerError(#[from] sc_tracing::logging::Error),
+	GlobalLoggerError(#[from] rc_tracing::logging::Error),
 
 	#[error(
 		"Starting an authorithy without network key in {0}.

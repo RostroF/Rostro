@@ -24,15 +24,15 @@
 //! To use the light sync state, it needs to be added as an extension to the chain spec:
 //!
 //! ```
-//! use sc_sync_state_rpc::LightSyncStateExtension;
+//! use rc_sync_state_rpc::LightSyncStateExtension;
 //!
-//! #[derive(Default, Clone, serde::Serialize, serde::Deserialize, sc_chain_spec::ChainSpecExtension)]
+//! #[derive(Default, Clone, serde::Serialize, serde::Deserialize, rc_chain_spec::ChainSpecExtension)]
 //! #[serde(rename_all = "camelCase")]
 //! pub struct Extensions {
 //!    light_sync_state: LightSyncStateExtension,
 //! }
 //!
-//! type ChainSpec = sc_chain_spec::GenericChainSpec<(), Extensions>;
+//! type ChainSpec = rc_chain_spec::GenericChainSpec<(), Extensions>;
 //! ```
 //!
 //! If the [`LightSyncStateExtension`] is not added as an extension to the chain spec,
@@ -48,20 +48,20 @@ use jsonrpsee::{
 	types::{ErrorObject, ErrorObjectOwned},
 };
 
-use sc_client_api::StorageData;
-use sc_consensus_babe::{BabeWorkerHandle, Error as BabeError};
-use sp_blockchain::HeaderBackend;
-use sp_runtime::traits::{Block as BlockT, NumberFor};
+use rc_client_api::StorageData;
+use rc_consensus_babe::{BabeWorkerHandle, Error as BabeError};
+use rp_blockchain::HeaderBackend;
+use rp_runtime::traits::{Block as BlockT, NumberFor};
 
 type SharedAuthoritySet<TBl> =
-	sc_consensus_grandpa::SharedAuthoritySet<<TBl as BlockT>::Hash, NumberFor<TBl>>;
+	rc_consensus_grandpa::SharedAuthoritySet<<TBl as BlockT>::Hash, NumberFor<TBl>>;
 
 /// Error type used by this crate.
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error<Block: BlockT> {
 	#[error(transparent)]
-	Blockchain(#[from] sp_blockchain::Error),
+	Blockchain(#[from] rp_blockchain::Error),
 
 	#[error("Failed to load the block weight for block {0:?}")]
 	LoadingBlockWeightFailed(Block::Hash),
@@ -74,7 +74,7 @@ pub enum Error<Block: BlockT> {
 
 	#[error(
 		"The light sync state extension is not provided by the chain spec. \
-		Read the `sc-sync-state-rpc` crate docs on how to do this!"
+		Read the `rc-sync-state-rpc` crate docs on how to do this!"
 	)]
 	LightSyncStateExtensionNotFound,
 }
@@ -114,13 +114,13 @@ pub struct LightSyncState<Block: BlockT> {
 	pub finalized_block_header: <Block as BlockT>::Header,
 	/// The epoch changes tree for babe.
 	#[serde(serialize_with = "serialize_encoded")]
-	pub babe_epoch_changes: sc_consensus_epochs::EpochChangesFor<Block, sc_consensus_babe::Epoch>,
+	pub babe_epoch_changes: rc_consensus_epochs::EpochChangesFor<Block, rc_consensus_babe::Epoch>,
 	/// The babe weight of the finalized block.
-	pub babe_finalized_block_weight: sc_consensus_babe::BabeBlockWeight,
+	pub babe_finalized_block_weight: rc_consensus_babe::BabeBlockWeight,
 	/// The authority set for grandpa.
 	#[serde(serialize_with = "serialize_encoded")]
 	pub grandpa_authority_set:
-		sc_consensus_grandpa::AuthoritySet<<Block as BlockT>::Hash, NumberFor<Block>>,
+		rc_consensus_grandpa::AuthoritySet<<Block as BlockT>::Hash, NumberFor<Block>>,
 }
 
 /// An api for sync state RPC calls.
@@ -133,7 +133,7 @@ pub trait SyncStateApi<B: BlockT> {
 
 /// An api for sync state RPC calls.
 pub struct SyncState<Block: BlockT, Client> {
-	chain_spec: Box<dyn sc_chain_spec::ChainSpec>,
+	chain_spec: Box<dyn rc_chain_spec::ChainSpec>,
 	client: Arc<Client>,
 	shared_authority_set: SharedAuthoritySet<Block>,
 	babe_worker_handle: BabeWorkerHandle<Block>,
@@ -142,16 +142,16 @@ pub struct SyncState<Block: BlockT, Client> {
 impl<Block, Client> SyncState<Block, Client>
 where
 	Block: BlockT,
-	Client: HeaderBackend<Block> + sc_client_api::AuxStore + 'static,
+	Client: HeaderBackend<Block> + rc_client_api::AuxStore + 'static,
 {
 	/// Create a new sync state RPC helper.
 	pub fn new(
-		chain_spec: Box<dyn sc_chain_spec::ChainSpec>,
+		chain_spec: Box<dyn rc_chain_spec::ChainSpec>,
 		client: Arc<Client>,
 		shared_authority_set: SharedAuthoritySet<Block>,
 		babe_worker_handle: BabeWorkerHandle<Block>,
 	) -> Result<Self, Error<Block>> {
-		if sc_chain_spec::get_extension::<LightSyncStateExtension>(chain_spec.extensions())
+		if rc_chain_spec::get_extension::<LightSyncStateExtension>(chain_spec.extensions())
 			.is_some()
 		{
 			Ok(Self { chain_spec, client, shared_authority_set, babe_worker_handle })
@@ -171,10 +171,10 @@ where
 		let finalized_header = self
 			.client
 			.header(finalized_hash)?
-			.ok_or_else(|| sp_blockchain::Error::MissingHeader(finalized_hash.to_string()))?;
+			.ok_or_else(|| rp_blockchain::Error::MissingHeader(finalized_hash.to_string()))?;
 
 		let finalized_block_weight =
-			sc_consensus_babe::aux_schema::load_block_weight(&*self.client, finalized_hash)?
+			rc_consensus_babe::aux_schema::load_block_weight(&*self.client, finalized_hash)?
 				.ok_or(Error::LoadingBlockWeightFailed(finalized_hash))?;
 
 		Ok(LightSyncState {
@@ -190,13 +190,13 @@ where
 impl<Block, Backend> SyncStateApiServer<Block> for SyncState<Block, Backend>
 where
 	Block: BlockT,
-	Backend: HeaderBackend<Block> + sc_client_api::AuxStore + 'static,
+	Backend: HeaderBackend<Block> + rc_client_api::AuxStore + 'static,
 {
 	async fn system_gen_sync_spec(&self, raw: bool) -> Result<serde_json::Value, Error<Block>> {
 		let current_sync_state = self.build_sync_state().await?;
 		let mut chain_spec = self.chain_spec.cloned_box();
 
-		let extension = sc_chain_spec::get_extension_mut::<LightSyncStateExtension>(
+		let extension = rc_chain_spec::get_extension_mut::<LightSyncStateExtension>(
 			chain_spec.extensions_mut(),
 		)
 		.ok_or(Error::<Block>::LightSyncStateExtensionNotFound)?;

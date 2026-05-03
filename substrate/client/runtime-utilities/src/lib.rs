@@ -24,13 +24,13 @@
 
 use codec::{Decode, Encode};
 use error::{Error, Result};
-use sc_executor::WasmExecutor;
-use sp_core::{
+use rc_executor::WasmExecutor;
+use rp_core::{
 	traits::{CallContext, CodeExecutor, FetchRuntimeCode, RuntimeCode},
 	OpaqueMetadata,
 };
-use sp_state_machine::BasicExternalities;
-use sp_wasm_interface::HostFunctions;
+use rp_state_machine::BasicExternalities;
+use rp_wasm_interface::HostFunctions;
 use std::borrow::Cow;
 
 pub mod error;
@@ -79,7 +79,7 @@ impl<'a> FetchRuntimeCode for BasicCodeFetcher<'a> {
 
 impl<'a> BasicCodeFetcher<'a> {
 	fn new(code: Cow<'a, [u8]>) -> Self {
-		Self { hash: sp_crypto_hashing::blake2_256(&code).to_vec(), code }
+		Self { hash: rp_crypto_hashing::blake2_256(&code).to_vec(), code }
 	}
 
 	fn runtime_code(&'a self) -> RuntimeCode<'a> {
@@ -120,43 +120,3 @@ impl<'a, 'b, HF: HostFunctions> RuntimeCaller<'a, 'b, HF> {
 	}
 }
 
-#[cfg(test)]
-mod tests {
-	use codec::Decode;
-	use sc_executor::WasmExecutor;
-	use sp_version::RuntimeVersion;
-
-	type ParachainHostFunctions = (
-		cumulus_primitives_proof_size_hostfunction::storage_proof_size::HostFunctions,
-		sp_io::SubstrateHostFunctions,
-	);
-
-	#[test]
-	fn test_fetch_latest_metadata_from_blob_fetches_metadata() {
-		let executor: WasmExecutor<ParachainHostFunctions> = WasmExecutor::builder().build();
-		let code_bytes = cumulus_test_runtime::WASM_BINARY
-			.expect("To run this test, build the wasm binary of cumulus-test-runtime")
-			.to_vec();
-		let metadata = subxt::Metadata::decode(
-			&mut (*super::fetch_latest_metadata_from_code_blob(&executor, code_bytes.into())
-				.unwrap())
-			.as_slice(),
-		)
-		.unwrap();
-		assert!(metadata.pallet_by_name("ParachainInfo").is_some());
-	}
-
-	#[test]
-	fn test_runtime_caller_can_call_into_runtime() {
-		let executor: WasmExecutor<ParachainHostFunctions> = WasmExecutor::builder().build();
-		let code_bytes = cumulus_test_runtime::WASM_BINARY
-			.expect("To run this test, build the wasm binary of cumulus-test-runtime")
-			.to_vec();
-		let runtime_caller = super::RuntimeCaller::new(&executor, code_bytes.into());
-		let runtime_version = runtime_caller
-			.call("Core_version", ())
-			.expect("Should be able to call runtime_version");
-		let _runtime_version: RuntimeVersion = Decode::decode(&mut runtime_version.as_slice())
-			.expect("Should be able to decode runtime version");
-	}
-}

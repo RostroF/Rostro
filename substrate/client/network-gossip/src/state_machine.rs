@@ -19,13 +19,13 @@
 use crate::{MessageIntent, Network, ValidationResult, Validator, ValidatorContext};
 
 use ahash::AHashSet;
-use sc_network_types::PeerId;
+use rc_network_types::PeerId;
 use schnellru::{ByLength, LruMap};
 
 use prometheus_endpoint::{register, Counter, PrometheusError, Registry, U64};
-use sc_network::{types::ProtocolName, NotificationService};
-use sc_network_common::role::ObservedRole;
-use sp_runtime::traits::{Block as BlockT, Hash, HashingFor};
+use rc_network::{types::ProtocolName, NotificationService};
+use rc_network_common::role::ObservedRole;
+use rp_runtime::traits::{Block as BlockT, Hash, HashingFor};
 use std::{collections::HashMap, iter, sync::Arc, time, time::Instant};
 
 // FIXME: Add additional spam/DoS attack protection: https://github.com/paritytech/substrate/issues/1115
@@ -44,7 +44,7 @@ const REBROADCAST_INTERVAL: time::Duration = time::Duration::from_millis(750);
 pub(crate) const PERIODIC_MAINTENANCE_INTERVAL: time::Duration = time::Duration::from_millis(1100);
 
 mod rep {
-	use sc_network::ReputationChange as Rep;
+	use rc_network::ReputationChange as Rep;
 	/// Reputation change when a peer sends us a gossip message that we didn't know about.
 	pub const GOSSIP_SUCCESS: Rep = Rep::new(1 << 4, "Successful gossip");
 	/// Reputation change when a peer sends us a gossip message that we already knew about.
@@ -544,12 +544,12 @@ impl Metrics {
 mod tests {
 	use super::*;
 	use futures::prelude::*;
-	use sc_network::{
+	use rc_network::{
 		config::MultiaddrWithPeerId, event::Event, service::traits::NotificationEvent, MessageSink,
 		NetworkBlock, NetworkEventStream, NetworkPeers, ReputationChange,
 	};
-	use sc_network_types::multiaddr::Multiaddr;
-	use sp_runtime::{
+	use rc_network_types::multiaddr::Multiaddr;
+	use rp_runtime::{
 		testing::{Block as RawBlock, MockCallU64, TestXt, H256},
 		traits::NumberFor,
 	};
@@ -732,7 +732,7 @@ mod tests {
 			&mut self,
 			_peer: &PeerId,
 			_notification: Vec<u8>,
-		) -> Result<(), sc_network::error::Error> {
+		) -> Result<(), rc_network::error::Error> {
 			unimplemented!();
 		}
 

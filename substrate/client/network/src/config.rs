@@ -35,8 +35,8 @@ pub use crate::{
 	types::ProtocolName,
 };
 
-pub use sc_network_types::{build_multiaddr, ed25519};
-use sc_network_types::{
+pub use rc_network_types::{build_multiaddr, ed25519};
+use rc_network_types::{
 	multiaddr::{self, Multiaddr},
 	PeerId,
 };
@@ -46,13 +46,13 @@ use codec::Encode;
 use prometheus_endpoint::Registry;
 use zeroize::Zeroize;
 
-pub use sc_network_common::{
+pub use rc_network_common::{
 	role::{Role, Roles},
 	sync::SyncMode,
 	ExHashT,
 };
 
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 
 use std::{
 	error::Error,
@@ -120,8 +120,8 @@ impl fmt::Debug for ProtocolId {
 /// # Example
 ///
 /// ```
-/// # use sc_network_types::{multiaddr::Multiaddr, PeerId};
-/// use sc_network::config::parse_str_addr;
+/// # use rc_network_types::{multiaddr::Multiaddr, PeerId};
+/// use rc_network::config::parse_str_addr;
 /// let (peer_id, addr) = parse_str_addr(
 /// 	"/ip4/198.51.100.19/tcp/30333/p2p/QmSk5HQbn6LhUwDiNMseVUjuRYhEtYj4aUZ6WfWoGURpdV"
 /// ).unwrap();
@@ -151,8 +151,8 @@ pub fn parse_addr(mut addr: Multiaddr) -> Result<(PeerId, Multiaddr), ParseErr> 
 /// # Example
 ///
 /// ```
-/// # use sc_network_types::{multiaddr::Multiaddr, PeerId};
-/// use sc_network::config::MultiaddrWithPeerId;
+/// # use rc_network_types::{multiaddr::Multiaddr, PeerId};
+/// use rc_network::config::MultiaddrWithPeerId;
 /// let addr: MultiaddrWithPeerId =
 /// 	"/ip4/198.51.100.19/tcp/30333/p2p/QmSk5HQbn6LhUwDiNMseVUjuRYhEtYj4aUZ6WfWoGURpdV".parse().unwrap();
 /// assert_eq!(addr.peer_id.to_base58(), "QmSk5HQbn6LhUwDiNMseVUjuRYhEtYj4aUZ6WfWoGURpdV");
@@ -279,7 +279,7 @@ pub enum TransportConfig {
 
 		/// If true, allow connecting to private IPv4/IPv6 addresses (as defined in
 		/// [RFC1918](https://tools.ietf.org/html/rfc1918)). Irrelevant for addresses that have
-		/// been passed in `::sc_network::config::NetworkConfiguration::boot_nodes`.
+		/// been passed in `::rc_network::config::NetworkConfiguration::boot_nodes`.
 		allow_private_ip: bool,
 	},
 
@@ -497,7 +497,7 @@ pub struct NonDefaultSetConfig {
 	/// one.
 	///
 	/// If a fallback is used, it will be reported in
-	/// `sc_network::protocol::event::Event::NotificationStreamOpened::negotiated_fallback`
+	/// `rc_network::protocol::event::Event::NotificationStreamOpened::negotiated_fallback`
 	fallback_names: Vec<ProtocolName>,
 
 	/// Handshake of the protocol
@@ -519,7 +519,7 @@ pub struct NonDefaultSetConfig {
 	/// `Box<dyn NotificationService>` is given to the protocol created the config and
 	/// `ProtocolHandle` is given to `Notifications` when it initializes itself. This handle allows
 	/// `Notifications ` to communicate with the protocol directly without relaying events through
-	/// `sc-network.`
+	/// `rc-network.`
 	protocol_handle_pair: ProtocolHandlePair,
 }
 

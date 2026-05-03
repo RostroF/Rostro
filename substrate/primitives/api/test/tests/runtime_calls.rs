@@ -23,14 +23,14 @@ use std::{
 	},
 };
 
-use sc_block_builder::BlockBuilderBuilder;
-use sp_api::{ApiExt, Core, ProofRecorder, ProvideRuntimeApi};
-use sp_externalities::{decl_extension, TransactionType};
-use sp_runtime::{
+use rc_block_builder::BlockBuilderBuilder;
+use rp_api::{ApiExt, Core, ProofRecorder, ProvideRuntimeApi};
+use rp_externalities::{decl_extension, TransactionType};
+use rp_runtime::{
 	traits::{HashingFor, Header as HeaderT},
 	TransactionOutcome,
 };
-use sp_state_machine::{create_proof_check_backend, execution_proof_check_on_trie_backend};
+use rp_state_machine::{create_proof_check_backend, execution_proof_check_on_trie_backend};
 
 use substrate_test_runtime_client::{
 	prelude::*,
@@ -39,8 +39,8 @@ use substrate_test_runtime_client::{
 };
 
 use codec::Encode;
-use sp_consensus::SelectChain;
-use substrate_test_runtime_client::sc_executor::WasmExecutor;
+use rp_consensus::SelectChain;
+use substrate_test_runtime_client::rc_executor::WasmExecutor;
 
 #[test]
 fn calling_runtime_function() {
@@ -95,8 +95,8 @@ fn record_proof_works() {
 	let storage_root =
 		*futures::executor::block_on(longest_chain.best_chain()).unwrap().state_root();
 
-	let runtime_code = sp_core::traits::RuntimeCode {
-		code_fetcher: &sp_core::traits::WrappedRuntimeCode(
+	let runtime_code = rp_core::traits::RuntimeCode {
+		code_fetcher: &rp_core::traits::WrappedRuntimeCode(
 			client.code_at(client.chain_info().best_hash).unwrap().into(),
 		),
 		hash: vec![1],
@@ -158,7 +158,7 @@ fn call_runtime_api_with_multiple_arguments() {
 #[test]
 fn disable_logging_works() {
 	if std::env::var("RUN_TEST").is_ok() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let mut builder = TestClientBuilder::new();
 		builder.genesis_init_mut().set_wasm_code(

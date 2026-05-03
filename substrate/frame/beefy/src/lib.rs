@@ -41,18 +41,18 @@ use frame_system::{
 	ensure_none, ensure_signed,
 	pallet_prelude::{BlockNumberFor, HeaderFor, OriginFor},
 };
-use sp_consensus_beefy::{
+use rp_consensus_beefy::{
 	AncestryHelper, AncestryHelperWeightInfo, AuthorityIndex, BeefyAuthorityId, ConsensusLog,
 	DoubleVotingProof, ForkVotingProof, FutureBlockVotingProof, OnNewValidatorSet, ValidatorSet,
 	BEEFY_ENGINE_ID, GENESIS_AUTHORITY_SET_ID,
 };
-use sp_runtime::{
+use rp_runtime::{
 	generic::DigestItem,
 	traits::{IsMember, Member, One},
 	RuntimeAppPublic,
 };
-use sp_session::{GetSessionNumber, GetValidatorCount};
-use sp_staking::{offence::OffenceReportSystem, SessionIndex};
+use rp_session::{GetSessionNumber, GetValidatorCount};
+use rp_staking::{offence::OffenceReportSystem, SessionIndex};
 
 use crate::equivocation::EquivocationEvidenceFor;
 pub use crate::equivocation::{EquivocationOffence, EquivocationReportSystem, TimeSlot};
@@ -139,7 +139,7 @@ pub mod pallet {
 	/// The current validator set id
 	#[pallet::storage]
 	pub type ValidatorSetId<T: Config> =
-		StorageValue<_, sp_consensus_beefy::ValidatorSetId, ValueQuery>;
+		StorageValue<_, rp_consensus_beefy::ValidatorSetId, ValueQuery>;
 
 	/// Authorities set scheduled to be used with the next session
 	#[pallet::storage]
@@ -158,7 +158,7 @@ pub mod pallet {
 	/// TWOX-NOTE: `ValidatorSetId` is not under user control.
 	#[pallet::storage]
 	pub type SetIdSession<T: Config> =
-		StorageMap<_, Twox64Concat, sp_consensus_beefy::ValidatorSetId, SessionIndex>;
+		StorageMap<_, Twox64Concat, rp_consensus_beefy::ValidatorSetId, SessionIndex>;
 
 	/// Block number where BEEFY consensus is enabled/started.
 	/// By changing this (through privileged `set_new_genesis()`), BEEFY consensus is effectively
@@ -426,7 +426,7 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		#[cfg(feature = "try-runtime")]
-		fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
+		fn try_state(_n: BlockNumberFor<T>) -> Result<(), rp_runtime::TryRuntimeError> {
 			Self::do_try_state()
 		}
 	}
@@ -503,7 +503,7 @@ impl<T: Config> Pallet<T> {
 	/// Ensure the correctness of the state of this pallet.
 	///
 	/// This should be valid before or after each state transition of this pallet.
-	pub fn do_try_state() -> Result<(), sp_runtime::TryRuntimeError> {
+	pub fn do_try_state() -> Result<(), rp_runtime::TryRuntimeError> {
 		Self::try_state_authorities()?;
 		Self::try_state_validators()?;
 
@@ -514,14 +514,14 @@ impl<T: Config> Pallet<T> {
 	///
 	/// * `Authorities` should not exceed the `MaxAuthorities` capacity.
 	/// * `NextAuthorities` should not exceed the `MaxAuthorities` capacity.
-	fn try_state_authorities() -> Result<(), sp_runtime::TryRuntimeError> {
+	fn try_state_authorities() -> Result<(), rp_runtime::TryRuntimeError> {
 		if let Some(authorities_len) = <Authorities<T>>::decode_len() {
 			ensure!(
 				authorities_len as u32 <= T::MaxAuthorities::get(),
 				"Authorities number exceeds what the pallet config allows."
 			);
 		} else {
-			return Err(sp_runtime::TryRuntimeError::Other(
+			return Err(rp_runtime::TryRuntimeError::Other(
 				"Failed to decode length of authorities",
 			));
 		}
@@ -532,7 +532,7 @@ impl<T: Config> Pallet<T> {
 				"Next authorities number exceeds what the pallet config allows."
 			);
 		} else {
-			return Err(sp_runtime::TryRuntimeError::Other(
+			return Err(rp_runtime::TryRuntimeError::Other(
 				"Failed to decode length of next authorities",
 			));
 		}
@@ -542,7 +542,7 @@ impl<T: Config> Pallet<T> {
 	/// # Invariants
 	///
 	/// `ValidatorSetId` must be present in `SetIdSession`
-	fn try_state_validators() -> Result<(), sp_runtime::TryRuntimeError> {
+	fn try_state_validators() -> Result<(), rp_runtime::TryRuntimeError> {
 		let validator_set_id = <ValidatorSetId<T>>::get();
 		ensure!(
 			SetIdSession::<T>::get(validator_set_id).is_some(),
@@ -556,7 +556,7 @@ impl<T: Config> Pallet<T> {
 	/// Return the current active BEEFY validator set.
 	pub fn validator_set() -> Option<ValidatorSet<T::BeefyId>> {
 		let validators: BoundedVec<T::BeefyId, T::MaxAuthorities> = Authorities::<T>::get();
-		let id: sp_consensus_beefy::ValidatorSetId = ValidatorSetId::<T>::get();
+		let id: rp_consensus_beefy::ValidatorSetId = ValidatorSetId::<T>::get();
 		ValidatorSet::<T::BeefyId>::new(validators, id)
 	}
 
@@ -677,7 +677,7 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
+impl<T: Config> rp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
 	type Public = T::BeefyId;
 }
 

@@ -21,7 +21,7 @@ use super::*;
 use crate::pallet as pallet_asset_rate;
 use frame_support::{assert_noop, assert_ok};
 use mock::{new_test_ext, AssetRate, RuntimeOrigin, Test};
-use sp_runtime::FixedU128;
+use rp_runtime::FixedU128;
 
 const ASSET_ID: u32 = 42;
 

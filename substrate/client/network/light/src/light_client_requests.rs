@@ -18,10 +18,10 @@
 
 //! Helpers for outgoing and incoming light client requests.
 
-use sc_network::{
+use rc_network::{
 	config::ProtocolId, request_responses::IncomingRequest, NetworkBackend, MAX_RESPONSE_SIZE,
 };
-use sp_runtime::traits::Block;
+use rp_runtime::traits::Block;
 
 use std::time::Duration;
 

@@ -1,5 +1,5 @@
 [package]
-name = "sc-consensus-beefy-rpc"
+name = "rc-consensus-beefy-rpc"
 version = "35.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -17,16 +17,16 @@ futures = { workspace = true }
 jsonrpsee = { features = ["client-core", "macros", "server-core"], workspace = true }
 log = { workspace = true, default-features = true }
 parking_lot = { workspace = true, default-features = true }
-sc-consensus-beefy = { default-features = true, workspace = true }
-sc-rpc = { default-features = true, workspace = true }
+rc-consensus-beefy = { default-features = true, workspace = true }
+rc-rpc = { default-features = true, workspace = true }
 serde = { features = ["derive"], workspace = true, default-features = true }
-sp-application-crypto = { default-features = true, workspace = true }
-sp-consensus-beefy = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
+rp-application-crypto = { default-features = true, workspace = true }
+rp-consensus-beefy = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-sc-rpc = { features = ["test-helpers"], default-features = true, workspace = true }
+rc-rpc = { features = ["test-helpers"], default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tokio = { features = ["macros"], workspace = true, default-features = true }

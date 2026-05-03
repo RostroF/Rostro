@@ -332,22 +332,22 @@
 //! [`vp::enforce_limits`]: ../graph/validated_pool/struct.ValidatedPool.html#method.enforce_limits
 //! [`create_dropped_by_limits_stream`]: ../graph/validated_pool/struct.ValidatedPool.html#method.create_dropped_by_limits_stream
 //! [`create_aggregated_stream`]: ../graph/validated_pool/struct.ValidatedPool.html#method.create_aggregated_stream
-//! [`ChainEvent`]: sc_transaction_pool_api::ChainEvent
-//! [`TransactionStatusStreamFor`]: sc_transaction_pool_api::TransactionStatusStreamFor
-//! [`api_submit`]: sc_transaction_pool_api::TransactionPool::submit_at
-//! [`api_submit_and_watch`]: sc_transaction_pool_api::TransactionPool::submit_and_watch
-//! [`ready_at_with_timeout`]: sc_transaction_pool_api::TransactionPool::ready_at_with_timeout
-//! [`TransactionSource`]: sc_transaction_pool_api::TransactionSource
-//! [TransactionPool API]: sc_transaction_pool_api::TransactionPool
-//! [`TransactionStatus`]:sc_transaction_pool_api::TransactionStatus
-//! [`Ready`]:sc_transaction_pool_api::TransactionStatus::Ready
-//! [`Future`]:sc_transaction_pool_api::TransactionStatus::Future
-//! [`Broadcast`]:sc_transaction_pool_api::TransactionStatus::Broadcast
-//! [`Invalid`]:sc_transaction_pool_api::TransactionStatus::Invalid
-//! [`InBlock`]:sc_transaction_pool_api::TransactionStatus::InBlock
-//! [`Finalized`]:sc_transaction_pool_api::TransactionStatus::Finalized
-//! [`Dropped`]:sc_transaction_pool_api::TransactionStatus::Dropped
-//! [`ReadyTransactions`]:sc_transaction_pool_api::ReadyTransactions
+//! [`ChainEvent`]: rc_transaction_pool_api::ChainEvent
+//! [`TransactionStatusStreamFor`]: rc_transaction_pool_api::TransactionStatusStreamFor
+//! [`api_submit`]: rc_transaction_pool_api::TransactionPool::submit_at
+//! [`api_submit_and_watch`]: rc_transaction_pool_api::TransactionPool::submit_and_watch
+//! [`ready_at_with_timeout`]: rc_transaction_pool_api::TransactionPool::ready_at_with_timeout
+//! [`TransactionSource`]: rc_transaction_pool_api::TransactionSource
+//! [TransactionPool API]: rc_transaction_pool_api::TransactionPool
+//! [`TransactionStatus`]:rc_transaction_pool_api::TransactionStatus
+//! [`Ready`]:rc_transaction_pool_api::TransactionStatus::Ready
+//! [`Future`]:rc_transaction_pool_api::TransactionStatus::Future
+//! [`Broadcast`]:rc_transaction_pool_api::TransactionStatus::Broadcast
+//! [`Invalid`]:rc_transaction_pool_api::TransactionStatus::Invalid
+//! [`InBlock`]:rc_transaction_pool_api::TransactionStatus::InBlock
+//! [`Finalized`]:rc_transaction_pool_api::TransactionStatus::Finalized
+//! [`Dropped`]:rc_transaction_pool_api::TransactionStatus::Dropped
+//! [`ReadyTransactions`]:rc_transaction_pool_api::ReadyTransactions
 //! [`dropped_monitor_task`]: ForkAwareTxPool::dropped_monitor_task
 //! [`ready_poll`]: ForkAwareTxPool::ready_poll
 //! [`ready_at_light`]: ForkAwareTxPool::ready_at_light
@@ -357,8 +357,8 @@
 //! [`submit`]: ../struct.ForkAwareTxPool.html#method.submit_at
 //! [`submit_and_watch`]: ../struct.ForkAwareTxPool.html#method.submit_and_watch
 //! [`ReadyPoll`]: ../fork_aware_txpool/fork_aware_txpool/struct.ReadyPoll.html
-//! [`TreeRoute`]: sp_blockchain::TreeRoute
-//! [runtime_api::validate]: sp_transaction_pool::runtime_api::TaggedTransactionQueue::validate_transaction
+//! [`TreeRoute`]: rp_blockchain::TreeRoute
+//! [runtime_api::validate]: rp_transaction_pool::runtime_api::TaggedTransactionQueue::validate_transaction
 //! [`notification_future`]: crate::common::notification_future
 //! [`EnactmentState`]: crate::common::enactment_state::EnactmentState
 //! [`MultiViewImportNotificationSink`]: crate::fork_aware_txpool::import_notification_sink::MultiViewImportNotificationSink

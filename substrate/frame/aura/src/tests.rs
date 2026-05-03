@@ -26,8 +26,8 @@ use crate::mock::{
 };
 use codec::Encode;
 use frame_support::traits::Hooks;
-use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
-use sp_runtime::{Digest, DigestItem, TryRuntimeError};
+use rp_consensus_aura::{Slot, AURA_ENGINE_ID};
+use rp_runtime::{Digest, DigestItem, TryRuntimeError};
 
 #[test]
 fn initial_values() {

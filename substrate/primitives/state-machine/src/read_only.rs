@@ -25,11 +25,11 @@ use core::{
 	marker::PhantomData,
 };
 use hash_db::Hasher;
-use sp_core::{
+use rp_core::{
 	storage::{ChildInfo, StateVersion, TrackedStorageKey},
 	traits::Externalities,
 };
-use sp_externalities::MultiRemovalResults;
+use rp_externalities::MultiRemovalResults;
 
 /// Trait for inspecting state in any backend.
 ///
@@ -77,7 +77,7 @@ where
 	///
 	/// Returns the result of the given closure.
 	pub fn execute_with<R>(&mut self, f: impl FnOnce() -> R) -> R {
-		sp_externalities::set_and_run_with_externalities(self, f)
+		rp_externalities::set_and_run_with_externalities(self, f)
 	}
 }
 
@@ -221,7 +221,7 @@ where
 	}
 }
 
-impl<'a, H: Hasher, B: 'a + Backend<H>> sp_externalities::ExtensionStore
+impl<'a, H: Hasher, B: 'a + Backend<H>> rp_externalities::ExtensionStore
 	for ReadOnlyExternalities<'a, H, B>
 {
 	fn extension_by_type_id(&mut self, _type_id: TypeId) -> Option<&mut dyn Any> {
@@ -231,15 +231,15 @@ impl<'a, H: Hasher, B: 'a + Backend<H>> sp_externalities::ExtensionStore
 	fn register_extension_with_type_id(
 		&mut self,
 		_type_id: TypeId,
-		_extension: Box<dyn sp_externalities::Extension>,
-	) -> Result<(), sp_externalities::Error> {
+		_extension: Box<dyn rp_externalities::Extension>,
+	) -> Result<(), rp_externalities::Error> {
 		unimplemented!("register_extension_with_type_id is not supported in ReadOnlyExternalities")
 	}
 
 	fn deregister_extension_by_type_id(
 		&mut self,
 		_type_id: TypeId,
-	) -> Result<(), sp_externalities::Error> {
+	) -> Result<(), rp_externalities::Error> {
 		unimplemented!("deregister_extension_by_type_id is not supported in ReadOnlyExternalities")
 	}
 }

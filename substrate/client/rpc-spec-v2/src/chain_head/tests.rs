@@ -31,18 +31,18 @@ use jsonrpsee::{
 	},
 	rpc_params, MethodsError as Error, RpcModule,
 };
-use sc_block_builder::BlockBuilderBuilder;
-use sc_client_api::ChildInfo;
-use sc_rpc::testing::TokioTestExecutor;
-use sc_service::client::new_with_backend;
-use sp_blockchain::HeaderBackend;
-use sp_consensus::BlockOrigin;
-use sp_core::{
+use rc_block_builder::BlockBuilderBuilder;
+use rc_client_api::ChildInfo;
+use rc_rpc::testing::TokioTestExecutor;
+use rc_service::client::new_with_backend;
+use rp_blockchain::HeaderBackend;
+use rp_consensus::BlockOrigin;
+use rp_core::{
 	storage::well_known_keys::{self, CODE},
 	Blake2Hasher, Hasher,
 };
-use sp_runtime::traits::Block as BlockT;
-use sp_version::RuntimeVersion;
+use rp_runtime::traits::Block as BlockT;
+use rp_version::RuntimeVersion;
 use std::{
 	collections::{HashMap, HashSet, VecDeque},
 	fmt::Debug,
@@ -416,18 +416,18 @@ async fn follow_with_runtime() {
 	// The `RuntimeVersion` is embedded into the WASM blob at the `runtime_version`
 	// section. Modify the `RuntimeVersion` and commit the changes to a new block.
 	// The RPC must notify the runtime event change.
-	let wasm = sp_maybe_compressed_blob::decompress(
+	let wasm = rp_maybe_compressed_blob::decompress(
 		runtime::wasm_binary_unwrap(),
-		sp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
+		rp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
 	)
 	.unwrap();
 	// Update the runtime spec version.
 	let mut runtime = runtime;
 	runtime.spec_version += 1;
-	let embedded = sp_version::embed::embed_runtime_version(&wasm, runtime.clone()).unwrap();
-	let wasm = sp_maybe_compressed_blob::compress_strongly(
+	let embedded = rp_version::embed::embed_runtime_version(&wasm, runtime.clone()).unwrap();
+	let wasm = rp_maybe_compressed_blob::compress_strongly(
 		&embedded,
-		sp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
+		rp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
 	)
 	.unwrap();
 
@@ -2663,11 +2663,11 @@ async fn follow_report_multiple_pruned_block() {
 #[tokio::test]
 async fn pin_block_references() {
 	// Manually construct an in-memory backend and client.
-	let backend = Arc::new(sc_client_api::in_mem::Backend::new());
+	let backend = Arc::new(rc_client_api::in_mem::Backend::new());
 	let executor = substrate_test_runtime_client::WasmExecutor::default();
-	let client_config = sc_service::ClientConfig::default();
+	let client_config = rc_service::ClientConfig::default();
 
-	let genesis_block_builder = sc_service::GenesisBlockBuilder::new(
+	let genesis_block_builder = rc_service::GenesisBlockBuilder::new(
 		&substrate_test_runtime_client::GenesisParameters::default().genesis_storage(),
 		!client_config.no_genesis,
 		backend.clone(),
@@ -2704,7 +2704,7 @@ async fn pin_block_references() {
 	.into_rpc();
 
 	async fn wait_pinned_references<Block: BlockT>(
-		backend: &Arc<sc_client_api::in_mem::Backend<Block>>,
+		backend: &Arc<rc_client_api::in_mem::Backend<Block>>,
 		hash: &Block::Hash,
 		target: i64,
 	) {

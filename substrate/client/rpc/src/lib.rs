@@ -26,7 +26,7 @@ pub use jsonrpsee::core::id_providers::{
 	RandomIntegerIdProvider as RandomIntegerSubscriptionId,
 	RandomStringIdProvider as RandomStringSubscriptionId,
 };
-pub use sc_rpc_api::DenyUnsafe;
+pub use rc_rpc_api::DenyUnsafe;
 
 pub mod author;
 pub mod chain;
@@ -42,4 +42,4 @@ pub mod utils;
 pub mod testing;
 
 /// Task executor that is being used by RPC subscriptions.
-pub type SubscriptionTaskExecutor = std::sync::Arc<dyn sp_core::traits::SpawnNamed>;
+pub type SubscriptionTaskExecutor = std::sync::Arc<dyn rp_core::traits::SpawnNamed>;

@@ -21,15 +21,15 @@
 use crate::{rpc, ConsensusDataProvider, CreatedBlock, Error};
 use codec::Encode;
 use futures::prelude::*;
-use sc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy, ImportResult, StateAction};
-use sc_transaction_pool_api::TransactionPool;
-use sp_api::{ProofRecorder, ProvideRuntimeApi};
-use sp_blockchain::HeaderBackend;
-use sp_consensus::{self, BlockOrigin, Environment, ProposeArgs, Proposer, SelectChain};
-use sp_externalities::Extensions;
-use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
-use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
-use sp_trie::proof_size_extension::ProofSizeExt;
+use rc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy, ImportResult, StateAction};
+use rc_transaction_pool_api::TransactionPool;
+use rp_api::{ProofRecorder, ProvideRuntimeApi};
+use rp_blockchain::HeaderBackend;
+use rp_consensus::{self, BlockOrigin, Environment, ProposeArgs, Proposer, SelectChain};
+use rp_externalities::Extensions;
+use rp_inherents::{CreateInherentDataProviders, InherentDataProvider};
+use rp_runtime::traits::{Block as BlockT, Header as HeaderT};
+use rp_trie::proof_size_extension::ProofSizeExt;
 use std::{sync::Arc, time::Duration};
 
 /// max duration for creating a proposal in secs
@@ -79,7 +79,7 @@ pub async fn seal_block<B, BI, SC, C, E, TP, CIDP>(
 	}: SealBlockParams<'_, B, BI, SC, C, E, TP, CIDP>,
 ) where
 	B: BlockT,
-	BI: BlockImport<B, Error = sp_consensus::Error> + Send + Sync + 'static,
+	BI: BlockImport<B, Error = rp_consensus::Error> + Send + Sync + 'static,
 	C: HeaderBackend<B> + ProvideRuntimeApi<B>,
 	E: Environment<B>,
 	E::Proposer: Proposer<B>,
@@ -150,7 +150,7 @@ pub async fn seal_block<B, BI, SC, C, E, TP, CIDP>(
 		params.body = Some(body);
 		params.finalized = finalize;
 		params.fork_choice = Some(ForkChoiceStrategy::LongestChain);
-		params.state_action = StateAction::ApplyChanges(sc_consensus::StorageChanges::Changes(
+		params.state_action = StateAction::ApplyChanges(rc_consensus::StorageChanges::Changes(
 			proposal.storage_changes,
 		));
 

@@ -16,7 +16,7 @@
 // limitations under the License.
 
 //! Types for a compact base-16 merkle trie used for checking and generating proofs within the
-//! runtime. The `sp-trie` crate exposes all of these same functionality (and more), but this
+//! runtime. The `rp-trie` crate exposes all of these same functionality (and more), but this
 //! library is designed to work more easily with runtime native types, which simply need to
 //! implement `Encode`/`Decode`. It also exposes a runtime friendly `TrieError` type which can be
 //! use inside of a FRAME Pallet.
@@ -28,7 +28,7 @@ use super::{ProofToHashes, ProvingTrie, TrieError};
 use crate::{Decode, DispatchError, Encode};
 use alloc::vec::Vec;
 use codec::MaxEncodedLen;
-use sp_trie::{
+use rp_trie::{
 	trie_types::{TrieDBBuilder, TrieDBMutBuilderV1},
 	LayoutV1, MemoryDB, RandomState, Trie, TrieMut,
 };
@@ -38,7 +38,7 @@ use sp_trie::{
 /// with proofs using `LayoutV0`.
 pub struct BasicProvingTrie<Hashing, Key, Value>
 where
-	Hashing: sp_core::Hasher,
+	Hashing: rp_core::Hasher,
 {
 	db: MemoryDB<Hashing>,
 	root: Hashing::Out,
@@ -47,7 +47,7 @@ where
 
 impl<Hashing, Key, Value> BasicProvingTrie<Hashing, Key, Value>
 where
-	Hashing: sp_core::Hasher,
+	Hashing: rp_core::Hasher,
 	Key: Encode,
 {
 	/// Create a compact merkle proof needed to prove all `keys` and their values are in the trie.
@@ -56,7 +56,7 @@ where
 	/// values of the proof, else the verifier will complain that extra nodes are provided in the
 	/// proof that are not needed.
 	pub fn create_multi_proof(&self, keys: &[Key]) -> Result<Vec<u8>, DispatchError> {
-		sp_trie::generate_trie_proof::<LayoutV1<Hashing>, _, _, _>(
+		rp_trie::generate_trie_proof::<LayoutV1<Hashing>, _, _, _>(
 			&self.db,
 			self.root,
 			&keys.into_iter().map(|k| k.encode()).collect::<Vec<Vec<u8>>>(),
@@ -68,7 +68,7 @@ where
 
 impl<Hashing, Key, Value> ProvingTrie<Hashing, Key, Value> for BasicProvingTrie<Hashing, Key, Value>
 where
-	Hashing: sp_core::Hasher,
+	Hashing: rp_core::Hasher,
 	Key: Encode,
 	Value: Encode + Decode,
 {
@@ -107,7 +107,7 @@ where
 
 	/// Create a compact merkle proof needed to prove a single key and its value are in the trie.
 	fn create_proof(&self, key: &Key) -> Result<Vec<u8>, DispatchError> {
-		sp_trie::generate_trie_proof::<LayoutV1<Hashing>, _, _, _>(
+		rp_trie::generate_trie_proof::<LayoutV1<Hashing>, _, _, _>(
 			&self.db,
 			self.root,
 			&[key.encode()],
@@ -129,7 +129,7 @@ where
 
 impl<Hashing, Key, Value> ProofToHashes for BasicProvingTrie<Hashing, Key, Value>
 where
-	Hashing: sp_core::Hasher,
+	Hashing: rp_core::Hasher,
 	Hashing::Out: MaxEncodedLen,
 {
 	// Our proof is just raw bytes.
@@ -152,13 +152,13 @@ pub fn verify_proof<Hashing, Key, Value>(
 	value: &Value,
 ) -> Result<(), DispatchError>
 where
-	Hashing: sp_core::Hasher,
+	Hashing: rp_core::Hasher,
 	Key: Encode,
 	Value: Encode,
 {
 	let structured_proof: Vec<Vec<u8>> =
 		Decode::decode(&mut &proof[..]).map_err(|_| TrieError::DecodeError)?;
-	sp_trie::verify_trie_proof::<LayoutV1<Hashing>, _, _, _>(
+	rp_trie::verify_trie_proof::<LayoutV1<Hashing>, _, _, _>(
 		&root,
 		&structured_proof,
 		&[(key.encode(), Some(value.encode()))],
@@ -173,7 +173,7 @@ pub fn verify_multi_proof<Hashing, Key, Value>(
 	items: &[(Key, Value)],
 ) -> Result<(), DispatchError>
 where
-	Hashing: sp_core::Hasher,
+	Hashing: rp_core::Hasher,
 	Key: Encode,
 	Value: Encode,
 {
@@ -184,7 +184,7 @@ where
 		.map(|(key, value)| (key.encode(), Some(value.encode())))
 		.collect::<Vec<(Vec<u8>, Option<Vec<u8>>)>>();
 
-	sp_trie::verify_trie_proof::<LayoutV1<Hashing>, _, _, _>(
+	rp_trie::verify_trie_proof::<LayoutV1<Hashing>, _, _, _>(
 		&root,
 		&structured_proof,
 		&items_encoded,
@@ -196,7 +196,7 @@ where
 mod tests {
 	use super::*;
 	use crate::traits::BlakeTwo256;
-	use sp_core::H256;
+	use rp_core::H256;
 	use std::collections::BTreeMap;
 
 	// A trie which simulates a trie of accounts (u32) and balances (u128).
@@ -204,7 +204,7 @@ mod tests {
 
 	// The expected root hash for an empty trie.
 	fn empty_root() -> H256 {
-		sp_trie::empty_trie_root::<LayoutV1<BlakeTwo256>>()
+		rp_trie::empty_trie_root::<LayoutV1<BlakeTwo256>>()
 	}
 
 	fn create_balance_trie() -> BalanceTrie {

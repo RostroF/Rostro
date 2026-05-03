@@ -25,7 +25,7 @@ use super::{
 use crate::{communication::grandpa_protocol_name, environment::SharedVoterSetState};
 use codec::{DecodeAll, Encode};
 use futures::prelude::*;
-use sc_network::{
+use rc_network::{
 	config::{MultiaddrWithPeerId, Role},
 	event::Event as NetworkEvent,
 	service::traits::{Direction, MessageSink, NotificationEvent, NotificationService},
@@ -33,15 +33,15 @@ use sc_network::{
 	Multiaddr, NetworkBlock, NetworkEventStream, NetworkPeers, NetworkSyncForkRequest,
 	ReputationChange,
 };
-use sc_network_common::role::{ObservedRole, Roles};
-use sc_network_gossip::Validator;
-use sc_network_sync::{SyncEvent as SyncStreamEvent, SyncEventStream};
-use sc_network_test::{Block, Hash};
-use sc_network_types::PeerId;
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use sp_consensus_grandpa::AuthorityList;
-use sp_keyring::Ed25519Keyring;
-use sp_runtime::traits::NumberFor;
+use rc_network_common::role::{ObservedRole, Roles};
+use rc_network_gossip::Validator;
+use rc_network_sync::{SyncEvent as SyncStreamEvent, SyncEventStream};
+use rc_network_test::{Block, Hash};
+use rc_network_types::PeerId;
+use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
+use rp_consensus_grandpa::AuthorityList;
+use rp_keyring::Ed25519Keyring;
+use rp_runtime::traits::NumberFor;
 use std::{collections::HashSet, pin::Pin, sync::Arc, task::Poll};
 
 #[derive(Debug)]
@@ -157,7 +157,7 @@ impl NetworkSyncForkRequest<Hash, NumberFor<Block>> for TestNetwork {
 	fn set_sync_fork_request(&self, _peers: Vec<PeerId>, _hash: Hash, _number: NumberFor<Block>) {}
 }
 
-impl sc_network_gossip::ValidatorContext<Block> for TestNetwork {
+impl rc_network_gossip::ValidatorContext<Block> for TestNetwork {
 	fn broadcast_topic(&mut self, _: Hash, _: bool) {}
 
 	fn broadcast_message(&mut self, _: Hash, _: Vec<u8>, _: bool) {}
@@ -223,7 +223,7 @@ impl NotificationService for TestNotificationService {
 		&mut self,
 		_peer: &PeerId,
 		_notification: Vec<u8>,
-	) -> Result<(), sc_network::error::Error> {
+	) -> Result<(), rc_network::error::Error> {
 		unimplemented!();
 	}
 
@@ -307,8 +307,8 @@ fn config() -> crate::Config {
 fn voter_set_state() -> SharedVoterSetState<Block> {
 	use crate::{authorities::AuthoritySet, environment::VoterSetState};
 	use finality_grandpa::round::State as RoundState;
-	use sp_consensus_grandpa::AuthorityId;
-	use sp_core::{crypto::ByteArray, H256};
+	use rp_consensus_grandpa::AuthorityId;
+	use rp_core::{crypto::ByteArray, H256};
 
 	let state = RoundState::genesis((H256::zero(), 0));
 	let base = state.prevote_ghost.unwrap();
@@ -357,7 +357,7 @@ fn make_ids(keys: &[Ed25519Keyring]) -> AuthorityList {
 
 struct NoopContext;
 
-impl sc_network_gossip::ValidatorContext<Block> for NoopContext {
+impl rc_network_gossip::ValidatorContext<Block> for NoopContext {
 	fn broadcast_topic(&mut self, _: Hash, _: bool) {}
 	fn broadcast_message(&mut self, _: Hash, _: Vec<u8>, _: bool) {}
 	fn send_message(&mut self, _: &PeerId, _: Vec<u8>) {}
@@ -378,7 +378,7 @@ fn good_commit_leads_to_relay() {
 		let target_number = 500;
 
 		let precommit = finality_grandpa::Precommit { target_hash, target_number };
-		let payload = sp_consensus_grandpa::localized_payload(
+		let payload = rp_consensus_grandpa::localized_payload(
 			round,
 			set_id,
 			&finality_grandpa::Message::Precommit(precommit.clone()),
@@ -390,7 +390,7 @@ fn good_commit_leads_to_relay() {
 		for (i, key) in private.iter().enumerate() {
 			precommits.push(precommit.clone());
 
-			let signature = sp_consensus_grandpa::AuthoritySignature::from(key.sign(&payload[..]));
+			let signature = rp_consensus_grandpa::AuthoritySignature::from(key.sign(&payload[..]));
 			auth_data.push((signature, public[i].0.clone()))
 		}
 
@@ -516,7 +516,7 @@ fn good_commit_leads_to_relay() {
 
 #[test]
 fn bad_commit_leads_to_report() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let private = [Ed25519Keyring::Alice, Ed25519Keyring::Bob, Ed25519Keyring::Charlie];
 	let public = make_ids(&private[..]);
 	let voter_set = Arc::new(VoterSet::new(public.iter().cloned()).unwrap());
@@ -529,7 +529,7 @@ fn bad_commit_leads_to_report() {
 		let target_number = 500;
 
 		let precommit = finality_grandpa::Precommit { target_hash, target_number };
-		let payload = sp_consensus_grandpa::localized_payload(
+		let payload = rp_consensus_grandpa::localized_payload(
 			round,
 			set_id,
 			&finality_grandpa::Message::Precommit(precommit.clone()),
@@ -541,7 +541,7 @@ fn bad_commit_leads_to_report() {
 		for (i, key) in private.iter().enumerate() {
 			precommits.push(precommit.clone());
 
-			let signature = sp_consensus_grandpa::AuthoritySignature::from(key.sign(&payload[..]));
+			let signature = rp_consensus_grandpa::AuthoritySignature::from(key.sign(&payload[..]));
 			auth_data.push((signature, public[i].0.clone()))
 		}
 
@@ -663,7 +663,7 @@ fn peer_with_higher_view_leads_to_catch_up_request() {
 
 			// neighbor packets are always discard
 			match result {
-				sc_network_gossip::ValidationResult::Discard => {},
+				rc_network_gossip::ValidationResult::Discard => {},
 				_ => panic!("wrong expected outcome from neighbor validation"),
 			}
 
@@ -691,13 +691,13 @@ fn peer_with_higher_view_leads_to_catch_up_request() {
 	futures::executor::block_on(test);
 }
 
-fn local_chain_spec() -> Box<dyn sc_chain_spec::ChainSpec> {
+fn local_chain_spec() -> Box<dyn rc_chain_spec::ChainSpec> {
 	let chain_spec =
-		sc_chain_spec::GenericChainSpec::<sc_chain_spec::NoExtension, ()>::from_json_bytes(
+		rc_chain_spec::GenericChainSpec::<rc_chain_spec::NoExtension, ()>::from_json_bytes(
 			&include_bytes!("../../../../chain-spec/res/chain_spec.json")[..],
 		)
 		.unwrap();
-	sc_chain_spec::ChainSpec::cloned_box(&chain_spec)
+	rc_chain_spec::ChainSpec::cloned_box(&chain_spec)
 }
 
 #[test]
@@ -705,7 +705,7 @@ fn grandpa_protocol_name() {
 	let chain_spec = local_chain_spec();
 
 	// Create protocol name using random genesis hash.
-	let genesis_hash = sp_core::H256::random();
+	let genesis_hash = rp_core::H256::random();
 	let expected = format!("/{}/grandpa/1", array_bytes::bytes2hex("", genesis_hash));
 	let proto_name = grandpa_protocol_name::standard_name(&genesis_hash, &chain_spec);
 	assert_eq!(proto_name.to_string(), expected);

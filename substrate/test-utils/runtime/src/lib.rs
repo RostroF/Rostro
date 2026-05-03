@@ -46,25 +46,25 @@ use frame_system::{
 	CheckNonce, CheckWeight,
 };
 use scale_info::TypeInfo;
-use sp_application_crypto::{ecdsa, ed25519, sr25519, RuntimeAppPublic, Ss58Codec};
-use sp_keyring::Sr25519Keyring;
+use rp_application_crypto::{ecdsa, ed25519, sr25519, RuntimeAppPublic, Ss58Codec};
+use rp_keyring::Sr25519Keyring;
 
 #[cfg(feature = "bls-experimental")]
-use sp_application_crypto::{bls381, ecdsa_bls381};
+use rp_application_crypto::{bls381, ecdsa_bls381};
 
-use sp_core::OpaqueMetadata;
-use sp_trie::{
+use rp_core::OpaqueMetadata;
+use rp_trie::{
 	trie_types::{TrieDBBuilder, TrieDBMutBuilderV1},
 	PrefixedMemoryDB, StorageProof,
 };
 use trie_db::{Trie, TrieMut};
 
 use serde_json::json;
-use sp_api::{decl_runtime_apis, impl_runtime_apis};
-pub use sp_core::hash::H256;
-use sp_genesis_builder::PresetId;
-use sp_inherents::{CheckInherentsResult, InherentData};
-use sp_runtime::{
+use rp_api::{decl_runtime_apis, impl_runtime_apis};
+pub use rp_core::hash::H256;
+use rp_genesis_builder::PresetId;
+use rp_inherents::{CheckInherentsResult, InherentData};
+use rp_runtime::{
 	impl_opaque_keys, impl_tx_ext_default,
 	traits::{BlakeTwo256, Block as BlockT, DispatchInfoOf, Dispatchable, NumberFor, Verify},
 	transaction_validity::{
@@ -73,15 +73,15 @@ use sp_runtime::{
 	ApplyExtrinsicResult, ExtrinsicInclusionMode, Perbill,
 };
 #[cfg(any(feature = "std", test))]
-use sp_version::NativeVersion;
-use sp_version::RuntimeVersion;
+use rp_version::NativeVersion;
+use rp_version::RuntimeVersion;
 
-pub use sp_consensus_babe::{AllowedSlots, BabeEpochConfiguration, Slot};
+pub use rp_consensus_babe::{AllowedSlots, BabeEpochConfiguration, Slot};
 
 pub use pallet_balances::Call as BalancesCall;
 pub use pallet_utility::Call as UtilityCall;
 
-pub type AuraId = sp_consensus_aura::sr25519::AuthorityId;
+pub type AuraId = rp_consensus_aura::sr25519::AuthorityId;
 #[cfg(feature = "std")]
 pub use extrinsic::{ExtrinsicBuilder, Transfer};
 
@@ -115,7 +115,7 @@ pub fn wasm_binary_logging_disabled_unwrap() -> &'static [u8] {
 }
 
 /// Test runtime version.
-#[sp_version::runtime_version]
+#[rp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: alloc::borrow::Cow::Borrowed("test"),
 	impl_name: alloc::borrow::Cow::Borrowed("parity-test"),
@@ -147,10 +147,10 @@ pub struct TransferData {
 }
 
 /// The address format for describing accounts.
-pub type Address = sp_core::sr25519::Public;
+pub type Address = rp_core::sr25519::Public;
 pub type Signature = sr25519::Signature;
 #[cfg(feature = "std")]
-pub type Pair = sp_core::sr25519::Pair;
+pub type Pair = rp_core::sr25519::Pair;
 
 // TODO: Remove after the Checks are migrated to TxExtension.
 /// The extension to the basic transaction logic.
@@ -161,10 +161,10 @@ pub type TxExtension = (
 	frame_system::WeightReclaim<Runtime>,
 );
 /// The payload being signed in transactions.
-pub type SignedPayload = sp_runtime::generic::SignedPayload<RuntimeCall, TxExtension>;
+pub type SignedPayload = rp_runtime::generic::SignedPayload<RuntimeCall, TxExtension>;
 /// Unchecked extrinsic type as expected by this runtime.
 pub type Extrinsic =
-	sp_runtime::generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
+	rp_runtime::generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
 
 /// An identifier for an account on this system.
 pub type AccountId = <Signature as Verify>::Signer;
@@ -177,19 +177,19 @@ pub type BlockNumber = u64;
 /// Index of a transaction.
 pub type Nonce = u64;
 /// The item of a block digest.
-pub type DigestItem = sp_runtime::generic::DigestItem;
+pub type DigestItem = rp_runtime::generic::DigestItem;
 /// The digest of a block.
-pub type Digest = sp_runtime::generic::Digest;
+pub type Digest = rp_runtime::generic::Digest;
 /// A test block.
-pub type Block = sp_runtime::generic::Block<Header, Extrinsic>;
+pub type Block = rp_runtime::generic::Block<Header, Extrinsic>;
 /// A test block's header.
-pub type Header = sp_runtime::generic::Header<BlockNumber, Hashing>;
+pub type Header = rp_runtime::generic::Header<BlockNumber, Hashing>;
 /// Balance of an account.
 pub type Balance = u64;
 
 #[cfg(feature = "bls-experimental")]
 mod bls {
-	use sp_application_crypto::{bls381, ecdsa_bls381};
+	use rp_application_crypto::{bls381, ecdsa_bls381};
 	pub type Bls381Public = bls381::AppPublic;
 	pub type Bls381Pop = bls381::AppProofOfPossession;
 	pub type EcdsaBls381Public = ecdsa_bls381::AppPublic;
@@ -276,22 +276,22 @@ pub type Executive = frame_executive::Executive<
 #[derive(Copy, Clone, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, Debug, TypeInfo)]
 pub struct CheckSubstrateCall;
 
-impl sp_runtime::traits::Printable for CheckSubstrateCall {
+impl rp_runtime::traits::Printable for CheckSubstrateCall {
 	fn print(&self) {
 		"CheckSubstrateCall".print()
 	}
 }
 
-impl sp_runtime::traits::RefundWeight for CheckSubstrateCall {
+impl rp_runtime::traits::RefundWeight for CheckSubstrateCall {
 	fn refund(&mut self, _weight: frame_support::weights::Weight) {}
 }
-impl sp_runtime::traits::ExtensionPostDispatchWeightHandler<CheckSubstrateCall>
+impl rp_runtime::traits::ExtensionPostDispatchWeightHandler<CheckSubstrateCall>
 	for CheckSubstrateCall
 {
 	fn set_extension_weight(&mut self, _info: &CheckSubstrateCall) {}
 }
 
-impl sp_runtime::traits::Dispatchable for CheckSubstrateCall {
+impl rp_runtime::traits::Dispatchable for CheckSubstrateCall {
 	type RuntimeOrigin = RuntimeOrigin;
 	type Config = CheckSubstrateCall;
 	type Info = CheckSubstrateCall;
@@ -300,12 +300,12 @@ impl sp_runtime::traits::Dispatchable for CheckSubstrateCall {
 	fn dispatch(
 		self,
 		_origin: Self::RuntimeOrigin,
-	) -> sp_runtime::DispatchResultWithInfo<Self::PostInfo> {
+	) -> rp_runtime::DispatchResultWithInfo<Self::PostInfo> {
 		panic!("This implementation should not be used for actual dispatch.");
 	}
 }
 
-impl sp_runtime::traits::TransactionExtension<RuntimeCall> for CheckSubstrateCall {
+impl rp_runtime::traits::TransactionExtension<RuntimeCall> for CheckSubstrateCall {
 	const IDENTIFIER: &'static str = "CheckSubstrateCall";
 	type Implicit = ();
 	type Pre = ();
@@ -394,7 +394,7 @@ impl frame_system::pallet::Config for Runtime {
 	type BlockWeights = RuntimeBlockWeights;
 	type Nonce = Nonce;
 	type AccountId = AccountId;
-	type Lookup = sp_runtime::traits::IdentityLookup<Self::AccountId>;
+	type Lookup = rp_runtime::traits::IdentityLookup<Self::AccountId>;
 	type Block = Block;
 	type AccountData = pallet_balances::AccountData<Balance>;
 }
@@ -457,7 +457,7 @@ impl pallet_babe::Config for Runtime {
 	type ExpectedBlockTime = ConstU64<10_000>;
 	type EpochChangeTrigger = pallet_babe::SameAuthoritiesForever;
 	type DisabledValidators = ();
-	type KeyOwnerProof = sp_core::Void;
+	type KeyOwnerProof = rp_core::Void;
 	type EquivocationReportSystem = ();
 	type WeightInfo = ();
 	type MaxAuthorities = ConstU32<10>;
@@ -469,7 +469,7 @@ impl pallet_babe::Config for Runtime {
 /// Trivial `Convert<AccountId, Option<AccountId>>` returning `Some` unchanged. Required by
 /// `pallet_session::Config::ValidatorIdOf`.
 pub struct IdentityValidator;
-impl<T: Clone> sp_runtime::traits::Convert<T, Option<T>> for IdentityValidator {
+impl<T: Clone> rp_runtime::traits::Convert<T, Option<T>> for IdentityValidator {
 	fn convert(x: T) -> Option<T> {
 		Some(x)
 	}
@@ -484,13 +484,13 @@ impl<T: Clone> sp_runtime::traits::Convert<T, Option<T>> for IdentityValidator {
 /// a new session, and Babe is pinned via `EpochChangeTrigger = SameAuthoritiesForever`.
 pub struct NoopSessionHandler;
 impl<AId> pallet_session::SessionHandler<AId> for NoopSessionHandler {
-	const KEY_TYPE_IDS: &'static [sp_runtime::KeyTypeId] = &[
-		sp_core::testing::ED25519,
-		sp_core::testing::SR25519,
-		sp_core::testing::ECDSA,
+	const KEY_TYPE_IDS: &'static [rp_runtime::KeyTypeId] = &[
+		rp_core::testing::ED25519,
+		rp_core::testing::SR25519,
+		rp_core::testing::ECDSA,
 	];
-	fn on_genesis_session<Ks: sp_runtime::traits::OpaqueKeys>(_: &[(AId, Ks)]) {}
-	fn on_new_session<Ks: sp_runtime::traits::OpaqueKeys>(
+	fn on_genesis_session<Ks: rp_runtime::traits::OpaqueKeys>(_: &[(AId, Ks)]) {}
+	fn on_new_session<Ks: rp_runtime::traits::OpaqueKeys>(
 		_: bool,
 		_: &[(AId, Ks)],
 		_: &[(AId, Ks)],
@@ -583,7 +583,7 @@ pub const TEST_RUNTIME_BABE_EPOCH_CONFIGURATION: BabeEpochConfiguration = BabeEp
 };
 
 impl_runtime_apis! {
-	impl sp_api::Core<Block> for Runtime {
+	impl rp_api::Core<Block> for Runtime {
 		fn version() -> RuntimeVersion {
 			version()
 		}
@@ -599,7 +599,7 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl sp_api::Metadata<Block> for Runtime {
+	impl rp_api::Metadata<Block> for Runtime {
 		fn metadata() -> OpaqueMetadata {
 			OpaqueMetadata::new(Runtime::metadata().into())
 		}
@@ -612,7 +612,7 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block> for Runtime {
+	impl rp_transaction_pool::runtime_api::TaggedTransactionQueue<Block> for Runtime {
 		fn validate_transaction(
 			source: TransactionSource,
 			utx: <Block as BlockT>::Extrinsic,
@@ -624,7 +624,7 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl sp_block_builder::BlockBuilder<Block> for Runtime {
+	impl rp_block_builder::BlockBuilder<Block> for Runtime {
 		fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult {
 			Executive::apply_extrinsic(extrinsic)
 		}
@@ -743,11 +743,11 @@ impl_runtime_apis! {
 		}
 
 		fn verify_ed25519(sig: ed25519::Signature, public: ed25519::Public, message: Vec<u8>) -> bool {
-			sp_io::crypto::ed25519_verify(&sig, &message, &public)
+			rp_io::crypto::ed25519_verify(&sig, &message, &public)
 		}
 
 		fn write_key_value(key: Vec<u8>, value: Vec<u8>, panic: bool) {
-			sp_io::storage::set(&key, &value);
+			rp_io::storage::set(&key, &value);
 
 			if panic {
 				panic!("I'm just following my master");
@@ -755,9 +755,9 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl sp_consensus_aura::AuraApi<Block, AuraId> for Runtime {
-		fn slot_duration() -> sp_consensus_aura::SlotDuration {
-			sp_consensus_aura::SlotDuration::from_millis(1000)
+	impl rp_consensus_aura::AuraApi<Block, AuraId> for Runtime {
+		fn slot_duration() -> rp_consensus_aura::SlotDuration {
+			rp_consensus_aura::SlotDuration::from_millis(1000)
 		}
 
 		fn authorities() -> Vec<AuraId> {
@@ -765,10 +765,10 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl sp_consensus_babe::BabeApi<Block> for Runtime {
-		fn configuration() -> sp_consensus_babe::BabeConfiguration {
+	impl rp_consensus_babe::BabeApi<Block> for Runtime {
+		fn configuration() -> rp_consensus_babe::BabeConfiguration {
 			let epoch_config = Babe::epoch_config().unwrap_or(TEST_RUNTIME_BABE_EPOCH_CONFIGURATION);
-			sp_consensus_babe::BabeConfiguration {
+			rp_consensus_babe::BabeConfiguration {
 				slot_duration: Babe::slot_duration(),
 				epoch_length: EpochDuration::get(),
 				c: epoch_config.c,
@@ -782,32 +782,32 @@ impl_runtime_apis! {
 			Babe::current_epoch_start()
 		}
 
-		fn current_epoch() -> sp_consensus_babe::Epoch {
+		fn current_epoch() -> rp_consensus_babe::Epoch {
 			Babe::current_epoch()
 		}
 
-		fn next_epoch() -> sp_consensus_babe::Epoch {
+		fn next_epoch() -> rp_consensus_babe::Epoch {
 			Babe::next_epoch()
 		}
 
 		fn submit_report_equivocation_unsigned_extrinsic(
-			_equivocation_proof: sp_consensus_babe::EquivocationProof<
+			_equivocation_proof: rp_consensus_babe::EquivocationProof<
 			<Block as BlockT>::Header,
 			>,
-			_key_owner_proof: sp_consensus_babe::OpaqueKeyOwnershipProof,
+			_key_owner_proof: rp_consensus_babe::OpaqueKeyOwnershipProof,
 		) -> Option<()> {
 			None
 		}
 
 		fn generate_key_ownership_proof(
-			_slot: sp_consensus_babe::Slot,
-			_authority_id: sp_consensus_babe::AuthorityId,
-		) -> Option<sp_consensus_babe::OpaqueKeyOwnershipProof> {
+			_slot: rp_consensus_babe::Slot,
+			_authority_id: rp_consensus_babe::AuthorityId,
+		) -> Option<rp_consensus_babe::OpaqueKeyOwnershipProof> {
 			None
 		}
 	}
 
-	impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
+	impl rp_offchain::OffchainWorkerApi<Block> for Runtime {
 		fn offchain_worker(header: &<Block as BlockT>::Header) {
 			let ext = Extrinsic::new_bare(
 				substrate_test_pallet::pallet::Call::storage_change{
@@ -815,52 +815,52 @@ impl_runtime_apis! {
 					value:Some(header.number.encode())
 				}.into(),
 			);
-			sp_io::offchain::submit_transaction(ext.encode()).unwrap();
+			rp_io::offchain::submit_transaction(ext.encode()).unwrap();
 			Executive::offchain_worker(header);
 		}
 	}
 
-	impl sp_session::SessionKeys<Block> for Runtime {
-		fn generate_session_keys(owner: Vec<u8>, _: Option<Vec<u8>>) -> sp_session::OpaqueGeneratedSessionKeys {
+	impl rp_session::SessionKeys<Block> for Runtime {
+		fn generate_session_keys(owner: Vec<u8>, _: Option<Vec<u8>>) -> rp_session::OpaqueGeneratedSessionKeys {
 			SessionKeys::generate(&owner, None).into()
 		}
 
 		fn decode_session_keys(
 			encoded: Vec<u8>,
-		) -> Option<Vec<(Vec<u8>, sp_core::crypto::KeyTypeId)>> {
+		) -> Option<Vec<(Vec<u8>, rp_core::crypto::KeyTypeId)>> {
 			SessionKeys::decode_into_raw_public_keys(&encoded)
 		}
 	}
 
-	impl sp_consensus_grandpa::GrandpaApi<Block> for Runtime {
-		fn grandpa_authorities() -> sp_consensus_grandpa::AuthorityList {
+	impl rp_consensus_grandpa::GrandpaApi<Block> for Runtime {
+		fn grandpa_authorities() -> rp_consensus_grandpa::AuthorityList {
 			Vec::new()
 		}
 
-		fn current_set_id() -> sp_consensus_grandpa::SetId {
+		fn current_set_id() -> rp_consensus_grandpa::SetId {
 			0
 		}
 
 		fn submit_report_equivocation_unsigned_extrinsic(
-			_equivocation_proof: sp_consensus_grandpa::EquivocationProof<
+			_equivocation_proof: rp_consensus_grandpa::EquivocationProof<
 			<Block as BlockT>::Hash,
 			NumberFor<Block>,
 			>,
-			_key_owner_proof: sp_consensus_grandpa::OpaqueKeyOwnershipProof,
+			_key_owner_proof: rp_consensus_grandpa::OpaqueKeyOwnershipProof,
 		) -> Option<()> {
 			None
 		}
 
 		fn generate_key_ownership_proof(
-			_set_id: sp_consensus_grandpa::SetId,
-			_authority_id: sp_consensus_grandpa::AuthorityId,
-		) -> Option<sp_consensus_grandpa::OpaqueKeyOwnershipProof> {
+			_set_id: rp_consensus_grandpa::SetId,
+			_authority_id: rp_consensus_grandpa::AuthorityId,
+		) -> Option<rp_consensus_grandpa::OpaqueKeyOwnershipProof> {
 			None
 		}
 	}
 
-	impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
-		fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
+	impl rp_genesis_builder::GenesisBuilder<Block> for Runtime {
+		fn build_state(config: Vec<u8>) -> rp_genesis_builder::Result {
 			build_state::<RuntimeGenesisConfig>(config)
 		}
 
@@ -989,15 +989,15 @@ fn test_ecdsa_bls381_crypto() -> (EcdsaBls381Pop, EcdsaBls381Public) {
 
 fn test_read_storage() {
 	const KEY: &[u8] = b":read_storage";
-	sp_io::storage::set(KEY, b"test");
+	rp_io::storage::set(KEY, b"test");
 
 	let mut v = [0u8; 4];
-	let r = sp_io::storage::read(KEY, &mut v, 0);
+	let r = rp_io::storage::read(KEY, &mut v, 0);
 	assert_eq!(r, Some(4));
 	assert_eq!(&v, b"test");
 
 	let mut v = [0u8; 4];
-	let r = sp_io::storage::read(KEY, &mut v, 4);
+	let r = rp_io::storage::read(KEY, &mut v, 4);
 	assert_eq!(r, Some(0));
 	assert_eq!(&v, &[0, 0, 0, 0]);
 }
@@ -1005,25 +1005,25 @@ fn test_read_storage() {
 fn test_read_child_storage() {
 	const STORAGE_KEY: &[u8] = b"unique_id_1";
 	const KEY: &[u8] = b":read_child_storage";
-	sp_io::default_child_storage::set(STORAGE_KEY, KEY, b"test");
+	rp_io::default_child_storage::set(STORAGE_KEY, KEY, b"test");
 
 	let mut v = [0u8; 4];
-	let r = sp_io::default_child_storage::read(STORAGE_KEY, KEY, &mut v, 0);
+	let r = rp_io::default_child_storage::read(STORAGE_KEY, KEY, &mut v, 0);
 	assert_eq!(r, Some(4));
 	assert_eq!(&v, b"test");
 
 	let mut v = [0u8; 4];
-	let r = sp_io::default_child_storage::read(STORAGE_KEY, KEY, &mut v, 8);
+	let r = rp_io::default_child_storage::read(STORAGE_KEY, KEY, &mut v, 8);
 	assert_eq!(r, Some(0));
 	assert_eq!(&v, &[0, 0, 0, 0]);
 }
 
 fn test_witness(proof: StorageProof, root: crate::Hash) {
-	use sp_externalities::Externalities;
-	let db: sp_trie::MemoryDB<crate::Hashing> = proof.into_memory_db();
-	let backend = sp_state_machine::TrieBackendBuilder::<_, crate::Hashing>::new(db, root).build();
-	let mut overlay = sp_state_machine::OverlayedChanges::default();
-	let mut ext = sp_state_machine::Ext::new(
+	use rp_externalities::Externalities;
+	let db: rp_trie::MemoryDB<crate::Hashing> = proof.into_memory_db();
+	let backend = rp_state_machine::TrieBackendBuilder::<_, crate::Hashing>::new(db, root).build();
+	let mut overlay = rp_state_machine::OverlayedChanges::default();
+	let mut ext = rp_state_machine::Ext::new(
 		&mut overlay,
 		&backend,
 		#[cfg(feature = "std")]
@@ -1041,7 +1041,7 @@ fn test_witness(proof: StorageProof, root: crate::Hash) {
 #[cfg(feature = "std")]
 pub mod storage_key_generator {
 	use super::*;
-	use sp_core::Pair;
+	use rp_core::Pair;
 
 	/// Generate hex string without prefix
 	pub(super) fn hex<T>(x: T) -> String
@@ -1052,11 +1052,11 @@ pub mod storage_key_generator {
 	}
 
 	fn concat_hashes(input: &Vec<&[u8]>) -> String {
-		input.iter().map(|s| sp_crypto_hashing::twox_128(s)).map(hex).collect()
+		input.iter().map(|s| rp_crypto_hashing::twox_128(s)).map(hex).collect()
 	}
 
 	fn twox_64_concat(x: &[u8]) -> Vec<u8> {
-		sp_crypto_hashing::twox_64(x).iter().chain(x.iter()).cloned().collect()
+		rp_crypto_hashing::twox_64(x).iter().chain(x.iter()).cloned().collect()
 	}
 
 	/// Generate the hashed storage keys from the raw literals. These keys are expected to be in
@@ -1104,7 +1104,7 @@ pub mod storage_key_generator {
 				Sr25519Keyring::Charlie.public().to_vec(),
 			])
 			.map(|pubkey| {
-				sp_crypto_hashing::blake2_128(&pubkey)
+				rp_crypto_hashing::blake2_128(&pubkey)
 					.iter()
 					.chain(pubkey.iter())
 					.cloned()
@@ -1235,11 +1235,11 @@ mod tests {
 	use codec::Encode;
 	use frame_support::dispatch::DispatchInfo;
 	use pretty_assertions::assert_eq;
-	use sc_block_builder::BlockBuilderBuilder;
-	use sp_api::{ApiExt, ProvideRuntimeApi};
-	use sp_consensus::BlockOrigin;
-	use sp_core::{storage::well_known_keys::HEAP_PAGES, traits::CallContext};
-	use sp_runtime::{
+	use rc_block_builder::BlockBuilderBuilder;
+	use rp_api::{ApiExt, ProvideRuntimeApi};
+	use rp_consensus::BlockOrigin;
+	use rp_core::{storage::well_known_keys::HEAP_PAGES, traits::CallContext};
+	use rp_runtime::{
 		traits::{DispatchTransaction, Hash as _},
 		transaction_validity::{InvalidTransaction, TransactionSource::External, ValidTransaction},
 	};
@@ -1301,12 +1301,12 @@ mod tests {
 		runtime_api.test_storage(best_hash).unwrap();
 	}
 
-	fn witness_backend() -> (sp_trie::MemoryDB<crate::Hashing>, crate::Hash) {
+	fn witness_backend() -> (rp_trie::MemoryDB<crate::Hashing>, crate::Hash) {
 		let mut root = crate::Hash::default();
-		let mut mdb = sp_trie::MemoryDB::<crate::Hashing>::default();
+		let mut mdb = rp_trie::MemoryDB::<crate::Hashing>::default();
 		{
 			let mut trie =
-				sp_trie::trie_types::TrieDBMutBuilderV1::new(&mut mdb, &mut root).build();
+				rp_trie::trie_types::TrieDBMutBuilderV1::new(&mut mdb, &mut root).build();
 			trie.insert(b"value3", &[142]).expect("insert failed");
 			trie.insert(b"value4", &[124]).expect("insert failed");
 		};
@@ -1317,8 +1317,8 @@ mod tests {
 	fn witness_backend_works() {
 		let (db, root) = witness_backend();
 		let backend =
-			sp_state_machine::TrieBackendBuilder::<_, crate::Hashing>::new(db, root).build();
-		let proof = sp_state_machine::prove_read(backend, vec![b"value3"]).unwrap();
+			rp_state_machine::TrieBackendBuilder::<_, crate::Hashing>::new(db, root).build();
+		let proof = rp_state_machine::prove_read(backend, vec![b"value3"]).unwrap();
 		let client = TestClientBuilder::new().build();
 		let runtime_api = client.runtime_api();
 		let best_hash = client.chain_info().best_hash;
@@ -1326,7 +1326,7 @@ mod tests {
 		runtime_api.test_witness(best_hash, proof, root).unwrap();
 	}
 
-	pub fn new_test_ext() -> sp_io::TestExternalities {
+	pub fn new_test_ext() -> rp_io::TestExternalities {
 		genesismap::GenesisStorageBuilder::new(
 			vec![Sr25519Keyring::One.public().into(), Sr25519Keyring::Two.public().into()],
 			vec![Sr25519Keyring::One.into(), Sr25519Keyring::Two.into()],
@@ -1352,7 +1352,7 @@ mod tests {
 
 	#[test]
 	fn validate_unsigned_works() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		new_test_ext().execute_with(|| {
 			let failing_calls = vec![
 				substrate_test_pallet::Call::bench_call { transfer: Default::default() },
@@ -1370,7 +1370,7 @@ mod tests {
 
 			for call in failing_calls {
 				assert_eq!(
-					<SubstrateTest as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+					<SubstrateTest as rp_runtime::traits::ValidateUnsigned>::validate_unsigned(
 						TransactionSource::External,
 						&call,
 					),
@@ -1380,7 +1380,7 @@ mod tests {
 
 			for call in succeeding_calls {
 				assert_eq!(
-					<SubstrateTest as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+					<SubstrateTest as rp_runtime::traits::ValidateUnsigned>::validate_unsigned(
 						TransactionSource::External,
 						&call,
 					),
@@ -1395,7 +1395,7 @@ mod tests {
 
 	#[test]
 	fn check_substrate_check_signed_extension_works() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		new_test_ext().execute_with(|| {
 			let x = Sr25519Keyring::Alice.into();
 			let info = DispatchInfo::default();
@@ -1438,13 +1438,13 @@ mod tests {
 		use super::*;
 		use crate::genesismap::GenesisStorageBuilder;
 		use pretty_assertions::assert_eq;
-		use sc_executor::{error::Result, WasmExecutor};
-		use sc_executor_common::runtime_blob::RuntimeBlob;
+		use rc_executor::{error::Result, WasmExecutor};
+		use rc_executor_common::runtime_blob::RuntimeBlob;
 		use serde_json::json;
-		use sp_application_crypto::Ss58Codec;
-		use sp_core::traits::Externalities;
-		use sp_genesis_builder::Result as BuildResult;
-		use sp_state_machine::BasicExternalities;
+		use rp_application_crypto::Ss58Codec;
+		use rp_core::traits::Externalities;
+		use rp_genesis_builder::Result as BuildResult;
+		use rp_state_machine::BasicExternalities;
 		use std::{fs, io::Write};
 		use storage_key_generator::hex;
 
@@ -1453,7 +1453,7 @@ mod tests {
 			method: &str,
 			data: &[u8],
 		) -> Result<Vec<u8>> {
-			let executor = WasmExecutor::<sp_io::SubstrateHostFunctions>::builder().build();
+			let executor = WasmExecutor::<rp_io::SubstrateHostFunctions>::builder().build();
 			executor.uncached_call(
 				RuntimeBlob::uncompress_if_needed(wasm_binary_unwrap()).unwrap(),
 				ext,
@@ -1465,7 +1465,7 @@ mod tests {
 
 		#[test]
 		fn build_minimal_genesis_config_works() {
-			sp_tracing::try_init_simple();
+			rp_tracing::try_init_simple();
 			let default_minimal_json = r#"{"system":{},"babe":{"authorities":[],"epochConfig":{"c": [ 3, 10 ],"allowed_slots":"PrimaryAndSecondaryPlainSlots"}},"session":{"keys":[],"nonAuthorityKeys":[]},"substrateTest":{"authorities":[]},"balances":{"balances":[]}}"#;
 			let mut t = BasicExternalities::new_empty();
 
@@ -1522,7 +1522,7 @@ mod tests {
 
 		#[test]
 		fn default_config_as_json_works() {
-			sp_tracing::try_init_simple();
+			rp_tracing::try_init_simple();
 			let mut t = BasicExternalities::new_empty();
 			let r = executor_call(&mut t, "GenesisBuilder_get_preset", &None::<&PresetId>.encode())
 				.unwrap();
@@ -1537,7 +1537,7 @@ mod tests {
 
 		#[test]
 		fn preset_names_listing_works() {
-			sp_tracing::try_init_simple();
+			rp_tracing::try_init_simple();
 			let mut t = BasicExternalities::new_empty();
 			let r = executor_call(&mut t, "GenesisBuilder_preset_names", &vec![]).unwrap();
 			let r = Vec::<PresetId>::decode(&mut &r[..]).unwrap();
@@ -1547,7 +1547,7 @@ mod tests {
 
 		#[test]
 		fn named_config_works() {
-			sp_tracing::try_init_simple();
+			rp_tracing::try_init_simple();
 			let f = |cfg_name: &str, expected: &str| {
 				let mut t = BasicExternalities::new_empty();
 				let name = cfg_name.to_string();
@@ -1573,7 +1573,7 @@ mod tests {
 
 		#[test]
 		fn build_config_from_json_works() {
-			sp_tracing::try_init_simple();
+			rp_tracing::try_init_simple();
 			let j = include_str!("../res/default_genesis_config.json");
 
 			let mut t = BasicExternalities::new_empty();
@@ -1593,7 +1593,7 @@ mod tests {
 
 		#[test]
 		fn build_config_from_invalid_json_fails() {
-			sp_tracing::try_init_simple();
+			rp_tracing::try_init_simple();
 			let j = include_str!("../res/default_genesis_config_invalid.json");
 			let mut t = BasicExternalities::new_empty();
 			let r = executor_call(&mut t, "GenesisBuilder_build_state", &j.encode()).unwrap();
@@ -1606,7 +1606,7 @@ mod tests {
 
 		#[test]
 		fn build_config_from_invalid_json_fails_2() {
-			sp_tracing::try_init_simple();
+			rp_tracing::try_init_simple();
 			let j = include_str!("../res/default_genesis_config_invalid_2.json");
 			let mut t = BasicExternalities::new_empty();
 			let r = executor_call(&mut t, "GenesisBuilder_build_state", &j.encode()).unwrap();
@@ -1618,7 +1618,7 @@ mod tests {
 
 		#[test]
 		fn build_config_from_incomplete_json_fails() {
-			sp_tracing::try_init_simple();
+			rp_tracing::try_init_simple();
 			let j = include_str!("../res/default_genesis_config_incomplete.json");
 
 			let mut t = BasicExternalities::new_empty();
@@ -1634,7 +1634,7 @@ mod tests {
 		#[test]
 		fn write_default_config_to_tmp_file() {
 			if std::env::var("WRITE_DEFAULT_JSON_FOR_STR_GC").is_ok() {
-				sp_tracing::try_init_simple();
+				rp_tracing::try_init_simple();
 				let mut file = fs::OpenOptions::new()
 					.create(true)
 					.write(true)
@@ -1651,7 +1651,7 @@ mod tests {
 		#[test]
 		fn build_genesis_config_with_patch_json_works() {
 			// this tests shows how to do patching on native side
-			sp_tracing::try_init_simple();
+			rp_tracing::try_init_simple();
 
 			let mut t = BasicExternalities::new_empty();
 			let r = executor_call(&mut t, "GenesisBuilder_get_preset", &None::<&PresetId>.encode())
@@ -1681,7 +1681,7 @@ mod tests {
 				}
 			});
 
-			sc_chain_spec::json_merge(&mut default_config, patch);
+			rc_chain_spec::json_merge(&mut default_config, patch);
 
 			// Build genesis config using custom json:
 			let mut t = BasicExternalities::new_empty();
@@ -1703,7 +1703,7 @@ mod tests {
 				"00771836bebdd29870ff246d305c578c5e0621c4869aa60c02be9adcc98a0d1d",
 			);
 			let authority_key_vec =
-				Vec::<sp_core::sr25519::Public>::decode(&mut &value[..]).unwrap();
+				Vec::<rp_core::sr25519::Public>::decode(&mut &value[..]).unwrap();
 			assert_eq!(authority_key_vec.len(), 2);
 			assert_eq!(authority_key_vec[0], Sr25519Keyring::Ferdie.public());
 			assert_eq!(authority_key_vec[1], Sr25519Keyring::Alice.public());

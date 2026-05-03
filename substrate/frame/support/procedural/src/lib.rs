@@ -541,8 +541,8 @@ pub fn storage_alias(attributes: TokenStream, input: TokenStream) -> TokenStream
 ///     type DbWeight = ();
 ///     type Nonce = u64;
 ///     type BlockNumber = u64;
-///     type Hash = sp_core::hash::H256;
-///     type Hashing = sp_runtime::traits::BlakeTwo256;
+///     type Hash = rp_core::hash::H256;
+///     type Hashing = rp_runtime::traits::BlakeTwo256;
 ///     type AccountId = AccountId;
 ///     type Lookup = IdentityLookup<AccountId>;
 ///     type BlockHashCount = frame_support::traits::ConstU64<10>;
@@ -638,7 +638,7 @@ pub fn storage_alias(attributes: TokenStream, input: TokenStream) -> TokenStream
         "{}::macro_magic",
         match generate_access_from_frame_or_crate("frame-support") {
             Ok(path) => Ok(path),
-            Err(_) => generate_access_from_frame_or_crate("polkadot-sdk-frame"),
+            Err(_) => generate_access_from_frame_or_crate("rostro-frame"),
         }
         .expect("Failed to find either `frame-support` or `polkadot-sdk-frame` in `Cargo.toml` dependencies.")
         .to_token_stream()
@@ -1155,7 +1155,7 @@ pub fn pallet_section(attr: TokenStream, tokens: TokenStream) -> TokenStream {
         "{}::macro_magic",
         match generate_access_from_frame_or_crate("frame-support") {
             Ok(path) => Ok(path),
-            Err(_) => generate_access_from_frame_or_crate("polkadot-sdk-frame"),
+            Err(_) => generate_access_from_frame_or_crate("rostro-frame"),
         }
         .expect("Failed to find either `frame-support` or `polkadot-sdk-frame` in `Cargo.toml` dependencies.")
         .to_token_stream()

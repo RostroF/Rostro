@@ -59,7 +59,7 @@
 //!       <td>chainType</td>
 //!       <td>The chain type of this chain
 //!           (refer to
-//!            <a href="enum.ChainType.html" title="enum sc_chain_spec::ChainType">
+//!            <a href="enum.ChainType.html" title="enum rc_chain_spec::ChainType">
 //!              <code>ChainType</code>
 //!            </a>).
 //!       </td>
@@ -191,19 +191,19 @@
 //! the node needs to interact with the runtime.
 //!
 //! This interaction involves passing the runtime genesis config JSON blob to the runtime using the
-//! [`sp_genesis_builder::GenesisBuilder::build_state`] function. During this operation, the
-//! runtime converts the JSON representation of the genesis config into [`sp_io::storage`] items. It
+//! [`rp_genesis_builder::GenesisBuilder::build_state`] function. During this operation, the
+//! runtime converts the JSON representation of the genesis config into [`rp_io::storage`] items. It
 //! is a crucial step for computing the storage root hash, which is a key component in determining
 //! the genesis hash.
 //!
-//! Consequently, the runtime must support the [`sp_genesis_builder::GenesisBuilder`] API to
+//! Consequently, the runtime must support the [`rp_genesis_builder::GenesisBuilder`] API to
 //! utilize either `patch` or `full` formats.
 //!
 //! This entire process is encapsulated within the implementation of the [`BuildStorage`] trait,
 //! which can be accessed through the [`ChainSpec::as_storage_builder`] method. There is an
 //! intermediate internal helper that facilitates this interaction,
 //! [`GenesisConfigBuilderRuntimeCaller`], which serves as a straightforward wrapper for
-//! [`sc_executor::WasmExecutor`].
+//! [`rc_executor::WasmExecutor`].
 //!
 //! In case of `raw` genesis state the node does not interact with the runtime regarding the
 //! computation of initial state.
@@ -260,7 +260,7 @@
 //! `ChainSpecExtension` macro exposed by this crate.
 //! ```rust
 //! use std::collections::HashMap;
-//! use sc_chain_spec::{GenericChainSpec, ChainSpecExtension};
+//! use rc_chain_spec::{GenericChainSpec, ChainSpecExtension};
 //!
 //! #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, ChainSpecExtension)]
 //! pub struct MyExtension {
@@ -274,7 +274,7 @@
 //! structure to add such parameters to your chain spec. This will allow overriding a single
 //! parameter starting at a specific block number.
 //! ```rust
-//! use sc_chain_spec::{Forks, ChainSpecGroup, ChainSpecExtension, GenericChainSpec};
+//! use rc_chain_spec::{Forks, ChainSpecGroup, ChainSpecExtension, GenericChainSpec};
 //!
 //! #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, ChainSpecGroup)]
 //! pub struct ClientParams {
@@ -306,7 +306,7 @@
 //! achieved by declaring an extension that contains [`Forks`] within it.
 //! ```rust
 //! use serde::{Serialize, Deserialize};
-//! use sc_chain_spec::{Forks, GenericChainSpec, ChainSpecGroup, ChainSpecExtension};
+//! use rc_chain_spec::{Forks, GenericChainSpec, ChainSpecGroup, ChainSpecExtension};
 //!
 //! #[derive(Clone, Debug, Serialize, Deserialize, ChainSpecGroup)]
 //! pub struct ClientParams {
@@ -352,12 +352,12 @@ pub use self::{
 	},
 	json_patch::merge as json_merge,
 };
-pub use sc_chain_spec_derive::{ChainSpecExtension, ChainSpecGroup};
+pub use rc_chain_spec_derive::{ChainSpecExtension, ChainSpecGroup};
 
-use sc_network::config::MultiaddrWithPeerId;
-use sc_telemetry::TelemetryEndpoints;
-use sp_core::storage::Storage;
-use sp_runtime::BuildStorage;
+use rc_network::config::MultiaddrWithPeerId;
+use rc_telemetry::TelemetryEndpoints;
+use rp_core::storage::Storage;
+use rp_runtime::BuildStorage;
 
 /// The type of chain.
 ///

@@ -1,7 +1,0 @@
-title: revive-dev-node enforce --dev
-doc:
-- audience: Runtime Dev
-  description: 'enforce --dev and default --log in revive-dev-node
-
-    '
-crates: []

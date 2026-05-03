@@ -1,112 +1,94 @@
-<div align="center">
+# Rostro
 
-![SDK Logo](./docs/images/Polkadot_Logo_Horizontal_Pink_White.png#gh-dark-mode-only)
-![SDK Logo](./docs/images/Polkadot_Logo_Horizontal_Pink_Black.png#gh-light-mode-only)
+A hardware-anchored, democratically-governed blockchain. One certificate, one
+vote. Built by the Rostro Foundation.
 
-# Polkadot SDK
+This repository contains the runtime and node infrastructure for the Rostro
+network family:
 
-![GitHub stars](https://img.shields.io/github/stars/paritytech/polkadot-sdk)&nbsp;&nbsp;![GitHub
-forks](https://img.shields.io/github/forks/paritytech/polkadot-sdk)
+- **Rostro** — production mainnet
+- **Canaria** — canary network (real value, faster release cycle, breaks first)
+- **Camino** — public testnet
 
-<!-- markdownlint-disable-next-line MD013 -->
-[![StackExchange](https://img.shields.io/badge/StackExchange-Community%20&%20Support-222222?logo=stackexchange)](https://substrate.stackexchange.com/)&nbsp;&nbsp;![GitHub contributors](https://img.shields.io/github/contributors/paritytech/polkadot-sdk)&nbsp;&nbsp;![GitHub commit activity](https://img.shields.io/github/commit-activity/m/paritytech/polkadot-sdk)&nbsp;&nbsp;![GitHub last commit](https://img.shields.io/github/last-commit/paritytech/polkadot-sdk)
+## Lineage
 
-> The Polkadot SDK repository provides all the components needed to start building on the
-> [Polkadot](https://polkadot.com/) network, a multi-chain blockchain platform that enables
-> different blockchains to interoperate and share information in a secure and scalable way.
+Rostro is a fork of the Polkadot SDK with a deliberately reduced surface. The
+relay-chain, parachain, bridge, and EVM-compatibility layers have been
+removed. What remains is the Substrate framework, FRAME, and the consensus
+and client primitives needed for a sovereign chain. Original Polkadot SDK
+copyrights and per-file license declarations are preserved as authoritative;
+this repository is a fork that restructures, prunes, and extends that work
+for the Rostro network.
 
-</div>
+## License
 
-## ⚡ Quickstart
-If you want to get an example node running quickly you can execute the following getting started script:
+Rostro's tree is split deliberately along Substrate's runtime/node boundary:
 
+- **On-chain runtime (Apache-2.0).** All `sp-*` primitives, all
+  `frame-*` and `pallet-*` runtime crates — 177 crates total — are
+  Apache-2.0 (or MIT-0 for a small set of helpers). The on-chain WASM
+  blob compiled from this tree is fully Apache-licensed. New Rostro pallets
+  ship under Apache-2.0.
+- **Off-chain node binary (GPL-3.0-or-later WITH Classpath-exception-2.0).**
+  55 of the 60 `sc-*` substrate-client crates retain upstream Parity's
+  GPL-3.0-or-later WITH Classpath-exception-2.0 declaration. The Classpath
+  exception preserves the right to link these client crates with code under
+  any other license — including the Apache-licensed runtime they execute.
+
+See [NOTICE.md](./NOTICE.md) for the attribution map, the rationale behind
+this split, the patent notice covering inventions used under license by
+the Rostro Foundation, and the practical implications for downstream
+consumers and forks. Full license texts: [LICENSE-APACHE](./LICENSE-APACHE),
+[LICENSE-GPL3-CLASSPATH](./LICENSE-GPL3-CLASSPATH).
+
+The license posture follows the spirit of the approach taken by Wei
+(Bitarray GmbH) in [Grey](https://github.com/jarchain/jar/tree/master/grey),
+adapted to Rostro's choice to retain (rather than rebuild) the Substrate
+client layer.
+
+## What's different
+
+- **Sovereign chain only.** No relay chain, no parachain framework, no XCM,
+  no Polkadot-Kusama or Snowbridge bridges. One chain.
+- **Strip-mall application layer.** Operators run their own application logic
+  in PolkaVM contracts on top of a shared, hash-attested canonical runtime.
+  Modify your shop, not the foundation.
+- **Hardware-attested proof of personhood.** Every economic and governance
+  actor is bound to attested hardware (TPM 2.0 / Strongbox) and a verified
+  identity document. One human, one certificate, one vote.
+- **Sassafras consensus.** Anonymous slot assignment via Ring VRF — collusion
+  resistance designed in, not bolted on.
+- **Bicameral, ranked-choice, anonymous-by-construction governance.** Two
+  chambers with staggered terms and term limits. No token-weighted voting.
+  Ballot privacy is a cryptographic property, not a policy promise.
+- **Milestone-first treasury.** No upfront grants. Ever. Working code, then
+  payment.
+
+The full architectural commitments and motivations are in the project
+whitepaper.
+
+## Building
+
+```sh
+SKIP_WASM_BUILD=1 cargo check --workspace --all-targets
+SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets
+cargo +nightly fmt
 ```
-curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/paritytech/polkadot-sdk/master/scripts/getting-started.sh | bash
-```
 
-## 👩🏽‍💻 Building
+Production builds use the standard cargo workflow. Specific build targets
+(camino-runtime, canaria-runtime, rostro-runtime) will be added as the runtime
+integration lands.
 
-In order to build this project you need to install some dependencies, follow the instructions in [this guide](https://docs.polkadot.com/develop/parachains/install-polkadot-sdk).
+## Contributing
 
-### 🎯 Build targets
+Rostro is open to contributions under Apache-2.0. See [CONTRIBUTING.md](./CONTRIBUTING.md)
+for the contribution flow. Security-sensitive issues should be reported per
+[SECURITY.md](./SECURITY.md).
 
-When building full runtimes, the WASM builder takes care of all required configuration.  
-For individual crates, however, there are a few caveats when targeting `no_std`.
+## Acknowledgements
 
-#### WASM
-Set `RUSTFLAGS="--cfg substrate_runtime"` when building for WASM. See the
-[WASM build](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/polkadot_sdk/substrate/index.html#wasm-build)
-in the Polkadot SDK Documentation.
-
-#### PolkaVM
-PolkaVM builds require some `riscv32` or `riscv64` target architecture.  
-See the CI example: [RiscV-build](https://github.com/paritytech/polkadot-sdk/blob/6de451a105ca0a5feb675a215d4e8de5207febf6/.github/workflows/build-misc.yml#L55).
-
-## 📚 Documentation
-
-* [Polkadot Documentation Portal](https://docs.polkadot.com)
-* [🦀 rust-docs](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/index.html): Where we keep track of
-the API docs of our Rust crates. Includes:
-  * [Introduction](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/polkadot_sdk/index.html)
-	to each component of the Polkadot SDK: Substrate, FRAME, Cumulus, and XCM
-  * [Guides](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/guides/index.html),
-	namely how to build your first FRAME pallet
-  * [Templates](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/polkadot_sdk/templates/index.html)
-    for starting a new project.
-  * [External Resources](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/external_resources/index.html)
-* Have a question? You can ask in the Polkadot SDK Developers Chat.
-Messages from either of these channels are bridged to the other, so you can use whichever one you like.
-  * [Telegram](https://t.me/substratedevs)
-  * [Matrix](https://matrix.to/#/#substratedevs:matrix.org)
-  * [Discord](https://discord.com/channels/722223075629727774/997505821955076196)
-  * [Polkadot and Substrate StackExchange](https://substrate.stackexchange.com/)
-
-## 🚀 Releases
-
-<!-- markdownlint-disable-next-line MD013 -->
-![Current Stable Release](https://raw.githubusercontent.com/paritytech/release-registry/main/badges/polkadot-sdk-latest.svg)&nbsp;&nbsp;![Next Stable Release](https://raw.githubusercontent.com/paritytech/release-registry/main/badges/polkadot-sdk-next.svg)
-
-The Polkadot SDK is released every three months as a `Polkadot stableYYMM` release. Each stable release is supported for
-one year with patches. See the next upcoming versions in the [Release
-Registry](https://github.com/paritytech/release-registry/) and more docs in [RELEASE.md](./docs/RELEASE.md).
-
-You can use [`psvm`](https://github.com/paritytech/psvm) to update all dependencies to a specific
-version without needing to manually select the correct version for each crate.
-
-## 🛠️ Tooling
-
-[Polkadot SDK Version Manager](https://github.com/paritytech/psvm):
-A simple tool to manage and update the Polkadot SDK dependencies in any Cargo.toml file.
-It will automatically update the Polkadot SDK dependencies to their correct crates.io version.
-
-## 🔐 Security
-
-The security policy and procedures can be found in
-[docs/contributor/SECURITY.md](./docs/contributor/SECURITY.md).
-
-## 🤍 Contributing & Code of Conduct
-
-Ensure you follow our [contribution guidelines](./docs/contributor/CONTRIBUTING.md). In every
-interaction and contribution, this project adheres to the [Contributor Covenant Code of
-Conduct](./docs/contributor/CODE_OF_CONDUCT.md).
-
-### 👾 Ready to Contribute?
-
-Take a look at the issues labeled with [`mentor`](https://github.com/paritytech/polkadot-sdk/labels/C1-mentor)
-(or alternatively [this](https://mentor.tasty.limo/) page, created by one of the maintainers) label to get started!
-We always recognize valuable contributions by proposing an on-chain tip to the Polkadot network as a token of our
-appreciation.
-
-## Polkadot Fellowship
-
-Development in this repo usually goes hand in hand with the `fellowship` organization. In short,
-this repository provides all the SDK pieces needed to build both Polkadot and its parachains. But,
-the actual Polkadot runtime lives in the `fellowship/runtimes` repository. Read more about the
-fellowship, this separation, the RFC process
-[here](https://polkadot-fellows.github.io/dashboard/).
-
-## History
-
-This repository is the amalgamation of 3 separate repositories that used to make up Polkadot SDK,
-namely Substrate, Polkadot and Cumulus. Read more about the merge and its history
-[here](https://polkadot-public.notion.site/Polkadot-SDK-FAQ-fbc4cecc2c46443fb37b9eeec2f0d85f).
+Rostro inherits substantial work from the Substrate and Polkadot SDK
+communities, and the post-cull PolkaVM acceleration draws on Wei's
+Apache-licensed [Grey](https://github.com/jarchain/jar/tree/master/grey)
+implementation. The Rostro Foundation is grateful to those contributors;
+attributions are preserved in copyright headers throughout the source tree.

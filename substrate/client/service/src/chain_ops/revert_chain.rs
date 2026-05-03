@@ -18,8 +18,8 @@
 
 use crate::error::Error;
 use log::info;
-use sc_client_api::{Backend, UsageProvider};
-use sp_runtime::traits::{Block as BlockT, NumberFor, Zero};
+use rc_client_api::{Backend, UsageProvider};
+use rp_runtime::traits::{Block as BlockT, NumberFor, Zero};
 use std::sync::Arc;
 
 /// Performs a revert of `blocks` blocks.

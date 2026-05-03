@@ -43,9 +43,9 @@
 //!
 //! ```
 //! # mod wrapper {
-//! # use sp_runtime_interface::pass_by::PassFatPointerAndRead;
+//! # use rp_runtime_interface::pass_by::PassFatPointerAndRead;
 //!
-//! #[sp_runtime_interface::runtime_interface]
+//! #[rp_runtime_interface::runtime_interface]
 //! trait RuntimeInterface {
 //!     fn some_function(value: PassFatPointerAndRead<&[u8]>) -> bool {
 //!         value.iter().all(|v| *v > 125)
@@ -60,17 +60,17 @@
 #![no_std]
 
 pub extern crate alloc;
-extern crate self as sp_runtime_interface;
+extern crate self as rp_runtime_interface;
 
 #[doc(hidden)]
 #[cfg(not(substrate_runtime))]
-pub use sp_wasm_interface;
+pub use rp_wasm_interface;
 
 #[doc(hidden)]
-pub use sp_tracing;
+pub use rp_tracing;
 
 #[doc(hidden)]
-pub use sp_std;
+pub use rp_std;
 
 /// Attribute macro for transforming a trait declaration into a runtime interface.
 ///
@@ -83,8 +83,8 @@ pub use sp_std;
 ///
 /// ```
 /// # mod wrapper {
-/// # use sp_runtime_interface::runtime_interface;
-/// # use sp_runtime_interface::pass_by::{PassFatPointerAndDecode, PassFatPointerAndRead, AllocateAndReturnFatPointer};
+/// # use rp_runtime_interface::runtime_interface;
+/// # use rp_runtime_interface::pass_by::{PassFatPointerAndDecode, PassFatPointerAndRead, AllocateAndReturnFatPointer};
 ///
 /// #[runtime_interface]
 /// trait Interface {
@@ -164,7 +164,7 @@ pub use sp_std;
 ///         fn gated_call_version_1(data: &[u8]) -> Vec<u8>;
 ///     }
 ///
-///     impl Interface for &mut dyn sp_externalities::Externalities {
+///     impl Interface for &mut dyn rp_externalities::Externalities {
 ///         fn call_version_1(data: &[u8]) -> Vec<u8> { Vec::new() }
 ///         fn call_version_2(data: &[u8]) -> Vec<u8> { [17].to_vec() }
 ///         fn call_version_3(data: &[u8]) -> Vec<u8> { [18].to_vec() }
@@ -184,15 +184,15 @@ pub use sp_std;
 ///     }
 ///
 ///     fn call_version_1(data: &[u8]) -> Vec<u8> {
-///         <&mut dyn sp_externalities::Externalities as Interface>::call_version_1(data)
+///         <&mut dyn rp_externalities::Externalities as Interface>::call_version_1(data)
 ///     }
 ///
 ///     fn call_version_2(data: &[u8]) -> Vec<u8> {
-///         <&mut dyn sp_externalities::Externalities as Interface>::call_version_2(data)
+///         <&mut dyn rp_externalities::Externalities as Interface>::call_version_2(data)
 ///     }
 ///
 ///     fn call_version_3(data: &[u8]) -> Vec<u8> {
-///         <&mut dyn sp_externalities::Externalities as Interface>::call_version_3(data)
+///         <&mut dyn rp_externalities::Externalities as Interface>::call_version_3(data)
 ///     }
 ///
 ///     pub fn set_or_clear(optional: Option<Vec<u8>>) {
@@ -200,7 +200,7 @@ pub use sp_std;
 ///     }
 ///
 ///     fn set_or_clear_version_1(optional: Option<Vec<u8>>) {
-///         sp_externalities::with_externalities(|mut ext| Interface::set_or_clear_version_1(&mut ext, optional))
+///         rp_externalities::with_externalities(|mut ext| Interface::set_or_clear_version_1(&mut ext, optional))
 ///             .expect("`set_or_clear` called outside of an Externalities-provided environment.")
 ///     }
 ///
@@ -211,10 +211,10 @@ pub use sp_std;
 ///
 ///     #[cfg(feature = "experimental-function")]
 ///     fn gated_call_version_1(data: &[u8]) -> Vec<u8> {
-///         <&mut dyn sp_externalities::Externalities as Interface>::gated_call_version_1(data)
+///         <&mut dyn rp_externalities::Externalities as Interface>::gated_call_version_1(data)
 ///     }
 ///
-///     /// This type implements the `HostFunctions` trait (from `sp-wasm-interface`) and
+///     /// This type implements the `HostFunctions` trait (from `rp-wasm-interface`) and
 ///     /// provides the host implementation for the wasm side. The host implementation converts the
 ///     /// arguments from wasm to native and calls the corresponding native function.
 ///     ///
@@ -258,7 +258,7 @@ pub use sp_std;
 ///         }
 ///     }
 ///
-///     /// The type is actually `ExchangeableFunction` (from `sp-runtime-interface`) and
+///     /// The type is actually `ExchangeableFunction` (from `rp-runtime-interface`) and
 ///     /// by default this is initialized to jump into the corresponding function in
 ///     /// `extern_host_functions_impls`.
 ///     ///
@@ -333,19 +333,19 @@ pub use sp_std;
 ///
 /// 1. The generated functions are not callable from the native side.
 /// 2. The trait as shown above is not implemented for [`Externalities`] and is instead
-/// implemented for `FunctionContext` (from `sp-wasm-interface`).
+/// implemented for `FunctionContext` (from `rp-wasm-interface`).
 ///
 /// # Disable tracing
 /// By adding `no_tracing` to the list of options you can prevent the wasm-side interface from
-/// generating the default `sp-tracing`-calls. Note that this is rarely needed but only meant
+/// generating the default `rp-tracing`-calls. Note that this is rarely needed but only meant
 /// for the case when that would create a circular dependency. You usually _do not_ want to add
 /// this flag, as tracing doesn't cost you anything by default anyways (it is added as a no-op)
 /// but is super useful for debugging later.
-pub use sp_runtime_interface_proc_macro::runtime_interface;
+pub use rp_runtime_interface_proc_macro::runtime_interface;
 
 #[doc(hidden)]
 #[cfg(not(substrate_runtime))]
-pub use sp_externalities::{
+pub use rp_externalities::{
 	set_and_run_with_externalities, with_externalities, ExtensionStore, Externalities,
 	ExternalitiesExt,
 };
@@ -375,9 +375,9 @@ pub use util::{pack_ptr_and_len, unpack_ptr_and_len};
 pub trait RIType: Sized {
 	/// The raw FFI type that is used to pass `Self` through the host <-> runtime boundary.
 	#[cfg(not(substrate_runtime))]
-	type FFIType: sp_wasm_interface::IntoValue
-		+ sp_wasm_interface::TryFromValue
-		+ sp_wasm_interface::WasmTy;
+	type FFIType: rp_wasm_interface::IntoValue
+		+ rp_wasm_interface::TryFromValue
+		+ rp_wasm_interface::WasmTy;
 
 	#[cfg(substrate_runtime)]
 	type FFIType;
@@ -392,4 +392,4 @@ pub type Pointer<T> = *mut T;
 
 /// A raw pointer that can be used in a runtime interface function signature.
 #[cfg(not(substrate_runtime))]
-pub type Pointer<T> = sp_wasm_interface::Pointer<T>;
+pub type Pointer<T> = rp_wasm_interface::Pointer<T>;

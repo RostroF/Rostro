@@ -31,7 +31,7 @@ use crate::{
 
 use litep2p::protocol::notification::{Config, ConfigBuilder};
 
-use sc_utils::mpsc::TracingUnboundedSender;
+use rc_utils::mpsc::TracingUnboundedSender;
 
 use std::sync::{atomic::AtomicUsize, Arc};
 

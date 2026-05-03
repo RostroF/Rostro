@@ -27,8 +27,8 @@ use frame_support::{
 	traits::{ConstU32, ConstU64, Contains},
 };
 use frame_system::mocking::MockBlockU32;
-use sp_io::TestExternalities as TestState;
-use sp_runtime::{traits::BadOrigin, BuildStorage, TokenError};
+use rp_io::TestExternalities as TestState;
+use rp_runtime::{traits::BadOrigin, BuildStorage, TokenError};
 
 type Block = frame_system::mocking::MockBlockU32<Test>;
 

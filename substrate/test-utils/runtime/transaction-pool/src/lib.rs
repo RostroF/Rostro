@@ -22,10 +22,10 @@
 use async_trait::async_trait;
 use codec::Encode;
 use parking_lot::RwLock;
-use sc_transaction_pool::{ChainApi, ValidateTransactionPriority};
-use sc_transaction_pool_api::error::IntoMetricsLabel;
-use sp_blockchain::{CachedHeaderMetadata, HashAndNumber, TreeRoute};
-use sp_runtime::{
+use rc_transaction_pool::{ChainApi, ValidateTransactionPriority};
+use rc_transaction_pool_api::error::IntoMetricsLabel;
+use rp_blockchain::{CachedHeaderMetadata, HashAndNumber, TreeRoute};
+use rp_runtime::{
 	generic::{self, BlockId},
 	traits::{
 		BlakeTwo256, Block as BlockT, Hash as HashT, Header as _, NumberFor, TrailingZeroInput,
@@ -50,10 +50,10 @@ use substrate_test_runtime_client::{
 /// Error type used by [`TestApi`].
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
-pub struct Error(#[from] pub sc_transaction_pool_api::error::Error);
+pub struct Error(#[from] pub rc_transaction_pool_api::error::Error);
 
-impl sc_transaction_pool_api::error::IntoPoolError for Error {
-	fn into_pool_error(self) -> Result<sc_transaction_pool_api::error::Error, Self> {
+impl rc_transaction_pool_api::error::IntoPoolError for Error {
+	fn into_pool_error(self) -> Result<rc_transaction_pool_api::error::Error, Self> {
 		Ok(self.0)
 	}
 }
@@ -329,8 +329,8 @@ impl TestApi {
 		&self,
 		from: Hash,
 		to: Hash,
-	) -> Result<sp_blockchain::TreeRoute<Block>, Error> {
-		sp_blockchain::tree_route(self, from, to)
+	) -> Result<rp_blockchain::TreeRoute<Block>, Error> {
+		rp_blockchain::tree_route(self, from, to)
 	}
 
 	/// Helper function for mapping block number to hash. Use if mapping shall not fail.
@@ -536,11 +536,11 @@ impl ChainApi for TestApi {
 		from: <Self::Block as BlockT>::Hash,
 		to: <Self::Block as BlockT>::Hash,
 	) -> Result<TreeRoute<Self::Block>, Self::Error> {
-		sp_blockchain::tree_route::<Block, TestApi>(self, from, to).map_err(Into::into)
+		rp_blockchain::tree_route::<Block, TestApi>(self, from, to).map_err(Into::into)
 	}
 }
 
-impl sp_blockchain::HeaderMetadata<Block> for TestApi {
+impl rp_blockchain::HeaderMetadata<Block> for TestApi {
 	type Error = Error;
 
 	fn header_metadata(&self, hash: Hash) -> Result<CachedHeaderMetadata<Block>, Self::Error> {

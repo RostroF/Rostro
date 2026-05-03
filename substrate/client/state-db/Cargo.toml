@@ -1,5 +1,5 @@
 [package]
-name = "sc-state-db"
+name = "rc-state-db"
 version = "0.42.0"
 authors.workspace = true
 edition.workspace = true
@@ -19,4 +19,4 @@ targets = ["x86_64-unknown-linux-gnu"]
 codec = { features = ["derive"], workspace = true, default-features = true }
 log = { workspace = true, default-features = true }
 parking_lot = { workspace = true, default-features = true }
-sp-core = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }

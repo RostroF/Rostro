@@ -43,18 +43,18 @@ use futures::{future::BoxFuture, pin_mut, prelude::*};
 use libp2p::PeerId;
 use log::trace;
 use parking_lot::Mutex;
-use sc_block_builder::{BlockBuilder, BlockBuilderBuilder};
-use sc_client_api::{
+use rc_block_builder::{BlockBuilder, BlockBuilderBuilder};
+use rc_client_api::{
 	backend::{AuxStore, Backend, Finalizer},
 	BlockBackend, BlockImportNotification, BlockchainEvents, FinalityNotification,
 	FinalityNotifications, ImportNotifications,
 };
-use sc_consensus::{
+use rc_consensus::{
 	BasicQueue, BlockCheckParams, BlockImport, BlockImportParams, BoxJustificationImport,
 	ForkChoiceStrategy, ImportQueue, ImportResult, JustificationImport, JustificationSyncLink,
 	LongestChain, Verifier,
 };
-use sc_network::{
+use rc_network::{
 	config::{
 		FullNetworkConfiguration, MultiaddrWithPeerId, NetworkConfiguration, NonDefaultSetConfig,
 		NonReservedPeerMode, ProtocolId, Role, SyncMode, TransportConfig,
@@ -65,9 +65,9 @@ use sc_network::{
 	NetworkBlock, NetworkService, NetworkStateInfo, NetworkSyncForkRequest, NetworkWorker,
 	NotificationMetrics, NotificationService,
 };
-use sc_network_common::role::Roles;
-use sc_network_light::light_client_requests::handler::LightClientRequestHandler;
-use sc_network_sync::{
+use rc_network_common::role::Roles;
+use rc_network_light::light_client_requests::handler::LightClientRequestHandler;
+use rc_network_sync::{
 	block_request_handler::BlockRequestHandler,
 	service::{network::NetworkServiceProvider, syncing_service::SyncingService},
 	state_request_handler::StateRequestHandler,
@@ -80,17 +80,17 @@ use sc_network_sync::{
 	},
 	warp_request_handler,
 };
-use sc_network_types::{build_multiaddr, multiaddr::Multiaddr};
-use sc_service::client::Client;
-use sp_blockchain::{
+use rc_network_types::{build_multiaddr, multiaddr::Multiaddr};
+use rc_service::client::Client;
+use rp_blockchain::{
 	Backend as BlockchainBackend, HeaderBackend, Info as BlockchainInfo, Result as ClientResult,
 };
-use sp_consensus::{
+use rp_consensus::{
 	block_validation::{BlockAnnounceValidator, DefaultBlockAnnounceValidator},
 	BlockOrigin, Error as ConsensusError, SyncOracle,
 };
-use sp_core::H256;
-use sp_runtime::{
+use rp_core::H256;
+use rp_runtime::{
 	codec::{Decode, Encode},
 	generic::BlockId,
 	traits::{Block as BlockT, Header as HeaderT, NumberFor, Zero},
@@ -772,7 +772,7 @@ pub struct FullPeerConfig {
 	/// Syncing mode
 	pub sync_mode: SyncMode,
 	/// Extra genesis storage.
-	pub extra_storage: Option<sp_core::storage::Storage>,
+	pub extra_storage: Option<rp_core::storage::Storage>,
 	/// Enable transaction indexing.
 	pub storage_chain: bool,
 	/// Optional target block header to sync to
@@ -862,7 +862,7 @@ pub trait TestNetFactory: Default + Sized + Send {
 			verifier.clone(),
 			Box::new(block_import.clone()),
 			justification_import,
-			&sp_core::testing::TaskExecutor::new(),
+			&rp_core::testing::TaskExecutor::new(),
 			None,
 		));
 
@@ -979,7 +979,7 @@ pub trait TestNetFactory: Default + Sized + Send {
 		let block_announce_validator = config
 			.block_announce_validator
 			.unwrap_or_else(|| Box::new(DefaultBlockAnnounceValidator));
-		let metrics = <NetworkWorker<_, _> as sc_network::NetworkBackend<
+		let metrics = <NetworkWorker<_, _> as rc_network::NetworkBackend<
 			Block,
 			<Block as BlockT>::Hash,
 		>>::register_notification_metrics(None);
@@ -1006,7 +1006,7 @@ pub trait TestNetFactory: Default + Sized + Send {
 		);
 
 		let (engine, sync_service, block_announce_config) =
-			sc_network_sync::engine::SyncingEngine::new(
+			rc_network_sync::engine::SyncingEngine::new(
 				Roles::from(if config.is_authority { &Role::Authority } else { &Role::Full }),
 				client.clone(),
 				None,
@@ -1041,7 +1041,7 @@ pub trait TestNetFactory: Default + Sized + Send {
 
 		let genesis_hash =
 			client.hash(Zero::zero()).ok().flatten().expect("Genesis block exists; qed");
-		let network = NetworkWorker::new(sc_network::config::Params {
+		let network = NetworkWorker::new(rc_network::config::Params {
 			role: if config.is_authority { Role::Authority } else { Role::Full },
 			executor: Box::new(|f| {
 				tokio::spawn(f);

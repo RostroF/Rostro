@@ -17,13 +17,13 @@
 
 //! Client extension for tests.
 
-use sc_client_api::{backend::Finalizer, client::BlockBackend};
-use sc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy};
-use sc_service::client::Client;
-use sp_consensus::Error as ConsensusError;
-use sp_runtime::{traits::Block as BlockT, Justification, Justifications};
+use rc_client_api::{backend::Finalizer, client::BlockBackend};
+use rc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy};
+use rc_service::client::Client;
+use rp_consensus::Error as ConsensusError;
+use rp_runtime::{traits::Block as BlockT, Justification, Justifications};
 
-pub use sp_consensus::BlockOrigin;
+pub use rp_consensus::BlockOrigin;
 
 /// Extension trait for a test client.
 pub trait ClientExt<Block: BlockT>: Sized {
@@ -32,7 +32,7 @@ pub trait ClientExt<Block: BlockT>: Sized {
 		&self,
 		hash: Block::Hash,
 		justification: Option<Justification>,
-	) -> sp_blockchain::Result<()>;
+	) -> rp_blockchain::Result<()>;
 
 	/// Returns hash of the genesis block.
 	fn genesis_hash(&self) -> <Block as BlockT>::Hash;
@@ -66,8 +66,8 @@ pub trait ClientBlockImportExt<Block: BlockT>: Sized {
 
 impl<B, E, RA, Block> ClientExt<Block> for Client<B, E, Block, RA>
 where
-	B: sc_client_api::backend::Backend<Block>,
-	E: sc_client_api::CallExecutor<Block> + sc_executor::RuntimeVersionOf + 'static,
+	B: rc_client_api::backend::Backend<Block>,
+	E: rc_client_api::CallExecutor<Block> + rc_executor::RuntimeVersionOf + 'static,
 	Self: BlockImport<Block, Error = ConsensusError>,
 	Block: BlockT,
 {
@@ -75,7 +75,7 @@ where
 		&self,
 		hash: Block::Hash,
 		justification: Option<Justification>,
-	) -> sp_blockchain::Result<()> {
+	) -> rp_blockchain::Result<()> {
 		Finalizer::finalize_block(self, hash, justification, true)
 	}
 

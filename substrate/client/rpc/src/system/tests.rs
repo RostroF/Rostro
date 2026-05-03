@@ -21,10 +21,10 @@ use crate::DenyUnsafe;
 use assert_matches::assert_matches;
 use futures::prelude::*;
 use jsonrpsee::{core::EmptyServerParams as EmptyParams, MethodsError as RpcError, RpcModule};
-use sc_network::{self, config::Role, PeerId};
-use sc_rpc_api::system::helpers::PeerInfo;
-use sc_utils::mpsc::tracing_unbounded;
-use sp_core::H256;
+use rc_network::{self, config::Role, PeerId};
+use rc_rpc_api::system::helpers::PeerInfo;
+use rc_utils::mpsc::tracing_unbounded;
+use rp_core::H256;
 use std::{
 	env,
 	io::{BufRead, BufReader, Write},
@@ -84,7 +84,7 @@ fn api<T: Into<Option<Status>>>(sync: T) -> RpcModule<System<Block>> {
 				},
 				Request::NetworkState(sender) => {
 					let _ = sender.send(
-						serde_json::to_value(&sc_network::network_state::NetworkState {
+						serde_json::to_value(&rc_network::network_state::NetworkState {
 							peer_id: String::new(),
 							listened_addresses: Default::default(),
 							external_addresses: Default::default(),
@@ -96,7 +96,7 @@ fn api<T: Into<Option<Status>>>(sync: T) -> RpcModule<System<Block>> {
 					);
 				},
 				Request::NetworkAddReservedPeer(peer, sender) => {
-					let _ = match sc_network::config::parse_str_addr(&peer) {
+					let _ = match rc_network::config::parse_str_addr(&peer) {
 						Ok(_) => sender.send(Ok(())),
 						Err(s) => {
 							sender.send(Err(error::Error::MalformattedPeerArg(s.to_string())))
@@ -270,7 +270,7 @@ async fn system_peers() {
 
 #[tokio::test]
 async fn system_network_state() {
-	use sc_network::network_state::NetworkState;
+	use rc_network::network_state::NetworkState;
 	let network_state: NetworkState = api(None)
 		.call("system_unstable_networkState", EmptyParams::new())
 		.await
@@ -347,7 +347,7 @@ fn test_add_reset_log_filter() {
 
 	// Enter log generation / filter reload
 	if std::env::var("TEST_LOG_FILTER").is_ok() {
-		let mut builder = sc_tracing::logging::LoggerBuilder::new("test_before_add=debug");
+		let mut builder = rc_tracing::logging::LoggerBuilder::new("test_before_add=debug");
 		builder.with_log_reloading(true);
 		builder.init().unwrap();
 

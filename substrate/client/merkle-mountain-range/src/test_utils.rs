@@ -20,22 +20,22 @@
 
 use crate::MmrGadget;
 use parking_lot::Mutex;
-use sc_block_builder::BlockBuilderBuilder;
-use sc_client_api::{
+use rc_block_builder::BlockBuilderBuilder;
+use rc_client_api::{
 	Backend as BackendT, BlockchainEvents, FinalityNotifications, ImportNotifications,
 	StorageEventStream, StorageKey,
 };
-use sc_offchain::OffchainDb;
-use sp_api::{ApiRef, ProvideRuntimeApi};
-use sp_blockchain::{BlockStatus, CachedHeaderMetadata, HeaderBackend, HeaderMetadata, Info};
-use sp_consensus::BlockOrigin;
-use sp_core::{
+use rc_offchain::OffchainDb;
+use rp_api::{ApiRef, ProvideRuntimeApi};
+use rp_blockchain::{BlockStatus, CachedHeaderMetadata, HeaderBackend, HeaderMetadata, Info};
+use rp_consensus::BlockOrigin;
+use rp_core::{
 	offchain::{DbExternalities, StorageKind},
 	H256,
 };
-use sp_mmr_primitives as mmr;
-use sp_mmr_primitives::{utils::NodesUtils, LeafIndex, NodeIndex};
-use sp_runtime::{
+use rp_mmr_primitives as mmr;
+use rp_mmr_primitives::{utils::NodesUtils, LeafIndex, NodeIndex};
+use rp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, Header as HeaderT},
 };
@@ -250,7 +250,7 @@ impl HeaderMetadata<Block> for MockClient {
 }
 
 impl HeaderBackend<Block> for MockClient {
-	fn header(&self, hash: Hash) -> sc_client_api::blockchain::Result<Option<Header>> {
+	fn header(&self, hash: Hash) -> rc_client_api::blockchain::Result<Option<Header>> {
 		self.client.lock().header(hash)
 	}
 
@@ -258,15 +258,15 @@ impl HeaderBackend<Block> for MockClient {
 		self.client.lock().info()
 	}
 
-	fn status(&self, hash: Hash) -> sc_client_api::blockchain::Result<BlockStatus> {
+	fn status(&self, hash: Hash) -> rc_client_api::blockchain::Result<BlockStatus> {
 		self.client.lock().status(hash)
 	}
 
-	fn number(&self, hash: Hash) -> sc_client_api::blockchain::Result<Option<BlockNumber>> {
+	fn number(&self, hash: Hash) -> rc_client_api::blockchain::Result<Option<BlockNumber>> {
 		self.client.lock().number(hash)
 	}
 
-	fn hash(&self, number: BlockNumber) -> sc_client_api::blockchain::Result<Option<Hash>> {
+	fn hash(&self, number: BlockNumber) -> rc_client_api::blockchain::Result<Option<Hash>> {
 		self.client.lock().hash(number)
 	}
 }
@@ -288,7 +288,7 @@ impl BlockchainEvents<Block> for MockClient {
 		&self,
 		_filter_keys: Option<&[StorageKey]>,
 		_child_filter_keys: Option<&[(StorageKey, Option<Vec<StorageKey>>)]>,
-	) -> sc_client_api::blockchain::Result<StorageEventStream<Hash>> {
+	) -> rc_client_api::blockchain::Result<StorageEventStream<Hash>> {
 		unimplemented!()
 	}
 }
@@ -301,7 +301,7 @@ impl ProvideRuntimeApi<Block> for MockClient {
 	}
 }
 
-sp_api::mock_impl_runtime_apis! {
+rp_api::mock_impl_runtime_apis! {
 	impl mmr::MmrApi<Block, MmrHash, BlockNumber> for MockRuntimeApi {
 		fn mmr_root() -> Result<MmrHash, mmr::Error> {
 			Err(mmr::Error::PalletNotIncluded)

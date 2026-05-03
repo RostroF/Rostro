@@ -21,11 +21,11 @@
 //! including the place of the Freezes in FRAME.
 
 use scale_info::TypeInfo;
-use sp_arithmetic::{
+use rp_arithmetic::{
 	traits::{CheckedAdd, CheckedSub},
 	ArithmeticError,
 };
-use sp_runtime::{DispatchResult, TokenError};
+use rp_runtime::{DispatchResult, TokenError};
 
 use crate::{ensure, traits::tokens::Fortitude};
 

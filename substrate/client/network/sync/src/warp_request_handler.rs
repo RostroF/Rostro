@@ -25,12 +25,12 @@ use crate::{
 	strategy::warp::{EncodedProof, WarpProofRequest, WarpSyncProvider},
 	LOG_TARGET,
 };
-use sc_network::{
+use rc_network::{
 	config::ProtocolId,
 	request_responses::{IncomingRequest, OutgoingResponse},
 	NetworkBackend, MAX_RESPONSE_SIZE,
 };
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 
 use std::{sync::Arc, time::Duration};
 
@@ -152,7 +152,7 @@ enum HandleRequestError {
 	DecodeScale(#[from] codec::Error),
 
 	#[error(transparent)]
-	Client(#[from] sp_blockchain::Error),
+	Client(#[from] rp_blockchain::Error),
 
 	#[error("Invalid request {0}.")]
 	InvalidRequest(#[from] Box<dyn std::error::Error + Send + Sync>),

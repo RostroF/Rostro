@@ -18,10 +18,10 @@
 //! Substrate client possible errors.
 
 use codec::Error as CodecError;
-use sp_api::ApiError;
-use sp_consensus;
-use sp_runtime::transaction_validity::TransactionValidityError;
-use sp_state_machine;
+use rp_api::ApiError;
+use rp_consensus;
+use rp_runtime::transaction_validity::TransactionValidityError;
+use rp_state_machine;
 use std::{self, result};
 
 /// Client Result type alias
@@ -51,7 +51,7 @@ pub enum Error {
 	OneShotCancelled(#[from] futures::channel::oneshot::Canceled),
 
 	#[error(transparent)]
-	Consensus(#[from] sp_consensus::Error),
+	Consensus(#[from] rp_consensus::Error),
 
 	#[error("Backend error: {0}")]
 	Backend(String),
@@ -73,7 +73,7 @@ pub enum Error {
 
 	// `inner` cannot be made member, since it lacks `std::error::Error` trait bounds.
 	#[error("Execution failed: {0}")]
-	Execution(Box<dyn sp_state_machine::Error>),
+	Execution(Box<dyn rp_state_machine::Error>),
 
 	#[error("Blockchain")]
 	Blockchain(#[source] Box<Error>),
@@ -82,7 +82,7 @@ pub enum Error {
 	///
 	/// Eventually this will be replaced.
 	#[error("{0}")]
-	StorageChanges(sp_state_machine::DefaultError),
+	StorageChanges(rp_state_machine::DefaultError),
 
 	#[error("Invalid child storage key")]
 	InvalidChildStorageKey,
@@ -154,7 +154,7 @@ pub enum Error {
 	TransactionPoolNotReady,
 
 	#[error("Database error: {0}")]
-	DatabaseError(#[from] sp_database::error::DatabaseError),
+	DatabaseError(#[from] rp_database::error::DatabaseError),
 
 	#[error("Failed to get header for hash {0}")]
 	MissingHeader(String),
@@ -182,14 +182,14 @@ pub enum Error {
 	Storage(String),
 }
 
-impl From<Box<dyn sp_state_machine::Error + Send + Sync + 'static>> for Error {
-	fn from(e: Box<dyn sp_state_machine::Error + Send + Sync + 'static>) -> Self {
+impl From<Box<dyn rp_state_machine::Error + Send + Sync + 'static>> for Error {
+	fn from(e: Box<dyn rp_state_machine::Error + Send + Sync + 'static>) -> Self {
 		Self::from_state(e)
 	}
 }
 
-impl From<Box<dyn sp_state_machine::Error>> for Error {
-	fn from(e: Box<dyn sp_state_machine::Error>) -> Self {
+impl From<Box<dyn rp_state_machine::Error>> for Error {
+	fn from(e: Box<dyn rp_state_machine::Error>) -> Self {
 		Self::from_state(e)
 	}
 }
@@ -211,13 +211,13 @@ impl Error {
 	}
 
 	/// Chain a state error.
-	pub fn from_state(e: Box<dyn sp_state_machine::Error>) -> Self {
+	pub fn from_state(e: Box<dyn rp_state_machine::Error>) -> Self {
 		Error::Execution(e)
 	}
 
 	/// Construct from a state db error.
 	// Can not be done directly, since that would make cargo run out of stack if
-	// `sc-state-db` is lib is added as dependency.
+	// `rc-state-db` is lib is added as dependency.
 	pub fn from_state_db<E>(e: E) -> Self
 	where
 		E: std::fmt::Debug,

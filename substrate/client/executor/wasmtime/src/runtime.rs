@@ -25,15 +25,15 @@ use crate::{
 };
 
 use parking_lot::Mutex;
-use sc_allocator::{AllocationStats, FreeingBumpHeapAllocator};
-use sc_executor_common::{
+use rc_allocator::{AllocationStats, FreeingBumpHeapAllocator};
+use rc_executor_common::{
 	error::{Error, Result, WasmError},
 	runtime_blob::RuntimeBlob,
 	util::checked_range,
 	wasm_runtime::{HeapAllocStrategy, WasmInstance, WasmModule},
 };
-use sp_runtime_interface::unpack_ptr_and_len;
-use sp_wasm_interface::{HostFunctions, Pointer, WordSize};
+use rp_runtime_interface::unpack_ptr_and_len;
+use rp_wasm_interface::{HostFunctions, Pointer, WordSize};
 use std::{
 	path::{Path, PathBuf},
 	sync::{

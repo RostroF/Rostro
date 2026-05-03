@@ -22,11 +22,11 @@ jsonrpsee = { features = ["http-client", "ws-client"], workspace = true }
 log = { workspace = true, default-features = true }
 rand = { workspace = true, default-features = true }
 serde = { workspace = true, default-features = true }
-sp-core = { default-features = true, workspace = true }
-sp-crypto-hashing = { default-features = true, workspace = true }
-sp-io = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-state-machine = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-crypto-hashing = { default-features = true, workspace = true }
+rp-io = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
+rp-state-machine = { default-features = true, workspace = true }
 spinners = { workspace = true }
 substrate-rpc-client = { default-features = true, workspace = true }
 tokio = { features = [
@@ -42,7 +42,7 @@ jsonrpsee = { features = [
 	"server",
 	"ws-client",
 ], workspace = true }
-sp-tracing = { default-features = true, workspace = true }
+rp-tracing = { default-features = true, workspace = true }
 
 [features]
 remote-test = []

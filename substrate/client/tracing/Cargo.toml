@@ -1,5 +1,5 @@
 [package]
-name = "sc-tracing"
+name = "rc-tracing"
 version = "45.0.0"
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 authors.workspace = true
@@ -40,15 +40,15 @@ libc = { workspace = true }
 log = { workspace = true, default-features = true }
 parking_lot = { workspace = true, default-features = true }
 rustc-hash = { workspace = true }
-sc-client-api = { default-features = true, workspace = true }
-sc-tracing-proc-macro = { default-features = true, workspace = true }
+rc-client-api = { default-features = true, workspace = true }
+rc-tracing-proc-macro = { default-features = true, workspace = true }
 serde = { workspace = true, default-features = true }
-sp-api = { default-features = true, workspace = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-rpc = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-tracing = { default-features = true, workspace = true }
+rp-api = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-rpc = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
+rp-tracing = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true, default-features = true }
 tracing-log = { workspace = true, features = ["interest-cache"] }

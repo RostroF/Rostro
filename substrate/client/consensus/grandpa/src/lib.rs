@@ -61,26 +61,26 @@ use futures::{prelude::*, StreamExt};
 use log::{debug, error, info};
 use parking_lot::RwLock;
 use prometheus_endpoint::{PrometheusError, Registry};
-use sc_client_api::{
+use rc_client_api::{
 	backend::{AuxStore, Backend},
 	utils::is_descendent_of,
 	BlockchainEvents, CallExecutor, ExecutorProvider, Finalizer, LockImportRun, StorageProvider,
 };
-use sc_consensus::BlockImport;
-use sc_network::{types::ProtocolName, NetworkBackend, NotificationService};
-use sc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_INFO};
-use sc_transaction_pool_api::OffchainTransactionPoolFactory;
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver};
-use sp_api::ProvideRuntimeApi;
-use sp_application_crypto::AppCrypto;
-use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata, Result as ClientResult};
-use sp_consensus::SelectChain;
-use sp_consensus_grandpa::{
+use rc_consensus::BlockImport;
+use rc_network::{types::ProtocolName, NetworkBackend, NotificationService};
+use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_INFO};
+use rc_transaction_pool_api::OffchainTransactionPoolFactory;
+use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver};
+use rp_api::ProvideRuntimeApi;
+use rp_application_crypto::AppCrypto;
+use rp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata, Result as ClientResult};
+use rp_consensus::SelectChain;
+use rp_consensus_grandpa::{
 	AuthorityList, AuthoritySignature, SetId, CLIENT_LOG_TARGET as LOG_TARGET,
 };
-use sp_core::{crypto::ByteArray, traits::CallContext};
-use sp_keystore::KeystorePtr;
-use sp_runtime::{
+use rp_core::{crypto::ByteArray, traits::CallContext};
+use rp_keystore::KeystorePtr;
+use rp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, NumberFor, Zero},
 };
@@ -146,7 +146,7 @@ use environment::{Environment, VoterSetState};
 use until_imported::UntilGlobalMessageBlocksImported;
 
 // Re-export these two because it's just so damn convenient.
-pub use sp_consensus_grandpa::{
+pub use rp_consensus_grandpa::{
 	AuthorityId, AuthorityPair, CatchUp, Commit, CompactCommit, GrandpaApi, Message, Precommit,
 	Prevote, PrimaryPropose, ScheduledChange, SignedMessage, GRANDPA_ENGINE_ID,
 };
@@ -160,8 +160,8 @@ use std::marker::PhantomData;
 #[derive(Debug, Clone)]
 pub struct GrandpaPruningFilter;
 
-impl sc_client_db::PruningFilter for GrandpaPruningFilter {
-	fn should_retain(&self, justifications: &sp_runtime::Justifications) -> bool {
+impl rc_client_db::PruningFilter for GrandpaPruningFilter {
+	fn should_retain(&self, justifications: &rp_runtime::Justifications) -> bool {
 		justifications.get(GRANDPA_ENGINE_ID).is_some()
 	}
 }
@@ -238,7 +238,7 @@ pub struct Config {
 	/// observer protocol is enabled).
 	pub observer_enabled: bool,
 	/// The role of the local node (i.e. authority, full-node or light).
-	pub local_role: sc_network::config::Role,
+	pub local_role: rc_network::config::Role,
 	/// Some local identifier of the voter.
 	pub name: Option<String>,
 	/// The keystore that manages the keys of this node.
@@ -288,7 +288,7 @@ pub enum Error {
 
 	/// A runtime api request failed.
 	#[error("runtime API request failed: {0}")]
-	RuntimeApi(sp_api::ApiError),
+	RuntimeApi(rp_api::ApiError),
 }
 
 /// Something which can determine if a block is known.
@@ -317,12 +317,12 @@ pub trait ClientForGrandpa<Block, BE>:
 	LockImportRun<Block, BE>
 	+ Finalizer<Block, BE>
 	+ AuxStore
-	+ HeaderMetadata<Block, Error = sp_blockchain::Error>
+	+ HeaderMetadata<Block, Error = rp_blockchain::Error>
 	+ HeaderBackend<Block>
 	+ BlockchainEvents<Block>
 	+ ProvideRuntimeApi<Block>
 	+ ExecutorProvider<Block>
-	+ BlockImport<Block, Error = sp_consensus::Error>
+	+ BlockImport<Block, Error = rp_consensus::Error>
 	+ StorageProvider<Block, BE>
 where
 	BE: Backend<Block>,
@@ -337,12 +337,12 @@ where
 	T: LockImportRun<Block, BE>
 		+ Finalizer<Block, BE>
 		+ AuxStore
-		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
 		+ HeaderBackend<Block>
 		+ BlockchainEvents<Block>
 		+ ProvideRuntimeApi<Block>
 		+ ExecutorProvider<Block>
-		+ BlockImport<Block, Error = sp_consensus::Error>
+		+ BlockImport<Block, Error = rp_consensus::Error>
 		+ StorageProvider<Block, BE>,
 {
 }
@@ -357,7 +357,7 @@ pub(crate) trait BlockSyncRequester<Block: BlockT> {
 	/// connected to (NOTE: this assumption will change in the future #3629).
 	fn set_sync_fork_request(
 		&self,
-		peers: Vec<sc_network_types::PeerId>,
+		peers: Vec<rc_network_types::PeerId>,
 		hash: Block::Hash,
 		number: NumberFor<Block>,
 	);
@@ -371,7 +371,7 @@ where
 {
 	fn set_sync_fork_request(
 		&self,
-		peers: Vec<sc_network_types::PeerId>,
+		peers: Vec<rc_network_types::PeerId>,
 		hash: Block::Hash,
 		number: NumberFor<Block>,
 	) {
@@ -696,7 +696,7 @@ pub struct GrandpaParams<Block: BlockT, C, N, S, SC, VR> {
 	/// The Network instance.
 	///
 	/// It is assumed that this network will feed us Grandpa notifications. When using the
-	/// `sc_network` crate, it is assumed that the Grandpa notifications protocol has been passed
+	/// `rc_network` crate, it is assumed that the Grandpa notifications protocol has been passed
 	/// to the configuration of the networking. See [`grandpa_peers_set_config`].
 	pub network: N,
 	/// Event stream for syncing-related events.
@@ -719,12 +719,12 @@ pub struct GrandpaParams<Block: BlockT, C, N, S, SC, VR> {
 }
 
 /// Returns the configuration value to put in
-/// [`sc_network::config::FullNetworkConfiguration`].
+/// [`rc_network::config::FullNetworkConfiguration`].
 /// For standard protocol name see [`crate::protocol_standard_name`].
 pub fn grandpa_peers_set_config<B: BlockT, N: NetworkBackend<B, <B as BlockT>::Hash>>(
 	protocol_name: ProtocolName,
-	metrics: sc_network::service::NotificationMetrics,
-	peer_store_handle: Arc<dyn sc_network::peer_store::PeerStoreProvider>,
+	metrics: rc_network::service::NotificationMetrics,
+	peer_store_handle: Arc<dyn rc_network::peer_store::PeerStoreProvider>,
 ) -> (N::NotificationProtocolConfig, Box<dyn NotificationService>) {
 	use communication::grandpa_protocol_name;
 	N::notification_config(
@@ -733,11 +733,11 @@ pub fn grandpa_peers_set_config<B: BlockT, N: NetworkBackend<B, <B as BlockT>::H
 		// Notifications reach ~256kiB in size at the time of writing on Kusama and Polkadot.
 		1024 * 1024,
 		None,
-		sc_network::config::SetConfig {
+		rc_network::config::SetConfig {
 			in_peers: 0,
 			out_peers: 0,
 			reserved_nodes: Vec::new(),
-			non_reserved_mode: sc_network::config::NonReservedPeerMode::Deny,
+			non_reserved_mode: rc_network::config::NonReservedPeerMode::Deny,
 		},
 		metrics,
 		peer_store_handle,
@@ -748,7 +748,7 @@ pub fn grandpa_peers_set_config<B: BlockT, N: NetworkBackend<B, <B as BlockT>::H
 /// block import worker that has already been instantiated with `block_import`.
 pub fn run_grandpa_voter<Block: BlockT, BE: 'static, C, N, S, SC, VR>(
 	grandpa_params: GrandpaParams<Block, C, N, S, SC, VR>,
-) -> sp_blockchain::Result<impl Future<Output = ()> + Send>
+) -> rp_blockchain::Result<impl Future<Output = ()> + Send>
 where
 	BE: Backend<Block> + 'static,
 	N: NetworkT<Block> + Sync + 'static,

@@ -31,7 +31,7 @@ mod stderr_writer;
 pub(crate) type DefaultLogger = stderr_writer::MakeStderrWriter;
 
 pub use directives::*;
-pub use sc_tracing_proc_macro::*;
+pub use rc_tracing_proc_macro::*;
 
 use is_terminal::IsTerminal;
 use std::io;
@@ -167,7 +167,7 @@ where
 	if let Some(profiling_targets) = profiling_targets {
 		env_filter = parse_user_directives(env_filter, profiling_targets)?;
 		env_filter = env_filter.add_directive(
-			parse_default_directive("sc_tracing=trace").expect("provided directive is valid"),
+			parse_default_directive("rc_tracing=trace").expect("provided directive is valid"),
 		);
 	}
 
@@ -352,7 +352,7 @@ impl LoggerBuilder {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate as sc_tracing;
+	use crate as rc_tracing;
 	use log::info;
 	use std::{
 		collections::BTreeMap,

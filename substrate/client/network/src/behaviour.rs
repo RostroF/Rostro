@@ -41,7 +41,7 @@ use libp2p::{
 };
 
 use parking_lot::Mutex;
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 use std::{
 	collections::HashSet,
 	sync::Arc,
@@ -303,7 +303,7 @@ impl<B: BlockT> Behaviour<B> {
 	pub fn put_record_to(
 		&mut self,
 		record: Record,
-		peers: HashSet<sc_network_types::PeerId>,
+		peers: HashSet<rc_network_types::PeerId>,
 		update_local_storage: bool,
 	) {
 		self.discovery.put_record_to(record, peers, update_local_storage);

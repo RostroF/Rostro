@@ -15,12 +15,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 use substrate_test_runtime_client::runtime::Block;
 
 struct Runtime {}
 
-sp_api::decl_runtime_apis! {
+rp_api::decl_runtime_apis! {
 	#[api_version(2)]
 	pub trait Api {
 		fn test1();
@@ -30,21 +30,21 @@ sp_api::decl_runtime_apis! {
 	}
 }
 
-sp_api::impl_runtime_apis! {
+rp_api::impl_runtime_apis! {
 	#[api_version(3)]
 	impl self::Api<Block> for Runtime {
 		fn test1() {}
 		fn test2() {}
 	}
 
-	impl sp_api::Core<Block> for Runtime {
-		fn version() -> sp_version::RuntimeVersion {
+	impl rp_api::Core<Block> for Runtime {
+		fn version() -> rp_version::RuntimeVersion {
 			unimplemented!()
 		}
 		fn execute_block(_: <Block as BlockT>::LazyBlock) {
 			unimplemented!()
 		}
-		fn initialize_block(_: &<Block as BlockT>::Header) -> sp_runtime::ExtrinsicInclusionMode {
+		fn initialize_block(_: &<Block as BlockT>::Header) -> rp_runtime::ExtrinsicInclusionMode {
 			unimplemented!()
 		}
 	}

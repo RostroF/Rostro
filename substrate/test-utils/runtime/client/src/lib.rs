@@ -23,14 +23,14 @@ pub mod trait_tests;
 
 mod block_builder_ext;
 
-pub use sc_consensus::LongestChain;
+pub use rc_consensus::LongestChain;
 use std::sync::Arc;
 pub use substrate_test_client::*;
 pub use substrate_test_runtime as runtime;
 
 pub use self::block_builder_ext::BlockBuilderExt;
 
-use sp_core::storage::ChildInfo;
+use rp_core::storage::ChildInfo;
 use substrate_test_runtime::genesismap::GenesisStorageBuilder;
 
 /// A prelude to import in tests.
@@ -47,8 +47,8 @@ pub mod prelude {
 	// Keyring
 	pub use super::Sr25519Keyring;
 	pub use futures::executor::block_on;
-	pub use sc_block_builder::BlockBuilderBuilder;
-	pub use sp_blockchain::HeaderBackend;
+	pub use rc_block_builder::BlockBuilderBuilder;
+	pub use rp_blockchain::HeaderBackend;
 }
 
 /// Test client database backend.
@@ -178,7 +178,7 @@ pub trait TestClientBuilderExt<B>: Sized {
 	/// Build the test client and longest chain selector.
 	fn build_with_longest_chain(
 		self,
-	) -> (Client<B>, sc_consensus::LongestChain<B, substrate_test_runtime::Block>);
+	) -> (Client<B>, rc_consensus::LongestChain<B, substrate_test_runtime::Block>);
 
 	/// Build the test client and the backend.
 	fn build_with_backend(self) -> (Client<B>, Arc<B>);
@@ -187,7 +187,7 @@ pub trait TestClientBuilderExt<B>: Sized {
 impl<B> TestClientBuilderExt<B>
 	for TestClientBuilder<client::LocalCallExecutor<substrate_test_runtime::Block, B, WasmExecutor>, B>
 where
-	B: sc_client_api::backend::Backend<substrate_test_runtime::Block> + 'static,
+	B: rc_client_api::backend::Backend<substrate_test_runtime::Block> + 'static,
 {
 	fn genesis_init_mut(&mut self) -> &mut GenesisParameters {
 		Self::genesis_init_mut(self)
@@ -195,7 +195,7 @@ where
 
 	fn build_with_longest_chain(
 		self,
-	) -> (Client<B>, sc_consensus::LongestChain<B, substrate_test_runtime::Block>) {
+	) -> (Client<B>, rc_consensus::LongestChain<B, substrate_test_runtime::Block>) {
 		self.build_with_native_executor(None)
 	}
 

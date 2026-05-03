@@ -56,8 +56,8 @@ use frame_support::{
 	traits::{Currency, ReservableCurrency},
 };
 use frame_system::{pallet_prelude::*, RawOrigin};
-use sp_io::hashing::blake2_256;
-use sp_runtime::{
+use rp_io::hashing::blake2_256;
+use rp_runtime::{
 	traits::{BlockNumberProvider, Dispatchable, Saturating, TrailingZeroInput},
 	DispatchError, DispatchErrorWithPostInfo,
 };

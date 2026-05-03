@@ -22,22 +22,22 @@ use frame_support::{
 	construct_runtime, derive_impl, parameter_types,
 	traits::{ConstU32, ConstU64},
 };
-use sp_consensus_beefy::mmr::MmrLeafVersion;
-use sp_io::TestExternalities;
-use sp_runtime::{
+use rp_consensus_beefy::mmr::MmrLeafVersion;
+use rp_io::TestExternalities;
+use rp_runtime::{
 	app_crypto::ecdsa::Public,
 	impl_opaque_keys,
 	traits::{ConvertInto, Keccak256, OpaqueKeys},
 	BuildStorage,
 };
-use sp_state_machine::BasicExternalities;
+use rp_state_machine::BasicExternalities;
 
 use crate as pallet_beefy_mmr;
 
-pub use sp_consensus_beefy::{
+pub use rp_consensus_beefy::{
 	ecdsa_crypto::AuthorityId as BeefyId, mmr::BeefyDataProvider, ConsensusLog, BEEFY_ENGINE_ID,
 };
-use sp_core::offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt};
+use rp_core::offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt};
 
 impl_opaque_keys! {
 	pub struct MockSessionKeys {
@@ -84,7 +84,7 @@ impl pallet_session::Config for Test {
 	type KeyDeposit = ();
 }
 
-pub type MmrLeaf = sp_consensus_beefy::mmr::MmrLeaf<
+pub type MmrLeaf = rp_consensus_beefy::mmr::MmrLeaf<
 	frame_system::pallet_prelude::BlockNumberFor<Test>,
 	<Test as frame_system::Config>::Hash,
 	crate::MerkleRootOf<Test>,
@@ -116,7 +116,7 @@ impl pallet_beefy::Config for Test {
 	type OnNewValidatorSet = BeefyMmr;
 	type AncestryHelper = BeefyMmr;
 	type WeightInfo = ();
-	type KeyOwnerProof = sp_core::Void;
+	type KeyOwnerProof = rp_core::Void;
 	type EquivocationReportSystem = ();
 }
 
@@ -150,9 +150,9 @@ impl BeefyDataProvider<Vec<u8>> for DummyDataProvider {
 
 pub struct MockSessionManager;
 impl pallet_session::SessionManager<u64> for MockSessionManager {
-	fn end_session(_: sp_staking::SessionIndex) {}
-	fn start_session(_: sp_staking::SessionIndex) {}
-	fn new_session(idx: sp_staking::SessionIndex) -> Option<Vec<u64>> {
+	fn end_session(_: rp_staking::SessionIndex) {}
+	fn start_session(_: rp_staking::SessionIndex) {}
+	fn new_session(idx: rp_staking::SessionIndex) -> Option<Vec<u64>> {
 		if idx == 0 || idx == 1 {
 			Some(vec![1, 2])
 		} else if idx == 2 {

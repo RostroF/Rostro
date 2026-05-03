@@ -36,14 +36,14 @@ use frame_system::{
 	offchain::{CreateBare, SubmitTransaction},
 	pallet_prelude::*,
 };
-use sp_io::{self, MultiRemovalResults};
-use sp_runtime::{
+use rp_io::{self, MultiRemovalResults};
+use rp_runtime::{
 	self,
 	traits::{Saturating, UniqueSaturatedInto},
 };
 use serde::{Deserialize, Serialize};
-use sp_application_crypto::RuntimeAppPublic;
-use sp_mixnet::types::{
+use rp_application_crypto::RuntimeAppPublic;
+use rp_mixnet::types::{
 	AuthorityId, AuthoritySignature, KxPublic, Mixnode, MixnodesErr, PeerId, SessionIndex,
 	SessionPhase, SessionStatus, KX_PUBLIC_SIZE,
 };
@@ -172,7 +172,7 @@ fn twox<BlockNumber: UniqueSaturatedInto<u64>>(
 	let mut data = [0; 8 + KX_PUBLIC_SIZE];
 	data[..8].copy_from_slice(&block_number.to_le_bytes());
 	data[8..].copy_from_slice(kx_public);
-	u64::from_le_bytes(sp_io::hashing::twox_64(&data))
+	u64::from_le_bytes(rp_io::hashing::twox_64(&data))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -553,7 +553,7 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
+impl<T: Config> rp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
 	type Public = AuthorityId;
 }
 

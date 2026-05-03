@@ -33,14 +33,14 @@ use jsonrpsee::{core::async_trait, PendingSubscriptionSink};
 
 use super::metrics::{InstanceMetrics, Metrics};
 
-use sc_rpc::utils::{RingBuffer, Subscription};
-use sc_transaction_pool_api::{
+use rc_rpc::utils::{RingBuffer, Subscription};
+use rc_transaction_pool_api::{
 	error::IntoPoolError, BlockHash, TransactionFor, TransactionPool, TransactionSource,
 	TransactionStatus,
 };
-use sp_blockchain::HeaderBackend;
-use sp_core::Bytes;
-use sp_runtime::traits::Block as BlockT;
+use rp_blockchain::HeaderBackend;
+use rp_core::Bytes;
+use rp_runtime::traits::Block as BlockT;
 use std::sync::Arc;
 
 pub(crate) const LOG_TARGET: &str = "rpc-spec-v2";
@@ -154,7 +154,7 @@ where
 			};
 		};
 
-		sc_rpc::utils::spawn_subscription_task(&self.executor, fut);
+		rc_rpc::utils::spawn_subscription_task(&self.executor, fut);
 	}
 }
 

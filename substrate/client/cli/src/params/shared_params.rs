@@ -18,7 +18,7 @@
 
 use crate::arg_enums::TracingReceiver;
 use clap::Args;
-use sc_service::config::BasePath;
+use rc_service::config::BasePath;
 use std::path::PathBuf;
 
 /// Shared parameters used by all `CoreParams`.
@@ -137,7 +137,7 @@ impl SharedParams {
 	}
 
 	/// Receiver to process tracing messages.
-	pub fn tracing_receiver(&self) -> sc_service::TracingReceiver {
+	pub fn tracing_receiver(&self) -> rc_service::TracingReceiver {
 		self.tracing_receiver.into()
 	}
 

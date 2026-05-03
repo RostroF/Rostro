@@ -20,13 +20,13 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 log = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-sp-io = { workspace = true }
-sp-runtime = { workspace = true }
-sp-weights = { workspace = true }
+rp-io = { workspace = true }
+rp-runtime = { workspace = true }
+rp-weights = { workspace = true }
 
 [dev-dependencies]
 pallet-preimage = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
 substrate-test-utils = { workspace = true }
 
 [features]
@@ -37,7 +37,7 @@ runtime-benchmarks = [
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
 	"pallet-preimage/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
+	"rp-runtime/runtime-benchmarks",
 ]
 std = [
 	"codec/std",
@@ -46,13 +46,13 @@ std = [
 	"frame-system/std",
 	"log/std",
 	"scale-info/std",
-	"sp-io/std",
-	"sp-runtime/std",
-	"sp-weights/std",
+	"rp-io/std",
+	"rp-runtime/std",
+	"rp-weights/std",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"pallet-preimage/try-runtime",
-	"sp-runtime/try-runtime",
+	"rp-runtime/try-runtime",
 ]

@@ -27,8 +27,8 @@ use frame_support::{
 		Get,
 	},
 };
-use sp_arithmetic::Permill;
-use sp_runtime::{DispatchError, TokenError};
+use rp_arithmetic::Permill;
+use rp_runtime::{DispatchError, TokenError};
 
 fn events() -> Vec<Event<Test>> {
 	let result = System::events()

@@ -19,7 +19,7 @@
 //! stage.
 
 use codec::Encode;
-use sp_weights::Weight;
+use rp_weights::Weight;
 
 use crate::{
 	traits::{

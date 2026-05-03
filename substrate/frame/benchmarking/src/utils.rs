@@ -22,15 +22,15 @@ use frame_support::{dispatch::DispatchErrorWithPostInfo, pallet_prelude::*, trai
 use scale_info::TypeInfo;
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
-use sp_io::hashing::blake2_256;
-use sp_runtime::{
+use rp_io::hashing::blake2_256;
+use rp_runtime::{
 	traits::TrailingZeroInput, transaction_validity::TransactionValidityError, DispatchError,
 };
-use sp_runtime_interface::pass_by::{
+use rp_runtime_interface::pass_by::{
 	AllocateAndReturnByCodec, AllocateAndReturnPointer, PassFatPointerAndDecode,
 	PassFatPointerAndRead,
 };
-use sp_storage::TrackedStorageKey;
+use rp_storage::TrackedStorageKey;
 
 /// An alphabet of possible parameters to use for benchmarking.
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
@@ -241,7 +241,7 @@ pub struct BenchmarkMetadata {
 	pub pov_modes: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
-sp_api::decl_runtime_apis! {
+rp_api::decl_runtime_apis! {
 	/// Runtime api for benchmarking a FRAME runtime.
 	#[api_version(2)]
 	pub trait Benchmark {
@@ -266,7 +266,7 @@ pub fn current_time() -> u128 {
 }
 
 /// Interface that provides functions for benchmarking the runtime.
-#[sp_runtime_interface::runtime_interface]
+#[rp_runtime_interface::runtime_interface]
 pub trait Benchmarking {
 	/// Get the number of nanoseconds passed since the UNIX epoch, as u128 le-bytes.
 	///

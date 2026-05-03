@@ -46,8 +46,8 @@ use crate::peer_store::{PeerStoreProvider, ProtocolHandle as ProtocolHandleT};
 use futures::{channel::oneshot, future::Either, FutureExt, StreamExt};
 use libp2p::PeerId;
 use log::{debug, error, trace, warn};
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use sp_arithmetic::traits::SaturatedConversion;
+use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
+use rp_arithmetic::traits::SaturatedConversion;
 use std::{
 	collections::{HashMap, HashSet},
 	sync::Arc,
@@ -232,7 +232,7 @@ impl ProtocolHandle {
 }
 
 impl ProtocolHandleT for ProtocolHandle {
-	fn disconnect_peer(&self, peer_id: sc_network_types::PeerId) {
+	fn disconnect_peer(&self, peer_id: rc_network_types::PeerId) {
 		let _ = self.actions_tx.unbounded_send(Action::DisconnectPeer(peer_id.into()));
 	}
 }
@@ -814,9 +814,9 @@ impl ProtocolController {
 			.reserved_nodes
 			.keys()
 			.map(From::from)
-			.collect::<HashSet<sc_network_types::PeerId>>()
+			.collect::<HashSet<rc_network_types::PeerId>>()
 			.union(
-				&self.nodes.keys().map(From::from).collect::<HashSet<sc_network_types::PeerId>>(),
+				&self.nodes.keys().map(From::from).collect::<HashSet<rc_network_types::PeerId>>(),
 			)
 			.cloned()
 			.collect();
@@ -864,8 +864,8 @@ mod tests {
 		ReputationChange,
 	};
 	use libp2p::PeerId;
-	use sc_network_common::role::ObservedRole;
-	use sc_utils::mpsc::{tracing_unbounded, TryRecvError};
+	use rc_network_common::role::ObservedRole;
+	use rc_utils::mpsc::{tracing_unbounded, TryRecvError};
 	use std::collections::HashSet;
 
 	mockall::mock! {
@@ -873,15 +873,15 @@ mod tests {
 		pub PeerStoreHandle {}
 
 		impl PeerStoreProvider for PeerStoreHandle {
-			fn is_banned(&self, peer_id: &sc_network_types::PeerId) -> bool;
+			fn is_banned(&self, peer_id: &rc_network_types::PeerId) -> bool;
 			fn register_protocol(&self, protocol_handle: Arc<dyn ProtocolHandleT>);
-			fn report_disconnect(&self, peer_id: sc_network_types::PeerId);
-			fn set_peer_role(&self, peer_id: &sc_network_types::PeerId, role: ObservedRole);
-			fn report_peer(&self, peer_id: sc_network_types::PeerId, change: ReputationChange);
-			fn peer_reputation(&self, peer_id: &sc_network_types::PeerId) -> i32;
-			fn peer_role(&self, peer_id: &sc_network_types::PeerId) -> Option<ObservedRole>;
-			fn outgoing_candidates(&self, count: usize, ignored: HashSet<sc_network_types::PeerId>) -> Vec<sc_network_types::PeerId>;
-			fn add_known_peer(&self, peer_id: sc_network_types::PeerId);
+			fn report_disconnect(&self, peer_id: rc_network_types::PeerId);
+			fn set_peer_role(&self, peer_id: &rc_network_types::PeerId, role: ObservedRole);
+			fn report_peer(&self, peer_id: rc_network_types::PeerId, change: ReputationChange);
+			fn peer_reputation(&self, peer_id: &rc_network_types::PeerId) -> i32;
+			fn peer_role(&self, peer_id: &rc_network_types::PeerId) -> Option<ObservedRole>;
+			fn outgoing_candidates(&self, count: usize, ignored: HashSet<rc_network_types::PeerId>) -> Vec<rc_network_types::PeerId>;
+			fn add_known_peer(&self, peer_id: rc_network_types::PeerId);
 		}
 	}
 
@@ -1481,7 +1481,7 @@ mod tests {
 		peer_store
 			.expect_outgoing_candidates()
 			.once()
-			.return_const(Vec::<sc_network_types::PeerId>::new());
+			.return_const(Vec::<rc_network_types::PeerId>::new());
 
 		let (_handle, mut controller) =
 			ProtocolController::new(SetId::from(0), config, tx, Arc::new(peer_store));

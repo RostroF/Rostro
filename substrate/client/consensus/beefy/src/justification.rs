@@ -17,12 +17,12 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use codec::DecodeAll;
-use sp_application_crypto::RuntimeAppPublic;
-use sp_consensus::Error as ConsensusError;
-use sp_consensus_beefy::{
+use rp_application_crypto::RuntimeAppPublic;
+use rp_consensus::Error as ConsensusError;
+use rp_consensus_beefy::{
 	AuthorityIdBound, KnownSignature, ValidatorSet, ValidatorSetId, VersionedFinalityProof,
 };
-use sp_runtime::traits::{Block as BlockT, NumberFor};
+use rp_runtime::traits::{Block as BlockT, NumberFor};
 
 /// A finality proof with matching BEEFY authorities' signatures.
 pub type BeefyVersionedFinalityProof<Block, AuthorityId> =
@@ -81,7 +81,7 @@ pub(crate) fn verify_with_validator_set<'a, Block: BlockT, AuthorityId: Authorit
 #[cfg(test)]
 pub(crate) mod tests {
 	use codec::Encode;
-	use sp_consensus_beefy::{
+	use rp_consensus_beefy::{
 		ecdsa_crypto, known_payloads, test_utils::Keyring, Commitment, Payload, SignedCommitment,
 		VersionedFinalityProof,
 	};

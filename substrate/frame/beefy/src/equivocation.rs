@@ -39,19 +39,19 @@ use codec::{self as codec, Decode, Encode};
 use frame_support::traits::{Get, KeyOwnerProofSystem};
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
 use log::{error, info};
-use sp_consensus_beefy::{
+use rp_consensus_beefy::{
 	check_commitment_signature, AncestryHelper, DoubleVotingProof, ForkVotingProof,
 	FutureBlockVotingProof, ValidatorSetId, KEY_TYPE as BEEFY_KEY_TYPE,
 };
-use sp_runtime::{
+use rp_runtime::{
 	transaction_validity::{
 		InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
 		TransactionValidityError, ValidTransaction,
 	},
 	DispatchError, KeyTypeId, Perbill, RuntimeAppPublic,
 };
-use sp_session::{GetSessionNumber, GetValidatorCount};
-use sp_staking::{
+use rp_session::{GetSessionNumber, GetValidatorCount};
+use rp_staking::{
 	offence::{Kind, Offence, OffenceReportSystem, ReportOffence},
 	SessionIndex,
 };
@@ -218,7 +218,7 @@ impl<T: Config> EquivocationEvidenceFor<T> {
 		match self {
 			EquivocationEvidenceFor::DoubleVotingProof(equivocation_proof, _) => {
 				// Validate equivocation proof (check votes are different and signatures are valid).
-				if !sp_consensus_beefy::check_double_voting_proof(&equivocation_proof) {
+				if !rp_consensus_beefy::check_double_voting_proof(&equivocation_proof) {
 					return Err(Error::<T>::InvalidDoubleVotingProof);
 				}
 

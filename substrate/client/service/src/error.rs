@@ -18,9 +18,9 @@
 
 //! Errors that can occur during the service operation.
 
-use sc_keystore;
-use sp_blockchain;
-use sp_consensus;
+use rc_keystore;
+use rp_blockchain;
+use rp_consensus;
 
 /// Service Result typedef.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -31,22 +31,22 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[non_exhaustive]
 pub enum Error {
 	#[error(transparent)]
-	Client(#[from] sp_blockchain::Error),
+	Client(#[from] rp_blockchain::Error),
 
 	#[error(transparent)]
 	Io(#[from] std::io::Error),
 
 	#[error(transparent)]
-	Consensus(#[from] sp_consensus::Error),
+	Consensus(#[from] rp_consensus::Error),
 
 	#[error(transparent)]
-	Network(#[from] sc_network::error::Error),
+	Network(#[from] rc_network::error::Error),
 
 	#[error(transparent)]
-	Keystore(#[from] sc_keystore::Error),
+	Keystore(#[from] rc_keystore::Error),
 
 	#[error(transparent)]
-	Telemetry(#[from] sc_telemetry::Error),
+	Telemetry(#[from] rc_telemetry::Error),
 
 	#[error("Best chain selection strategy (SelectChain) is not provided.")]
 	SelectChainRequired,

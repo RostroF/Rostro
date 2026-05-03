@@ -40,16 +40,16 @@ use codec::{self as codec, Decode, Encode};
 use frame_support::traits::{Get, KeyOwnerProofSystem};
 use frame_system::pallet_prelude::BlockNumberFor;
 use log::{error, info};
-use sp_consensus_grandpa::{AuthorityId, EquivocationProof, RoundNumber, SetId, KEY_TYPE};
-use sp_runtime::{
+use rp_consensus_grandpa::{AuthorityId, EquivocationProof, RoundNumber, SetId, KEY_TYPE};
+use rp_runtime::{
 	transaction_validity::{
 		InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
 		TransactionValidityError, ValidTransaction,
 	},
 	DispatchError, KeyTypeId, Perbill,
 };
-use sp_session::{GetSessionNumber, GetValidatorCount};
-use sp_staking::{
+use rp_session::{GetSessionNumber, GetValidatorCount};
+use rp_staking::{
 	offence::{Kind, Offence, OffenceReportSystem, ReportOffence},
 	SessionIndex,
 };
@@ -175,7 +175,7 @@ where
 		// and consumes full dispatch weight before failing in `process_evidence` — a
 		// free DoS vector against block authors since unsigned reports pay no fee
 		// even when dispatch fails. Mirrors the BEEFY remediation.
-		if !sp_consensus_grandpa::check_equivocation_proof(equivocation_proof) {
+		if !rp_consensus_grandpa::check_equivocation_proof(equivocation_proof) {
 			return Err(InvalidTransaction::BadProof.into());
 		}
 
@@ -200,7 +200,7 @@ where
 		let validator_set_count = key_owner_proof.validator_count();
 
 		// Validate equivocation proof (check votes are different and signatures are valid).
-		if !sp_consensus_grandpa::check_equivocation_proof(equivocation_proof) {
+		if !rp_consensus_grandpa::check_equivocation_proof(equivocation_proof) {
 			return Err(Error::<T>::InvalidEquivocationProof.into());
 		}
 

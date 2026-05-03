@@ -19,7 +19,7 @@
 //! Authoring RPC module errors.
 
 use jsonrpsee::types::error::{ErrorObject, ErrorObjectOwned};
-use sp_runtime::transaction_validity::InvalidTransaction;
+use rp_runtime::transaction_validity::InvalidTransaction;
 
 /// Author RPC Result type.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -32,7 +32,7 @@ pub enum Error {
 	Client(Box<dyn std::error::Error + Send + Sync>),
 	/// Transaction pool error,
 	#[error("Transaction pool error: {}", .0)]
-	Pool(#[from] sc_transaction_pool_api::error::Error),
+	Pool(#[from] rc_transaction_pool_api::error::Error),
 	/// Verification error
 	#[error("Extrinsic verification error: {}", .0)]
 	Verification(Box<dyn std::error::Error + Send + Sync>),
@@ -91,7 +91,7 @@ const OTHER_ERR: i32 = BASE_ERROR + 40;
 
 impl From<Error> for ErrorObjectOwned {
 	fn from(e: Error) -> ErrorObjectOwned {
-		use sc_transaction_pool_api::error::Error as PoolError;
+		use rc_transaction_pool_api::error::Error as PoolError;
 
 		match e {
 			Error::BadFormat(e) => ErrorObject::owned(

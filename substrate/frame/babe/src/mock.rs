@@ -28,20 +28,20 @@ use frame_support::{
 	traits::{ConstU128, ConstU32, ConstU64, OnInitialize},
 };
 use pallet_session::historical as pallet_session_historical;
-use sp_consensus_babe::{AuthorityId, AuthorityPair, Randomness, Slot, VrfSignature};
-use sp_core::{
+use rp_consensus_babe::{AuthorityId, AuthorityPair, Randomness, Slot, VrfSignature};
+use rp_core::{
 	crypto::{Pair, VrfSecret},
 	ConstBool, U256,
 };
-use sp_io;
-use sp_runtime::{
+use rp_io;
+use rp_runtime::{
 	curve::PiecewiseLinear,
 	impl_opaque_keys,
 	testing::{Digest, DigestItem, Header, TestXt},
 	traits::{Header as _, OpaqueKeys},
 	BuildStorage, DispatchError, Perbill,
 };
-use sp_staking::{EraIndex, SessionIndex};
+use rp_staking::{EraIndex, SessionIndex};
 
 type DummyValidatorId = u64;
 
@@ -94,7 +94,7 @@ impl_opaque_keys! {
 impl pallet_session::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
-	type ValidatorIdOf = sp_runtime::traits::ConvertInto;
+	type ValidatorIdOf = rp_runtime::traits::ConvertInto;
 	type ShouldEndSession = Babe;
 	type NextSessionRotation = Babe;
 	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Self, Staking>;
@@ -199,7 +199,7 @@ impl Config for Test {
 	type WeightInfo = ();
 	type MaxAuthorities = ConstU32<10>;
 	type MaxNominators = ConstU32<100>;
-	type KeyOwnerProof = sp_session::MembershipProof;
+	type KeyOwnerProof = rp_session::MembershipProof;
 	type EquivocationReportSystem =
 		super::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
 	type Moment = u64;
@@ -253,56 +253,56 @@ pub fn start_era(era_index: EraIndex) {
 }
 
 pub fn make_primary_pre_digest(
-	authority_index: sp_consensus_babe::AuthorityIndex,
-	slot: sp_consensus_babe::Slot,
+	authority_index: rp_consensus_babe::AuthorityIndex,
+	slot: rp_consensus_babe::Slot,
 	vrf_signature: VrfSignature,
 ) -> Digest {
-	let digest_data = sp_consensus_babe::digests::PreDigest::Primary(
-		sp_consensus_babe::digests::PrimaryPreDigest { authority_index, slot, vrf_signature },
+	let digest_data = rp_consensus_babe::digests::PreDigest::Primary(
+		rp_consensus_babe::digests::PrimaryPreDigest { authority_index, slot, vrf_signature },
 	);
-	let log = DigestItem::PreRuntime(sp_consensus_babe::BABE_ENGINE_ID, digest_data.encode());
+	let log = DigestItem::PreRuntime(rp_consensus_babe::BABE_ENGINE_ID, digest_data.encode());
 	Digest { logs: vec![log] }
 }
 
 pub fn make_secondary_plain_pre_digest(
-	authority_index: sp_consensus_babe::AuthorityIndex,
-	slot: sp_consensus_babe::Slot,
+	authority_index: rp_consensus_babe::AuthorityIndex,
+	slot: rp_consensus_babe::Slot,
 ) -> Digest {
-	let digest_data = sp_consensus_babe::digests::PreDigest::SecondaryPlain(
-		sp_consensus_babe::digests::SecondaryPlainPreDigest { authority_index, slot },
+	let digest_data = rp_consensus_babe::digests::PreDigest::SecondaryPlain(
+		rp_consensus_babe::digests::SecondaryPlainPreDigest { authority_index, slot },
 	);
-	let log = DigestItem::PreRuntime(sp_consensus_babe::BABE_ENGINE_ID, digest_data.encode());
+	let log = DigestItem::PreRuntime(rp_consensus_babe::BABE_ENGINE_ID, digest_data.encode());
 	Digest { logs: vec![log] }
 }
 
 pub fn make_secondary_vrf_pre_digest(
-	authority_index: sp_consensus_babe::AuthorityIndex,
-	slot: sp_consensus_babe::Slot,
+	authority_index: rp_consensus_babe::AuthorityIndex,
+	slot: rp_consensus_babe::Slot,
 	vrf_signature: VrfSignature,
 ) -> Digest {
-	let digest_data = sp_consensus_babe::digests::PreDigest::SecondaryVRF(
-		sp_consensus_babe::digests::SecondaryVRFPreDigest { authority_index, slot, vrf_signature },
+	let digest_data = rp_consensus_babe::digests::PreDigest::SecondaryVRF(
+		rp_consensus_babe::digests::SecondaryVRFPreDigest { authority_index, slot, vrf_signature },
 	);
-	let log = DigestItem::PreRuntime(sp_consensus_babe::BABE_ENGINE_ID, digest_data.encode());
+	let log = DigestItem::PreRuntime(rp_consensus_babe::BABE_ENGINE_ID, digest_data.encode());
 	Digest { logs: vec![log] }
 }
 
 pub fn make_vrf_signature_and_randomness(
 	slot: Slot,
-	pair: &sp_consensus_babe::AuthorityPair,
+	pair: &rp_consensus_babe::AuthorityPair,
 ) -> (VrfSignature, Randomness) {
 	let transcript =
-		sp_consensus_babe::make_vrf_transcript(&pallet_babe::Randomness::<Test>::get(), slot, 0);
+		rp_consensus_babe::make_vrf_transcript(&pallet_babe::Randomness::<Test>::get(), slot, 0);
 
 	let randomness =
-		pair.as_ref().make_bytes(sp_consensus_babe::RANDOMNESS_VRF_CONTEXT, &transcript);
+		pair.as_ref().make_bytes(rp_consensus_babe::RANDOMNESS_VRF_CONTEXT, &transcript);
 
 	let signature = pair.as_ref().vrf_sign(&transcript.into());
 
 	(signature, randomness)
 }
 
-pub fn new_test_ext(authorities_len: usize) -> sp_io::TestExternalities {
+pub fn new_test_ext(authorities_len: usize) -> rp_io::TestExternalities {
 	new_test_ext_with_pairs(authorities_len).1
 }
 
@@ -323,7 +323,7 @@ pub fn build_and_execute_with_pairs(authorities_len: usize, test: impl FnOnce(Ve
 
 pub fn new_test_ext_with_pairs(
 	authorities_len: usize,
-) -> (Vec<AuthorityPair>, sp_io::TestExternalities) {
+) -> (Vec<AuthorityPair>, rp_io::TestExternalities) {
 	let pairs = (0..authorities_len)
 		.map(|i| AuthorityPair::from_seed(&U256::from(i).to_little_endian()))
 		.collect::<Vec<_>>();
@@ -333,8 +333,8 @@ pub fn new_test_ext_with_pairs(
 	(pairs, new_test_ext_raw_authorities(public))
 }
 
-pub fn new_test_ext_raw_authorities(authorities: Vec<AuthorityId>) -> sp_io::TestExternalities {
-	sp_tracing::try_init_simple();
+pub fn new_test_ext_raw_authorities(authorities: Vec<AuthorityId>) -> rp_io::TestExternalities {
+	rp_tracing::try_init_simple();
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
 	let balances: Vec<_> = (0..authorities.len()).map(|i| (i as u64, 10_000_000)).collect();
@@ -375,9 +375,9 @@ pub fn new_test_ext_raw_authorities(authorities: Vec<AuthorityId>) -> sp_io::Tes
 	staking_config.assimilate_storage(&mut t).unwrap();
 
 	pallet_babe::GenesisConfig::<Test> {
-		epoch_config: sp_consensus_babe::BabeEpochConfiguration {
+		epoch_config: rp_consensus_babe::BabeEpochConfiguration {
 			c: (1, 4),
-			allowed_slots: sp_consensus_babe::AllowedSlots::PrimaryAndSecondaryPlainSlots,
+			allowed_slots: rp_consensus_babe::AllowedSlots::PrimaryAndSecondaryPlainSlots,
 		},
 		..Default::default()
 	}
@@ -392,8 +392,8 @@ pub fn generate_equivocation_proof(
 	offender_authority_index: u32,
 	offender_authority_pair: &AuthorityPair,
 	slot: Slot,
-) -> sp_consensus_babe::EquivocationProof<Header> {
-	use sp_consensus_babe::digests::CompatibleDigestItem;
+) -> rp_consensus_babe::EquivocationProof<Header> {
+	use rp_consensus_babe::digests::CompatibleDigestItem;
 
 	let current_block = System::block_number();
 	let current_slot = CurrentSlot::<Test>::get();
@@ -411,7 +411,7 @@ pub fn generate_equivocation_proof(
 			Timestamp::set_timestamp(*current_slot * Babe::slot_duration());
 			let header = System::finalize();
 
-			sp_runtime::TransactionOutcome::Rollback(Ok::<_, DispatchError>(header))
+			rp_runtime::TransactionOutcome::Rollback(Ok::<_, DispatchError>(header))
 		})
 		.unwrap()
 	};
@@ -433,7 +433,7 @@ pub fn generate_equivocation_proof(
 	seal_header(&mut h1);
 	seal_header(&mut h2);
 
-	sp_consensus_babe::EquivocationProof {
+	rp_consensus_babe::EquivocationProof {
 		slot,
 		offender: offender_authority_pair.public(),
 		first_header: h1,

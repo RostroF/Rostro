@@ -16,15 +16,15 @@
 // limitations under the License.
 
 //! Integration tests for ecdsa
-use sp_api::{ApiExt, ProvideRuntimeApi};
-use sp_application_crypto::{ecdsa::AppPair, RuntimePublic};
-use sp_core::{
+use rp_api::{ApiExt, ProvideRuntimeApi};
+use rp_application_crypto::{ecdsa::AppPair, RuntimePublic};
+use rp_core::{
 	crypto::{ByteArray, Pair},
 	ecdsa::Pair as ECDSAPair,
 	proof_of_possession::{ProofOfPossessionGenerator, ProofOfPossessionVerifier},
 	testing::ECDSA,
 };
-use sp_keystore::{testing::MemoryKeystore, Keystore, KeystoreExt};
+use rp_keystore::{testing::MemoryKeystore, Keystore, KeystoreExt};
 use std::sync::Arc;
 use substrate_test_runtime_client::{
 	runtime::{TestAPI, TEST_OWNER},
@@ -33,7 +33,7 @@ use substrate_test_runtime_client::{
 
 #[test]
 fn ecdsa_works_in_runtime() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let keystore = Arc::new(MemoryKeystore::new());
 	let test_client = TestClientBuilder::new().build();
 

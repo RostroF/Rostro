@@ -32,7 +32,7 @@ use alloc::{
 ///
 /// Example:
 /// ```
-/// 	use sp_core::crypto::AddressUri;
+/// 	use rp_core::crypto::AddressUri;
 /// 	let manual_result = AddressUri::parse("hello world/s//h///pass");
 /// 	assert_eq!(
 /// 		manual_result.unwrap(),

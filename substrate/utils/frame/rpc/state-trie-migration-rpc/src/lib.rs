@@ -23,18 +23,18 @@ use jsonrpsee::{
 	types::error::{ErrorCode, ErrorObject, ErrorObjectOwned},
 	Extensions,
 };
-use sc_client_api::TrieCacheContext;
-use sc_rpc_api::check_if_safe;
+use rc_client_api::TrieCacheContext;
+use rc_rpc_api::check_if_safe;
 use serde::{Deserialize, Serialize};
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 use std::sync::Arc;
 
-use sp_core::{
+use rp_core::{
 	storage::{ChildInfo, ChildType, PrefixedStorageKey},
 	Hasher,
 };
-use sp_state_machine::backend::AsTrieBackend;
-use sp_trie::{
+use rp_state_machine::backend::AsTrieBackend;
+use rp_trie::{
 	trie_types::{TrieDB, TrieDBBuilder},
 	KeySpacedDB, Trie,
 };
@@ -59,7 +59,7 @@ fn count_migrate<'a, H: Hasher>(
 				total_nb += 1;
 				if let ValuePlan::Inline(range) = value {
 					if (range.end - range.start) as u32 >=
-						sp_core::storage::TRIE_VALUE_NODE_THRESHOLD
+						rp_core::storage::TRIE_VALUE_NODE_THRESHOLD
 					{
 						nb += 1;
 					}
@@ -88,7 +88,7 @@ where
 	// get all child trie roots
 	for key_value in trie.iter().map_err(|e| format!("TrieDB node iterator error: {}", e))? {
 		let (key, value) = key_value.map_err(|e| format!("TrieDB node iterator error: {}", e))?;
-		if key[..].starts_with(sp_core::storage::well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX)
+		if key[..].starts_with(rp_core::storage::well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX)
 		{
 			let prefixed_key = PrefixedStorageKey::new(key);
 			let (_type, unprefixed) = ChildType::from_prefixed_key(&prefixed_key).unwrap();
@@ -157,8 +157,8 @@ impl<C, B, BA> StateMigration<C, B, BA> {
 impl<C, B, BA> StateMigrationApiServer<<B as BlockT>::Hash> for StateMigration<C, B, BA>
 where
 	B: BlockT,
-	C: Send + Sync + 'static + sc_client_api::HeaderBackend<B>,
-	BA: 'static + sc_client_api::backend::Backend<B>,
+	C: Send + Sync + 'static + rc_client_api::HeaderBackend<B>,
+	BA: 'static + rc_client_api::backend::Backend<B>,
 {
 	fn call(
 		&self,

@@ -1,5 +1,5 @@
 [package]
-name = "sc-tracing-proc-macro"
+name = "rc-tracing-proc-macro"
 version = "11.1.1"
 authors.workspace = true
 edition.workspace = true

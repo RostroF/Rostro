@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This package has been deprecated. Please use `sp-crypto-hashing`.
+//! This package has been deprecated. Please use `rp-crypto-hashing`.
 //!
 //! Removal scheduled after June 2024.
 
-pub use sp_crypto_hashing::*;
+pub use rp_crypto_hashing::*;

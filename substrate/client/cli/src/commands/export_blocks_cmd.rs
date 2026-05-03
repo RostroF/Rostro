@@ -23,9 +23,9 @@ use crate::{
 };
 use clap::Parser;
 use log::info;
-use sc_client_api::{BlockBackend, HeaderBackend, UsageProvider};
-use sc_service::{chain_ops::export_blocks, config::DatabaseSource};
-use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
+use rc_client_api::{BlockBackend, HeaderBackend, UsageProvider};
+use rc_service::{chain_ops::export_blocks, config::DatabaseSource};
+use rp_runtime::traits::{Block as BlockT, Header as HeaderT};
 use std::{fmt::Debug, fs, io, path::PathBuf, str::FromStr, sync::Arc};
 
 /// The `export-blocks` command used to export blocks.

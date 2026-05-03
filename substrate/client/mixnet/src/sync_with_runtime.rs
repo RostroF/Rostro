@@ -25,19 +25,19 @@ use mixnet::core::{
 	Mixnet, Mixnode as CoreMixnode, MixnodesErr as CoreMixnodesErr, RelSessionIndex,
 	SessionPhase as CoreSessionPhase, SessionStatus as CoreSessionStatus,
 };
-use sc_network_types::{
+use rc_network_types::{
 	multiaddr::{multiaddr, Multiaddr, Protocol},
 	PeerId,
 };
-use sp_api::{ApiError, ApiRef};
-use sp_mixnet::{
+use rp_api::{ApiError, ApiRef};
+use rp_mixnet::{
 	runtime_api::MixnetApi,
 	types::{
 		Mixnode as RuntimeMixnode, MixnodesErr as RuntimeMixnodesErr,
 		SessionPhase as RuntimeSessionPhase, SessionStatus as RuntimeSessionStatus,
 	},
 };
-use sp_runtime::traits::Block;
+use rp_runtime::traits::Block;
 
 const LOG_TARGET: &str = "mixnet";
 

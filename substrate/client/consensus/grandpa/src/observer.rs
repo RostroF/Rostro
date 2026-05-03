@@ -27,15 +27,15 @@ use finality_grandpa::{voter, voter_set::VoterSet, BlockNumberOps, Error as Gran
 use futures::prelude::*;
 use log::{debug, info, warn};
 
-use sc_client_api::backend::Backend;
-use sc_network::NotificationService;
-use sc_telemetry::TelemetryHandle;
-use sc_utils::mpsc::TracingUnboundedReceiver;
-use sp_blockchain::HeaderMetadata;
-use sp_consensus::SelectChain;
-use sp_consensus_grandpa::AuthorityId;
-use sp_keystore::KeystorePtr;
-use sp_runtime::traits::{Block as BlockT, NumberFor};
+use rc_client_api::backend::Backend;
+use rc_network::NotificationService;
+use rc_telemetry::TelemetryHandle;
+use rc_utils::mpsc::TracingUnboundedReceiver;
+use rp_blockchain::HeaderMetadata;
+use rp_consensus::SelectChain;
+use rp_consensus_grandpa::AuthorityId;
+use rp_keystore::KeystorePtr;
+use rp_runtime::traits::{Block as BlockT, NumberFor};
 
 use crate::{
 	authorities::SharedAuthoritySet,
@@ -56,7 +56,7 @@ impl<'a, Block, Client> finality_grandpa::Chain<Block::Hash, NumberFor<Block>>
 	for ObserverChain<'a, Block, Client>
 where
 	Block: BlockT,
-	Client: HeaderMetadata<Block, Error = sp_blockchain::Error>,
+	Client: HeaderMetadata<Block, Error = rp_blockchain::Error>,
 	NumberFor<Block>: BlockNumberOps,
 {
 	fn ancestry(
@@ -170,7 +170,7 @@ pub fn run_grandpa_observer<BE, Block: BlockT, Client, N, S, SC>(
 	network: N,
 	sync: S,
 	notification_service: Box<dyn NotificationService>,
-) -> sp_blockchain::Result<impl Future<Output = ()> + Send>
+) -> rp_blockchain::Result<impl Future<Output = ()> + Send>
 where
 	BE: Backend<Block> + Unpin + 'static,
 	N: NetworkT<Block>,
@@ -410,9 +410,9 @@ mod tests {
 		communication::tests::{make_test_network, Event},
 	};
 	use assert_matches::assert_matches;
-	use sc_network_types::PeerId;
-	use sc_utils::mpsc::tracing_unbounded;
-	use sp_blockchain::HeaderBackend as _;
+	use rc_network_types::PeerId;
+	use rc_utils::mpsc::tracing_unbounded;
+	use rp_blockchain::HeaderBackend as _;
 	use substrate_test_runtime_client::{TestClientBuilder, TestClientBuilderExt};
 
 	use futures::executor;
@@ -439,7 +439,7 @@ mod tests {
 			(Arc::new(client), backend)
 		};
 
-		let voters = vec![(sp_keyring::Ed25519Keyring::Alice.public().into(), 1)];
+		let voters = vec![(rp_keyring::Ed25519Keyring::Alice.public().into(), 1)];
 
 		let persistent_data =
 			aux_schema::load_persistent(&*backend, client.info().genesis_hash, 0, || Ok(voters))

@@ -17,19 +17,19 @@ workspace = true
 codec = { workspace = true, default-features = true }
 futures = { workspace = true }
 log = { workspace = true, default-features = true }
-sc-client-api = { default-features = true, workspace = true }
-sc-offchain = { default-features = true, workspace = true }
-sp-api = { default-features = true, workspace = true }
-sp-blockchain = { default-features = true, workspace = true }
-sp-consensus = { default-features = true, workspace = true }
-sp-consensus-beefy = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-mmr-primitives = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
+rc-client-api = { default-features = true, workspace = true }
+rc-offchain = { default-features = true, workspace = true }
+rp-api = { default-features = true, workspace = true }
+rp-blockchain = { default-features = true, workspace = true }
+rp-consensus = { default-features = true, workspace = true }
+rp-consensus-beefy = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-mmr-primitives = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
 
 [dev-dependencies]
 parking_lot = { workspace = true, default-features = true }
-sc-block-builder = { default-features = true, workspace = true }
-sp-tracing = { default-features = true, workspace = true }
+rc-block-builder = { default-features = true, workspace = true }
+rp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tokio = { workspace = true, default-features = true }

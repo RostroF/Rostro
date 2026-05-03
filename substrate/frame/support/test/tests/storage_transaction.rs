@@ -24,9 +24,9 @@ use frame_support::{
 	storage::{with_transaction, TransactionOutcome::*},
 	transactional,
 };
-use sp_core::sr25519;
-use sp_io::TestExternalities;
-use sp_runtime::{
+use rp_core::sr25519;
+use rp_io::TestExternalities;
+use rp_runtime::{
 	generic,
 	traits::{BlakeTwo256, Verify},
 	TransactionOutcome,

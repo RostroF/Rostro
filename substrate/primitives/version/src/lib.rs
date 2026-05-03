@@ -47,14 +47,14 @@ pub use alloc::borrow::Cow;
 use codec::{Decode, Encode, Input};
 use scale_info::TypeInfo;
 #[allow(deprecated)]
-pub use sp_runtime::{create_runtime_str, StateVersion};
+pub use rp_runtime::{create_runtime_str, StateVersion};
 #[doc(hidden)]
-pub use sp_std;
+pub use rp_std;
 
 #[cfg(feature = "std")]
-use sp_core::traits::CallContext;
+use rp_core::traits::CallContext;
 #[cfg(feature = "std")]
-use sp_runtime::traits::Block as BlockT;
+use rp_runtime::traits::Block as BlockT;
 
 #[cfg(feature = "std")]
 pub mod embed;
@@ -77,9 +77,9 @@ pub mod embed;
 /// extern crate alloc;
 ///
 /// use alloc::borrow::Cow;
-/// use sp_version::RuntimeVersion;
+/// use rp_version::RuntimeVersion;
 ///
-/// #[sp_version::runtime_version]
+/// #[rp_version::runtime_version]
 /// pub const VERSION: RuntimeVersion = RuntimeVersion {
 /// 	spec_name: Cow::Borrowed("test"),
 /// 	impl_name: Cow::Borrowed("test"),
@@ -91,7 +91,7 @@ pub mod embed;
 /// 	system_version: 1,
 /// };
 ///
-/// # const RUNTIME_API_VERSIONS: sp_version::ApisVec = sp_version::create_apis_vec!([]);
+/// # const RUNTIME_API_VERSIONS: rp_version::ApisVec = rp_version::create_apis_vec!([]);
 /// ```
 ///
 /// It will pass it through and add code required for emitting a custom section. The
@@ -121,7 +121,7 @@ pub mod embed;
 ///
 /// Including this macro in the context where there is no "std" feature and the code is not
 /// compiled to wasm can lead to cryptic linking errors.
-pub use sp_version_proc_macro::runtime_version;
+pub use rp_version_proc_macro::runtime_version;
 
 /// The identity of a particular API interface that the runtime might provide.
 ///
@@ -705,7 +705,7 @@ fn has_api_with<P: Fn(u32) -> bool>(apis: &ApisVec, id: &ApiId, predicate: P) ->
 
 /// Returns the version of the `Core` runtime api.
 pub fn core_version_from_apis(apis: &ApisVec) -> Option<u32> {
-	let id = sp_crypto_hashing_proc_macro::blake2b_64!(b"Core");
+	let id = rp_crypto_hashing_proc_macro::blake2b_64!(b"Core");
 	apis.iter().find(|(s, _v)| s == &id).map(|(_s, v)| *v)
 }
 

@@ -24,25 +24,25 @@ use async_trait::async_trait;
 use environment::HasVoted;
 use futures_timer::Delay;
 use parking_lot::{Mutex, RwLock};
-use sc_consensus::{
+use rc_consensus::{
 	BlockImport, BlockImportParams, BoxJustificationImport, ForkChoiceStrategy, ImportResult,
 	ImportedAux,
 };
-use sc_network::config::Role;
-use sc_network_test::{
+use rc_network::config::Role;
+use rc_network_test::{
 	Block, BlockImportAdapter, FullPeerConfig, Hash, PassThroughVerifier, Peer, PeersClient,
 	PeersFullClient, TestClient, TestNetFactory,
 };
-use sc_transaction_pool_api::RejectAllTxPool;
-use sp_api::{ApiRef, ProvideRuntimeApi};
-use sp_consensus::{BlockOrigin, Error as ConsensusError, SelectChain};
-use sp_consensus_grandpa::{
+use rc_transaction_pool_api::RejectAllTxPool;
+use rp_api::{ApiRef, ProvideRuntimeApi};
+use rp_consensus::{BlockOrigin, Error as ConsensusError, SelectChain};
+use rp_consensus_grandpa::{
 	AuthorityList, EquivocationProof, GrandpaApi, OpaqueKeyOwnershipProof, GRANDPA_ENGINE_ID,
 };
-use sp_core::H256;
-use sp_keyring::Ed25519Keyring;
-use sp_keystore::{testing::MemoryKeystore, Keystore, KeystorePtr};
-use sp_runtime::{
+use rp_core::H256;
+use rp_keyring::Ed25519Keyring;
+use rp_keystore::{testing::MemoryKeystore, Keystore, KeystorePtr};
+use rp_runtime::{
 	codec::Encode,
 	generic::{BlockId, DigestItem},
 	traits::{Block as BlockT, Header as HeaderT},
@@ -54,9 +54,9 @@ use tokio::runtime::Handle;
 
 use authorities::AuthoritySet;
 use communication::grandpa_protocol_name;
-use sc_block_builder::{BlockBuilder, BlockBuilderBuilder};
-use sc_consensus::LongestChain;
-use sp_application_crypto::key_types::GRANDPA;
+use rc_block_builder::{BlockBuilder, BlockBuilderBuilder};
+use rc_consensus::LongestChain;
+use rp_application_crypto::key_types::GRANDPA;
 
 type TestLinkHalf =
 	LinkHalf<Block, PeersFullClient, LongestChain<substrate_test_runtime_client::Backend, Block>>;
@@ -178,7 +178,7 @@ impl ProvideRuntimeApi<Block> for TestApi {
 	}
 }
 
-sp_api::mock_impl_runtime_apis! {
+rp_api::mock_impl_runtime_apis! {
 	impl GrandpaApi<Block> for RuntimeApi {
 		fn grandpa_authorities(&self) -> AuthorityList {
 			self.inner.genesis_authorities.clone()
@@ -205,7 +205,7 @@ sp_api::mock_impl_runtime_apis! {
 }
 
 impl GenesisAuthoritySetProvider<Block> for TestApi {
-	fn get(&self) -> sp_blockchain::Result<AuthorityList> {
+	fn get(&self) -> rp_blockchain::Result<AuthorityList> {
 		Ok(self.genesis_authorities.clone())
 	}
 }
@@ -414,7 +414,7 @@ fn add_scheduled_change(builder: &mut impl BlockBuilderExt, change: ScheduledCha
 	builder
 		.push_deposit_log_digest_item(DigestItem::Consensus(
 			GRANDPA_ENGINE_ID,
-			sp_consensus_grandpa::ConsensusLog::ScheduledChange(change).encode(),
+			rp_consensus_grandpa::ConsensusLog::ScheduledChange(change).encode(),
 		))
 		.unwrap();
 }
@@ -427,7 +427,7 @@ fn add_forced_change(
 	builder
 		.push_deposit_log_digest_item(DigestItem::Consensus(
 			GRANDPA_ENGINE_ID,
-			sp_consensus_grandpa::ConsensusLog::ForcedChange(median_last_finalized, change)
+			rp_consensus_grandpa::ConsensusLog::ForcedChange(median_last_finalized, change)
 				.encode(),
 		))
 		.unwrap();
@@ -435,7 +435,7 @@ fn add_forced_change(
 
 #[tokio::test]
 async fn finalize_3_voters_no_observers() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let peers = &[Ed25519Keyring::Alice, Ed25519Keyring::Bob, Ed25519Keyring::Charlie];
 	let voters = make_ids(peers);
 
@@ -539,7 +539,7 @@ async fn finalize_3_voters_1_full_observer() {
 
 #[tokio::test]
 async fn transition_3_voters_twice_1_full_observer() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let peers_a = &[Ed25519Keyring::Alice, Ed25519Keyring::Bob, Ed25519Keyring::Charlie];
 
 	let peers_b = &[Ed25519Keyring::Dave, Ed25519Keyring::Eve, Ed25519Keyring::Ferdie];
@@ -779,7 +779,7 @@ async fn sync_justifications_on_change_blocks() {
 
 #[tokio::test]
 async fn finalizes_multiple_pending_changes_in_order() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let peers_a = &[Ed25519Keyring::Alice, Ed25519Keyring::Bob, Ed25519Keyring::Charlie];
 	let peers_b = &[Ed25519Keyring::Dave, Ed25519Keyring::Eve, Ed25519Keyring::Ferdie];
@@ -842,7 +842,7 @@ async fn finalizes_multiple_pending_changes_in_order() {
 
 #[tokio::test]
 async fn force_change_to_new_set() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	// two of these guys are offline.
 	let genesis_authorities = &[
 		Ed25519Keyring::Alice,
@@ -1000,7 +1000,7 @@ async fn voter_persists_its_votes() {
 	use futures::future;
 	use std::sync::atomic::{AtomicUsize, Ordering};
 
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	// we have two authorities but we'll only be running the voter for alice
 	// we are going to be listening for the prevotes it casts
@@ -1272,7 +1272,7 @@ async fn voter_persists_its_votes() {
 
 #[tokio::test]
 async fn finalize_3_voters_1_light_observer() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let authorities = &[Ed25519Keyring::Alice, Ed25519Keyring::Bob, Ed25519Keyring::Charlie];
 	let voters = make_ids(authorities);
 
@@ -1314,7 +1314,7 @@ async fn finalize_3_voters_1_light_observer() {
 
 #[tokio::test]
 async fn voter_catches_up_to_latest_round_when_behind() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let peers = &[Ed25519Keyring::Alice, Ed25519Keyring::Bob];
 	let voters = make_ids(peers);
@@ -1707,7 +1707,7 @@ async fn grandpa_environment_passes_actual_best_block_to_voting_rules() {
 
 #[tokio::test]
 async fn grandpa_environment_checks_if_best_block_is_descendent_of_finality_target() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	use finality_grandpa::voter::Environment;
 
 	let peers = &[Ed25519Keyring::Alice];
@@ -1826,7 +1826,7 @@ async fn grandpa_environment_checks_if_best_block_is_descendent_of_finality_targ
 #[tokio::test]
 async fn grandpa_environment_uses_round_base_block_for_voting_if_finality_target_errors() {
 	use finality_grandpa::voter::Environment;
-	use sp_consensus::SelectChain;
+	use rp_consensus::SelectChain;
 
 	let peers = &[Ed25519Keyring::Alice];
 	let voters = make_ids(peers);
@@ -1839,7 +1839,7 @@ async fn grandpa_environment_uses_round_base_block_for_voting_if_finality_target
 		peer.take_notification_service(&grandpa_protocol_name::NAME.into()).unwrap();
 	let link = peer.data.lock().take().unwrap();
 	let client = peer.client().as_client().clone();
-	let select_chain = sc_consensus::LongestChain::new(peer.client().as_backend());
+	let select_chain = rc_consensus::LongestChain::new(peer.client().as_backend());
 
 	// create a chain that is 10 blocks long
 	peer.push_blocks(10, false);
@@ -2004,7 +2004,7 @@ async fn grandpa_environment_never_overwrites_round_voter_state() {
 
 #[tokio::test]
 async fn justification_with_equivocation() {
-	use sp_application_crypto::Pair;
+	use rp_application_crypto::Pair;
 
 	// we have 100 authorities
 	let pairs = (0..100).map(|n| AuthorityPair::from_seed(&[n; 32])).collect::<Vec<_>>();
@@ -2031,7 +2031,7 @@ async fn justification_with_equivocation() {
 			let precommit = finality_grandpa::Precommit { target_hash, target_number };
 
 			let msg = finality_grandpa::Message::Precommit(precommit.clone());
-			let encoded = sp_consensus_grandpa::localized_payload(round, set_id, &msg);
+			let encoded = rp_consensus_grandpa::localized_payload(round, set_id, &msg);
 
 			let precommit = finality_grandpa::SignedPrecommit {
 				precommit: precommit.clone(),
@@ -2104,7 +2104,7 @@ async fn imports_justification_for_regular_blocks_on_import() {
 		let precommit = finality_grandpa::Precommit { target_hash: hash, target_number: number };
 
 		let msg = finality_grandpa::Message::Precommit(precommit.clone());
-		let encoded = sp_consensus_grandpa::localized_payload(round, set_id, &msg);
+		let encoded = rp_consensus_grandpa::localized_payload(round, set_id, &msg);
 		let signature = peers[0].sign(&encoded[..]).into();
 
 		let precommit = finality_grandpa::SignedPrecommit {
@@ -2215,19 +2215,19 @@ async fn grandpa_environment_doesnt_send_equivocation_reports_for_itself() {
 
 	// reporting the equivocation should fail since the offender is a local
 	// authority (i.e. we have keys in our keystore for the given id)
-	let equivocation_proof = sp_consensus_grandpa::Equivocation::Prevote(equivocation.clone());
+	let equivocation_proof = rp_consensus_grandpa::Equivocation::Prevote(equivocation.clone());
 	assert!(matches!(environment.report_equivocation(equivocation_proof), Err(Error::Safety(_))));
 
 	// if we set the equivocation offender to another id for which we don't have
 	// keys it should work
 	equivocation.identity = TryFrom::try_from(&[1; 32][..]).unwrap();
-	let equivocation_proof = sp_consensus_grandpa::Equivocation::Prevote(equivocation);
+	let equivocation_proof = rp_consensus_grandpa::Equivocation::Prevote(equivocation);
 	environment.report_equivocation(equivocation_proof).unwrap();
 }
 
 #[tokio::test]
 async fn revert_prunes_authority_changes() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let peers = &[Ed25519Keyring::Alice, Ed25519Keyring::Bob, Ed25519Keyring::Charlie];
 
@@ -2354,7 +2354,7 @@ async fn revert_prunes_authority_changes() {
 
 #[tokio::test]
 async fn observer_finalizes_through_authority_set_change() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let peers_a = &[Ed25519Keyring::Alice, Ed25519Keyring::Bob, Ed25519Keyring::Charlie];
 	let peers_b = &[Ed25519Keyring::Alice, Ed25519Keyring::Bob, Ed25519Keyring::Charlie];
 

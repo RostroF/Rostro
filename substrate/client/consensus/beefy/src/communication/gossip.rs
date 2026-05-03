@@ -18,10 +18,10 @@
 
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
-use sc_network::{NetworkPeers, ReputationChange};
-use sc_network_gossip::{MessageIntent, ValidationResult, Validator, ValidatorContext};
-use sc_network_types::PeerId;
-use sp_runtime::traits::{Block, Hash, Header, NumberFor};
+use rc_network::{NetworkPeers, ReputationChange};
+use rc_network_gossip::{MessageIntent, ValidationResult, Validator, ValidatorContext};
+use rc_network_types::PeerId;
+use rp_runtime::traits::{Block, Hash, Header, NumberFor};
 
 use codec::{Decode, DecodeAll, Encode};
 use log::{debug, trace};
@@ -36,8 +36,8 @@ use crate::{
 	keystore::BeefyKeystore,
 	LOG_TARGET,
 };
-use sp_application_crypto::RuntimeAppPublic;
-use sp_consensus_beefy::{AuthorityIdBound, ValidatorSet, ValidatorSetId, VoteMessage};
+use rp_application_crypto::RuntimeAppPublic;
+use rp_consensus_beefy::{AuthorityIdBound, ValidatorSet, ValidatorSetId, VoteMessage};
 
 // Timeout for rebroadcasting messages.
 #[cfg(not(test))]
@@ -494,13 +494,13 @@ where
 pub(crate) mod tests {
 	use super::*;
 	use crate::{communication::peers::PeerReport, keystore::BeefyKeystore};
-	use sc_network_test::Block;
-	use sp_application_crypto::key_types::BEEFY as BEEFY_KEY_TYPE;
-	use sp_consensus_beefy::{
+	use rc_network_test::Block;
+	use rp_application_crypto::key_types::BEEFY as BEEFY_KEY_TYPE;
+	use rp_consensus_beefy::{
 		ecdsa_crypto, known_payloads, test_utils::Keyring, Commitment, MmrRootHash, Payload,
 		SignedCommitment, VoteMessage,
 	};
-	use sp_keystore::{testing::MemoryKeystore, Keystore};
+	use rp_keystore::{testing::MemoryKeystore, Keystore};
 
 	pub(crate) struct TestNetwork {
 		report_sender: futures::channel::mpsc::UnboundedSender<PeerReport>,
@@ -524,7 +524,7 @@ pub(crate) mod tests {
 			unimplemented!()
 		}
 
-		fn add_known_address(&self, _: PeerId, _: sc_network::Multiaddr) {
+		fn add_known_address(&self, _: PeerId, _: rc_network::Multiaddr) {
 			unimplemented!()
 		}
 
@@ -536,7 +536,7 @@ pub(crate) mod tests {
 			unimplemented!()
 		}
 
-		fn disconnect_peer(&self, _: PeerId, _: sc_network::ProtocolName) {
+		fn disconnect_peer(&self, _: PeerId, _: rc_network::ProtocolName) {
 			unimplemented!()
 		}
 
@@ -550,7 +550,7 @@ pub(crate) mod tests {
 
 		fn add_reserved_peer(
 			&self,
-			_: sc_network::config::MultiaddrWithPeerId,
+			_: rc_network::config::MultiaddrWithPeerId,
 		) -> Result<(), String> {
 			unimplemented!()
 		}
@@ -561,23 +561,23 @@ pub(crate) mod tests {
 
 		fn set_reserved_peers(
 			&self,
-			_: sc_network::ProtocolName,
-			_: std::collections::HashSet<sc_network::Multiaddr>,
+			_: rc_network::ProtocolName,
+			_: std::collections::HashSet<rc_network::Multiaddr>,
 		) -> Result<(), String> {
 			unimplemented!()
 		}
 
 		fn add_peers_to_reserved_set(
 			&self,
-			_: sc_network::ProtocolName,
-			_: std::collections::HashSet<sc_network::Multiaddr>,
+			_: rc_network::ProtocolName,
+			_: std::collections::HashSet<rc_network::Multiaddr>,
 		) -> Result<(), String> {
 			unimplemented!()
 		}
 
 		fn remove_peers_from_reserved_set(
 			&self,
-			_: sc_network::ProtocolName,
+			_: rc_network::ProtocolName,
 			_: Vec<PeerId>,
 		) -> Result<(), String> {
 			unimplemented!()
@@ -587,7 +587,7 @@ pub(crate) mod tests {
 			unimplemented!()
 		}
 
-		fn peer_role(&self, _: PeerId, _: Vec<u8>) -> Option<sc_network::ObservedRole> {
+		fn peer_role(&self, _: PeerId, _: Vec<u8>) -> Option<rc_network::ObservedRole> {
 			unimplemented!()
 		}
 
@@ -597,18 +597,18 @@ pub(crate) mod tests {
 	}
 
 	struct TestContext;
-	impl<B: sp_runtime::traits::Block> ValidatorContext<B> for TestContext {
+	impl<B: rp_runtime::traits::Block> ValidatorContext<B> for TestContext {
 		fn broadcast_topic(&mut self, _topic: B::Hash, _force: bool) {
 			unimplemented!()
 		}
 
 		fn broadcast_message(&mut self, _topic: B::Hash, _message: Vec<u8>, _force: bool) {}
 
-		fn send_message(&mut self, _who: &sc_network_types::PeerId, _message: Vec<u8>) {
+		fn send_message(&mut self, _who: &rc_network_types::PeerId, _message: Vec<u8>) {
 			unimplemented!()
 		}
 
-		fn send_topic(&mut self, _who: &sc_network_types::PeerId, _topic: B::Hash, _force: bool) {
+		fn send_topic(&mut self, _who: &rc_network_types::PeerId, _topic: B::Hash, _force: bool) {
 			unimplemented!()
 		}
 	}
@@ -798,7 +798,7 @@ pub(crate) mod tests {
 			Arc::new(TestNetwork::new().0),
 		);
 		gv.update_filter(GossipFilterCfg { start: 0, end: 10, validator_set: &validator_set });
-		let sender = sc_network_types::PeerId::random();
+		let sender = rc_network_types::PeerId::random();
 		let topic = Default::default();
 		let intent = MessageIntent::Broadcast;
 
@@ -891,7 +891,7 @@ pub(crate) mod tests {
 			Arc::new(TestNetwork::new().0),
 		);
 		gv.update_filter(GossipFilterCfg { start: 0, end: 10, validator_set: &validator_set });
-		let sender = sc_network_types::PeerId::random();
+		let sender = rc_network_types::PeerId::random();
 		let topic = Default::default();
 
 		let vote = dummy_vote(1);

@@ -28,15 +28,15 @@ use crate::{
 };
 
 use hash_db::{HashDB, Hasher};
-use sp_core::{
+use rp_core::{
 	offchain::testing::TestPersistentOffchainDB,
 	storage::{
 		well_known_keys::{is_child_storage_key, CODE},
 		StateVersion, Storage,
 	},
 };
-use sp_externalities::{Extension, ExtensionStore, Extensions};
-use sp_trie::{recorder::Recorder, PrefixedMemoryDB, StorageProof};
+use rp_externalities::{Extension, ExtensionStore, Extensions};
+use rp_trie::{recorder::Recorder, PrefixedMemoryDB, StorageProof};
 
 /// Simple HashMap-based Externalities impl.
 pub struct TestExternalities<H>
@@ -143,7 +143,7 @@ where
 	/// Insert key/value into backend.
 	///
 	/// This only supports inserting keys in child tries.
-	pub fn insert_child(&mut self, c: sp_core::storage::ChildInfo, k: StorageKey, v: StorageValue) {
+	pub fn insert_child(&mut self, c: rp_core::storage::ChildInfo, k: StorageKey, v: StorageValue) {
 		self.backend.insert(vec![(Some(c), vec![(k, Some(v))])], self.state_version);
 	}
 
@@ -245,7 +245,7 @@ where
 	/// Returns the result of the given closure.
 	pub fn execute_with<R>(&mut self, execute: impl FnOnce() -> R) -> R {
 		let mut ext = self.ext();
-		sp_externalities::set_and_run_with_externalities(&mut ext, execute)
+		rp_externalities::set_and_run_with_externalities(&mut ext, execute)
 	}
 
 	/// Execute the given closure while `self`, with `proving_backend` as backend, is set as
@@ -260,7 +260,7 @@ where
 		let mut proving_ext =
 			Ext::new(&mut self.overlay, &proving_backend, Some(&mut self.extensions));
 
-		let outcome = sp_externalities::set_and_run_with_externalities(&mut proving_ext, execute);
+		let outcome = rp_externalities::set_and_run_with_externalities(&mut proving_ext, execute);
 		let proof = proving_backend.extract_proof().expect("Failed to extract storage proof");
 
 		(outcome, proof)
@@ -278,7 +278,7 @@ where
 		let mut proving_ext =
 			Ext::new(&mut self.overlay, &proving_backend, Some(&mut self.extensions));
 
-		sp_externalities::set_and_run_with_externalities(&mut proving_ext, execute)
+		rp_externalities::set_and_run_with_externalities(&mut proving_ext, execute)
 	}
 
 	/// Execute the given closure while `self` is set as externalities.
@@ -291,7 +291,7 @@ where
 	) -> Result<R, String> {
 		let mut ext = AssertUnwindSafe(self.ext());
 		std::panic::catch_unwind(move || {
-			sp_externalities::set_and_run_with_externalities(&mut *ext, f)
+			rp_externalities::set_and_run_with_externalities(&mut *ext, f)
 		})
 		.map_err(|e| format!("Closure panicked: {:?}", e))
 	}
@@ -356,7 +356,7 @@ where
 	}
 }
 
-impl<H> sp_externalities::ExtensionStore for TestExternalities<H>
+impl<H> rp_externalities::ExtensionStore for TestExternalities<H>
 where
 	H: Hasher,
 	H::Out: Ord + codec::Codec,
@@ -369,23 +369,23 @@ where
 		&mut self,
 		type_id: TypeId,
 		extension: Box<dyn Extension>,
-	) -> Result<(), sp_externalities::Error> {
+	) -> Result<(), rp_externalities::Error> {
 		self.extensions.register_with_type_id(type_id, extension)
 	}
 
 	fn deregister_extension_by_type_id(
 		&mut self,
 		type_id: TypeId,
-	) -> Result<(), sp_externalities::Error> {
+	) -> Result<(), rp_externalities::Error> {
 		if self.extensions.deregister(type_id) {
 			Ok(())
 		} else {
-			Err(sp_externalities::Error::ExtensionIsNotRegistered(type_id))
+			Err(rp_externalities::Error::ExtensionIsNotRegistered(type_id))
 		}
 	}
 }
 
-impl<H> sp_externalities::ExternalitiesExt for TestExternalities<H>
+impl<H> rp_externalities::ExternalitiesExt for TestExternalities<H>
 where
 	H: Hasher,
 	H::Out: Ord + codec::Codec,
@@ -394,11 +394,11 @@ where
 		self.extension_by_type_id(TypeId::of::<T>()).and_then(<dyn Any>::downcast_mut)
 	}
 
-	fn register_extension<T: Extension>(&mut self, ext: T) -> Result<(), sp_externalities::Error> {
+	fn register_extension<T: Extension>(&mut self, ext: T) -> Result<(), rp_externalities::Error> {
 		self.register_extension_with_type_id(TypeId::of::<T>(), Box::new(ext))
 	}
 
-	fn deregister_extension<T: Extension>(&mut self) -> Result<(), sp_externalities::Error> {
+	fn deregister_extension<T: Extension>(&mut self) -> Result<(), rp_externalities::Error> {
 		self.deregister_extension_by_type_id(TypeId::of::<T>())
 	}
 }
@@ -406,8 +406,8 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sp_core::{storage::ChildInfo, traits::Externalities, H256};
-	use sp_runtime::traits::BlakeTwo256;
+	use rp_core::{storage::ChildInfo, traits::Externalities, H256};
+	use rp_runtime::traits::BlakeTwo256;
 
 	#[test]
 	fn commit_should_work() {

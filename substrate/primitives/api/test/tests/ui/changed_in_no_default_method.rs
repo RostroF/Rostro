@@ -19,7 +19,7 @@
 /// runtime.
 struct Runtime {}
 
-sp_api::decl_runtime_apis! {
+rp_api::decl_runtime_apis! {
 	#[api_version(2)]
 	pub trait Api {
 		#[changed_in(2)]

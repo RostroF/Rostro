@@ -17,8 +17,8 @@
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
-pub use sp_core::crypto::KeyTypeId;
-use sp_runtime::traits::GeneratedSessionKeys;
+pub use rp_core::crypto::KeyTypeId;
+use rp_runtime::traits::GeneratedSessionKeys;
 
 /// Opaque [`GeneratedSessionKeys`].
 #[derive(Debug, Default, Decode, Encode, scale_info::TypeInfo)]
@@ -35,7 +35,7 @@ impl<K: Encode, P: Encode> From<GeneratedSessionKeys<K, P>> for OpaqueGeneratedS
 	}
 }
 
-sp_api::decl_runtime_apis! {
+rp_api::decl_runtime_apis! {
 	/// Session keys runtime api.
 	#[api_version(2)]
 	pub trait SessionKeys {

@@ -1,7 +1,0 @@
-title: Fix `burn` call weight in balances pallet
-doc:
-- audience: Runtime Dev
-  description: "Fix burn call weight in balances pallet"
-crates:
-- name: pallet-balances
-  bump: patch

@@ -44,7 +44,7 @@
 //! # Logging
 //!
 //! Substrate supports logging from the runtime in native and in wasm. For that purpose it provides
-//! the [`RuntimeLogger`](sp_runtime::runtime_logger::RuntimeLogger). This runtime logger is
+//! the [`RuntimeLogger`](rp_runtime::runtime_logger::RuntimeLogger). This runtime logger is
 //! automatically enabled for each call into the runtime through the runtime api. As logging
 //! introduces extra code that isn't actually required for the logic of your runtime and also
 //! increases the final wasm blob size, it is recommended to disable the logging for on-chain
@@ -68,7 +68,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 // Make doc tests happy
-extern crate self as sp_api;
+extern crate self as rp_api;
 
 extern crate alloc;
 
@@ -80,10 +80,10 @@ pub mod __private {
 	#[cfg(feature = "std")]
 	mod std_imports {
 		pub use hash_db::Hasher;
-		pub use sp_core::traits::CallContext;
-		pub use sp_externalities::{Extension, Extensions, TransactionType};
-		pub use sp_runtime::StateVersion;
-		pub use sp_state_machine::{
+		pub use rp_core::traits::CallContext;
+		pub use rp_externalities::{Extension, Extensions, TransactionType};
+		pub use rp_runtime::StateVersion;
+		pub use rp_state_machine::{
 			Backend as StateBackend, InMemoryBackend, OverlayedChanges, StorageProof, TrieBackend,
 			TrieBackendBuilder,
 		};
@@ -96,38 +96,38 @@ pub mod __private {
 	pub use codec::{self, Decode, DecodeLimit, Encode};
 	pub use core::{mem, slice};
 	pub use scale_info;
-	pub use sp_core::offchain;
+	pub use rp_core::offchain;
 	#[cfg(not(feature = "std"))]
-	pub use sp_core::to_substrate_wasm_fn_return_value;
+	pub use rp_core::to_substrate_wasm_fn_return_value;
 	#[cfg(feature = "frame-metadata")]
-	pub use sp_metadata_ir::{self as metadata_ir, frame_metadata as metadata};
-	pub use sp_runtime::{
+	pub use rp_metadata_ir::{self as metadata_ir, frame_metadata as metadata};
+	pub use rp_runtime::{
 		generic::BlockId,
 		traits::{Block as BlockT, Hash as HashT, HashingFor, Header as HeaderT, NumberFor},
 		transaction_validity::TransactionValidity,
 		ExtrinsicInclusionMode, TransactionOutcome,
 	};
-	pub use sp_version::{create_apis_vec, ApiId, ApisVec, RuntimeVersion};
+	pub use rp_version::{create_apis_vec, ApiId, ApisVec, RuntimeVersion};
 
 	#[cfg(all(any(target_arch = "riscv32", target_arch = "riscv64"), substrate_runtime))]
-	pub use sp_runtime_interface::polkavm::{polkavm_abi, polkavm_export};
+	pub use rp_runtime_interface::polkavm::{polkavm_abi, polkavm_export};
 }
 
 #[cfg(feature = "std")]
-pub use sp_core::traits::CallContext;
-use sp_core::OpaqueMetadata;
+pub use rp_core::traits::CallContext;
+use rp_core::OpaqueMetadata;
 #[cfg(feature = "std")]
-use sp_externalities::{Extension, Extensions};
+use rp_externalities::{Extension, Extensions};
 #[cfg(feature = "std")]
-use sp_runtime::traits::HashingFor;
+use rp_runtime::traits::HashingFor;
 #[cfg(feature = "std")]
-pub use sp_runtime::TransactionOutcome;
-use sp_runtime::{traits::Block as BlockT, ExtrinsicInclusionMode};
+pub use rp_runtime::TransactionOutcome;
+use rp_runtime::{traits::Block as BlockT, ExtrinsicInclusionMode};
 #[cfg(feature = "std")]
-pub use sp_state_machine::StorageProof;
+pub use rp_state_machine::StorageProof;
 #[cfg(feature = "std")]
-use sp_state_machine::{backend::AsTrieBackend, Backend as StateBackend, OverlayedChanges};
-use sp_version::RuntimeVersion;
+use rp_state_machine::{backend::AsTrieBackend, Backend as StateBackend, OverlayedChanges};
+use rp_version::RuntimeVersion;
 #[cfg(feature = "std")]
 use std::cell::RefCell;
 
@@ -147,7 +147,7 @@ use std::cell::RefCell;
 /// # Example
 ///
 /// ```rust
-/// sp_api::decl_runtime_apis! {
+/// rp_api::decl_runtime_apis! {
 ///     /// Declare the api trait.
 ///     pub trait Balance {
 ///         /// Get the balance.
@@ -181,7 +181,7 @@ use std::cell::RefCell;
 /// attribute, this method will be used to call the current default implementation.
 ///
 /// ```rust
-/// sp_api::decl_runtime_apis! {
+/// rp_api::decl_runtime_apis! {
 ///     /// Declare the api trait.
 ///     #[api_version(2)]
 ///     pub trait Balance {
@@ -213,7 +213,7 @@ use std::cell::RefCell;
 /// available only on a testnet. You can define one stable and one development version. This
 /// can be done like this:
 /// ```rust
-/// sp_api::decl_runtime_apis! {
+/// rp_api::decl_runtime_apis! {
 ///     /// Declare the api trait.
 /// 	#[api_version(2)]
 ///     pub trait Balance {
@@ -234,7 +234,7 @@ use std::cell::RefCell;
 /// in version 2. Version 2 in this case is considered the default/base version of the api.
 /// More than two versions can be defined this way. For example:
 /// ```rust
-/// sp_api::decl_runtime_apis! {
+/// rp_api::decl_runtime_apis! {
 ///     /// Declare the api trait.
 ///     #[api_version(2)]
 ///     pub trait Balance {
@@ -260,7 +260,7 @@ use std::cell::RefCell;
 ///
 /// - Usage of `deprecated` attribute will propagate deprecation information to the metadata.
 /// - For general usage examples of `deprecated` attribute please refer to <https://doc.rust-lang.org/nightly/reference/attributes/diagnostics.html#the-deprecated-attribute>
-pub use sp_api_proc_macro::decl_runtime_apis;
+pub use rp_api_proc_macro::decl_runtime_apis;
 
 /// Tags given trait implementations as runtime apis.
 ///
@@ -285,14 +285,14 @@ pub use sp_api_proc_macro::decl_runtime_apis;
 /// ```rust
 /// extern crate alloc;
 /// #
-/// # use sp_runtime::{ExtrinsicInclusionMode, traits::Block as BlockT};
-/// # use sp_test_primitives::Block;
+/// # use rp_runtime::{ExtrinsicInclusionMode, traits::Block as BlockT};
+/// # use rp_test_primitives::Block;
 /// #
 /// # /// The declaration of the `Runtime` type is done by the `construct_runtime!` macro
 /// # /// in a real runtime.
 /// # pub enum Runtime {}
 /// #
-/// # sp_api::decl_runtime_apis! {
+/// # rp_api::decl_runtime_apis! {
 /// #     /// Declare the api trait.
 /// #     pub trait Balance {
 /// #         /// Get the balance.
@@ -306,9 +306,9 @@ pub use sp_api_proc_macro::decl_runtime_apis;
 /// # }
 ///
 /// /// All runtime api implementations need to be done in one call of the macro!
-/// sp_api::impl_runtime_apis! {
-/// #   impl sp_api::Core<Block> for Runtime {
-/// #       fn version() -> sp_version::RuntimeVersion {
+/// rp_api::impl_runtime_apis! {
+/// #   impl rp_api::Core<Block> for Runtime {
+/// #       fn version() -> rp_version::RuntimeVersion {
 /// #           unimplemented!()
 /// #       }
 /// #       fn execute_block(_block: <Block as BlockT>::LazyBlock) {}
@@ -334,7 +334,7 @@ pub use sp_api_proc_macro::decl_runtime_apis;
 /// }
 ///
 /// /// Runtime version. This needs to be declared for each runtime.
-/// pub const VERSION: sp_version::RuntimeVersion = sp_version::RuntimeVersion {
+/// pub const VERSION: rp_version::RuntimeVersion = rp_version::RuntimeVersion {
 ///     spec_name: alloc::borrow::Cow::Borrowed("node"),
 ///     impl_name: alloc::borrow::Cow::Borrowed("test-node"),
 ///     authoring_version: 1,
@@ -355,7 +355,7 @@ pub use sp_api_proc_macro::decl_runtime_apis;
 /// should specify which version it implements by adding `api_version` attribute to the
 /// `impl` block. If omitted - the base/default version is implemented. Here is an example:
 /// ```ignore
-/// sp_api::impl_runtime_apis! {
+/// rp_api::impl_runtime_apis! {
 ///     #[api_version(3)]
 ///     impl self::Balance<Block> for Runtime {
 ///          // implementation
@@ -372,7 +372,7 @@ pub use sp_api_proc_macro::decl_runtime_apis;
 /// feature flag. You can do it this way:
 /// ```ignore
 /// pub enum Runtime {}
-/// sp_api::decl_runtime_apis! {
+/// rp_api::decl_runtime_apis! {
 ///     pub trait ApiWithStagingMethod {
 ///         fn stable_one(data: u64);
 ///
@@ -381,7 +381,7 @@ pub use sp_api_proc_macro::decl_runtime_apis;
 ///     }
 /// }
 ///
-/// sp_api::impl_runtime_apis! {
+/// rp_api::impl_runtime_apis! {
 ///     #[cfg_attr(feature = "enable-staging-api", api_version(99))]
 ///     impl self::ApiWithStagingMethod<Block> for Runtime {
 ///         fn stable_one(_: u64) {}
@@ -412,7 +412,7 @@ pub use sp_api_proc_macro::decl_runtime_apis;
 ///  // impl skipped
 /// }
 /// ```
-pub use sp_api_proc_macro::impl_runtime_apis;
+pub use rp_api_proc_macro::impl_runtime_apis;
 
 /// Mocks given trait implementations as runtime apis.
 ///
@@ -428,10 +428,10 @@ pub use sp_api_proc_macro::impl_runtime_apis;
 /// # Example
 ///
 /// ```rust
-/// # use sp_runtime::traits::Block as BlockT;
-/// # use sp_test_primitives::Block;
+/// # use rp_runtime::traits::Block as BlockT;
+/// # use rp_test_primitives::Block;
 /// #
-/// # sp_api::decl_runtime_apis! {
+/// # rp_api::decl_runtime_apis! {
 /// #     /// Declare the api trait.
 /// #     pub trait Balance {
 /// #         /// Get the balance.
@@ -448,7 +448,7 @@ pub use sp_api_proc_macro::impl_runtime_apis;
 /// }
 ///
 /// /// All runtime api mock implementations need to be done in one call of the macro!
-/// sp_api::mock_impl_runtime_apis! {
+/// rp_api::mock_impl_runtime_apis! {
 ///     impl Balance<Block> for MockApi {
 ///         /// Here we take the `&self` to access the instance.
 ///         fn get_balance(&self) -> u64 {
@@ -473,7 +473,7 @@ pub use sp_api_proc_macro::impl_runtime_apis;
 ///
 /// This attribute can be placed above individual function in the mock implementation to
 /// request more control over the function declaration. From the client side each runtime api
-/// function is called with the `at` parameter that is a [`Hash`](sp_runtime::traits::Hash).
+/// function is called with the `at` parameter that is a [`Hash`](rp_runtime::traits::Hash).
 /// When using the `advanced` attribute, the macro expects that the first parameter of the
 /// function is this `at` parameter. Besides that the macro also doesn't do the automatic
 /// return value rewrite, which means that full return value must be specified. The full return
@@ -482,11 +482,11 @@ pub use sp_api_proc_macro::impl_runtime_apis;
 ///
 /// ## Example
 /// ```rust
-/// # use sp_runtime::traits::Block as BlockT;
-/// # use sp_test_primitives::Block;
+/// # use rp_runtime::traits::Block as BlockT;
+/// # use rp_test_primitives::Block;
 /// # use codec;
 /// #
-/// # sp_api::decl_runtime_apis! {
+/// # rp_api::decl_runtime_apis! {
 /// #     /// Declare the api trait.
 /// #     pub trait Balance {
 /// #         /// Get the balance.
@@ -499,16 +499,16 @@ pub use sp_api_proc_macro::impl_runtime_apis;
 ///     balance: u64,
 /// }
 ///
-/// sp_api::mock_impl_runtime_apis! {
+/// rp_api::mock_impl_runtime_apis! {
 ///     impl Balance<Block> for MockApi {
 ///         #[advanced]
-///         fn get_balance(&self, at: <Block as BlockT>::Hash) -> Result<u64, sp_api::ApiError> {
+///         fn get_balance(&self, at: <Block as BlockT>::Hash) -> Result<u64, rp_api::ApiError> {
 ///             println!("Being called at: {}", at);
 ///
 ///             Ok(self.balance.into())
 ///         }
 ///         #[advanced]
-///         fn set_balance(at: <Block as BlockT>::Hash, val: u64) -> Result<(), sp_api::ApiError> {
+///         fn set_balance(at: <Block as BlockT>::Hash, val: u64) -> Result<(), rp_api::ApiError> {
 ///             println!("Being called at: {}", at);
 ///
 ///             Ok(().into())
@@ -518,17 +518,17 @@ pub use sp_api_proc_macro::impl_runtime_apis;
 ///
 /// # fn main() {}
 /// ```
-pub use sp_api_proc_macro::mock_impl_runtime_apis;
+pub use rp_api_proc_macro::mock_impl_runtime_apis;
 
 /// A type that records all accessed trie nodes and generates a proof out of it.
 #[cfg(feature = "std")]
-pub type ProofRecorder<B> = sp_trie::recorder::Recorder<HashingFor<B>>;
+pub type ProofRecorder<B> = rp_trie::recorder::Recorder<HashingFor<B>>;
 
 #[cfg(feature = "std")]
-pub type ProofRecorderIgnoredNodes<B> = sp_trie::recorder::IgnoredNodes<<B as BlockT>::Hash>;
+pub type ProofRecorderIgnoredNodes<B> = rp_trie::recorder::IgnoredNodes<<B as BlockT>::Hash>;
 
 #[cfg(feature = "std")]
-pub type StorageChanges<Block> = sp_state_machine::StorageChanges<HashingFor<Block>>;
+pub type StorageChanges<Block> = rp_state_machine::StorageChanges<HashingFor<Block>>;
 
 /// Something that can be constructed to a runtime api.
 #[cfg(feature = "std")]
@@ -541,10 +541,10 @@ pub trait ConstructRuntimeApi<Block: BlockT, C: CallApiAt<Block>> {
 }
 
 #[docify::export]
-/// Init the [`RuntimeLogger`](sp_runtime::runtime_logger::RuntimeLogger).
+/// Init the [`RuntimeLogger`](rp_runtime::runtime_logger::RuntimeLogger).
 pub fn init_runtime_logger() {
 	#[cfg(not(feature = "disable-logging"))]
-	sp_runtime::runtime_logger::RuntimeLogger::init();
+	rp_runtime::runtime_logger::RuntimeLogger::init();
 }
 
 /// An error describing which API call failed.
@@ -857,6 +857,6 @@ decl_runtime_apis! {
 	}
 }
 
-sp_core::generate_feature_enabled_macro!(std_enabled, feature = "std", $);
-sp_core::generate_feature_enabled_macro!(std_disabled, not(feature = "std"), $);
-sp_core::generate_feature_enabled_macro!(frame_metadata_enabled, feature = "frame-metadata", $);
+rp_core::generate_feature_enabled_macro!(std_enabled, feature = "std", $);
+rp_core::generate_feature_enabled_macro!(std_disabled, not(feature = "std"), $);
+rp_core::generate_feature_enabled_macro!(frame_metadata_enabled, feature = "frame-metadata", $);

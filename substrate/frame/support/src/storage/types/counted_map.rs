@@ -31,9 +31,9 @@ use crate::{
 };
 use alloc::{vec, vec::Vec};
 use codec::{Decode, Encode, EncodeLike, FullCodec, MaxEncodedLen, Ref};
-use sp_io::MultiRemovalResults;
-use sp_metadata_ir::StorageEntryMetadataIR;
-use sp_runtime::traits::Saturating;
+use rp_io::MultiRemovalResults;
+use rp_metadata_ir::StorageEntryMetadataIR;
+use rp_runtime::traits::Saturating;
 
 /// A wrapper around a [`StorageMap`] and a [`StorageValue`] (with the value being `u32`) to keep
 /// track of how many items are in a map, without needing to iterate all the values.
@@ -338,7 +338,7 @@ where
 
 	/// Attempt to remove all items from the map.
 	///
-	/// Returns [`MultiRemovalResults`](sp_io::MultiRemovalResults) to inform about the result. Once
+	/// Returns [`MultiRemovalResults`](rp_io::MultiRemovalResults) to inform about the result. Once
 	/// the resultant `maybe_cursor` field is `None`, then no further items remain to be deleted.
 	///
 	/// NOTE: After the initial call for any given map, it is important that no further items
@@ -414,7 +414,7 @@ where
 		if current < bound {
 			CounterFor::<Prefix>::mutate(|value| value.saturating_inc());
 			let key = <Self as MapWrapper>::Map::hashed_key_for(key);
-			sp_io::storage::append(&key, item.encode());
+			rp_io::storage::append(&key, item.encode());
 			Ok(())
 		} else {
 			Err(())
@@ -509,7 +509,7 @@ where
 	MaxValues: Get<Option<u32>>,
 {
 	fn build_metadata(
-		deprecation_status: sp_metadata_ir::ItemDeprecationInfoIR,
+		deprecation_status: rp_metadata_ir::ItemDeprecationInfoIR,
 		docs: Vec<&'static str>,
 		entries: &mut Vec<StorageEntryMetadataIR>,
 	) {
@@ -569,8 +569,8 @@ mod test {
 		storage::{bounded_vec::BoundedVec, types::ValueQuery},
 		traits::ConstU32,
 	};
-	use sp_io::{hashing::twox_128, TestExternalities};
-	use sp_metadata_ir::{StorageEntryModifierIR, StorageEntryTypeIR, StorageHasherIR};
+	use rp_io::{hashing::twox_128, TestExternalities};
+	use rp_metadata_ir::{StorageEntryModifierIR, StorageEntryTypeIR, StorageHasherIR};
 
 	struct Prefix;
 	impl StorageInstance for Prefix {
@@ -1199,7 +1199,7 @@ mod test {
 		type A = CountedStorageMap<Prefix, Twox64Concat, u16, u32, ValueQuery, ADefault>;
 		let mut entries = vec![];
 		A::build_metadata(
-			sp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated,
+			rp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated,
 			vec![],
 			&mut entries,
 		);
@@ -1216,7 +1216,7 @@ mod test {
 					},
 					default: 97u32.encode(),
 					docs: vec![],
-					deprecation_info: sp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated,
+					deprecation_info: rp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated,
 				},
 				StorageEntryMetadataIR {
 					name: "counter_for_foo",
@@ -1228,7 +1228,7 @@ mod test {
 					} else {
 						vec!["Counter for the related counted storage map"]
 					},
-					deprecation_info: sp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated,
+					deprecation_info: rp_metadata_ir::ItemDeprecationInfoIR::NotDeprecated,
 				},
 			]
 		);

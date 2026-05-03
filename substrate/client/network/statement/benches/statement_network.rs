@@ -18,30 +18,30 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use futures::{stream, Stream, StreamExt};
-use sc_network::{
+use rc_network::{
 	service::traits::{NotificationEvent, NotificationService},
 	utils::LruHashSet,
 	NetworkPeers,
 };
-use sc_network_statement::{
+use rc_network_statement::{
 	config::{
 		DEFAULT_STATEMENTS_PER_SECOND, MAX_KNOWN_STATEMENTS, MAX_PENDING_STATEMENTS,
 		STATEMENTS_BURST_COEFFICIENT,
 	},
 	Peer, StatementHandler,
 };
-use sc_network_sync::{SyncEvent, SyncEventStream};
-use sc_network_types::PeerId;
-use sc_statement_store::Store;
-use sp_core::Pair;
-use sp_statement_store::{Statement, StatementSource, StatementStore};
+use rc_network_sync::{SyncEvent, SyncEventStream};
+use rc_network_types::PeerId;
+use rc_statement_store::Store;
+use rp_core::Pair;
+use rp_statement_store::{Statement, StatementSource, StatementStore};
 use std::{
 	collections::HashMap,
 	num::{NonZeroU32, NonZeroUsize},
 	pin::Pin,
 	sync::Arc,
 };
-use substrate_test_runtime_client::{sc_executor::WasmExecutor, DefaultTestClientBuilderExt};
+use substrate_test_runtime_client::{rc_executor::WasmExecutor, DefaultTestClientBuilderExt};
 
 const STATEMENT_DATA_SIZE: usize = 256;
 
@@ -58,35 +58,35 @@ impl TestNetwork {
 impl NetworkPeers for TestNetwork {
 	fn set_authorized_peers(&self, _: std::collections::HashSet<PeerId>) {}
 	fn set_authorized_only(&self, _: bool) {}
-	fn add_known_address(&self, _: PeerId, _: sc_network::Multiaddr) {}
-	fn report_peer(&self, _peer_id: PeerId, _cost_benefit: sc_network::ReputationChange) {}
+	fn add_known_address(&self, _: PeerId, _: rc_network::Multiaddr) {}
+	fn report_peer(&self, _peer_id: PeerId, _cost_benefit: rc_network::ReputationChange) {}
 	fn peer_reputation(&self, _: &PeerId) -> i32 {
 		unimplemented!()
 	}
-	fn disconnect_peer(&self, _: PeerId, _: sc_network::ProtocolName) {}
+	fn disconnect_peer(&self, _: PeerId, _: rc_network::ProtocolName) {}
 	fn accept_unreserved_peers(&self) {}
 	fn deny_unreserved_peers(&self) {}
-	fn add_reserved_peer(&self, _: sc_network::config::MultiaddrWithPeerId) -> Result<(), String> {
+	fn add_reserved_peer(&self, _: rc_network::config::MultiaddrWithPeerId) -> Result<(), String> {
 		unimplemented!()
 	}
 	fn remove_reserved_peer(&self, _: PeerId) {}
 	fn set_reserved_peers(
 		&self,
-		_: sc_network::ProtocolName,
-		_: std::collections::HashSet<sc_network::Multiaddr>,
+		_: rc_network::ProtocolName,
+		_: std::collections::HashSet<rc_network::Multiaddr>,
 	) -> Result<(), String> {
 		unimplemented!()
 	}
 	fn add_peers_to_reserved_set(
 		&self,
-		_: sc_network::ProtocolName,
-		_: std::collections::HashSet<sc_network::Multiaddr>,
+		_: rc_network::ProtocolName,
+		_: std::collections::HashSet<rc_network::Multiaddr>,
 	) -> Result<(), String> {
 		unimplemented!()
 	}
 	fn remove_peers_from_reserved_set(
 		&self,
-		_: sc_network::ProtocolName,
+		_: rc_network::ProtocolName,
 		_: Vec<PeerId>,
 	) -> Result<(), String> {
 		unimplemented!()
@@ -94,7 +94,7 @@ impl NetworkPeers for TestNetwork {
 	fn sync_num_connected(&self) -> usize {
 		unimplemented!()
 	}
-	fn peer_role(&self, _: PeerId, _: Vec<u8>) -> Option<sc_network::ObservedRole> {
+	fn peer_role(&self, _: PeerId, _: Vec<u8>) -> Option<rc_network::ObservedRole> {
 		unimplemented!()
 	}
 	async fn reserved_peers(&self) -> Result<Vec<PeerId>, ()> {
@@ -116,7 +116,7 @@ impl SyncEventStream for TestSync {
 	}
 }
 
-impl sp_consensus::SyncOracle for TestSync {
+impl rp_consensus::SyncOracle for TestSync {
 	fn is_major_syncing(&self) -> bool {
 		unimplemented!()
 	}
@@ -125,11 +125,11 @@ impl sp_consensus::SyncOracle for TestSync {
 	}
 }
 
-impl sc_network::NetworkEventStream for TestNetwork {
+impl rc_network::NetworkEventStream for TestNetwork {
 	fn event_stream(
 		&self,
 		_name: &'static str,
-	) -> Pin<Box<dyn Stream<Item = sc_network::Event> + Send>> {
+	) -> Pin<Box<dyn Stream<Item = rc_network::Event> + Send>> {
 		unimplemented!()
 	}
 }
@@ -150,7 +150,7 @@ impl NotificationService for TestNotificationService {
 		&mut self,
 		_peer: &PeerId,
 		_notification: Vec<u8>,
-	) -> Result<(), sc_network::error::Error> {
+	) -> Result<(), rc_network::error::Error> {
 		unimplemented!()
 	}
 	async fn set_handshake(&mut self, _handshake: Vec<u8>) -> Result<(), ()> {
@@ -165,18 +165,18 @@ impl NotificationService for TestNotificationService {
 	fn clone(&mut self) -> Result<Box<dyn NotificationService>, ()> {
 		unimplemented!()
 	}
-	fn protocol(&self) -> &sc_network::types::ProtocolName {
+	fn protocol(&self) -> &rc_network::types::ProtocolName {
 		unimplemented!()
 	}
 	fn message_sink(
 		&self,
 		_peer: &PeerId,
-	) -> Option<Box<dyn sc_network::service::traits::MessageSink>> {
+	) -> Option<Box<dyn rc_network::service::traits::MessageSink>> {
 		unimplemented!()
 	}
 }
 
-fn create_signed_statement(id: usize, keypair: &sp_core::ed25519::Pair) -> Statement {
+fn create_signed_statement(id: usize, keypair: &rp_core::ed25519::Pair) -> Statement {
 	let mut statement = Statement::new();
 	let mut data = vec![0u8; STATEMENT_DATA_SIZE];
 	data[0..8].copy_from_slice(&id.to_le_bytes());
@@ -205,21 +205,21 @@ fn build_handler(
 		Some(wasm_executor),
 	);
 	let client = Arc::new(client);
-	let keystore = Arc::new(sc_keystore::LocalKeystore::in_memory());
+	let keystore = Arc::new(rc_keystore::LocalKeystore::in_memory());
 	let statement_store = Store::new(
 		&path,
 		Default::default(),
 		client,
 		keystore,
 		None,
-		Box::new(sp_core::testing::TaskExecutor::new()),
+		Box::new(rp_core::testing::TaskExecutor::new()),
 	)
 	.unwrap();
 	let statement_store = Arc::new(statement_store);
 
 	let (queue_sender, queue_receiver) = async_channel::bounded::<(
 		Statement,
-		futures::channel::oneshot::Sender<sp_statement_store::SubmitResult>,
+		futures::channel::oneshot::Sender<rp_statement_store::SubmitResult>,
 	)>(MAX_PENDING_STATEMENTS);
 
 	let network = TestNetwork::new();
@@ -307,7 +307,7 @@ fn bench_on_statements(c: &mut Criterion) {
 	let max_runtime_instances = 8;
 	let executor_types = [("blocking", true), ("non_blocking", false)];
 
-	let keypair = sp_core::ed25519::Pair::from_string("//Bench", None).unwrap();
+	let keypair = rp_core::ed25519::Pair::from_string("//Bench", None).unwrap();
 	let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 	let handle = runtime.handle();
 

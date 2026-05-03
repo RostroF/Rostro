@@ -45,13 +45,13 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::BlockNumberFor;
 use scale_info::TypeInfo;
-use sp_core::Get;
-pub use sp_npos_elections::{ElectionResult, ElectionScore};
-use sp_runtime::{
+use rp_core::Get;
+pub use rp_npos_elections::{ElectionResult, ElectionScore};
+use rp_runtime::{
 	traits::{CheckedSub, One, Zero},
 	SaturatedConversion, Saturating,
 };
-use sp_std::{collections::btree_set::BTreeSet, fmt::Debug, prelude::*};
+use rp_std::{collections::btree_set::BTreeSet, fmt::Debug, prelude::*};
 
 /// The solution type used by this crate.
 pub type SolutionOf<T> = <T as MinerConfig>::Solution;
@@ -66,7 +66,7 @@ pub type FallbackErrorOf<T> = <<T as crate::Config>::Fallback as ElectionProvide
 
 /// The relative distribution of a voter's stake among the winning targets.
 pub type AssignmentOf<T> =
-	sp_npos_elections::Assignment<<T as MinerConfig>::AccountId, SolutionAccuracyOf<T>>;
+	rp_npos_elections::Assignment<<T as MinerConfig>::AccountId, SolutionAccuracyOf<T>>;
 
 /// A paginated raw solution type.
 ///
@@ -174,7 +174,7 @@ impl<T: Default + Clone + Debug> PadSolutionPages for Vec<T> {
 
 		// we basically need to prepend the list with this many items.
 		let empty_slots = desired_pages_usize.saturating_sub(self.len());
-		sp_std::iter::repeat(Default::default())
+		rp_std::iter::repeat(Default::default())
 			.take(empty_slots)
 			.chain(self.into_iter())
 			.collect::<Vec<_>>()
@@ -193,7 +193,7 @@ impl<T: Default + Clone + Debug, Bound: frame_support::traits::Get<u32>> PadSolu
 
 		// we basically need to prepend the list with this many items.
 		let empty_slots = desired_pages_usize.saturating_sub(self.len());
-		let self_as_vec = sp_std::iter::repeat(Default::default())
+		let self_as_vec = rp_std::iter::repeat(Default::default())
 			.take(empty_slots)
 			.chain(self.into_iter())
 			.collect::<Vec<_>>();
@@ -214,7 +214,7 @@ pub type VoterPageOf<T> = BoundedVec<VoterOf<T>, <T as MinerConfig>::VoterSnapsh
 pub type AllVoterPagesOf<T> = BoundedVec<VoterPageOf<T>, <T as MinerConfig>::Pages>;
 
 /// Maximum number of items that [`AllVoterPagesOf`] can contain, when flattened.
-pub struct MaxFlattenedVoters<T: MinerConfig>(sp_std::marker::PhantomData<T>);
+pub struct MaxFlattenedVoters<T: MinerConfig>(rp_std::marker::PhantomData<T>);
 impl<T: MinerConfig> Get<u32> for MaxFlattenedVoters<T> {
 	fn get() -> u32 {
 		T::VoterSnapshotPerBlock::get().saturating_mul(T::Pages::get())

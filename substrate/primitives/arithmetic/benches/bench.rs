@@ -17,7 +17,7 @@
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use rand::Rng;
-use sp_arithmetic::biguint::{BigUint, Single};
+use rp_arithmetic::biguint::{BigUint, Single};
 
 fn random_big_uint(size: usize) -> BigUint {
 	let mut rng = rand::thread_rng();

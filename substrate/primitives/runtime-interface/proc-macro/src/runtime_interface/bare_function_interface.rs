@@ -187,7 +187,7 @@ fn function_std_impl(
 			iter::from_fn(|| {
 				if is_wasm_only {
 					Some(parse_quote!(
-						mut __function_context__: &mut dyn #crate_::sp_wasm_interface::FunctionContext
+						mut __function_context__: &mut dyn #crate_::rp_wasm_interface::FunctionContext
 					))
 				} else {
 					None
@@ -203,7 +203,7 @@ fn function_std_impl(
 		call_to_trait
 	} else {
 		parse_quote!(
-			#crate_::sp_tracing::within_span! { #crate_::sp_tracing::trace_span!(#function_name_str);
+			#crate_::rp_tracing::within_span! { #crate_::rp_tracing::trace_span!(#function_name_str);
 				#call_to_trait
 			}
 		)
@@ -250,7 +250,7 @@ fn generate_call_to_trait(
 	} else {
 		// The name of the trait the interface trait is implemented for
 		let impl_trait_name = if is_wasm_only {
-			quote!( #crate_::sp_wasm_interface::FunctionContext )
+			quote!( #crate_::rp_wasm_interface::FunctionContext )
 		} else {
 			quote!( #crate_::Externalities )
 		};

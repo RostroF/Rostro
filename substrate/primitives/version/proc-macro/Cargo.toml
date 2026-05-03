@@ -1,5 +1,5 @@
 [package]
-name = "sp-version-proc-macro"
+name = "rp-version-proc-macro"
 version = "15.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Macro for defining a runtime version."
-documentation = "https://docs.rs/sp-api-proc-macro"
+documentation = "https://docs.rs/rp-api-proc-macro"
 
 [lints]
 workspace = true
@@ -26,4 +26,4 @@ quote = { workspace = true }
 syn = { features = ["extra-traits", "fold", "full", "visit"], workspace = true }
 
 [dev-dependencies]
-sp-version = { default-features = true, workspace = true }
+rp-version = { default-features = true, workspace = true }

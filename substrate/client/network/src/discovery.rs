@@ -81,7 +81,7 @@ use libp2p::{
 };
 use linked_hash_set::LinkedHashSet;
 use log::{debug, error, info, trace, warn};
-use sp_core::hexdisplay::HexDisplay;
+use rp_core::hexdisplay::HexDisplay;
 use std::{
 	cmp,
 	collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
@@ -476,7 +476,7 @@ impl DiscoveryBehaviour {
 	pub fn put_record_to(
 		&mut self,
 		record: Record,
-		peers: HashSet<sc_network_types::PeerId>,
+		peers: HashSet<rc_network_types::PeerId>,
 		update_local_storage: bool,
 	) {
 		if let Some(kad) = self.kademlia.as_mut() {
@@ -624,7 +624,7 @@ pub enum DiscoveryOut {
 	PutRecordRequest(
 		RecordKey,
 		Vec<u8>,
-		Option<sc_network_types::PeerId>,
+		Option<rc_network_types::PeerId>,
 		Option<std::time::Instant>,
 	),
 
@@ -1330,7 +1330,7 @@ mod tests {
 	use super::{kademlia_protocol_name, legacy_kademlia_protocol_name, DiscoveryConfig};
 	use crate::config::ProtocolId;
 	use libp2p::{identity::Keypair, Multiaddr};
-	use sp_core::hash::H256;
+	use rp_core::hash::H256;
 
 	#[cfg(ignore_flaky_test)] // https://github.com/paritytech/polkadot-sdk/issues/48
 	#[tokio::test]

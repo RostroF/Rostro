@@ -20,10 +20,10 @@
 
 pub use jsonrpsee::server::BatchRequestConfig as RpcBatchRequestConfig;
 use prometheus_endpoint::Registry;
-use sc_chain_spec::ChainSpec;
-pub use sc_client_db::{BlocksPruning, Database, DatabaseSource, PruningMode};
-pub use sc_executor::{WasmExecutionMethod, WasmtimeInstantiationStrategy};
-pub use sc_network::{
+use rc_chain_spec::ChainSpec;
+pub use rc_client_db::{BlocksPruning, Database, DatabaseSource, PruningMode};
+pub use rc_executor::{WasmExecutionMethod, WasmtimeInstantiationStrategy};
+pub use rc_network::{
 	config::{
 		MultiaddrWithPeerId, NetworkConfiguration, NodeKeyConfig, NonDefaultSetConfig, ProtocolId,
 		Role, SetConfig, SyncMode, TransportConfig,
@@ -33,12 +33,12 @@ pub use sc_network::{
 	},
 	Multiaddr,
 };
-pub use sc_rpc_server::{
+pub use rc_rpc_server::{
 	IpNetwork, RpcEndpoint, RpcMethods, SubscriptionIdProvider as RpcSubscriptionIdProvider,
 };
-pub use sc_telemetry::TelemetryEndpoints;
-pub use sc_transaction_pool::TransactionPoolOptions;
-use sp_core::crypto::SecretString;
+pub use rc_telemetry::TelemetryEndpoints;
+pub use rc_transaction_pool::TransactionPoolOptions;
+use rp_core::crypto::SecretString;
 use std::{
 	io, iter,
 	net::SocketAddr,
@@ -52,7 +52,7 @@ use tempfile::TempDir;
 pub struct Configuration {
 	/// Implementation name
 	pub impl_name: String,
-	/// Implementation version (see sc-cli to see an example of format)
+	/// Implementation version (see rc-cli to see an example of format)
 	pub impl_version: String,
 	/// Node role.
 	pub role: Role,
@@ -108,7 +108,7 @@ pub struct Configuration {
 	/// Tracing targets
 	pub tracing_targets: Option<String>,
 	/// Tracing receiver
-	pub tracing_receiver: sc_tracing::TracingReceiver,
+	pub tracing_receiver: rc_tracing::TracingReceiver,
 	/// Announce block automatically after they have been imported
 	pub announce_block: bool,
 	/// Data path root for the configured chain.
@@ -229,8 +229,8 @@ impl Configuration {
 	}
 
 	/// Returns the database config for creating the backend.
-	pub fn db_config(&self) -> sc_client_db::DatabaseSettings {
-		sc_client_db::DatabaseSettings {
+	pub fn db_config(&self) -> rc_client_db::DatabaseSettings {
+		rc_client_db::DatabaseSettings {
 			trie_cache_maximum_size: self.trie_cache_maximum_size,
 			state_pruning: self.state_pruning.clone(),
 			source: self.database.clone(),

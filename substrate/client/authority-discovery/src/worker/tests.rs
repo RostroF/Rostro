@@ -34,19 +34,19 @@ use futures::{
 	task::LocalSpawn,
 };
 use prometheus_endpoint::prometheus::default_registry;
-use sc_client_api::HeaderBackend;
-use sc_network::{
+use rc_client_api::HeaderBackend;
+use rc_network::{
 	service::signature::{Keypair, SigningError},
 	PublicKey, Signature,
 };
-use sc_network_types::{
+use rc_network_types::{
 	kad::Key as KademliaKey,
 	multiaddr::{Multiaddr, Protocol},
 	PeerId,
 };
-use sp_api::{ApiRef, ProvideRuntimeApi};
-use sp_keystore::{testing::MemoryKeystore, Keystore};
-use sp_runtime::traits::{Block as BlockT, NumberFor, Zero};
+use rp_api::{ApiRef, ProvideRuntimeApi};
+use rp_keystore::{testing::MemoryKeystore, Keystore};
+use rp_runtime::traits::{Block as BlockT, NumberFor, Zero};
 use substrate_test_runtime_client::runtime::Block;
 
 #[derive(Clone)]
@@ -67,12 +67,12 @@ impl<Block: BlockT> HeaderBackend<Block> for TestApi {
 	fn header(
 		&self,
 		_hash: Block::Hash,
-	) -> std::result::Result<Option<Block::Header>, sp_blockchain::Error> {
+	) -> std::result::Result<Option<Block::Header>, rp_blockchain::Error> {
 		Ok(None)
 	}
 
-	fn info(&self) -> sc_client_api::blockchain::Info<Block> {
-		sc_client_api::blockchain::Info {
+	fn info(&self) -> rc_client_api::blockchain::Info<Block> {
+		rc_client_api::blockchain::Info {
 			best_hash: Default::default(),
 			best_number: Zero::zero(),
 			finalized_hash: Default::default(),
@@ -87,21 +87,21 @@ impl<Block: BlockT> HeaderBackend<Block> for TestApi {
 	fn status(
 		&self,
 		_hash: Block::Hash,
-	) -> std::result::Result<sc_client_api::blockchain::BlockStatus, sp_blockchain::Error> {
-		Ok(sc_client_api::blockchain::BlockStatus::Unknown)
+	) -> std::result::Result<rc_client_api::blockchain::BlockStatus, rp_blockchain::Error> {
+		Ok(rc_client_api::blockchain::BlockStatus::Unknown)
 	}
 
 	fn number(
 		&self,
 		_hash: Block::Hash,
-	) -> std::result::Result<Option<NumberFor<Block>>, sp_blockchain::Error> {
+	) -> std::result::Result<Option<NumberFor<Block>>, rp_blockchain::Error> {
 		Ok(None)
 	}
 
 	fn hash(
 		&self,
 		_number: NumberFor<Block>,
-	) -> std::result::Result<Option<Block::Hash>, sp_blockchain::Error> {
+	) -> std::result::Result<Option<Block::Hash>, rp_blockchain::Error> {
 		Ok(None)
 	}
 }
@@ -110,7 +110,7 @@ pub(crate) struct RuntimeApi {
 	authorities: Vec<AuthorityId>,
 }
 
-sp_api::mock_impl_runtime_apis! {
+rp_api::mock_impl_runtime_apis! {
 	impl AuthorityDiscoveryApi<Block> for RuntimeApi {
 		fn authorities(&self) -> Vec<AuthorityId> {
 			self.authorities.clone()
@@ -127,16 +127,16 @@ pub enum TestNetworkEvent {
 }
 
 pub struct TestNetwork {
-	peer_id: sc_network_types::PeerId,
+	peer_id: rc_network_types::PeerId,
 	identity: Keypair,
 	external_addresses: Vec<Multiaddr>,
 	// Whenever functions on `TestNetwork` are called, the function arguments are added to the
 	// vectors below.
 	pub put_value_call: Arc<Mutex<Vec<(KademliaKey, Vec<u8>)>>>,
-	pub put_value_to_call: Arc<Mutex<Vec<(Record, HashSet<sc_network_types::PeerId>, bool)>>>,
+	pub put_value_to_call: Arc<Mutex<Vec<(Record, HashSet<rc_network_types::PeerId>, bool)>>>,
 	pub get_value_call: Arc<Mutex<Vec<KademliaKey>>>,
 	pub store_value_call:
-		Arc<Mutex<Vec<(KademliaKey, Vec<u8>, Option<sc_network_types::PeerId>, Option<Instant>)>>>,
+		Arc<Mutex<Vec<(KademliaKey, Vec<u8>, Option<rc_network_types::PeerId>, Option<Instant>)>>>,
 
 	event_sender: mpsc::UnboundedSender<TestNetworkEvent>,
 	event_receiver: Option<mpsc::UnboundedReceiver<TestNetworkEvent>>,
@@ -176,7 +176,7 @@ impl NetworkSigner for TestNetwork {
 
 	fn verify(
 		&self,
-		peer_id: sc_network_types::PeerId,
+		peer_id: rc_network_types::PeerId,
 		public_key: &Vec<u8>,
 		signature: &Vec<u8>,
 		message: &Vec<u8>,
@@ -203,7 +203,7 @@ impl NetworkDHTProvider for TestNetwork {
 	fn put_record_to(
 		&self,
 		record: Record,
-		peers: HashSet<sc_network_types::PeerId>,
+		peers: HashSet<rc_network_types::PeerId>,
 		update_local_storage: bool,
 	) {
 		self.put_value_to_call.lock().unwrap().push((
@@ -251,7 +251,7 @@ impl NetworkDHTProvider for TestNetwork {
 }
 
 impl NetworkStateInfo for TestNetwork {
-	fn local_peer_id(&self) -> sc_network_types::PeerId {
+	fn local_peer_id(&self) -> rc_network_types::PeerId {
 		self.peer_id.into()
 	}
 
@@ -278,7 +278,7 @@ impl<'a> NetworkSigner for TestSigner<'a> {
 
 	fn verify(
 		&self,
-		_: sc_network_types::PeerId,
+		_: rc_network_types::PeerId,
 		_: &Vec<u8>,
 		_: &Vec<u8>,
 		_: &Vec<u8>,
@@ -338,7 +338,7 @@ async fn new_registers_metrics() {
 
 #[tokio::test]
 async fn triggers_dht_get_query() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let (_dht_event_tx, dht_event_rx) = channel(1000);
 
 	// Generate authority keys
@@ -374,7 +374,7 @@ async fn triggers_dht_get_query() {
 
 #[tokio::test]
 async fn publish_discover_cycle() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let mut pool = LocalPool::new();
 
@@ -615,13 +615,13 @@ async fn dont_stop_polling_dht_event_stream_after_bogus_event() {
 
 struct DhtValueFoundTester {
 	pub remote_key_store: MemoryKeystore,
-	pub remote_authority_public: sp_core::sr25519::Public,
+	pub remote_authority_public: rp_core::sr25519::Public,
 	pub remote_node_key: Keypair,
 	pub local_worker: Option<
 		Worker<
 			TestApi,
-			sp_runtime::generic::Block<
-				sp_runtime::generic::Header<u64, sp_runtime::traits::BlakeTwo256>,
+			rp_runtime::generic::Block<
+				rp_runtime::generic::Header<u64, rp_runtime::traits::BlakeTwo256>,
 				substrate_test_runtime_client::runtime::Extrinsic,
 			>,
 			std::pin::Pin<Box<futures::channel::mpsc::Receiver<DhtEvent>>>,

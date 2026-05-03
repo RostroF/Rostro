@@ -22,8 +22,8 @@ frame-system = { default-features = true, workspace = true }
 pallet-bags-list = { features = ["fuzz"], workspace = true, default-features = true }
 pallet-staking = { default-features = true, workspace = true }
 remote-externalities = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }
 
 # others
 log = { workspace = true, default-features = true }

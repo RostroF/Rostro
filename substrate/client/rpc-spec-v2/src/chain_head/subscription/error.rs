@@ -16,7 +16,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use sp_blockchain::Error;
+use rp_blockchain::Error;
 
 /// Subscription management error.
 #[derive(Debug, thiserror::Error)]

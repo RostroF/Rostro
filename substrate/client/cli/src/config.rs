@@ -25,7 +25,7 @@ use crate::{
 };
 use log::warn;
 use names::{Generator, Name};
-use sc_service::{
+use rc_service::{
 	config::{
 		BasePath, Configuration, DatabaseSource, ExecutorConfiguration, IpNetwork, KeystoreConfig,
 		NetworkConfiguration, NodeKeyConfig, OffchainWorkerConfig, PrometheusConfig, PruningMode,
@@ -34,7 +34,7 @@ use sc_service::{
 	},
 	BlocksPruning, ChainSpec, TracingReceiver,
 };
-use sc_tracing::logging::LoggerBuilder;
+use rc_tracing::logging::LoggerBuilder;
 use std::{num::NonZeroU32, path::PathBuf};
 
 /// The maximum number of characters for a node name.
@@ -255,7 +255,7 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 	/// Get if we should warm up the trie cache.
 	///
 	/// By default this is retrieved from `ImportParams` if it is available. Otherwise its `None`.
-	fn warm_up_trie_cache(&self) -> Result<Option<sc_service::config::TrieCacheWarmUpStrategy>> {
+	fn warm_up_trie_cache(&self) -> Result<Option<rc_service::config::TrieCacheWarmUpStrategy>> {
 		Ok(self
 			.import_params()
 			.map(|x| x.warm_up_trie_cache().map(|x| x.into()))
@@ -515,7 +515,7 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		let telemetry_endpoints = self.telemetry_endpoints(&chain_spec)?;
 		let runtime_cache_size = self.runtime_cache_size()?;
 
-		let rpc_addrs: Option<Vec<sc_service::config::RpcEndpoint>> = self
+		let rpc_addrs: Option<Vec<rc_service::config::RpcEndpoint>> = self
 			.rpc_addr(DCV::rpc_listen_port())?
 			.map(|addrs| addrs.into_iter().map(Into::into).collect());
 
@@ -620,15 +620,15 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 	///
 	/// Example:
 	/// ```
-	/// use sc_tracing::{SpanDatum, TraceEvent};
+	/// use rc_tracing::{SpanDatum, TraceEvent};
 	/// struct TestProfiler;
 	///
-	/// impl sc_tracing::TraceHandler for TestProfiler {
+	/// impl rc_tracing::TraceHandler for TestProfiler {
 	///  	fn handle_span(&self, sd: &SpanDatum) {}
 	/// 		fn handle_event(&self, _event: &TraceEvent) {}
 	/// };
 	///
-	/// fn logger_hook() -> impl FnOnce(&mut sc_cli::LoggerBuilder, &sc_service::Configuration) -> () {
+	/// fn logger_hook() -> impl FnOnce(&mut rc_cli::LoggerBuilder, &rc_service::Configuration) -> () {
 	/// 	|logger_builder, config| {
 	/// 			logger_builder.with_custom_profiling(Box::new(TestProfiler{}));
 	/// 	}
@@ -638,7 +638,7 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 	where
 		F: FnOnce(&mut LoggerBuilder),
 	{
-		sp_panic_handler::set(support_url, impl_version);
+		rp_panic_handler::set(support_url, impl_version);
 
 		let mut logger = LoggerBuilder::new(self.log_filters()?);
 		logger

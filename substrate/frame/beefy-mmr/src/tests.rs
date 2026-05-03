@@ -18,15 +18,15 @@
 use std::vec;
 
 use codec::{Decode, Encode};
-use sp_consensus_beefy::{
+use rp_consensus_beefy::{
 	known_payloads,
 	mmr::{BeefyNextAuthoritySet, MmrLeafVersion},
 	AncestryHelper, Commitment, Payload, ValidatorSet,
 };
 
-use sp_core::H256;
-use sp_io::TestExternalities;
-use sp_runtime::{traits::Keccak256, DigestItem};
+use rp_core::H256;
+use rp_io::TestExternalities;
+use rp_runtime::{traits::Keccak256, DigestItem};
 
 use frame_support::traits::OnInitialize;
 

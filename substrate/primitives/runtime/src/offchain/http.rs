@@ -17,7 +17,7 @@
 
 //! A high-level helpers for making HTTP requests from Offchain Workers.
 //!
-//! `sp-io` crate exposes a low level methods to make and control HTTP requests
+//! `rp-io` crate exposes a low level methods to make and control HTTP requests
 //! available only for Offchain Workers. Those might be hard to use
 //! and usually that level of control is not really necessary.
 //! This module aims to provide high-level wrappers for those APIs
@@ -26,7 +26,7 @@
 //!
 //! Example:
 //! ```rust,no_run
-//! use sp_runtime::offchain::http::Request;
+//! use rp_runtime::offchain::http::Request;
 //!
 //! // initiate a GET request to localhost:1234
 //! let request: Request = Request::get("http://localhost:1234");
@@ -49,7 +49,7 @@
 //! ```
 
 use alloc::{str, vec, vec::Vec};
-use sp_core::offchain::{
+use rp_core::offchain::{
 	HttpError, HttpRequestId as RequestId, HttpRequestStatus as RequestStatus, Timestamp,
 };
 
@@ -102,7 +102,7 @@ mod header {
 		/// Returns the name of this header.
 		pub fn name(&self) -> &str {
 			// Header keys are always produced from `&str` so this is safe.
-			// we don't store them as `Strings` to avoid bringing `alloc::String` to sp-std
+			// we don't store them as `Strings` to avoid bringing `alloc::String` to rp-std
 			// or here.
 			unsafe { str::from_utf8_unchecked(&self.name) }
 		}
@@ -110,7 +110,7 @@ mod header {
 		/// Returns the value of this header.
 		pub fn value(&self) -> &str {
 			// Header values are always produced from `&str` so this is safe.
-			// we don't store them as `Strings` to avoid bringing `alloc::String` to sp-std
+			// we don't store them as `Strings` to avoid bringing `alloc::String` to rp-std
 			// or here.
 			unsafe { str::from_utf8_unchecked(&self.value) }
 		}
@@ -206,22 +206,22 @@ impl<'a, I: AsRef<[u8]>, T: IntoIterator<Item = I>> Request<'a, T> {
 		let meta = &[];
 
 		// start an http request.
-		let id = sp_io::offchain::http_request_start(self.method.as_ref(), self.url, meta)
+		let id = rp_io::offchain::http_request_start(self.method.as_ref(), self.url, meta)
 			.map_err(|_| HttpError::IoError)?;
 
 		// add custom headers
 		for header in &self.headers {
-			sp_io::offchain::http_request_add_header(id, header.name(), header.value())
+			rp_io::offchain::http_request_add_header(id, header.name(), header.value())
 				.map_err(|_| HttpError::IoError)?
 		}
 
 		// write body
 		for chunk in self.body {
-			sp_io::offchain::http_request_write_body(id, chunk.as_ref(), self.deadline)?;
+			rp_io::offchain::http_request_write_body(id, chunk.as_ref(), self.deadline)?;
 		}
 
 		// finalize the request
-		sp_io::offchain::http_request_write_body(id, &[], self.deadline)?;
+		rp_io::offchain::http_request_write_body(id, &[], self.deadline)?;
 
 		Ok(PendingRequest { id })
 	}
@@ -290,7 +290,7 @@ impl PendingRequest {
 		deadline: impl Into<Option<Timestamp>>,
 	) -> Vec<Result<HttpResult, PendingRequest>> {
 		let ids = requests.iter().map(|r| r.id).collect::<Vec<_>>();
-		let statuses = sp_io::offchain::http_response_wait(&ids, deadline.into());
+		let statuses = rp_io::offchain::http_response_wait(&ids, deadline.into());
 
 		statuses
 			.into_iter()
@@ -324,7 +324,7 @@ impl Response {
 	/// Retrieve the headers for this response.
 	pub fn headers(&mut self) -> &Headers {
 		if self.headers.is_none() {
-			self.headers = Some(Headers { raw: sp_io::offchain::http_response_headers(self.id) });
+			self.headers = Some(Headers { raw: rp_io::offchain::http_response_headers(self.id) });
 		}
 		self.headers.as_ref().expect("Headers were just set; qed")
 	}
@@ -404,7 +404,7 @@ impl Iterator for ResponseBody {
 
 		if self.filled_up_to.is_none() {
 			let result =
-				sp_io::offchain::http_response_read_body(self.id, &mut self.buffer, self.deadline);
+				rp_io::offchain::http_response_read_body(self.id, &mut self.buffer, self.deadline);
 			match result {
 				Err(e) => {
 					self.error = Some(e);
@@ -489,8 +489,8 @@ impl<'a> HeadersIterator<'a> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sp_core::offchain::{testing, OffchainWorkerExt};
-	use sp_io::TestExternalities;
+	use rp_core::offchain::{testing, OffchainWorkerExt};
+	use rp_io::TestExternalities;
 
 	#[test]
 	fn should_send_a_basic_request_and_get_response() {

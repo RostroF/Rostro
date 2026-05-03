@@ -25,8 +25,8 @@ use crate::{
 	DispatchResultWithInfo, KeyTypeId, OpaqueExtrinsic,
 };
 use serde::{de::Error as DeError, Deserialize, Deserializer, Serialize};
-use sp_core::crypto::{key_types, ByteArray, CryptoType, Dummy};
-pub use sp_core::{sr25519, H256};
+use rp_core::crypto::{key_types, ByteArray, CryptoType, Dummy};
+pub use rp_core::{sr25519, H256};
 use std::{cell::RefCell, fmt::Debug};
 
 /// A dummy type which can be used instead of regular cryptographic primitives.
@@ -108,7 +108,7 @@ thread_local! {
 	static ALL_KEYS: RefCell<Vec<UintAuthorityId>> = RefCell::new(vec![]);
 }
 
-impl sp_application_crypto::RuntimeAppPublic for UintAuthorityId {
+impl rp_application_crypto::RuntimeAppPublic for UintAuthorityId {
 	const ID: KeyTypeId = key_types::DUMMY;
 
 	type Signature = TestSignature;

@@ -37,12 +37,12 @@ use error::Error;
 use finality::{EncodedFinalityProof, RpcFinalityProofProvider};
 use notification::JustificationNotification;
 use report::{ReportAuthoritySet, ReportVoterState, ReportedRoundStates};
-use sc_consensus_grandpa::GrandpaJustificationStream;
-use sc_rpc::{
+use rc_consensus_grandpa::GrandpaJustificationStream;
+use rc_rpc::{
 	utils::{BoundedVecDeque, PendingSubscription},
 	SubscriptionTaskExecutor,
 };
-use sp_runtime::traits::{Block as BlockT, NumberFor};
+use rp_runtime::traits::{Block as BlockT, NumberFor};
 
 /// Provides RPC methods for interacting with GRANDPA.
 #[rpc(client, server)]
@@ -106,12 +106,12 @@ where
 
 	fn subscribe_justifications(&self, pending: PendingSubscriptionSink) {
 		let stream = self.justification_stream.subscribe(100_000).map(
-			|x: sc_consensus_grandpa::GrandpaJustification<Block>| {
+			|x: rc_consensus_grandpa::GrandpaJustification<Block>| {
 				JustificationNotification::from(x)
 			},
 		);
 
-		sc_rpc::utils::spawn_subscription_task(
+		rc_rpc::utils::spawn_subscription_task(
 			&self.executor,
 			PendingSubscription::from(pending).pipe_from_stream(stream, BoundedVecDeque::default()),
 		);
@@ -135,15 +135,15 @@ mod tests {
 
 	use codec::{Decode, Encode};
 	use jsonrpsee::{core::EmptyServerParams as EmptyParams, types::SubscriptionId, RpcModule};
-	use sc_block_builder::BlockBuilderBuilder;
-	use sc_consensus_grandpa::{
+	use rc_block_builder::BlockBuilderBuilder;
+	use rc_consensus_grandpa::{
 		report, AuthorityId, FinalityProof, GrandpaJustification, GrandpaJustificationSender,
 	};
-	use sc_rpc::testing::test_executor;
-	use sp_blockchain::HeaderBackend;
-	use sp_core::crypto::ByteArray;
-	use sp_keyring::Ed25519Keyring;
-	use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
+	use rc_rpc::testing::test_executor;
+	use rp_blockchain::HeaderBackend;
+	use rp_core::crypto::ByteArray;
+	use rp_keyring::Ed25519Keyring;
+	use rp_runtime::traits::{Block as BlockT, Header as HeaderT};
 	use substrate_test_runtime_client::{
 		runtime::{Block, Header, H256},
 		DefaultTestClientBuilderExt, TestClientBuilder, TestClientBuilderExt,
@@ -194,7 +194,7 @@ mod tests {
 		fn rpc_prove_finality(
 			&self,
 			_block: NumberFor<Block>,
-		) -> Result<Option<EncodedFinalityProof>, sc_consensus_grandpa::FinalityProofError> {
+		) -> Result<Option<EncodedFinalityProof>, rc_consensus_grandpa::FinalityProofError> {
 			Ok(Some(EncodedFinalityProof(
 				self.finality_proof
 					.as_ref()
@@ -210,7 +210,7 @@ mod tests {
 			let voter_id_1 = AuthorityId::from_slice(&[1; 32]).unwrap();
 			let voters_best: HashSet<_> = vec![voter_id_1].into_iter().collect();
 
-			let best_round_state = sc_consensus_grandpa::report::RoundState {
+			let best_round_state = rc_consensus_grandpa::report::RoundState {
 				total_weight: 100_u64.try_into().unwrap(),
 				threshold_weight: 67_u64.try_into().unwrap(),
 				prevote_current_weight: 50.into(),
@@ -219,7 +219,7 @@ mod tests {
 				precommit_ids: HashSet::new(),
 			};
 
-			let past_round_state = sc_consensus_grandpa::report::RoundState {
+			let past_round_state = rc_consensus_grandpa::report::RoundState {
 				total_weight: 100_u64.try_into().unwrap(),
 				threshold_weight: 67_u64.try_into().unwrap(),
 				prevote_current_weight: 100.into(),
@@ -354,7 +354,7 @@ mod tests {
 			};
 
 			let msg = finality_grandpa::Message::Precommit(precommit.clone());
-			let encoded = sp_consensus_grandpa::localized_payload(round, set_id, &msg);
+			let encoded = rp_consensus_grandpa::localized_payload(round, set_id, &msg);
 			let signature = peers[0].sign(&encoded[..]).into();
 
 			let precommit = finality_grandpa::SignedPrecommit {
@@ -389,7 +389,7 @@ mod tests {
 		justification_sender.notify(|| Ok::<_, ()>(justification.clone())).unwrap();
 
 		// Inspect what we received
-		let (recv_justification, recv_sub_id): (sp_core::Bytes, SubscriptionId) =
+		let (recv_justification, recv_sub_id): (rp_core::Bytes, SubscriptionId) =
 			sub.next().await.unwrap().unwrap();
 		let recv_justification: GrandpaJustification<Block> =
 			Decode::decode(&mut &recv_justification[..]).unwrap();
@@ -408,7 +408,7 @@ mod tests {
 		let (rpc, _) =
 			setup_io_handler_with_finality_proofs(TestVoterState, Some(finality_proof.clone()));
 
-		let bytes: sp_core::Bytes = rpc.call("grandpa_proveFinality", [42]).await.unwrap();
+		let bytes: rp_core::Bytes = rpc.call("grandpa_proveFinality", [42]).await.unwrap();
 		let finality_proof_rpc: FinalityProof<Header> = Decode::decode(&mut &bytes[..]).unwrap();
 		assert_eq!(finality_proof_rpc, finality_proof);
 	}

@@ -19,11 +19,11 @@
 //! Substrate state API.
 
 use jsonrpsee::proc_macros::rpc;
-use sp_core::{
+use rp_core::{
 	storage::{StorageChangeSet, StorageData, StorageKey},
 	Bytes,
 };
-use sp_version::RuntimeVersion;
+use rp_version::RuntimeVersion;
 
 pub mod error;
 pub mod helpers;
@@ -170,7 +170,7 @@ pub trait StateApi<Hash> {
 	/// - Checkout commit of chain version to compile with WASM traces
 	/// - [diener][1] can help to peg commit of substrate to what the chain expects.
 	/// - Navigate to the `runtime` folder/package of the chain
-	/// - Add feature `with-tracing = ["frame-executive/with-tracing", "sp-io/with-tracing"]`
+	/// - Add feature `with-tracing = ["frame-executive/with-tracing", "rp-io/with-tracing"]`
 	/// under `[features]` to the `runtime` packages' `Cargo.toml`.
 	/// - Compile the runtime with `cargo build --release --features with-tracing`
 	/// - Tracing-enabled WASM runtime should be found in
@@ -299,5 +299,5 @@ pub trait StateApi<Hash> {
 		targets: Option<String>,
 		storage_keys: Option<String>,
 		methods: Option<String>,
-	) -> Result<sp_rpc::tracing::TraceBlockResponse, Error>;
+	) -> Result<rp_rpc::tracing::TraceBlockResponse, Error>;
 }

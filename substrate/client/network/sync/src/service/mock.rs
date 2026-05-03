@@ -18,16 +18,16 @@
 
 use futures::channel::oneshot;
 
-use sc_consensus::{BlockImportError, BlockImportStatus};
-use sc_network::{
+use rc_consensus::{BlockImportError, BlockImportStatus};
+use rc_network::{
 	config::MultiaddrWithPeerId,
 	request_responses::{IfDisconnected, RequestFailure},
 	types::ProtocolName,
 	NetworkPeers, NetworkRequest, NetworkSyncForkRequest, ReputationChange,
 };
-use sc_network_common::role::ObservedRole;
-use sc_network_types::{multiaddr::Multiaddr, PeerId};
-use sp_runtime::traits::{Block as BlockT, NumberFor};
+use rc_network_common::role::ObservedRole;
+use rc_network_types::{multiaddr::Multiaddr, PeerId};
+use rp_runtime::traits::{Block as BlockT, NumberFor};
 
 use std::collections::HashSet;
 
@@ -43,7 +43,7 @@ mockall::mock! {
 		fn set_sync_fork_request(&self, peers: Vec<PeerId>, hash: B::Hash, number: NumberFor<B>);
 	}
 
-	impl<B: BlockT> sc_consensus::Link<B> for ChainSyncInterface<B> {
+	impl<B: BlockT> rc_consensus::Link<B> for ChainSyncInterface<B> {
 		fn blocks_processed(
 			&self,
 			imported: usize,
@@ -55,13 +55,13 @@ mockall::mock! {
 			who: PeerId,
 			hash: &B::Hash,
 			number: NumberFor<B>,
-			import_result: sc_consensus::JustificationImportResult,
+			import_result: rc_consensus::JustificationImportResult,
 		);
 		fn request_justification(&self, hash: &B::Hash, number: NumberFor<B>);
 	}
 }
 
-impl<B: BlockT> sc_consensus::JustificationSyncLink<B> for MockChainSyncInterface<B> {
+impl<B: BlockT> rc_consensus::JustificationSyncLink<B> for MockChainSyncInterface<B> {
 	fn request_justification(&self, hash: &B::Hash, number: NumberFor<B>) {
 		self.justification_sync_link_request_justification(hash, number);
 	}
@@ -108,7 +108,7 @@ mockall::mock! {
 		) -> Result<(), String>;
 		fn sync_num_connected(&self) -> usize;
 		fn peer_role(&self, peer_id: PeerId, handshake: Vec<u8>) -> Option<ObservedRole>;
-		async fn reserved_peers(&self) -> Result<Vec<sc_network_types::PeerId>, ()>;
+		async fn reserved_peers(&self) -> Result<Vec<rc_network_types::PeerId>, ()>;
 	}
 
 	#[async_trait::async_trait]

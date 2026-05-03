@@ -17,19 +17,19 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use super::{code_provider::CodeProvider, ClientConfig};
-use sc_client_api::{
+use rc_client_api::{
 	backend, call_executor::CallExecutor, execution_extensions::ExecutionExtensions, HeaderBackend,
 	TrieCacheContext,
 };
-use sc_executor::{RuntimeVersion, RuntimeVersionOf};
-use sp_api::ProofRecorder;
-use sp_core::traits::{CallContext, CodeExecutor};
-use sp_externalities::Extensions;
-use sp_runtime::{
+use rc_executor::{RuntimeVersion, RuntimeVersionOf};
+use rp_api::ProofRecorder;
+use rp_core::traits::{CallContext, CodeExecutor};
+use rp_externalities::Extensions;
+use rp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, HashingFor},
 };
-use sp_state_machine::{
+use rp_state_machine::{
 	backend::{AsTrieBackend, TryPendingCode},
 	OverlayedChanges, StateMachine, StorageProof,
 };
@@ -55,7 +55,7 @@ where
 		executor: E,
 		client_config: ClientConfig<Block>,
 		execution_extensions: ExecutionExtensions<Block>,
-	) -> sp_blockchain::Result<Self> {
+	) -> rp_blockchain::Result<Self> {
 		let code_provider = CodeProvider::new(&client_config, executor.clone(), backend.clone())?;
 
 		Ok(LocalCallExecutor {
@@ -101,16 +101,16 @@ where
 		method: &str,
 		call_data: &[u8],
 		context: CallContext,
-	) -> sp_blockchain::Result<Vec<u8>> {
+	) -> rp_blockchain::Result<Vec<u8>> {
 		let mut changes = OverlayedChanges::default();
 		let at_number =
 			self.backend.blockchain().expect_block_number_from_id(&BlockId::Hash(at_hash))?;
 		let state = self.backend.state_at(at_hash, context.into())?;
 
 		let state_runtime_code =
-			sp_state_machine::backend::BackendRuntimeCode::new(&state, context.into());
+			rp_state_machine::backend::BackendRuntimeCode::new(&state, context.into());
 		let runtime_code =
-			state_runtime_code.runtime_code().map_err(sp_blockchain::Error::RuntimeCode)?;
+			state_runtime_code.runtime_code().map_err(rp_blockchain::Error::RuntimeCode)?;
 
 		let runtime_code = self.code_provider.maybe_override_code(runtime_code, &state, at_hash)?.0;
 
@@ -140,7 +140,7 @@ where
 		recorder: &Option<ProofRecorder<Block>>,
 		call_context: CallContext,
 		extensions: &RefCell<Extensions>,
-	) -> Result<Vec<u8>, sp_blockchain::Error> {
+	) -> Result<Vec<u8>, rp_blockchain::Error> {
 		let state = self.backend.state_at(at_hash, call_context.into())?;
 
 		let changes = &mut *changes.borrow_mut();
@@ -149,10 +149,10 @@ where
 		// recorder to not record it. We also need to fetch the runtime code from `state` to
 		// make sure we use the caching layers.
 		let state_runtime_code =
-			sp_state_machine::backend::BackendRuntimeCode::new(&state, call_context.into());
+			rp_state_machine::backend::BackendRuntimeCode::new(&state, call_context.into());
 
 		let runtime_code =
-			state_runtime_code.runtime_code().map_err(sp_blockchain::Error::RuntimeCode)?;
+			state_runtime_code.runtime_code().map_err(rp_blockchain::Error::RuntimeCode)?;
 		let runtime_code = self.code_provider.maybe_override_code(runtime_code, &state, at_hash)?.0;
 		let mut extensions = extensions.borrow_mut();
 
@@ -160,7 +160,7 @@ where
 			Some(recorder) => {
 				let trie_state = state.as_trie_backend();
 
-				let backend = sp_state_machine::TrieBackendBuilder::wrap(&trie_state)
+				let backend = rp_state_machine::TrieBackendBuilder::wrap(&trie_state)
 					.with_recorder(recorder.clone())
 					.build();
 
@@ -199,13 +199,13 @@ where
 		&self,
 		at_hash: Block::Hash,
 		call_context: CallContext,
-	) -> sp_blockchain::Result<RuntimeVersion> {
+	) -> rp_blockchain::Result<RuntimeVersion> {
 		let state = self.backend.state_at(at_hash, backend::TrieCacheContext::Untrusted)?;
 		let state_runtime_code =
-			sp_state_machine::backend::BackendRuntimeCode::new(&state, call_context.into());
+			rp_state_machine::backend::BackendRuntimeCode::new(&state, call_context.into());
 
 		let runtime_code =
-			state_runtime_code.runtime_code().map_err(sp_blockchain::Error::RuntimeCode)?;
+			state_runtime_code.runtime_code().map_err(rp_blockchain::Error::RuntimeCode)?;
 		self.code_provider
 			.maybe_override_code(runtime_code, &state, at_hash)
 			.map(|(_, v)| v)
@@ -216,7 +216,7 @@ where
 		at_hash: Block::Hash,
 		method: &str,
 		call_data: &[u8],
-	) -> sp_blockchain::Result<(Vec<u8>, StorageProof)> {
+	) -> rp_blockchain::Result<(Vec<u8>, StorageProof)> {
 		let at_number =
 			self.backend.blockchain().expect_block_number_from_id(&BlockId::Hash(at_hash))?;
 		let state = self.backend.state_at(at_hash, TrieCacheContext::Untrusted)?;
@@ -224,12 +224,12 @@ where
 		let trie_backend = state.as_trie_backend();
 
 		let state_runtime_code =
-			sp_state_machine::backend::BackendRuntimeCode::new(trie_backend, TryPendingCode::No);
+			rp_state_machine::backend::BackendRuntimeCode::new(trie_backend, TryPendingCode::No);
 		let runtime_code =
-			state_runtime_code.runtime_code().map_err(sp_blockchain::Error::RuntimeCode)?;
+			state_runtime_code.runtime_code().map_err(rp_blockchain::Error::RuntimeCode)?;
 		let runtime_code = self.code_provider.maybe_override_code(runtime_code, &state, at_hash)?.0;
 
-		sp_state_machine::prove_execution_on_trie_backend(
+		rp_state_machine::prove_execution_on_trie_backend(
 			trie_backend,
 			&mut Default::default(),
 			&self.executor,
@@ -249,14 +249,14 @@ where
 {
 	fn runtime_version(
 		&self,
-		ext: &mut dyn sp_externalities::Externalities,
-		runtime_code: &sp_core::traits::RuntimeCode,
-	) -> Result<sp_version::RuntimeVersion, sc_executor::error::Error> {
+		ext: &mut dyn rp_externalities::Externalities,
+		runtime_code: &rp_core::traits::RuntimeCode,
+	) -> Result<rp_version::RuntimeVersion, rc_executor::error::Error> {
 		RuntimeVersionOf::runtime_version(&self.executor, ext, runtime_code)
 	}
 }
 
-impl<Block, B, E> sp_version::GetRuntimeVersionAt<Block> for LocalCallExecutor<Block, B, E>
+impl<Block, B, E> rp_version::GetRuntimeVersionAt<Block> for LocalCallExecutor<Block, B, E>
 where
 	B: backend::Backend<Block>,
 	E: CodeExecutor + RuntimeVersionOf + Clone + 'static,
@@ -266,18 +266,18 @@ where
 		&self,
 		at: Block::Hash,
 		call_context: CallContext,
-	) -> Result<sp_version::RuntimeVersion, String> {
+	) -> Result<rp_version::RuntimeVersion, String> {
 		CallExecutor::runtime_version(self, at, call_context).map_err(|e| e.to_string())
 	}
 }
 
-impl<Block, B, E> sp_version::GetNativeVersion for LocalCallExecutor<Block, B, E>
+impl<Block, B, E> rp_version::GetNativeVersion for LocalCallExecutor<Block, B, E>
 where
 	B: backend::Backend<Block>,
-	E: CodeExecutor + sp_version::GetNativeVersion + Clone + 'static,
+	E: CodeExecutor + rp_version::GetNativeVersion + Clone + 'static,
 	Block: BlockT,
 {
-	fn native_version(&self) -> &sp_version::NativeVersion {
+	fn native_version(&self) -> &rp_version::NativeVersion {
 		self.executor.native_version()
 	}
 }

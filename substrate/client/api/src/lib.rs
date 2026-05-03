@@ -33,22 +33,22 @@ pub use call_executor::*;
 pub use client::*;
 pub use notifications::*;
 pub use proof_provider::*;
-pub use sp_blockchain as blockchain;
-pub use sp_blockchain::HeaderBackend;
+pub use rp_blockchain as blockchain;
+pub use rp_blockchain::HeaderBackend;
 
-pub use sp_state_machine::{CompactProof, StorageProof};
-pub use sp_storage::{ChildInfo, PrefixedStorageKey, StorageData, StorageKey};
+pub use rp_state_machine::{CompactProof, StorageProof};
+pub use rp_storage::{ChildInfo, PrefixedStorageKey, StorageData, StorageKey};
 
 /// Usage Information Provider interface
-pub trait UsageProvider<Block: sp_runtime::traits::Block> {
+pub trait UsageProvider<Block: rp_runtime::traits::Block> {
 	/// Get usage info about current client.
 	fn usage_info(&self) -> ClientInfo<Block>;
 }
 
 /// Utility methods for the client.
 pub mod utils {
-	use sp_blockchain::{Error, HeaderBackend, HeaderMetadata};
-	use sp_runtime::traits::Block as BlockT;
+	use rp_blockchain::{Error, HeaderBackend, HeaderMetadata};
+	use rp_runtime::traits::Block as BlockT;
 
 	/// Returns a function for checking block ancestry, the returned function will
 	/// return `true` if the given hash (second parameter) is a descendent of the
@@ -82,7 +82,7 @@ pub mod utils {
 				}
 			}
 
-			let ancestor = sp_blockchain::lowest_common_ancestor(client, *hash, *base)?;
+			let ancestor = rp_blockchain::lowest_common_ancestor(client, *hash, *base)?;
 
 			Ok(ancestor.hash == *base)
 		}

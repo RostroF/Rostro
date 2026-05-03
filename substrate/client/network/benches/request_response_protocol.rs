@@ -20,7 +20,7 @@ use criterion::{
 	criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion, PlotConfiguration,
 	Throughput,
 };
-use sc_network::{
+use rc_network::{
 	config::{
 		FullNetworkConfiguration, IncomingRequest, NetworkConfiguration, NonReservedPeerMode,
 		NotificationHandshake, OutgoingResponse, Params, ProtocolId, Role, SetConfig,
@@ -29,9 +29,9 @@ use sc_network::{
 	IfDisconnected, Litep2pNetworkBackend, NetworkBackend, NetworkRequest, NetworkWorker,
 	NotificationMetrics, NotificationService, PeerId, Roles,
 };
-use sc_network_common::{sync::message::BlockAnnouncesHandshake, ExHashT};
-use sp_core::H256;
-use sp_runtime::traits::{Block as BlockT, Zero};
+use rc_network_common::{sync::message::BlockAnnouncesHandshake, ExHashT};
+use rp_core::H256;
+use rp_runtime::traits::{Block as BlockT, Zero};
 use std::{sync::Arc, time::Duration};
 use substrate_test_runtime_client::runtime;
 use tokio::{sync::Mutex, task::JoinHandle};

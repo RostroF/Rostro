@@ -31,15 +31,15 @@ pallet-session = { workspace = true }
 pallet-session-benchmarking = { workspace = true }
 pallet-staking = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-sp-runtime = { workspace = true }
-sp-staking = { workspace = true }
+rp-runtime = { workspace = true }
+rp-staking = { workspace = true }
 
 [dev-dependencies]
 pallet-staking-reward-curve = { default-features = true, workspace = true }
 pallet-timestamp = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
-sp-io = { default-features = true, workspace = true }
-sp-tracing = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }
+rp-io = { default-features = true, workspace = true }
+rp-tracing = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -59,8 +59,8 @@ std = [
 	"pallet-session/std",
 	"pallet-staking/std",
 	"scale-info/std",
-	"sp-runtime/std",
-	"sp-staking/std",
+	"rp-runtime/std",
+	"rp-staking/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
@@ -76,6 +76,6 @@ runtime-benchmarks = [
 	"pallet-session/runtime-benchmarks",
 	"pallet-staking/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
-	"sp-staking/runtime-benchmarks",
+	"rp-runtime/runtime-benchmarks",
+	"rp-staking/runtime-benchmarks",
 ]

@@ -23,15 +23,15 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 log = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-sp-inherents = { workspace = true }
-sp-runtime = { workspace = true }
-sp-storage = { workspace = true }
-sp-timestamp = { workspace = true }
+rp-inherents = { workspace = true }
+rp-runtime = { workspace = true }
+rp-storage = { workspace = true }
+rp-timestamp = { workspace = true }
 
 docify = { workspace = true }
 
 [dev-dependencies]
-sp-io = { default-features = true, workspace = true }
+rp-io = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -42,19 +42,19 @@ std = [
 	"frame-system/std",
 	"log/std",
 	"scale-info/std",
-	"sp-inherents/std",
-	"sp-runtime/std",
-	"sp-storage/std",
-	"sp-timestamp/std",
+	"rp-inherents/std",
+	"rp-runtime/std",
+	"rp-storage/std",
+	"rp-timestamp/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
+	"rp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
-	"sp-runtime/try-runtime",
+	"rp-runtime/try-runtime",
 ]

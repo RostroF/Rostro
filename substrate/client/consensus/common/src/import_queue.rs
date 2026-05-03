@@ -33,8 +33,8 @@ use std::{
 	time::{Duration, Instant},
 };
 
-use sp_consensus::{error::Error as ConsensusError, BlockOrigin};
-use sp_runtime::{
+use rp_consensus::{error::Error as ConsensusError, BlockOrigin};
+use rp_runtime::{
 	traits::{Block as BlockT, Header as _, NumberFor},
 	Justifications,
 };
@@ -68,7 +68,7 @@ pub type BoxJustificationImport<B> =
 	Box<dyn JustificationImport<B, Error = ConsensusError> + Send + Sync>;
 
 /// Maps to the RuntimeOrigin used by the network.
-pub type RuntimeOrigin = sc_network_types::PeerId;
+pub type RuntimeOrigin = rc_network_types::PeerId;
 
 /// Block data used by the queue.
 #[derive(Debug, PartialEq, Eq, Clone)]

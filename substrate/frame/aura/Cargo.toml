@@ -22,13 +22,13 @@ frame-system = { workspace = true }
 log = { workspace = true }
 pallet-timestamp = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-sp-application-crypto = { workspace = true }
-sp-consensus-aura = { workspace = true }
-sp-runtime = { workspace = true }
+rp-application-crypto = { workspace = true }
+rp-consensus-aura = { workspace = true }
+rp-runtime = { workspace = true }
 
 [dev-dependencies]
-sp-core = { workspace = true, default-features = false }
-sp-io = { default-features = true, workspace = true }
+rp-core = { workspace = true, default-features = false }
+rp-io = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -39,14 +39,14 @@ std = [
 	"log/std",
 	"pallet-timestamp/std",
 	"scale-info/std",
-	"sp-application-crypto/std",
-	"sp-consensus-aura/std",
-	"sp-core/std",
-	"sp-runtime/std",
+	"rp-application-crypto/std",
+	"rp-consensus-aura/std",
+	"rp-core/std",
+	"rp-runtime/std",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"pallet-timestamp/try-runtime",
-	"sp-runtime/try-runtime",
+	"rp-runtime/try-runtime",
 ]

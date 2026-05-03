@@ -31,21 +31,21 @@ use crate::{
 	round::{Rounds, VoteImportResult},
 	BeefyComms, BeefyVoterLinks, UnpinnedFinalityNotification, LOG_TARGET,
 };
-use sp_application_crypto::RuntimeAppPublic;
+use rp_application_crypto::RuntimeAppPublic;
 
 use codec::{Codec, Decode, DecodeAll, Encode};
 use futures::{stream::Fuse, FutureExt, StreamExt};
 use log::{debug, error, info, trace, warn};
-use sc_client_api::{Backend, HeaderBackend};
-use sc_utils::notification::NotificationReceiver;
-use sp_api::ProvideRuntimeApi;
-use sp_arithmetic::traits::{AtLeast32Bit, Saturating};
-use sp_consensus::SyncOracle;
-use sp_consensus_beefy::{
+use rc_client_api::{Backend, HeaderBackend};
+use rc_utils::notification::NotificationReceiver;
+use rp_api::ProvideRuntimeApi;
+use rp_arithmetic::traits::{AtLeast32Bit, Saturating};
+use rp_consensus::SyncOracle;
+use rp_consensus_beefy::{
 	AuthorityIdBound, BeefyApi, Commitment, DoubleVotingProof, PayloadProvider, ValidatorSet,
 	VersionedFinalityProof, VoteMessage, BEEFY_ENGINE_ID,
 };
-use sp_runtime::{
+use rp_runtime::{
 	generic::BlockId,
 	traits::{Block, Header, NumberFor, Zero},
 	SaturatedConversion,
@@ -1038,19 +1038,19 @@ pub(crate) mod tests {
 	};
 	use futures::{future::poll_fn, task::Poll};
 	use parking_lot::Mutex;
-	use sc_client_api::{Backend as BackendT, HeaderBackend};
-	use sc_network_gossip::GossipEngine;
-	use sc_network_sync::SyncingService;
-	use sc_network_test::TestNetFactory;
-	use sp_blockchain::Backend as BlockchainBackendT;
-	use sp_consensus_beefy::{
+	use rc_client_api::{Backend as BackendT, HeaderBackend};
+	use rc_network_gossip::GossipEngine;
+	use rc_network_sync::SyncingService;
+	use rc_network_test::TestNetFactory;
+	use rp_blockchain::Backend as BlockchainBackendT;
+	use rp_consensus_beefy::{
 		ecdsa_crypto, known_payloads,
 		known_payloads::MMR_ROOT_ID,
 		mmr::MmrRootProvider,
 		test_utils::{generate_double_voting_proof, Keyring},
 		ConsensusLog, Payload, SignedCommitment,
 	};
-	use sp_runtime::traits::{Header as HeaderT, One};
+	use rp_runtime::traits::{Header as HeaderT, One};
 	use substrate_test_runtime_client::{
 		runtime::{Block, Digest, DigestItem, Header},
 		Backend,

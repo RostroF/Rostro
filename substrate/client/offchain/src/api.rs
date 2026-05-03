@@ -22,9 +22,9 @@ use crate::NetworkProvider;
 use codec::{Decode, Encode};
 use futures::Future;
 pub use http::SharedClient;
-use sc_network::Multiaddr;
-use sc_network_types::PeerId;
-use sp_core::{
+use rc_network::Multiaddr;
+use rc_network_types::PeerId;
+use rp_core::{
 	offchain::{
 		self, HttpError, HttpRequestId, HttpRequestStatus, OpaqueMultiaddr, OpaqueNetworkState,
 		Timestamp,
@@ -220,12 +220,12 @@ impl AsyncApi {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sc_client_db::offchain::LocalStorage;
-	use sc_network::{
+	use rc_client_db::offchain::LocalStorage;
+	use rc_network::{
 		config::MultiaddrWithPeerId, types::ProtocolName, NetworkPeers, NetworkStateInfo,
 		ObservedRole, ReputationChange,
 	};
-	use sp_core::offchain::{storage::OffchainDb, DbExternalities, Externalities, StorageKind};
+	use rp_core::offchain::{storage::OffchainDb, DbExternalities, Externalities, StorageKind};
 	use std::time::SystemTime;
 
 	pub(super) struct TestNetwork();
@@ -324,7 +324,7 @@ mod tests {
 	}
 
 	fn offchain_api() -> (Api, AsyncApi) {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 		let mock = Arc::new(TestNetwork());
 		let shared_client = SharedClient::new().unwrap();
 
@@ -362,7 +362,7 @@ mod tests {
 
 		// Arrange.
 		let now = api.timestamp();
-		let delta = sp_core::offchain::Duration::from_millis(100);
+		let delta = rp_core::offchain::Duration::from_millis(100);
 		let deadline = now.add(delta);
 
 		// Act.

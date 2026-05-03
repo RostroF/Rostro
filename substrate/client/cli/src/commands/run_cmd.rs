@@ -26,13 +26,13 @@ use crate::{
 };
 use clap::Parser;
 use regex::Regex;
-use sc_service::{
+use rc_service::{
 	config::{
 		BasePath, IpNetwork, PrometheusConfig, RpcBatchRequestConfig, TransactionPoolOptions,
 	},
 	ChainSpec, Role,
 };
-use sc_telemetry::TelemetryEndpoints;
+use rc_telemetry::TelemetryEndpoints;
 use std::num::NonZeroU32;
 
 /// The `run` command used to run a node.
@@ -166,8 +166,8 @@ pub struct RunCmd {
 
 impl RunCmd {
 	/// Get the `Sr25519Keyring` matching one of the flag.
-	pub fn get_keyring(&self) -> Option<sp_keyring::Sr25519Keyring> {
-		use sp_keyring::Sr25519Keyring::*;
+	pub fn get_keyring(&self) -> Option<rp_keyring::Sr25519Keyring> {
+		use rp_keyring::Sr25519Keyring::*;
 
 		if self.alice {
 			Some(Alice)
@@ -294,7 +294,7 @@ impl CliConfiguration for RunCmd {
 		self.rpc_params.rpc_addr(self.is_dev()?, self.validator, default_listen_port)
 	}
 
-	fn rpc_methods(&self) -> Result<sc_service::config::RpcMethods> {
+	fn rpc_methods(&self) -> Result<rc_service::config::RpcMethods> {
 		Ok(self.rpc_params.rpc_methods.into())
 	}
 

@@ -1,54 +1,75 @@
-<!-- markdown-link-check-disable -->
-
 # Security Policy
 
-Parity Technologies is committed to resolving security vulnerabilities in our
-software quickly and carefully. We take the necessary steps to minimize risk,
-provide timely information, and deliver vulnerability fixes and mitigations
-required to address security issues.
+The Rostro Foundation takes security vulnerabilities seriously. This document
+describes how to report a security issue and what to expect when you do.
 
-## Sourcing Security Information
+## Reporting a Vulnerability
 
-The [Polkadot Security Hub](https://security.parity.io/) is a resource for all
-things security in the Polkadot ecosystem. You can discover [Security
-Vulnerabilities Disclosures](https://security.parity.io/disclosures), learn
-in detail about
-[Common Security Vulnerabilities](https://security.parity.io/top),
-find information on
-[how to securely test your Polkadot project](https://security.parity.io/tools),
-what [audits](https://security.parity.io/audits) have been conducted, and how
-to get involved in the security of Polkadot.
+**Do not file a public issue for security-sensitive findings.**
 
-## Responsible Investigation and Reporting
+Send a private report to **security@rostro.org** (placeholder until the
+Foundation infrastructure is live; in the interim, contact the maintainers
+listed in the project metadata).
 
-Responsible investigation and reporting includes, but isn't limited to, the
-following:
+Please include:
 
-- Initially report the bug only to us and not to anyone else.
-- Give us a reasonable amount of time to fix the bug before disclosing without
-  authorization, as rewards are not paid before a fix as been created and
-  deployed.
-- Don’t make repeat submissions of low quality, rejected or automated
-  vulnerability reports. You will put yourself at risk of being banned
-  permanently.
-- Don’t defraud or harm Parity Technologies or Polkadot or its users during
-  your research; you should make a good faith effort to not interrupt or
-  degrade our and the network's services. Investigate and report bugs
-  in a way that makes a reasonable, good faith effort not to be disruptive or
-  harmful to us or our users. Otherwise, your actions might be interpreted as
-  an attack rather than an effort to be helpful.
-- Don't target our physical security measures, or attempt to use social
-  engineering, spam, distributed denial of service (DDOS) attacks, etc.
-- Don't violate the privacy of other users, destroy data, etc.
+- A clear description of the issue and the conditions required to reproduce it.
+- Affected components, networks (Rostro / Canaria / Camino), and version or
+  commit hash where the issue is observable.
+- Any proof-of-concept code, transcripts, or transaction hashes that
+  demonstrate the issue.
+- Your suggested severity rating and any mitigation you've identified.
 
-### Parity's Bug Bounty Program
+We will acknowledge receipt within 72 hours and keep you updated on triage and
+remediation progress.
 
-Parity's Bug Bounty Program allows us to recognize and reward members of the
-Polkadot ecosystem for helping us find and address significant bugs, in
-accordance with the terms of the program. Submission to the program WILL only
-be considered if it's done through the form link specified in the program
-website.
+## Responsible Disclosure
 
-A detailed description of scope, eligibility, rewards, legal information and
-terms & conditions for contributors can be found on
-[Parity's website](https://parity.io/bug-bounty).
+We ask that researchers:
+
+- Initially report the issue only to us, not to anyone else.
+- Give us a reasonable amount of time to fix the issue before disclosing
+  publicly. Our default coordinated-disclosure window is 90 days from initial
+  report; extensions are negotiated where remediation requires runtime
+  upgrade, validator coordination, or upstream coordination with derived
+  libraries.
+- Avoid acting on or exploiting the vulnerability beyond what is required to
+  demonstrate it.
+- Avoid degrading the experience or availability of any Rostro network for
+  other users during research.
+
+## Scope
+
+In scope for security reports:
+
+- Bugs in the Rostro / Canaria / Camino runtimes that affect consensus,
+  finality, accounting, governance, identity, or attestation correctness.
+- Bugs in the node and client implementations that affect liveness, network
+  health, or operator security.
+- Bugs in the cryptographic primitives derived from upstream Substrate, where
+  the bug is reachable from Rostro code paths.
+- Bugs in the contract sandbox (PolkaVM) that allow operator contracts to
+  escape the sandbox or violate the canonical runtime integrity attestations.
+
+Out of scope:
+
+- Issues that require physical access to a validator or operator's
+  infrastructure beyond what the threat model already considers.
+- Self-inflicted issues (e.g., deliberately misconfigured local nodes).
+- Findings in third-party dependencies that have already been disclosed
+  upstream and are tracked in their respective security channels.
+
+## Bug Bounty
+
+A coordinated bug-bounty program will be announced once the Rostro Foundation
+governance is established and treasury funding is in place. Until then,
+acknowledgements and reasonable financial recognition will be handled on a
+case-by-case basis at Foundation discretion.
+
+## Upstream Lineage
+
+Rostro inherits substantial code from the Substrate and Polkadot SDK
+communities. Issues that originate in upstream code paths still in use will
+be coordinated with the relevant upstream maintainers when remediation
+benefits both ecosystems. Original Parity Technologies copyright is preserved
+in source files per Apache-2.0 NOTICE requirements.

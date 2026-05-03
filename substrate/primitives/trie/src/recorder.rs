@@ -456,7 +456,7 @@ impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 				tracing::trace!(
 					target: LOG_TARGET,
 					hash = ?hash,
-					key = ?sp_core::hexdisplay::HexDisplay::from(&full_key),
+					key = ?rp_core::hexdisplay::HexDisplay::from(&full_key),
 					"Recording value",
 				);
 
@@ -477,7 +477,7 @@ impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 			TrieAccess::Hash { full_key } => {
 				tracing::trace!(
 					target: LOG_TARGET,
-					key = ?sp_core::hexdisplay::HexDisplay::from(&full_key),
+					key = ?rp_core::hexdisplay::HexDisplay::from(&full_key),
 					"Recorded hash access for key",
 				);
 
@@ -488,7 +488,7 @@ impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 			TrieAccess::NonExisting { full_key } => {
 				tracing::trace!(
 					target: LOG_TARGET,
-					key = ?sp_core::hexdisplay::HexDisplay::from(&full_key),
+					key = ?rp_core::hexdisplay::HexDisplay::from(&full_key),
 					"Recorded non-existing value access for key",
 				);
 
@@ -500,7 +500,7 @@ impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 			TrieAccess::InlineValue { full_key } => {
 				tracing::trace!(
 					target: LOG_TARGET,
-					key = ?sp_core::hexdisplay::HexDisplay::from(&full_key),
+					key = ?rp_core::hexdisplay::HexDisplay::from(&full_key),
 					"Recorded inline value access for key",
 				);
 
@@ -528,9 +528,9 @@ mod tests {
 	use crate::tests::create_trie;
 	use trie_db::{Trie, TrieDBBuilder, TrieRecorder};
 
-	type MemoryDB = crate::MemoryDB<sp_core::Blake2Hasher>;
-	type Layout = crate::LayoutV1<sp_core::Blake2Hasher>;
-	type Recorder = super::Recorder<sp_core::Blake2Hasher>;
+	type MemoryDB = crate::MemoryDB<rp_core::Blake2Hasher>;
+	type Layout = crate::LayoutV1<rp_core::Blake2Hasher>;
+	type Recorder = super::Recorder<rp_core::Blake2Hasher>;
 
 	const TEST_DATA: &[(&[u8], &[u8])] =
 		&[(b"key1", &[1; 64]), (b"key2", &[2; 64]), (b"key3", &[3; 64]), (b"key4", &[4; 64])];
@@ -745,7 +745,7 @@ mod tests {
 				.build();
 
 			assert_eq!(
-				sp_core::Blake2Hasher::hash(TEST_DATA[0].1),
+				rp_core::Blake2Hasher::hash(TEST_DATA[0].1),
 				trie.get_hash(TEST_DATA[0].0).unwrap().unwrap()
 			);
 			assert!(matches!(trie_recorder.trie_nodes_recorded_for_key(key), RecordedForKey::Hash));
@@ -799,7 +799,7 @@ mod tests {
 				.build();
 
 			assert_eq!(
-				sp_core::Blake2Hasher::hash(TEST_DATA[0].1),
+				rp_core::Blake2Hasher::hash(TEST_DATA[0].1),
 				trie.get_hash(TEST_DATA[0].0).unwrap().unwrap()
 			);
 			assert!(matches!(
@@ -842,7 +842,7 @@ mod tests {
 		}
 
 		assert!(recorder.estimate_encoded_size() > 10);
-		let mut ignored_nodes = IgnoredNodes::from_storage_proof::<sp_core::Blake2Hasher>(
+		let mut ignored_nodes = IgnoredNodes::from_storage_proof::<rp_core::Blake2Hasher>(
 			&recorder.drain_storage_proof(),
 		);
 
@@ -860,7 +860,7 @@ mod tests {
 		}
 
 		assert!(recorder.estimate_encoded_size() > TEST_DATA[3].1.len());
-		let ignored_nodes2 = IgnoredNodes::from_storage_proof::<sp_core::Blake2Hasher>(
+		let ignored_nodes2 = IgnoredNodes::from_storage_proof::<rp_core::Blake2Hasher>(
 			&recorder.drain_storage_proof(),
 		);
 

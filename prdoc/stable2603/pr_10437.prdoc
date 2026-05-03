@@ -1,7 +1,0 @@
-title: Remove pallet::getter usage from merkel mountain range pallet
-doc:
-- audience: Runtime Dev
-  description: 'Advances #3326'
-crates:
-- name: pallet-mmr
-  bump: minor

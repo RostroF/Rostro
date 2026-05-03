@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// A wrapper around `kvdb::Database` that implements `sp_database::Database` trait
+/// A wrapper around `kvdb::Database` that implements `rp_database::Database` trait
 use ::kvdb::{DBTransaction, KeyValueDB};
 
 use crate::{error, Change, ColumnId, Database, Transaction};

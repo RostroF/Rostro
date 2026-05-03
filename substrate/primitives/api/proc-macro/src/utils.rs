@@ -28,21 +28,17 @@ use syn::{
 
 /// Generates the access to the `sc_client` crate.
 pub fn generate_crate_access() -> TokenStream {
-	match crate_name("sp-api") {
-		Ok(FoundCrate::Itself) => quote!(sp_api::__private),
+	match crate_name("rp-api") {
+		Ok(FoundCrate::Itself) => quote!(rp_api::__private),
 		Ok(FoundCrate::Name(renamed_name)) => {
 			let renamed_name = Ident::new(&renamed_name, Span::call_site());
 			quote!(#renamed_name::__private)
 		},
 		Err(e) => {
 			if let Ok(FoundCrate::Name(name)) =
-				crate_name(&"polkadot-sdk-frame").or_else(|_| crate_name(&"frame"))
+				crate_name(&"rostro-frame").or_else(|_| crate_name(&"frame"))
 			{
-				let path = format!("{}::deps::sp_api::__private", name);
-				let path = syn::parse_str::<syn::Path>(&path).expect("is a valid path; qed");
-				quote!( #path )
-			} else if let Ok(FoundCrate::Name(name)) = crate_name(&"polkadot-sdk") {
-				let path = format!("{}::sp_api::__private", name);
+				let path = format!("{}::deps::rp_api::__private", name);
 				let path = syn::parse_str::<syn::Path>(&path).expect("is a valid path; qed");
 				quote!( #path )
 			} else {

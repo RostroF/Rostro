@@ -22,18 +22,18 @@ use codec::Decode;
 use log::debug;
 use parking_lot::Mutex;
 
-use sc_client_api::{backend::Backend, utils::is_descendent_of};
-use sc_consensus::{
+use rc_client_api::{backend::Backend, utils::is_descendent_of};
+use rc_consensus::{
 	shared_data::{SharedDataLocked, SharedDataLockedUpgradable},
 	BlockCheckParams, BlockImport, BlockImportParams, ImportResult, JustificationImport,
 };
-use sc_telemetry::TelemetryHandle;
-use sc_utils::mpsc::TracingUnboundedSender;
-use sp_api::{Core, RuntimeApiInfo};
-use sp_blockchain::BlockStatus;
-use sp_consensus::{BlockOrigin, Error as ConsensusError, SelectChain};
-use sp_consensus_grandpa::{ConsensusLog, GrandpaApi, ScheduledChange, SetId, GRANDPA_ENGINE_ID};
-use sp_runtime::{
+use rc_telemetry::TelemetryHandle;
+use rc_utils::mpsc::TracingUnboundedSender;
+use rp_api::{Core, RuntimeApiInfo};
+use rp_blockchain::BlockStatus;
+use rp_consensus::{BlockOrigin, Error as ConsensusError, SelectChain};
+use rp_consensus_grandpa::{ConsensusLog, GrandpaApi, ScheduledChange, SetId, GRANDPA_ENGINE_ID};
+use rp_runtime::{
 	generic::OpaqueDigestItemId,
 	traits::{Block as BlockT, Header as HeaderT, NumberFor, Zero},
 	Justification,
@@ -451,12 +451,12 @@ where
 			// This code may be removed once warp sync to an old runtime is no longer needed.
 			for prefix in ["GrandpaFinality", "Grandpa"] {
 				let k = [
-					sp_crypto_hashing::twox_128(prefix.as_bytes()),
-					sp_crypto_hashing::twox_128(b"CurrentSetId"),
+					rp_crypto_hashing::twox_128(prefix.as_bytes()),
+					rp_crypto_hashing::twox_128(b"CurrentSetId"),
 				]
 				.concat();
 				if let Ok(Some(id)) =
-					self.inner.storage(hash, &sc_client_api::StorageKey(k.to_vec()))
+					self.inner.storage(hash, &rc_client_api::StorageKey(k.to_vec()))
 				{
 					if let Ok(id) = SetId::decode(&mut id.0.as_ref()) {
 						return Ok(id);
@@ -809,7 +809,7 @@ where
 		let justification = match justification {
 			Err(e) => {
 				return match e {
-					sp_blockchain::Error::OutdatedJustification => {
+					rp_blockchain::Error::OutdatedJustification => {
 						Err(ConsensusError::OutdatedJustification)
 					},
 					_ => Err(ConsensusError::ClientImport(e.to_string())),

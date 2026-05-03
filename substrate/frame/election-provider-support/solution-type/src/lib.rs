@@ -39,7 +39,7 @@ pub(crate) fn syn_err(message: &'static str) -> syn::Error {
 }
 
 /// Generates a struct to store the election result in a small/compact way. This can encode a
-/// structure which is the equivalent of a `sp_npos_elections::Assignment<_>`.
+/// structure which is the equivalent of a `rp_npos_elections::Assignment<_>`.
 ///
 /// The following data types can be configured by the macro.
 ///
@@ -48,7 +48,7 @@ pub(crate) fn syn_err(message: &'static str) -> syn::Error {
 /// - The identifier of the target. This can be any type that supports `parity-scale-codec`'s
 ///   compact encoding.
 /// - The accuracy of the ratios. This must be one of the `PerThing` types defined in
-///   `sp-arithmetic`.
+///   `rp-arithmetic`.
 /// - The maximum number of voters. This must be of type `Get<u32>`. Check <https://github.com/paritytech/substrate/issues/10866>
 ///   for more details. This is used to bound the struct, by leveraging the fact that `votes1.len()
 ///   < votes2.len() < ... < votesn.len()` (the details of the struct is explained further below).
@@ -64,7 +64,7 @@ pub(crate) fn syn_err(message: &'static str) -> syn::Error {
 ///
 /// ```
 /// # use frame_election_provider_solution_type::generate_solution_type;
-/// # use sp_arithmetic::per_things::Perbill;
+/// # use rp_arithmetic::per_things::Perbill;
 /// # use frame_support::traits::ConstU32;
 /// generate_solution_type!(pub struct TestSolution::<
 ///     VoterIndex = u16,
@@ -110,7 +110,7 @@ pub(crate) fn syn_err(message: &'static str) -> syn::Error {
 /// ```
 /// # use frame_election_provider_solution_type::generate_solution_type;
 /// # use frame_election_provider_support::NposSolution;
-/// # use sp_arithmetic::per_things::Perbill;
+/// # use rp_arithmetic::per_things::Perbill;
 /// # use frame_support::traits::ConstU32;
 /// generate_solution_type!(
 ///     #[compact]

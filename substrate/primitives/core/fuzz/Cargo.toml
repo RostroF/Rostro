@@ -1,5 +1,5 @@
 [package]
-name = "sp-core-fuzz"
+name = "rp-core-fuzz"
 version = "0.1.0"
 publish = false
 edition.workspace = true
@@ -19,4 +19,4 @@ doc = false
 [dependencies]
 libfuzzer-sys = { workspace = true }
 regex = { workspace = true }
-sp-core = { default-features = true, workspace = true }
+rp-core = { default-features = true, workspace = true }

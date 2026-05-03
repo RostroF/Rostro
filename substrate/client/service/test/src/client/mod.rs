@@ -19,30 +19,30 @@
 use async_channel::TryRecvError;
 use codec::{Decode, Encode, Joiner};
 use futures::executor::block_on;
-use sc_block_builder::BlockBuilderBuilder;
-use sc_client_api::{
+use rc_block_builder::BlockBuilderBuilder;
+use rc_client_api::{
 	in_mem, Backend as BackendT, BlockBackend, BlockchainEvents, ExecutorProvider,
 	FinalityNotifications, HeaderBackend, StorageProvider,
 };
-use sc_client_db::{Backend, BlocksPruning, DatabaseSettings, DatabaseSource, PruningMode};
-use sc_consensus::{
+use rc_client_db::{Backend, BlocksPruning, DatabaseSettings, DatabaseSource, PruningMode};
+use rc_consensus::{
 	BlockCheckParams, BlockImport, BlockImportParams, ForkChoiceStrategy, ImportResult,
 };
-use sc_executor::WasmExecutor;
-use sc_service::client::{new_with_backend, Client, LocalCallExecutor};
-use sp_api::ProvideRuntimeApi;
-use sp_consensus::{BlockOrigin, Error as ConsensusError, SelectChain};
-use sp_core::{testing::TaskExecutor, traits::CallContext, H256};
-use sp_runtime::{
+use rc_executor::WasmExecutor;
+use rc_service::client::{new_with_backend, Client, LocalCallExecutor};
+use rp_api::ProvideRuntimeApi;
+use rp_consensus::{BlockOrigin, Error as ConsensusError, SelectChain};
+use rp_core::{testing::TaskExecutor, traits::CallContext, H256};
+use rp_runtime::{
 	generic::BlockId,
 	traits::{BlakeTwo256, Block as BlockT, Header as HeaderT},
 	ConsensusEngineId, Justifications, StateVersion,
 };
-use sp_state_machine::{
+use rp_state_machine::{
 	backend::{Backend as _, TryPendingCode},
 	InMemoryBackend, OverlayedChanges, StateMachine,
 };
-use sp_storage::{ChildInfo, StorageKey};
+use rp_storage::{ChildInfo, StorageKey};
 use std::{collections::HashSet, sync::Arc};
 use substrate_test_runtime::TestAPI;
 use substrate_test_runtime_client::{
@@ -76,7 +76,7 @@ fn construct_block(
 	};
 	let mut overlay = OverlayedChanges::default();
 	let backend_runtime_code =
-		sp_state_machine::backend::BackendRuntimeCode::new(backend, TryPendingCode::No);
+		rp_state_machine::backend::BackendRuntimeCode::new(backend, TryPendingCode::No);
 	let runtime_code = backend_runtime_code.runtime_code().expect("Code is part of the backend");
 
 	StateMachine::new(
@@ -173,7 +173,7 @@ fn construct_genesis_should_work_with_native() {
 	let backend = InMemoryBackend::from((storage, StateVersion::default()));
 	let b1data = block1(genesis_hash, &backend);
 	let backend_runtime_code =
-		sp_state_machine::backend::BackendRuntimeCode::new(&backend, TryPendingCode::No);
+		rp_state_machine::backend::BackendRuntimeCode::new(&backend, TryPendingCode::No);
 	let runtime_code = backend_runtime_code.runtime_code().expect("Code is part of the backend");
 
 	let mut overlay = OverlayedChanges::default();
@@ -205,7 +205,7 @@ fn construct_genesis_should_work_with_wasm() {
 	let backend = InMemoryBackend::from((storage, StateVersion::default()));
 	let b1data = block1(genesis_hash, &backend);
 	let backend_runtime_code =
-		sp_state_machine::backend::BackendRuntimeCode::new(&backend, TryPendingCode::No);
+		rp_state_machine::backend::BackendRuntimeCode::new(&backend, TryPendingCode::No);
 	let runtime_code = backend_runtime_code.runtime_code().expect("Code is part of the backend");
 
 	let mut overlay = OverlayedChanges::default();
@@ -1265,7 +1265,7 @@ fn finalizing_diverged_block_should_trigger_reorg() {
 
 #[test]
 fn finality_notifications_content() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let (client, _select_chain) = TestClientBuilder::new().build_with_longest_chain();
 
 	//               -> D3 -> D4
@@ -1419,7 +1419,7 @@ fn get_hash_by_block_number_doesnt_panic() {
 
 #[test]
 fn state_reverted_on_reorg() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let client = substrate_test_runtime_client::new();
 
 	let current_balance = |client: &substrate_test_runtime_client::TestClient| {
@@ -1484,7 +1484,7 @@ fn state_reverted_on_reorg() {
 
 #[test]
 fn doesnt_import_blocks_that_revert_finality() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 	let tmp = tempfile::tempdir().unwrap();
 
 	// we need to run with archive pruning to avoid pruning non-canonical
@@ -1584,7 +1584,7 @@ fn doesnt_import_blocks_that_revert_finality() {
 
 	let import_err = block_on(client.import(BlockOrigin::Own, b3)).err().unwrap();
 	let expected_err =
-		ConsensusError::ClientImport(sp_blockchain::Error::NotInFinalizedChain.to_string());
+		ConsensusError::ClientImport(rp_blockchain::Error::NotInFinalizedChain.to_string());
 
 	assert_eq!(import_err.to_string(), expected_err.to_string());
 
@@ -1608,7 +1608,7 @@ fn doesnt_import_blocks_that_revert_finality() {
 
 	let import_err = block_on(client.import(BlockOrigin::Own, c1)).err().unwrap();
 	let expected_err =
-		ConsensusError::ClientImport(sp_blockchain::Error::NotInFinalizedChain.to_string());
+		ConsensusError::ClientImport(rp_blockchain::Error::NotInFinalizedChain.to_string());
 
 	assert_eq!(import_err.to_string(), expected_err.to_string());
 
@@ -1765,8 +1765,8 @@ fn respects_block_rules() {
 
 #[test]
 fn returns_status_for_pruned_blocks() {
-	use sp_consensus::BlockStatus;
-	sp_tracing::try_init_simple();
+	use rp_consensus::BlockStatus;
+	rp_tracing::try_init_simple();
 	let tmp = tempfile::tempdir().unwrap();
 
 	// set to prune after 1 block
@@ -2010,7 +2010,7 @@ fn storage_keys_prefix_and_start_key_works() {
 
 #[test]
 fn storage_keys_works() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let expected_keys =
 		substrate_test_runtime::storage_key_generator::get_expected_storage_hashed_keys(false);
@@ -2105,11 +2105,11 @@ fn storage_keys_works() {
 fn cleans_up_closed_notification_sinks_on_block_import() {
 	use substrate_test_runtime_client::GenesisInit;
 
-	let backend = Arc::new(sc_client_api::in_mem::Backend::new());
+	let backend = Arc::new(rc_client_api::in_mem::Backend::new());
 	let executor = WasmExecutor::default();
-	let client_config = sc_service::ClientConfig::default();
+	let client_config = rc_service::ClientConfig::default();
 
-	let genesis_block_builder = sc_service::GenesisBlockBuilder::new(
+	let genesis_block_builder = rc_service::GenesisBlockBuilder::new(
 		&substrate_test_runtime_client::GenesisParameters::default().genesis_storage(),
 		!client_config.no_genesis,
 		backend.clone(),
@@ -2255,18 +2255,18 @@ fn reorg_triggers_a_notification_even_for_sources_that_should_not_trigger_notifi
 
 #[test]
 fn use_dalek_ext_works() {
-	fn zero_ed_pub() -> sp_core::ed25519::Public {
-		sp_core::ed25519::Public::default()
+	fn zero_ed_pub() -> rp_core::ed25519::Public {
+		rp_core::ed25519::Public::default()
 	}
 
-	fn zero_ed_sig() -> sp_core::ed25519::Signature {
-		sp_core::ed25519::Signature::default()
+	fn zero_ed_sig() -> rp_core::ed25519::Signature {
+		rp_core::ed25519::Signature::default()
 	}
 
 	let client = TestClientBuilder::new().build();
 
 	client.execution_extensions().set_extensions_factory(
-		sc_client_api::execution_extensions::ExtensionBeforeBlock::<Block, sp_io::UseDalekExt>::new(
+		rc_client_api::execution_extensions::ExtensionBeforeBlock::<Block, rp_io::UseDalekExt>::new(
 			1,
 		),
 	);

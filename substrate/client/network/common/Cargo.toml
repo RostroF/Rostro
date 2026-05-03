@@ -1,13 +1,13 @@
 [package]
 description = "Substrate network common"
-name = "sc-network-common"
+name = "rc-network-common"
 version = "0.53.0"
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 authors.workspace = true
 edition.workspace = true
 homepage.workspace = true
 repository.workspace = true
-documentation = "https://docs.rs/sc-network-sync"
+documentation = "https://docs.rs/rc-network-sync"
 
 [lints]
 workspace = true
@@ -18,4 +18,4 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 bitflags = { workspace = true }
 codec = { features = ["derive"], workspace = true, default-features = true }
-sp-runtime = { default-features = true, workspace = true }
+rp-runtime = { default-features = true, workspace = true }

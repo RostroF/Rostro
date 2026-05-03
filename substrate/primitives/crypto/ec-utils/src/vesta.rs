@@ -21,7 +21,7 @@ use crate::utils::{self, HostcallResult, FAIL_MSG};
 use alloc::vec::Vec;
 use ark_ec::{AffineRepr, CurveConfig, CurveGroup};
 use ark_vesta_ext::CurveHooks;
-use sp_runtime_interface::{
+use rp_runtime_interface::{
 	pass_by::{PassFatPointerAndRead, PassFatPointerAndWrite},
 	runtime_interface,
 };

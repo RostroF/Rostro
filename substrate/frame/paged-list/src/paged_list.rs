@@ -32,8 +32,8 @@ use frame_support::{
 	traits::{Get, StorageInstance},
 	CloneNoBound, DebugNoBound, DefaultNoBound, EqNoBound, PartialEqNoBound, StorageNoopGuard,
 };
-use sp_io;
-use sp_runtime::traits::Saturating;
+use rp_io;
+use rp_runtime::traits::Saturating;
 
 pub type PageIndex = u32;
 pub type ValueIndex = u32;
@@ -62,10 +62,10 @@ pub type ValueIndex = u32;
 /// are loaded once a page is read from storage. Iteration then happens on the cached elements. This
 /// reduces the number of storage `read` calls on the overlay. **Appending** to the list happens by
 /// appending to the last page by utilizing
-/// [`storage::append`](frame::deps::sp_io::storage::append). It allows to directly extend
+/// [`storage::append`](frame::deps::rp_io::storage::append). It allows to directly extend
 /// the elements of `values` vector of the page without loading the whole vector from storage. A new
 /// page is instantiated once [`Page::next`] overflows `ValuesPerNewPage`. Its vector will also be
-/// created through [`storage::append`](frame::deps::sp_io::storage::append). **Draining** advances
+/// created through [`storage::append`](frame::deps::rp_io::storage::append). **Draining** advances
 /// the internal indices identical to Iteration. It additionally persists the increments to storage
 /// and thereby 'drains' elements. Completely drained pages are deleted from storage.
 ///
@@ -137,7 +137,7 @@ where
 	pub fn from_storage() -> Option<Self> {
 		let key = Self::key();
 
-		sp_io::storage::get(&key).and_then(|raw| Self::decode(&mut &raw[..]).ok())
+		rp_io::storage::get(&key).and_then(|raw| Self::decode(&mut &raw[..]).ok())
 	}
 
 	pub fn key() -> Vec<u8> {
@@ -155,13 +155,13 @@ where
 		}
 		let key = page_key::<Prefix>(self.last_page);
 		self.last_page_len.saturating_inc();
-		sp_io::storage::append(&key, item.encode());
+		rp_io::storage::append(&key, item.encode());
 		self.store();
 	}
 
 	pub fn store(&self) {
 		let key = Self::key();
-		self.using_encoded(|enc| sp_io::storage::set(&key, enc));
+		self.using_encoded(|enc| rp_io::storage::set(&key, enc));
 	}
 
 	pub fn reset(&mut self) {
@@ -170,7 +170,7 @@ where
 	}
 
 	pub fn delete() {
-		sp_io::storage::clear(&Self::key());
+		rp_io::storage::clear(&Self::key());
 	}
 }
 
@@ -189,7 +189,7 @@ impl<V: FullCodec> Page<V> {
 		value_index: ValueIndex,
 	) -> Option<Self> {
 		let key = page_key::<Prefix>(index);
-		let values = sp_io::storage::get(&key)
+		let values = rp_io::storage::get(&key)
 			.and_then(|raw| alloc::vec::Vec::<V>::decode(&mut &raw[..]).ok())?;
 		if values.is_empty() {
 			// Don't create empty pages.
@@ -215,7 +215,7 @@ impl<V: FullCodec> Page<V> {
 // Does not live under `Page` since it does not require the `Value` generic.
 pub(crate) fn delete_page<Prefix: StorageInstance>(index: PageIndex) {
 	let key = page_key::<Prefix>(index);
-	sp_io::storage::clear(&key);
+	rp_io::storage::clear(&key);
 }
 
 /// Storage key of a page with `index`.
@@ -430,7 +430,7 @@ pub(crate) mod mock {
 #[cfg(test)]
 mod tests {
 	use super::mock::*;
-	use sp_io::TestExternalities;
+	use rp_io::TestExternalities;
 
 	#[test]
 	fn append_works() {
@@ -498,13 +498,13 @@ mod tests {
 		TestExternalities::default().execute_with(|| {
 			List::append_many(0..9);
 
-			assert!(sp_io::storage::exists(&page_key::<Prefix>(0)));
-			assert!(sp_io::storage::exists(&page_key::<Prefix>(1)));
+			assert!(rp_io::storage::exists(&page_key::<Prefix>(0)));
+			assert!(rp_io::storage::exists(&page_key::<Prefix>(1)));
 
 			assert_eq!(List::drain().take(5).count(), 5);
 			// Page 0 is eagerly removed.
-			assert!(!sp_io::storage::exists(&page_key::<Prefix>(0)));
-			assert!(sp_io::storage::exists(&page_key::<Prefix>(1)));
+			assert!(!rp_io::storage::exists(&page_key::<Prefix>(0)));
+			assert!(rp_io::storage::exists(&page_key::<Prefix>(1)));
 		});
 	}
 
@@ -515,16 +515,16 @@ mod tests {
 			List::append_many(0..9);
 
 			let key = page_key::<Prefix>(0);
-			let raw = sp_io::storage::get(&key).expect("Page should be present");
+			let raw = rp_io::storage::get(&key).expect("Page should be present");
 			let as_vec = Vec::<u32>::decode(&mut &raw[..]).unwrap();
 			assert_eq!(as_vec.len(), 5, "First page contains 5");
 
 			let key = page_key::<Prefix>(1);
-			let raw = sp_io::storage::get(&key).expect("Page should be present");
+			let raw = rp_io::storage::get(&key).expect("Page should be present");
 			let as_vec = Vec::<u32>::decode(&mut &raw[..]).unwrap();
 			assert_eq!(as_vec.len(), 4, "Second page contains 4");
 
-			let meta = sp_io::storage::get(&meta_key::<Prefix>()).expect("Meta should be present");
+			let meta = rp_io::storage::get(&meta_key::<Prefix>()).expect("Meta should be present");
 			let meta: StoragePagedListMeta<Prefix, u32, ValuesPerNewPage> =
 				Decode::decode(&mut &meta[..]).unwrap();
 			assert_eq!(meta.first_page, 0);

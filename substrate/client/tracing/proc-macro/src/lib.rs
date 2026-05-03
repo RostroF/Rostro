@@ -23,7 +23,7 @@ use syn::{Error, Expr, ItemFn, Path, Result};
 
 /// This prefixes all the log lines with `[<name>]` (after the timestamp). It works by making a
 /// tracing's span that is propagated to all the child calls and child tasks (futures) if they are
-/// spawned properly with the `SpawnHandle` (see `TaskManager` in sc-cli) or if the futures use
+/// spawned properly with the `SpawnHandle` (see `TaskManager` in rc-cli) or if the futures use
 /// `.in_current_span()` (see tracing-futures).
 ///
 /// See Tokio's [tracing documentation](https://docs.rs/tracing-core/) and
@@ -37,10 +37,10 @@ use syn::{Error, Expr, ItemFn, Path, Result};
 ///
 /// ```ignore
 /// Builds a new service for a light client.
-/// #[sc_cli::prefix_logs_with("light")]
+/// #[rc_cli::prefix_logs_with("light")]
 /// pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 ///     let (client, backend, keystore, mut task_manager, on_demand) =
-///         sc_service::new_light_parts::<Block, RuntimeApi, Executor>(&config)?;
+///         rc_service::new_light_parts::<Block, RuntimeApi, Executor>(&config)?;
 ///
 ///        ...
 /// }
@@ -71,10 +71,10 @@ use syn::{Error, Expr, ItemFn, Path, Result};
 ///
 /// ```ignore
 /// Builds a new service for a light client.
-/// #[sc_cli::prefix_logs_with(config.network.node_name.as_str())]
+/// #[rc_cli::prefix_logs_with(config.network.node_name.as_str())]
 /// pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 ///     let (client, backend, keystore, mut task_manager, on_demand) =
-///         sc_service::new_light_parts::<Block, RuntimeApi, Executor>(&config)?;
+///         rc_service::new_light_parts::<Block, RuntimeApi, Executor>(&config)?;
 ///
 ///        ...
 /// }
@@ -115,7 +115,7 @@ pub fn prefix_logs_with(arg: TokenStream, item: TokenStream) -> TokenStream {
 	let prefix_expr = syn::parse_macro_input!(arg as Expr);
 	let item_fn = syn::parse_macro_input!(item as ItemFn);
 
-	// Resolve the proper sc_tracing path.
+	// Resolve the proper rc_tracing path.
 	let crate_name = match resolve_sc_tracing() {
 		Ok(path) => path,
 		Err(err) => return err.to_compile_error().into(),
@@ -159,15 +159,15 @@ pub fn prefix_logs_with(arg: TokenStream, item: TokenStream) -> TokenStream {
 	}
 }
 
-/// Resolve the correct path for sc_tracing:
-/// - If `polkadot-sdk` is in scope, returns a Path corresponding to `polkadot_sdk::sc_tracing`
-/// - Otherwise, falls back to `sc_tracing`
+/// Resolve the correct path for rc_tracing:
+/// - If `polkadot-sdk` is in scope, returns a Path corresponding to `polkadot_sdk::rc_tracing`
+/// - Otherwise, falls back to `rc_tracing`
 fn resolve_sc_tracing() -> Result<Path> {
 	match crate_name("polkadot-sdk") {
-		Ok(FoundCrate::Itself) => syn::parse_str("polkadot_sdk::sc_tracing"),
-		Ok(FoundCrate::Name(sdk_name)) => syn::parse_str(&format!("{}::sc_tracing", sdk_name)),
-		Err(_) => match crate_name("sc-tracing") {
-			Ok(FoundCrate::Itself) => syn::parse_str("sc_tracing"),
+		Ok(FoundCrate::Itself) => syn::parse_str("polkadot_sdk::rc_tracing"),
+		Ok(FoundCrate::Name(sdk_name)) => syn::parse_str(&format!("{}::rc_tracing", sdk_name)),
+		Err(_) => match crate_name("rc-tracing") {
+			Ok(FoundCrate::Itself) => syn::parse_str("rc_tracing"),
 			Ok(FoundCrate::Name(name)) => syn::parse_str(&name),
 			Err(e) => Err(syn::Error::new(Span::call_site(), e)),
 		},

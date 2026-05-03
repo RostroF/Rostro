@@ -42,22 +42,22 @@ use futures::{
 	Future, FutureExt, StreamExt,
 };
 use parking_lot::Mutex;
-use sc_block_builder::BlockBuilderBuilder;
-use sc_client_api::{Backend as BackendT, BlockchainEvents, FinalityNotifications, HeaderBackend};
-use sc_consensus::{
+use rc_block_builder::BlockBuilderBuilder;
+use rc_client_api::{Backend as BackendT, BlockchainEvents, FinalityNotifications, HeaderBackend};
+use rc_consensus::{
 	BlockImport, BlockImportParams, BoxJustificationImport, ForkChoiceStrategy, ImportResult,
 	ImportedAux,
 };
-use sc_network::{config::RequestResponseConfig, ProtocolName};
-use sc_network_test::{
+use rc_network::{config::RequestResponseConfig, ProtocolName};
+use rc_network_test::{
 	Block, BlockImportAdapter, FullPeerConfig, PassThroughVerifier, Peer, PeersClient,
 	PeersFullClient, TestNetFactory,
 };
-use sc_utils::{mpsc::TracingUnboundedReceiver, notification::NotificationReceiver};
-use sp_api::{ApiRef, ProvideRuntimeApi};
-use sp_application_crypto::key_types::BEEFY as BEEFY_KEY_TYPE;
-use sp_consensus::BlockOrigin;
-use sp_consensus_beefy::{
+use rc_utils::{mpsc::TracingUnboundedReceiver, notification::NotificationReceiver};
+use rp_api::{ApiRef, ProvideRuntimeApi};
+use rp_application_crypto::key_types::BEEFY as BEEFY_KEY_TYPE;
+use rp_consensus::BlockOrigin;
+use rp_consensus_beefy::{
 	ecdsa_crypto,
 	ecdsa_crypto::{AuthorityId, Signature},
 	known_payloads,
@@ -67,10 +67,10 @@ use sp_consensus_beefy::{
 	Payload, SignedCommitment, ValidatorSet, ValidatorSetId, VersionedFinalityProof, VoteMessage,
 	BEEFY_ENGINE_ID,
 };
-use sp_core::H256;
-use sp_keystore::{testing::MemoryKeystore, Keystore, KeystorePtr};
-use sp_mmr_primitives::{Error as MmrError, MmrApi};
-use sp_runtime::{
+use rp_core::H256;
+use rp_keystore::{testing::MemoryKeystore, Keystore, KeystorePtr};
+use rp_mmr_primitives::{Error as MmrError, MmrApi};
+use rp_runtime::{
 	codec::{Decode, Encode},
 	traits::{Header as HeaderT, NumberFor},
 	DigestItem, EncodedJustification, Justifications,
@@ -122,7 +122,7 @@ impl BeefyTestNet {
 			let (rx, cfg) = on_demand_justifications_protocol_config::<
 				_,
 				Block,
-				sc_network::NetworkWorker<_, _>,
+				rc_network::NetworkWorker<_, _>,
 			>(GENESIS_HASH, None);
 			let justif_protocol_name = cfg.name.clone();
 
@@ -296,7 +296,7 @@ impl ProvideRuntimeApi<Block> for TestApi {
 		RuntimeApi { inner: self.clone() }.into()
 	}
 }
-sp_api::mock_impl_runtime_apis! {
+rp_api::mock_impl_runtime_apis! {
 	impl BeefyApi<Block, AuthorityId> for RuntimeApi {
 		fn beefy_genesis() -> Option<NumberFor<Block>> {
 			Some(self.inner.beefy_genesis)
@@ -528,7 +528,7 @@ async fn wait_for_beefy_signed_commitments(
 			let expected = expected.next();
 			async move {
 				let signed_commitment = match versioned_finality_proof {
-					sp_consensus_beefy::VersionedFinalityProof::V1(sc) => sc,
+					rp_consensus_beefy::VersionedFinalityProof::V1(sc) => sc,
 				};
 				let commitment_block_num = signed_commitment.commitment.block_number;
 				assert_eq!(expected, Some(commitment_block_num).as_ref());
@@ -599,7 +599,7 @@ async fn finalize_block_and_wait_for_beefy(
 
 #[tokio::test]
 async fn beefy_finalizing_blocks() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let peers = [BeefyKeyring::Alice, BeefyKeyring::Bob];
 	let validator_set = ValidatorSet::new(make_beefy_ids(&peers), 0).unwrap();
@@ -639,7 +639,7 @@ async fn beefy_finalizing_blocks() {
 
 #[tokio::test]
 async fn lagging_validators() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let peers = [BeefyKeyring::Alice, BeefyKeyring::Bob, BeefyKeyring::Charlie];
 	let validator_set = ValidatorSet::new(make_beefy_ids(&peers), 0).unwrap();
@@ -707,7 +707,7 @@ async fn lagging_validators() {
 
 #[tokio::test]
 async fn correct_beefy_payload() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let peers = [BeefyKeyring::Alice, BeefyKeyring::Bob, BeefyKeyring::Charlie, BeefyKeyring::Dave];
 	let validator_set = ValidatorSet::new(make_beefy_ids(&peers), 0).unwrap();
@@ -766,9 +766,9 @@ async fn correct_beefy_payload() {
 #[tokio::test]
 async fn beefy_importing_justifications() {
 	use futures::{future::poll_fn, task::Poll};
-	use sc_client_api::BlockBackend;
+	use rc_client_api::BlockBackend;
 
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let mut net = BeefyTestNet::new(2);
 	let keys = &[BeefyKeyring::Alice, BeefyKeyring::Bob];
@@ -930,7 +930,7 @@ async fn beefy_importing_justifications() {
 
 #[tokio::test]
 async fn on_demand_beefy_justification_sync() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let all_peers =
 		[BeefyKeyring::Alice, BeefyKeyring::Bob, BeefyKeyring::Charlie, BeefyKeyring::Dave];
@@ -1361,7 +1361,7 @@ async fn should_catch_up_when_loading_saved_voter_state() {
 
 #[tokio::test]
 async fn beefy_finalizing_after_pallet_genesis() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let peers = [BeefyKeyring::Alice, BeefyKeyring::Bob];
 	let validator_set = ValidatorSet::new(make_beefy_ids(&peers), 14).unwrap();
@@ -1395,7 +1395,7 @@ async fn beefy_finalizing_after_pallet_genesis() {
 
 #[tokio::test]
 async fn beefy_reports_equivocations() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let peers = [BeefyKeyring::Alice, BeefyKeyring::Bob, BeefyKeyring::Charlie];
 	let validator_set = ValidatorSet::new(make_beefy_ids(&peers), 0).unwrap();
@@ -1467,7 +1467,7 @@ async fn beefy_reports_equivocations() {
 
 #[tokio::test]
 async fn gossipped_finality_proofs() {
-	sp_tracing::try_init_simple();
+	rp_tracing::try_init_simple();
 
 	let validators = [BeefyKeyring::Alice, BeefyKeyring::Bob, BeefyKeyring::Charlie];
 	// Only Alice and Bob are running the voter -> finality threshold not reached
@@ -1490,7 +1490,7 @@ async fn gossipped_finality_proofs() {
 		end: 10,
 		validator_set: &validator_set,
 	});
-	let mut charlie_gossip_engine = sc_network_gossip::GossipEngine::new(
+	let mut charlie_gossip_engine = rc_network_gossip::GossipEngine::new(
 		charlie.network_service().clone(),
 		charlie.sync_service().clone(),
 		charlie.take_notification_service(&beefy_gossip_proto_name()).unwrap(),

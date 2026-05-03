@@ -18,30 +18,30 @@
 
 use assert_matches::assert_matches;
 use codec::{Decode, Encode};
-use sc_executor_common::{
+use rc_executor_common::{
 	error::Error,
 	runtime_blob::RuntimeBlob,
 	wasm_runtime::{HeapAllocStrategy, WasmModule},
 };
-use sc_runtime_test::wasm_binary_unwrap;
-use sp_core::{
+use rc_runtime_test::wasm_binary_unwrap;
+use rp_core::{
 	ed25519, map,
 	offchain::{testing, OffchainDbExt, OffchainWorkerExt},
 	sr25519,
 	traits::Externalities,
 	Pair,
 };
-use sp_crypto_hashing::{blake2_128, blake2_256, sha2_256, twox_128, twox_256};
-use sp_runtime::traits::BlakeTwo256;
-use sp_state_machine::TestExternalities as CoreTestExternalities;
-use sp_trie::{LayoutV1 as Layout, TrieConfiguration};
+use rp_crypto_hashing::{blake2_128, blake2_256, sha2_256, twox_128, twox_256};
+use rp_runtime::traits::BlakeTwo256;
+use rp_state_machine::TestExternalities as CoreTestExternalities;
+use rp_trie::{LayoutV1 as Layout, TrieConfiguration};
 use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
 
 use crate::WasmExecutionMethod;
 
 pub type TestExternalities = CoreTestExternalities<BlakeTwo256>;
-type HostFunctions = sp_io::SubstrateHostFunctions;
+type HostFunctions = rp_io::SubstrateHostFunctions;
 
 /// Simple macro that runs a given method as test with the available wasm execution methods.
 #[macro_export]
@@ -50,33 +50,33 @@ macro_rules! test_wasm_execution {
 		paste::item! {
 			#[test]
 			fn [<$method_name _compiled_recreate_instance_cow>]() {
-				let _ = sp_tracing::try_init_simple();
+				let _ = rp_tracing::try_init_simple();
 				$method_name(WasmExecutionMethod::Compiled {
-					instantiation_strategy: sc_executor_wasmtime::InstantiationStrategy::RecreateInstanceCopyOnWrite
+					instantiation_strategy: rc_executor_wasmtime::InstantiationStrategy::RecreateInstanceCopyOnWrite
 				});
 			}
 
 			#[test]
 			fn [<$method_name _compiled_recreate_instance_vanilla>]() {
-				let _ = sp_tracing::try_init_simple();
+				let _ = rp_tracing::try_init_simple();
 				$method_name(WasmExecutionMethod::Compiled {
-					instantiation_strategy: sc_executor_wasmtime::InstantiationStrategy::RecreateInstance
+					instantiation_strategy: rc_executor_wasmtime::InstantiationStrategy::RecreateInstance
 				});
 			}
 
 			#[test]
 			fn [<$method_name _compiled_pooling_cow>]() {
-				let _ = sp_tracing::try_init_simple();
+				let _ = rp_tracing::try_init_simple();
 				$method_name(WasmExecutionMethod::Compiled {
-					instantiation_strategy: sc_executor_wasmtime::InstantiationStrategy::PoolingCopyOnWrite
+					instantiation_strategy: rc_executor_wasmtime::InstantiationStrategy::PoolingCopyOnWrite
 				});
 			}
 
 			#[test]
 			fn [<$method_name _compiled_pooling_vanilla>]() {
-				let _ = sp_tracing::try_init_simple();
+				let _ = rp_tracing::try_init_simple();
 				$method_name(WasmExecutionMethod::Compiled {
-					instantiation_strategy: sc_executor_wasmtime::InstantiationStrategy::Pooling
+					instantiation_strategy: rc_executor_wasmtime::InstantiationStrategy::Pooling
 				});
 			}
 		}
@@ -180,7 +180,7 @@ fn storage_should_work(wasm_method: WasmExecutionMethod) {
 		assert_eq!(output, b"all ok!".to_vec().encode());
 	}
 
-	let mut expected = TestExternalities::new(sp_core::storage::Storage {
+	let mut expected = TestExternalities::new(rp_core::storage::Storage {
 		top: map![
 			b"input".to_vec() => value,
 			b"foo".to_vec() => b"bar".to_vec(),
@@ -210,7 +210,7 @@ fn clear_prefix_should_work(wasm_method: WasmExecutionMethod) {
 		assert_eq!(output, b"all ok!".to_vec().encode());
 	}
 
-	let mut expected = TestExternalities::new(sp_core::storage::Storage {
+	let mut expected = TestExternalities::new(rp_core::storage::Storage {
 		top: map![
 			b"aaa".to_vec() => b"1".to_vec(),
 			b"aab".to_vec() => b"2".to_vec(),
@@ -365,12 +365,12 @@ fn offchain_index(wasm_method: WasmExecutionMethod) {
 	ext.register_extension(OffchainWorkerExt::new(offchain));
 	call_in_wasm("test_offchain_index_set", &[0], wasm_method, &mut ext.ext()).unwrap();
 
-	use sp_core::offchain::OffchainOverlayedChange;
+	use rp_core::offchain::OffchainOverlayedChange;
 	let data = ext
 		.overlayed_changes()
 		.clone()
 		.offchain_drain_committed()
-		.find(|(k, _v)| k == &(sp_core::offchain::STORAGE_PREFIX.to_vec(), b"k".to_vec()));
+		.find(|(k, _v)| k == &(rp_core::offchain::STORAGE_PREFIX.to_vec(), b"k".to_vec()));
 	assert_eq!(data.map(|data| data.1), Some(OffchainOverlayedChange::SetValue(b"v".to_vec())));
 }
 
@@ -556,12 +556,12 @@ fn parallel_execution(wasm_method: WasmExecutionMethod) {
 
 test_wasm_execution!(wasm_tracing_should_work);
 fn wasm_tracing_should_work(wasm_method: WasmExecutionMethod) {
-	use sc_tracing::{SpanDatum, TraceEvent};
+	use rc_tracing::{SpanDatum, TraceEvent};
 	use std::sync::Mutex;
 
 	struct TestTraceHandler(Arc<Mutex<Vec<SpanDatum>>>);
 
-	impl sc_tracing::TraceHandler for TestTraceHandler {
+	impl rc_tracing::TraceHandler for TestTraceHandler {
 		fn handle_span(&self, sd: &SpanDatum) {
 			self.0.lock().unwrap().push(sd.clone());
 		}
@@ -575,7 +575,7 @@ fn wasm_tracing_should_work(wasm_method: WasmExecutionMethod) {
 	// Create subscriber with wasm_tracing disabled
 	let test_subscriber = tracing_subscriber::fmt()
 		.finish()
-		.with(sc_tracing::ProfilingLayer::new_with_handler(Box::new(handler), "default"));
+		.with(rc_tracing::ProfilingLayer::new_with_handler(Box::new(handler), "default"));
 
 	let _guard = tracing::subscriber::set_default(test_subscriber);
 
@@ -630,7 +630,7 @@ fn memory_is_cleared_between_invocations(wasm_method: WasmExecutionMethod) {
 	//        COUNTER += 1;
 	//        COUNTER as u64
 	//     };
-	//     sp_core::to_substrate_wasm_fn_return_value(&output)
+	//     rp_core::to_substrate_wasm_fn_return_value(&output)
 	// }
 	// ```
 	//

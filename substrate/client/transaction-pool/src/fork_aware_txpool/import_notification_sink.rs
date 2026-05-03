@@ -28,7 +28,7 @@ use futures::{
 	Future, FutureExt,
 };
 use parking_lot::RwLock;
-use sc_utils::mpsc;
+use rc_utils::mpsc;
 use std::{
 	collections::HashSet,
 	fmt::{self, Debug, Formatter},
@@ -98,7 +98,7 @@ where
 	/// external components to control this stream.
 	fn event_stream() -> (StreamOf<I>, Controller<Command<K, I>>) {
 		let (sender, receiver) =
-			sc_utils::mpsc::tracing_unbounded::<Command<K, I>>("import-notification-sink", 16);
+			rc_utils::mpsc::tracing_unbounded::<Command<K, I>>("import-notification-sink", 16);
 
 		let ctx = Self { stream_map: StreamMap::new(), command_receiver: receiver };
 
@@ -314,7 +314,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn deduplicating_works() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let (ctrl, runnable) = MultiViewImportNotificationSink::<u64, i32>::new_with_worker();
 
@@ -347,7 +347,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn dedup_filter_reset_works() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let (ctrl, runnable) = MultiViewImportNotificationSink::<u64, i32>::new_with_worker();
 
@@ -385,7 +385,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn many_output_streams_are_supported() {
-		sp_tracing::try_init_simple();
+		rp_tracing::try_init_simple();
 
 		let (ctrl, runnable) = MultiViewImportNotificationSink::<u64, i32>::new_with_worker();
 

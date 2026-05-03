@@ -31,13 +31,13 @@ use jsonrpsee::{
 };
 use parking_lot::RwLock;
 use rand::{distributions::Alphanumeric, Rng};
-use sc_client_api::BlockchainEvents;
-use sc_transaction_pool_api::{
+use rc_client_api::BlockchainEvents;
+use rc_transaction_pool_api::{
 	error::IntoPoolError, TransactionFor, TransactionPool, TransactionSource,
 };
-use sp_blockchain::HeaderBackend;
-use sp_core::Bytes;
-use sp_runtime::traits::Block as BlockT;
+use rp_blockchain::HeaderBackend;
+use rp_core::Bytes;
+use rp_runtime::traits::Block as BlockT;
 use std::{collections::HashMap, sync::Arc};
 
 use super::error::ErrorBroadcast;
@@ -250,7 +250,7 @@ where
 			broadcast_ids.insert(id.clone(), BroadcastState { handle, tx_hash });
 		}
 
-		sc_rpc::utils::spawn_subscription_task(&self.executor, fut);
+		rc_rpc::utils::spawn_subscription_task(&self.executor, fut);
 
 		Ok(Some(id))
 	}

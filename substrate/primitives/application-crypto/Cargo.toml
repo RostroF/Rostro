@@ -1,5 +1,5 @@
 [package]
-name = "sp-application-crypto"
+name = "rp-application-crypto"
 version = "45.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ description = "Provides facilities for generating application specific crypto wr
 license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
-documentation = "https://docs.rs/sp-application-crypto"
+documentation = "https://docs.rs/rp-application-crypto"
 readme = "README.md"
 
 [lints]
@@ -20,8 +20,8 @@ targets = ["x86_64-unknown-linux-gnu"]
 codec = { features = ["derive"], workspace = true }
 scale-info = { features = ["derive"], workspace = true }
 serde = { optional = true, features = ["alloc", "derive"], workspace = true }
-sp-core = { workspace = true }
-sp-io = { workspace = true }
+rp-core = { workspace = true }
+rp-io = { workspace = true }
 
 [features]
 default = ["std"]
@@ -30,33 +30,33 @@ std = [
 	"full_crypto",
 	"scale-info/std",
 	"serde/std",
-	"sp-core/std",
-	"sp-io/std",
+	"rp-core/std",
+	"rp-io/std",
 ]
 
 # Serde support without relying on std features.
-serde = ["dep:serde", "scale-info/serde", "sp-core/serde"]
+serde = ["dep:serde", "scale-info/serde", "rp-core/serde"]
 
 # This feature enables all crypto primitives for `no_std` builds like microcontrollers
 # or Intel SGX.
 # For the regular wasm runtime builds this should not be used.
 full_crypto = [
-	"sp-core/full_crypto",
-	"sp-io/disable_oom",
+	"rp-core/full_crypto",
+	"rp-io/disable_oom",
 	# Don't add `panic_handler` and `alloc_error_handler` since they are expected to be provided
 	# by the user anyway.
-	"sp-io/disable_panic_handler",
+	"rp-io/disable_panic_handler",
 ]
 
 # This feature adds BLS crypto primitives.
 # It should not be used in production since the implementation and interface may still
 # be subject to significant changes.
-bls-experimental = ["sp-core/bls-experimental", "sp-io/bls-experimental"]
+bls-experimental = ["rp-core/bls-experimental", "rp-io/bls-experimental"]
 
 # This feature adds Bandersnatch crypto primitives.
 # It should not be used in production since the implementation and interface may still
 # be subject to significant changes.
 bandersnatch-experimental = [
-	"sp-core/bandersnatch-experimental",
-	"sp-io/bandersnatch-experimental",
+	"rp-core/bandersnatch-experimental",
+	"rp-io/bandersnatch-experimental",
 ]

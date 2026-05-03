@@ -85,7 +85,7 @@ use frame_support::{
 	DefaultNoBound,
 };
 use frame_system::pallet_prelude::*;
-use sp_runtime::{traits::Saturating, DispatchError};
+use rp_runtime::{traits::Saturating, DispatchError};
 
 pub use pallet::*;
 pub use weights::*;

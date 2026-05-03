@@ -18,11 +18,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use sc_consensus_grandpa::FinalityProofProvider;
-use sp_runtime::traits::{Block as BlockT, NumberFor};
+use rc_consensus_grandpa::FinalityProofProvider;
+use rp_runtime::traits::{Block as BlockT, NumberFor};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct EncodedFinalityProof(pub sp_core::Bytes);
+pub struct EncodedFinalityProof(pub rp_core::Bytes);
 
 /// Local trait mainly to allow mocking in tests.
 pub trait RpcFinalityProofProvider<Block: BlockT> {
@@ -31,19 +31,19 @@ pub trait RpcFinalityProofProvider<Block: BlockT> {
 	fn rpc_prove_finality(
 		&self,
 		block: NumberFor<Block>,
-	) -> Result<Option<EncodedFinalityProof>, sc_consensus_grandpa::FinalityProofError>;
+	) -> Result<Option<EncodedFinalityProof>, rc_consensus_grandpa::FinalityProofError>;
 }
 
 impl<B, Block> RpcFinalityProofProvider<Block> for FinalityProofProvider<B, Block>
 where
 	Block: BlockT,
 	NumberFor<Block>: finality_grandpa::BlockNumberOps,
-	B: sc_client_api::backend::Backend<Block> + Send + Sync + 'static,
+	B: rc_client_api::backend::Backend<Block> + Send + Sync + 'static,
 {
 	fn rpc_prove_finality(
 		&self,
 		block: NumberFor<Block>,
-	) -> Result<Option<EncodedFinalityProof>, sc_consensus_grandpa::FinalityProofError> {
+	) -> Result<Option<EncodedFinalityProof>, rc_consensus_grandpa::FinalityProofError> {
 		self.prove_finality(block).map(|x| x.map(|y| EncodedFinalityProof(y.into())))
 	}
 }

@@ -32,8 +32,8 @@
 //! state consistency.
 
 use frame_support::{defensive, ensure, traits::Defensive};
-use sp_runtime::DispatchResult;
-use sp_staking::{StakingAccount, StakingInterface};
+use rp_runtime::DispatchResult;
+use rp_staking::{StakingAccount, StakingInterface};
 
 use crate::{
 	asset, BalanceOf, Bonded, Config, Error, Ledger, Pallet, Payee, RewardDestination,
@@ -41,7 +41,7 @@ use crate::{
 };
 
 #[cfg(any(feature = "runtime-benchmarks", test))]
-use sp_runtime::traits::Zero;
+use rp_runtime::traits::Zero;
 
 impl<T: Config> StakingLedger<T> {
 	#[cfg(any(feature = "runtime-benchmarks", test))]
@@ -292,7 +292,7 @@ pub struct StakingLedgerInspect<T: Config> {
 	#[codec(compact)]
 	pub active: BalanceOf<T>,
 	pub unlocking: frame_support::BoundedVec<UnlockChunk<BalanceOf<T>>, T::MaxUnlockingChunks>,
-	pub legacy_claimed_rewards: frame_support::BoundedVec<sp_staking::EraIndex, T::HistoryDepth>,
+	pub legacy_claimed_rewards: frame_support::BoundedVec<rp_staking::EraIndex, T::HistoryDepth>,
 }
 
 #[cfg(test)]

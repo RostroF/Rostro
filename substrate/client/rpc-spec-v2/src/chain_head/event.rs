@@ -19,8 +19,8 @@
 //! The chain head's event returned as json compatible object.
 
 use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
-use sp_api::ApiError;
-use sp_version::RuntimeVersion;
+use rp_api::ApiError;
+use rp_version::RuntimeVersion;
 use std::collections::BTreeMap;
 
 use crate::common::events::StorageResult;
@@ -45,8 +45,8 @@ pub struct RuntimeVersionEvent {
 	pub spec: ChainHeadRuntimeVersion,
 }
 
-/// Simplified type clone of `sp_version::RuntimeVersion`. Used instead of
-/// `sp_version::RuntimeVersion` to conform to RPC spec V2.
+/// Simplified type clone of `rp_version::RuntimeVersion`. Used instead of
+/// `rp_version::RuntimeVersion` to conform to RPC spec V2.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChainHeadRuntimeVersion {
@@ -74,7 +74,7 @@ impl From<RuntimeVersion> for ChainHeadRuntimeVersion {
 			apis: val
 				.apis
 				.into_iter()
-				.map(|(api, version)| (sp_core::bytes::to_hex(api, false), *version))
+				.map(|(api, version)| (rp_core::bytes::to_hex(api, false), *version))
 				.collect(),
 			transaction_version: val.transaction_version,
 		}

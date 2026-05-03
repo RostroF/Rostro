@@ -13,14 +13,14 @@
 // limitations under the License.
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use sp_core::crypto::Pair as _;
+use rp_core::crypto::Pair as _;
 
 fn bench_ed25519(c: &mut Criterion) {
 	let mut group = c.benchmark_group("ed25519");
 
 	for &msg_size in &[32, 1024, 1024 * 1024] {
 		let msg = (0..msg_size).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
-		let key = sp_core::ed25519::Pair::generate().0;
+		let key = rp_core::ed25519::Pair::generate().0;
 		group.bench_function(BenchmarkId::new("signing", format!("{}", msg_size)), |b| {
 			b.iter(|| key.sign(&msg))
 		});
@@ -28,11 +28,11 @@ fn bench_ed25519(c: &mut Criterion) {
 
 	for &msg_size in &[32, 1024, 1024 * 1024] {
 		let msg = (0..msg_size).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
-		let key = sp_core::ed25519::Pair::generate().0;
+		let key = rp_core::ed25519::Pair::generate().0;
 		let sig = key.sign(&msg);
 		let public = key.public();
 		group.bench_function(BenchmarkId::new("verifying", format!("{}", msg_size)), |b| {
-			b.iter(|| sp_core::ed25519::Pair::verify(&sig, &msg, &public))
+			b.iter(|| rp_core::ed25519::Pair::verify(&sig, &msg, &public))
 		});
 	}
 
@@ -44,7 +44,7 @@ fn bench_sr25519(c: &mut Criterion) {
 
 	for &msg_size in &[32, 1024, 1024 * 1024] {
 		let msg = (0..msg_size).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
-		let key = sp_core::sr25519::Pair::generate().0;
+		let key = rp_core::sr25519::Pair::generate().0;
 		group.bench_function(BenchmarkId::new("signing", format!("{}", msg_size)), |b| {
 			b.iter(|| key.sign(&msg))
 		});
@@ -52,11 +52,11 @@ fn bench_sr25519(c: &mut Criterion) {
 
 	for &msg_size in &[32, 1024, 1024 * 1024] {
 		let msg = (0..msg_size).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
-		let key = sp_core::sr25519::Pair::generate().0;
+		let key = rp_core::sr25519::Pair::generate().0;
 		let sig = key.sign(&msg);
 		let public = key.public();
 		group.bench_function(BenchmarkId::new("verifying", format!("{}", msg_size)), |b| {
-			b.iter(|| sp_core::sr25519::Pair::verify(&sig, &msg, &public))
+			b.iter(|| rp_core::sr25519::Pair::verify(&sig, &msg, &public))
 		});
 	}
 
@@ -68,7 +68,7 @@ fn bench_ecdsa(c: &mut Criterion) {
 
 	for &msg_size in &[32, 1024, 1024 * 1024] {
 		let msg = (0..msg_size).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
-		let key = sp_core::ecdsa::Pair::generate().0;
+		let key = rp_core::ecdsa::Pair::generate().0;
 		group.bench_function(BenchmarkId::new("signing", format!("{}", msg_size)), |b| {
 			b.iter(|| key.sign(&msg))
 		});
@@ -76,11 +76,11 @@ fn bench_ecdsa(c: &mut Criterion) {
 
 	for &msg_size in &[32, 1024, 1024 * 1024] {
 		let msg = (0..msg_size).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
-		let key = sp_core::ecdsa::Pair::generate().0;
+		let key = rp_core::ecdsa::Pair::generate().0;
 		let sig = key.sign(&msg);
 		let public = key.public();
 		group.bench_function(BenchmarkId::new("verifying", format!("{}", msg_size)), |b| {
-			b.iter(|| sp_core::ecdsa::Pair::verify(&sig, &msg, &public))
+			b.iter(|| rp_core::ecdsa::Pair::verify(&sig, &msg, &public))
 		});
 	}
 

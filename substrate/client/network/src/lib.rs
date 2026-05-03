@@ -206,11 +206,11 @@
 //! - Either party can signal that it doesn't want a notifications substream anymore by closing
 //! its writing side. The other party should respond by closing its own writing side soon after.
 //!
-//! The API of `sc-network` allows one to register user-defined notification protocols.
-//! `sc-network` automatically tries to open a substream towards each node for which the legacy
+//! The API of `rc-network` allows one to register user-defined notification protocols.
+//! `rc-network` automatically tries to open a substream towards each node for which the legacy
 //! Substream substream is open. The handshake is then performed automatically.
 //!
-//! For example, the `sc-consensus-grandpa` crate registers the `/paritytech/grandpa/1`
+//! For example, the `rc-consensus-grandpa` crate registers the `/paritytech/grandpa/1`
 //! notifications protocol.
 //!
 //! At the moment, for backwards-compatibility, notification protocols are tied to the legacy
@@ -225,7 +225,7 @@
 //!
 //! # Usage
 //!
-//! Using the `sc-network` crate is done through the [`NetworkWorker`] struct. Create this
+//! Using the `rc-network` crate is done through the [`NetworkWorker`] struct. Create this
 //! struct by passing a [`config::Params`], then poll it as if it was a `Future`. You can extract an
 //! `Arc<NetworkService>` from the `NetworkWorker`, which can be shared amongst multiple places
 //! in order to give orders to the networking.
@@ -268,11 +268,11 @@ pub use crate::litep2p::Litep2pNetworkBackend;
 pub use event::{DhtEvent, Event};
 #[doc(inline)]
 pub use request_responses::{Config, IfDisconnected, RequestFailure};
-pub use sc_network_common::{
+pub use rc_network_common::{
 	role::{ObservedRole, Roles},
 	types::ReputationChange,
 };
-pub use sc_network_types::{
+pub use rc_network_types::{
 	multiaddr::{self, Multiaddr},
 	PeerId,
 };
@@ -291,7 +291,7 @@ pub use service::{
 };
 pub use types::ProtocolName;
 
-/// Log target for `sc-network`.
+/// Log target for `rc-network`.
 const LOG_TARGET: &str = "sub-libp2p";
 
 /// The maximum allowed number of established connections per peer.

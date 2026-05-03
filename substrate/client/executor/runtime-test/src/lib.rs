@@ -38,15 +38,15 @@ extern crate alloc;
 use alloc::{vec, vec::Vec};
 
 #[cfg(not(feature = "std"))]
-use sp_core::{ed25519, sr25519};
+use rp_core::{ed25519, sr25519};
 #[cfg(not(feature = "std"))]
-use sp_io::{
+use rp_io::{
 	crypto::{ed25519_verify, sr25519_verify},
 	hashing::{blake2_128, blake2_256, sha2_256, twox_128, twox_256},
 	storage, wasm_tracing,
 };
 #[cfg(not(feature = "std"))]
-use sp_runtime::{
+use rp_runtime::{
 	print,
 	traits::{BlakeTwo256, Hash},
 };
@@ -76,7 +76,7 @@ static mut MUTABLE_STATIC: u64 = 32;
 /// may be differences in handling zeroed and non-zeroed data.
 static mut MUTABLE_STATIC_BSS: u64 = 0;
 
-sp_core::wasm_export_functions! {
+rp_core::wasm_export_functions! {
 	fn test_calling_missing_external() {
 		unsafe { missing_external() }
 	}
@@ -205,59 +205,59 @@ sp_core::wasm_export_functions! {
 				b"one"[..].into(),
 				b"two"[..].into(),
 			],
-			sp_core::storage::StateVersion::V1,
+			rp_core::storage::StateVersion::V1,
 		).as_ref().to_vec()
 	}
 
 	fn test_offchain_index_set() {
-		sp_io::offchain_index::set(b"k", b"v");
+		rp_io::offchain_index::set(b"k", b"v");
 	}
 
 	fn test_offchain_local_storage() -> bool {
-		let kind = sp_core::offchain::StorageKind::PERSISTENT;
-		assert_eq!(sp_io::offchain::local_storage_get(kind, b"test"), None);
-		sp_io::offchain::local_storage_set(kind, b"test", b"asd");
-		assert_eq!(sp_io::offchain::local_storage_get(kind, b"test"), Some(b"asd".to_vec()));
+		let kind = rp_core::offchain::StorageKind::PERSISTENT;
+		assert_eq!(rp_io::offchain::local_storage_get(kind, b"test"), None);
+		rp_io::offchain::local_storage_set(kind, b"test", b"asd");
+		assert_eq!(rp_io::offchain::local_storage_get(kind, b"test"), Some(b"asd".to_vec()));
 
-		let res = sp_io::offchain::local_storage_compare_and_set(
+		let res = rp_io::offchain::local_storage_compare_and_set(
 			kind,
 			b"test",
 			Some(b"asd".to_vec()),
 			b"",
 		);
-		assert_eq!(sp_io::offchain::local_storage_get(kind, b"test"), Some(b"".to_vec()));
+		assert_eq!(rp_io::offchain::local_storage_get(kind, b"test"), Some(b"".to_vec()));
 		res
 	}
 
 	fn test_offchain_local_storage_with_none() {
-		let kind = sp_core::offchain::StorageKind::PERSISTENT;
-		assert_eq!(sp_io::offchain::local_storage_get(kind, b"test"), None);
+		let kind = rp_core::offchain::StorageKind::PERSISTENT;
+		assert_eq!(rp_io::offchain::local_storage_get(kind, b"test"), None);
 
-		let res = sp_io::offchain::local_storage_compare_and_set(kind, b"test", None, b"value");
+		let res = rp_io::offchain::local_storage_compare_and_set(kind, b"test", None, b"value");
 		assert_eq!(res, true);
-		assert_eq!(sp_io::offchain::local_storage_get(kind, b"test"), Some(b"value".to_vec()));
+		assert_eq!(rp_io::offchain::local_storage_get(kind, b"test"), Some(b"value".to_vec()));
 	}
 
 	fn test_offchain_http() -> bool {
-		use sp_core::offchain::HttpRequestStatus;
+		use rp_core::offchain::HttpRequestStatus;
 		let run = || -> Option<()> {
-			let id = sp_io::offchain::http_request_start(
+			let id = rp_io::offchain::http_request_start(
 				"POST",
 				"http://localhost:12345",
 				&[],
 			).ok()?;
-			sp_io::offchain::http_request_add_header(id, "X-Auth", "test").ok()?;
-			sp_io::offchain::http_request_write_body(id, &[1, 2, 3, 4], None).ok()?;
-			sp_io::offchain::http_request_write_body(id, &[], None).ok()?;
-			let status = sp_io::offchain::http_response_wait(&[id], None);
+			rp_io::offchain::http_request_add_header(id, "X-Auth", "test").ok()?;
+			rp_io::offchain::http_request_write_body(id, &[1, 2, 3, 4], None).ok()?;
+			rp_io::offchain::http_request_write_body(id, &[], None).ok()?;
+			let status = rp_io::offchain::http_response_wait(&[id], None);
 			assert!(status == vec![HttpRequestStatus::Finished(200)], "Expected Finished(200) status.");
-			let headers = sp_io::offchain::http_response_headers(id);
+			let headers = rp_io::offchain::http_response_headers(id);
 			assert_eq!(headers, vec![(b"X-Auth".to_vec(), b"hello".to_vec())]);
 			let mut buffer = vec![0; 64];
-			let read = sp_io::offchain::http_response_read_body(id, &mut buffer, None).ok()?;
+			let read = rp_io::offchain::http_response_read_body(id, &mut buffer, None).ok()?;
 			assert_eq!(read, 3);
 			assert_eq!(&buffer[0..read as usize], &[1, 2, 3]);
-			let read = sp_io::offchain::http_response_read_body(id, &mut buffer, None).ok()?;
+			let read = rp_io::offchain::http_response_read_body(id, &mut buffer, None).ok()?;
 			assert_eq!(read, 0);
 
 			Some(())
@@ -275,10 +275,10 @@ sp_core::wasm_export_functions! {
 	}
 
 	fn test_nested_spans() {
-		sp_io::init_tracing();
+		rp_io::init_tracing();
 		let span_id = wasm_tracing::enter_span(Default::default());
 		{
-			sp_io::init_tracing();
+			rp_io::init_tracing();
 			let span_id = wasm_tracing::enter_span(Default::default());
 			wasm_tracing::exit(span_id);
 		}
@@ -359,7 +359,7 @@ sp_core::wasm_export_functions! {
 	}
 
 	fn test_abort_on_panic() {
-		sp_io::panic_handler::abort_on_panic("test_abort_on_panic called");
+		rp_io::panic_handler::abort_on_panic("test_abort_on_panic called");
 	}
 
 	fn test_unreachable_intrinsic() {
@@ -379,7 +379,7 @@ mod output_validity {
 	use super::WASM_PAGE_SIZE;
 
 	#[cfg(not(feature = "std"))]
-	use sp_runtime_interface::pack_ptr_and_len;
+	use rp_runtime_interface::pack_ptr_and_len;
 
 	// Returns a huge len. It should result in an error, and not an allocation.
 	#[no_mangle]

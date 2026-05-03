@@ -1,5 +1,5 @@
 [package]
-name = "polkadot-sdk-frame"
+name = "rostro-frame"
 version = "0.15.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 edition.workspace = true
@@ -26,22 +26,22 @@ frame-system-rpc-runtime-api = { optional = true, workspace = true }
 frame-try-runtime = { optional = true, workspace = true }
 scale-info = { features = ["derive"], workspace = true }
 serde = { workspace = true }
-sp-api = { optional = true, workspace = true }
-sp-arithmetic = { workspace = true }
-sp-block-builder = { optional = true, workspace = true }
-sp-consensus-aura = { optional = true, workspace = true }
-sp-consensus-grandpa = { optional = true, workspace = true }
-sp-core = { workspace = true }
-sp-genesis-builder = { optional = true, workspace = true }
-sp-inherents = { optional = true, workspace = true }
-sp-io = { workspace = true }
-sp-keyring = { optional = true, workspace = true }
-sp-offchain = { optional = true, workspace = true }
-sp-runtime = { workspace = true }
-sp-session = { optional = true, workspace = true }
-sp-storage = { optional = true, workspace = true }
-sp-transaction-pool = { optional = true, workspace = true }
-sp-version = { optional = true, workspace = true }
+rp-api = { optional = true, workspace = true }
+rp-arithmetic = { workspace = true }
+rp-block-builder = { optional = true, workspace = true }
+rp-consensus-aura = { optional = true, workspace = true }
+rp-consensus-grandpa = { optional = true, workspace = true }
+rp-core = { workspace = true }
+rp-genesis-builder = { optional = true, workspace = true }
+rp-inherents = { optional = true, workspace = true }
+rp-io = { workspace = true }
+rp-keyring = { optional = true, workspace = true }
+rp-offchain = { optional = true, workspace = true }
+rp-runtime = { workspace = true }
+rp-session = { optional = true, workspace = true }
+rp-storage = { optional = true, workspace = true }
+rp-transaction-pool = { optional = true, workspace = true }
+rp-version = { optional = true, workspace = true }
 
 docify = { workspace = true }
 log = { workspace = true }
@@ -60,51 +60,51 @@ std = [
 	"log/std",
 	"scale-info/std",
 	"serde/std",
-	"sp-api?/std",
-	"sp-arithmetic/std",
-	"sp-block-builder?/std",
-	"sp-consensus-aura?/std",
-	"sp-consensus-grandpa?/std",
-	"sp-core/std",
-	"sp-genesis-builder?/std",
-	"sp-inherents?/std",
-	"sp-io/std",
-	"sp-keyring?/std",
-	"sp-offchain?/std",
-	"sp-runtime/std",
-	"sp-session?/std",
-	"sp-storage/std",
-	"sp-transaction-pool?/std",
-	"sp-version?/std",
+	"rp-api?/std",
+	"rp-arithmetic/std",
+	"rp-block-builder?/std",
+	"rp-consensus-aura?/std",
+	"rp-consensus-grandpa?/std",
+	"rp-core/std",
+	"rp-genesis-builder?/std",
+	"rp-inherents?/std",
+	"rp-io/std",
+	"rp-keyring?/std",
+	"rp-offchain?/std",
+	"rp-runtime/std",
+	"rp-session?/std",
+	"rp-storage/std",
+	"rp-transaction-pool?/std",
+	"rp-version?/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system-benchmarking/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
+	"rp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-executive/try-runtime",
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"frame-try-runtime/try-runtime",
-	"sp-runtime/try-runtime",
+	"rp-runtime/try-runtime",
 ]
 experimental = ["frame-support/experimental"]
 runtime = [
 	"frame-executive",
 	"frame-system-rpc-runtime-api",
-	"sp-api",
-	"sp-block-builder",
-	"sp-consensus-aura",
-	"sp-consensus-grandpa",
-	"sp-genesis-builder",
-	"sp-inherents",
-	"sp-keyring",
-	"sp-offchain",
-	"sp-session",
-	"sp-storage",
-	"sp-transaction-pool",
-	"sp-version",
+	"rp-api",
+	"rp-block-builder",
+	"rp-consensus-aura",
+	"rp-consensus-grandpa",
+	"rp-genesis-builder",
+	"rp-inherents",
+	"rp-keyring",
+	"rp-offchain",
+	"rp-session",
+	"rp-storage",
+	"rp-transaction-pool",
+	"rp-version",
 ]

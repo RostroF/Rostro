@@ -28,7 +28,7 @@
 //! [here](https://docs.rs/honggfuzz/).
 
 use honggfuzz::fuzz;
-use sp_arithmetic::{traits::Saturating, FixedI64, FixedPointNumber};
+use rp_arithmetic::{traits::Saturating, FixedI64, FixedPointNumber};
 
 fn main() {
 	loop {

@@ -1,0 +1,19 @@
+Rostro is licensed under multiple licenses, applied per-crate and per-file.
+
+Default for new Rostro Foundation contributions and for the on-chain runtime
+(all sp-* primitives, all frame-* and pallet-* runtime crates):
+
+    Apache License, Version 2.0    -- see LICENSE-APACHE
+
+Default for the substrate-client (sc-*) crates retained from upstream Parity:
+
+    GNU General Public License, Version 3 or later,
+    WITH Classpath-exception-2.0   -- see LICENSE-GPL3-CLASSPATH
+
+The split is documented in NOTICE.md, including the runtime/node boundary,
+the rationale for the Classpath exception, and the practical implications
+for downstream consumers and patent holders.
+
+Per-file SPDX-License-Identifier headers in source files are authoritative.
+Where a file's SPDX tag disagrees with the per-crate Cargo.toml license
+field or this top-level LICENSE pointer, the per-file SPDX tag wins.
