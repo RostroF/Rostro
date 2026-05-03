@@ -1,0 +1,44 @@
+[package]
+name = "rns-types"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Shared types for the Rostro Name Service (RNS) — name records, listing info, subname state, dashboard aggregations, namehash, on-chain DNS record-type enum. Originally authored as PNS by Anthony Czarnik; vendored into Rostro 2026-05-03."
+publish = false
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { features = ["derive", "max-encoded-len"], workspace = true }
+scale-info = { features = ["derive"], workspace = true }
+serde = { features = ["derive"], workspace = true, default-features = false }
+
+frame-support = { workspace = true }
+rp-core = { workspace = true }
+rp-io = { workspace = true }
+rp-std = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"frame-support/std",
+	"rp-core/std",
+	"rp-io/std",
+	"rp-std/std",
+	"scale-info/std",
+	"serde/std",
+]
+runtime-benchmarks = [
+	"frame-support/runtime-benchmarks",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+]

@@ -8231,24 +8231,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-identity"
-version = "46.0.0"
-dependencies = [
- "enumflags2",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "pallet-balances",
- "parity-scale-codec",
- "rp-core",
- "rp-io",
- "rp-keystore",
- "rp-runtime",
- "scale-info",
-]
-
-[[package]]
 name = "pallet-im-online"
 version = "45.0.0"
 dependencies = [
@@ -8777,6 +8759,63 @@ dependencies = [
  "rp-core",
  "rp-io",
  "rp-runtime",
+ "scale-info",
+ "serde",
+]
+
+[[package]]
+name = "pallet-rns-marketplace"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-rns-registrar",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "rns-types",
+ "rp-core",
+ "rp-runtime",
+ "rp-std",
+ "rp-weights",
+ "scale-info",
+ "serde",
+]
+
+[[package]]
+name = "pallet-rns-registrar"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-rns-resolvers",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "rns-types",
+ "rp-core",
+ "rp-io",
+ "rp-runtime",
+ "rp-std",
+ "rp-weights",
+ "scale-info",
+ "serde",
+]
+
+[[package]]
+name = "pallet-rns-resolvers"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-rns-registrar",
+ "parity-scale-codec",
+ "rns-types",
+ "rp-core",
+ "rp-runtime",
+ "rp-std",
+ "rp-weights",
  "scale-info",
  "serde",
 ]
@@ -12120,6 +12159,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd124222d17ad93a644ed9d011a40f4fb64aa54275c08cc216524a9ea82fb09f"
 dependencies = [
  "digest 0.10.7",
+]
+
+[[package]]
+name = "rns-ddns"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "rns-types",
+ "tracing",
+]
+
+[[package]]
+name = "rns-runtime-api"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "rns-types",
+ "rp-api",
+ "rp-core",
+ "rp-runtime",
+ "rp-std",
+ "scale-info",
+ "serde",
+]
+
+[[package]]
+name = "rns-types"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "parity-scale-codec",
+ "rp-core",
+ "rp-io",
+ "rp-std",
+ "scale-info",
+ "serde",
 ]
 
 [[package]]

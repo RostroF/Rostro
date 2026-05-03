@@ -1,0 +1,67 @@
+[package]
+name = "pallet-rns-marketplace"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Rostro Name Service (RNS) marketplace pallet — list, cancel, atomically purchase registered names. Originally authored as PNS by Anthony Czarnik; vendored into Rostro 2026-05-03."
+publish = false
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { features = ["derive", "max-encoded-len"], workspace = true }
+scale-info = { features = ["derive"], workspace = true }
+serde = { features = ["derive"], workspace = true, default-features = false }
+
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+
+rp-core = { workspace = true }
+rp-runtime = { workspace = true }
+rp-std = { workspace = true }
+rp-weights = { workspace = true }
+
+pallet-timestamp = { workspace = true }
+
+rns-types = { workspace = true }
+pallet-rns-registrar = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"frame-support/std",
+	"frame-system/std",
+	"pallet-rns-registrar/std",
+	"pallet-timestamp/std",
+	"rns-types/std",
+	"rp-core/std",
+	"rp-runtime/std",
+	"rp-std/std",
+	"rp-weights/std",
+	"scale-info/std",
+	"serde/std",
+]
+runtime-benchmarks = [
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"pallet-rns-registrar/runtime-benchmarks",
+	"pallet-timestamp/runtime-benchmarks",
+	"rns-types/runtime-benchmarks",
+	"rp-runtime/runtime-benchmarks",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"pallet-rns-registrar/try-runtime",
+	"pallet-timestamp/try-runtime",
+	"rns-types/try-runtime",
+	"rp-runtime/try-runtime",
+]

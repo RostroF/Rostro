@@ -1,13 +1,13 @@
 [package]
-name = "pallet-identity"
-version = "46.0.0"
+name = "pallet-rns-resolvers"
+version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
 license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
-description = "FRAME identity management pallet"
-readme = "README.md"
+description = "Rostro Name Service (RNS) resolver pallet — DNS record management for registered names. Originally authored as PNS by Anthony Czarnik; vendored into Rostro 2026-05-03."
+publish = false
 
 [lints]
 workspace = true
@@ -17,43 +17,50 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 codec = { features = ["derive", "max-encoded-len"], workspace = true }
-enumflags2 = { workspace = true }
+scale-info = { features = ["derive"], workspace = true }
+serde = { features = ["derive"], workspace = true, default-features = false }
+
 frame-benchmarking = { optional = true, workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
-log = { workspace = true }
-scale-info = { features = ["derive"], workspace = true }
-rp-io = { workspace = true }
-rp-runtime = { workspace = true }
 
-[dev-dependencies]
-pallet-balances = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-keystore = { default-features = true, workspace = true }
+rp-core = { workspace = true }
+rp-runtime = { workspace = true }
+rp-std = { workspace = true }
+rp-weights = { workspace = true }
+
+rns-types = { workspace = true }
+pallet-rns-registrar = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
 std = [
 	"codec/std",
-	"enumflags2/std",
 	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
-	"log/std",
-	"scale-info/std",
-	"rp-io/std",
+	"pallet-rns-registrar?/std",
+	"rns-types/std",
+	"rp-core/std",
 	"rp-runtime/std",
+	"rp-std/std",
+	"rp-weights/std",
+	"scale-info/std",
+	"serde/std",
 ]
 runtime-benchmarks = [
+	"dep:pallet-rns-registrar",
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"pallet-balances/runtime-benchmarks",
+	"pallet-rns-registrar/runtime-benchmarks",
+	"rns-types/runtime-benchmarks",
 	"rp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
-	"pallet-balances/try-runtime",
+	"pallet-rns-registrar?/try-runtime",
+	"rns-types/try-runtime",
 	"rp-runtime/try-runtime",
 ]

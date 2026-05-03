@@ -117,7 +117,6 @@ members = [
 	"substrate/frame/executive",
 	"substrate/frame/fast-unstake",
 	"substrate/frame/grandpa",
-	"substrate/frame/identity",
 	"substrate/frame/im-online",
 	"substrate/frame/indices",
 	"substrate/frame/insecure-randomness-collective-flip",
@@ -150,6 +149,11 @@ members = [
 	"substrate/frame/recovery",
 	"substrate/frame/referenda",
 	"substrate/frame/remark",
+	"substrate/frame/rns-marketplace",
+	"substrate/frame/rns-registrar",
+	"substrate/frame/rns-resolvers",
+	"substrate/frame/rns-runtime-api",
+	"substrate/frame/rns-types",
 	"substrate/frame/root-offences",
 	"substrate/frame/root-testing",
 	"substrate/frame/safe-mode",
@@ -267,6 +271,7 @@ members = [
 	"substrate/utils/frame/rpc/support",
 	"substrate/utils/frame/rpc/system",
 	"substrate/utils/merkle-mountain-range",
+	"substrate/utils/rns-ddns",
 	"substrate/utils/prometheus",
 	"substrate/utils/substrate-bip39",
 	"substrate/utils/wasm-builder",
@@ -569,7 +574,6 @@ pallet-example-view-functions = { path = "substrate/frame/examples/view-function
 pallet-examples = { path = "substrate/frame/examples" }
 pallet-fast-unstake = { path = "substrate/frame/fast-unstake", default-features = false }
 pallet-grandpa = { path = "substrate/frame/grandpa", default-features = false }
-pallet-identity = { path = "substrate/frame/identity", default-features = false }
 pallet-im-online = { path = "substrate/frame/im-online", default-features = false }
 pallet-indices = { path = "substrate/frame/indices", default-features = false }
 pallet-insecure-randomness-collective-flip = { path = "substrate/frame/insecure-randomness-collective-flip", default-features = false }
@@ -591,6 +595,9 @@ pallet-parameters = { path = "substrate/frame/parameters", default-features = fa
 pallet-people = { path = "substrate/frame/people", default-features = false }
 pallet-preimage = { path = "substrate/frame/preimage", default-features = false }
 pallet-proof-verifier = { path = "substrate/frame/proof-verifier", default-features = false }
+pallet-rns-marketplace = { path = "substrate/frame/rns-marketplace", default-features = false }
+pallet-rns-registrar = { path = "substrate/frame/rns-registrar", default-features = false }
+pallet-rns-resolvers = { path = "substrate/frame/rns-resolvers", default-features = false }
 pallet-proxy = { path = "substrate/frame/proxy", default-features = false }
 pallet-recovery = { path = "substrate/frame/recovery", default-features = false }
 pallet-referenda = { path = "substrate/frame/referenda", default-features = false }
@@ -769,6 +776,9 @@ simple-mermaid = { version = "0.1.1" }
 slotmap = { version = "1.0" }
 smallvec = { version = "1.11.0", default-features = false }
 soketto = { version = "0.8.0" }
+rns-ddns = { path = "substrate/utils/rns-ddns", default-features = false }
+rns-runtime-api = { path = "substrate/frame/rns-runtime-api", default-features = false }
+rns-types = { path = "substrate/frame/rns-types", default-features = false }
 rp-api = { path = "substrate/primitives/api", default-features = false }
 rp-api-proc-macro = { path = "substrate/primitives/api/proc-macro", default-features = false }
 rp-application-crypto = { path = "substrate/primitives/application-crypto", default-features = false }
