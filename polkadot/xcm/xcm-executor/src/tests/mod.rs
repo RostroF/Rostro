@@ -23,5 +23,6 @@
 mod initiate_transfer;
 pub(crate) mod mock;
 mod pay_fees;
+mod reanchor_failure;
 mod set_asset_claimer;
 mod transactional;

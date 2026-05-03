@@ -24,6 +24,7 @@ use crate::{
 	paras_inherent, scheduler, session_info, shared, ParaId,
 };
 use frame_support::pallet_prelude::*;
+use sp_runtime::RuntimeAppPublic;
 
 use codec::Decode;
 use frame_support::{
@@ -83,6 +84,7 @@ frame_support::construct_runtime!(
 		SessionInfo: session_info,
 		Disputes: disputes,
 		Babe: pallet_babe,
+		Session: pallet_session,
 	}
 );
 
@@ -175,9 +177,61 @@ impl pallet_babe::Config for Test {
 	type MaxNominators = ConstU32<0>;
 	type KeyOwnerProof = sp_core::Void;
 	type EquivocationReportSystem = ();
-	type SessionInfo = frame_support::traits::NoSession;
 	type Moment = u64;
 	type SlotDuration = SlotDuration;
+}
+
+// Minimal `pallet_session` wiring required by the new `pallet_babe::Config:
+// pallet_session::Config` supertrait. This mock never rotates sessions; the
+// validator set is genesis-only. `SessionManager = ()` and a no-op
+// `SessionHandler` are all this surface needs to compile + link.
+// `MockSessionKeys` uses `UintAuthorityId` — the standard test-fixture key
+// type. The mock never rotates sessions; this just satisfies the trait surface.
+sp_runtime::impl_opaque_keys! {
+	pub struct MockSessionKeys {
+		pub dummy: sp_runtime::testing::UintAuthorityId,
+	}
+}
+
+pub struct IdentityValidator;
+impl<T: Clone> sp_runtime::traits::Convert<T, Option<T>> for IdentityValidator {
+	fn convert(x: T) -> Option<T> {
+		Some(x)
+	}
+}
+
+pub struct NoopSessionHandler;
+impl<AId> pallet_session::SessionHandler<AId> for NoopSessionHandler {
+	const KEY_TYPE_IDS: &'static [sp_runtime::KeyTypeId] =
+		&[sp_runtime::testing::UintAuthorityId::ID];
+	fn on_genesis_session<Ks: sp_runtime::traits::OpaqueKeys>(_: &[(AId, Ks)]) {}
+	fn on_new_session<Ks: sp_runtime::traits::OpaqueKeys>(
+		_: bool,
+		_: &[(AId, Ks)],
+		_: &[(AId, Ks)],
+	) {}
+	fn on_before_session_ending() {}
+	fn on_disabled(_: u32) {}
+}
+
+parameter_types! {
+	pub const SessionPeriod: u32 = 100;
+	pub const SessionOffset: u32 = 0;
+}
+
+impl pallet_session::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type ValidatorId = <Self as frame_system::Config>::AccountId;
+	type ValidatorIdOf = IdentityValidator;
+	type ShouldEndSession = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
+	type NextSessionRotation = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
+	type SessionManager = ();
+	type SessionHandler = NoopSessionHandler;
+	type Keys = MockSessionKeys;
+	type DisablingStrategy = ();
+	type WeightInfo = ();
+	type Currency = Balances;
+	type KeyDeposit = ();
 }
 
 parameter_types! {

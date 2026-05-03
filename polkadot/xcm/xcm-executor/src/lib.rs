@@ -755,7 +755,14 @@ impl<Config: config::Config> XcmExecutor<Config> {
 		remote_xcm: &mut Vec<Instruction<()>>,
 		context: Option<&XcmContext>,
 	) -> Result<Assets, XcmError> {
-		let reanchored_assets = Self::reanchored_assets(&assets, dest);
+		// SECURITY: We must reanchor BEFORE depositing locally, and we must fail the
+		// whole operation if any asset cannot be reanchored. The previous
+		// implementation used `reanchored_assets` which silently dropped any asset
+		// that failed to reanchor. The local sovereign of `dest` was credited the
+		// FULL `assets`, while the remote chain only received the SHRUNK list — so
+		// the difference would be permanently locked in the dest's local sovereign
+		// account with nothing to claim it on the destination.
+		let reanchored_assets = Self::try_reanchored_assets(&assets, dest)?;
 		Self::deposit_assets_with_retry(assets, dest, context)?;
 		remote_xcm.push(ReserveAssetDeposited(reanchored_assets.clone()));
 
@@ -791,7 +798,14 @@ impl<Config: config::Config> XcmExecutor<Config> {
 		remote_xcm: &mut Vec<Instruction<()>>,
 		context: &XcmContext,
 	) -> Result<Assets, XcmError> {
-		let reanchored_assets = Self::reanchored_assets(&assets, dest);
+		// SECURITY: We must reanchor BEFORE `check_out`-ing locally, and we must
+		// fail the whole operation if any asset cannot be reanchored. The previous
+		// implementation used `reanchored_assets` which silently dropped any asset
+		// that failed to reanchor. Assets were `check_out`'d locally (i.e. burned
+		// out of issuance accounting) but never minted on the destination, so the
+		// dropped delta was a true loss of value with no counterparty — a net
+		// issuance break.
+		let reanchored_assets = Self::try_reanchored_assets(&assets, dest)?;
 		for asset in assets.assets_iter() {
 			// Must ensure that we have teleport trust with destination for these assets.
 			#[cfg(not(any(test, feature = "runtime-benchmarks")))]
@@ -829,6 +843,36 @@ impl<Config: config::Config> XcmExecutor<Config> {
 	/// NOTE: Any assets which were unable to be reanchored are introduced into `failed_bin`.
 	fn reanchored_assets(assets: &AssetsInHolding, dest: &Location) -> Assets {
 		assets.reanchored_assets(dest, &Config::UniversalLocation::get())
+	}
+
+	/// Like `reanchored_assets`, but errors out with `XcmError::ReanchorFailed` if any asset cannot
+	/// be reanchored, instead of silently dropping it.
+	///
+	/// SECURITY: callers that are about to debit/burn the FULL `assets` locally (e.g.
+	/// `do_reserve_deposit_assets`, `do_teleport_assets`) MUST use this helper rather than
+	/// `reanchored_assets`. Otherwise, the local side spends the full amount while the remote side
+	/// only mints a smaller subset — causing locked-funds (reserve-deposit) or net-issuance loss
+	/// (teleport).
+	pub(crate) fn try_reanchored_assets(
+		assets: &AssetsInHolding,
+		dest: &Location,
+	) -> Result<Assets, XcmError> {
+		let context = Config::UniversalLocation::get();
+		let mut out: Vec<Asset> = Vec::new();
+		for mut asset in assets.assets_iter() {
+			asset.reanchor(dest, &context).map_err(|()| {
+				tracing::error!(
+					target: "xcm::reanchor",
+					?dest,
+					?context,
+					"Failed reanchoring asset; aborting transfer to avoid silent value loss.",
+				);
+				XcmError::ReanchorFailed
+			})?;
+			out.push(asset);
+		}
+		out.sort();
+		Ok(out.into())
 	}
 
 	#[cfg(any(test, feature = "runtime-benchmarks"))]

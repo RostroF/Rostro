@@ -1369,45 +1369,131 @@ pub mod pallet {
 
 	impl<T: Config> Pallet<T> {
 		/// Apply previously-unapplied slashes on the beginning of a new era, after a delay.
+		///
+		/// This drains as many entries from `UnappliedSlashes` as fit within an internal weight
+		/// budget per block, processing the *current* (active) era's prefix first, and then
+		/// iterating any older eras still inside the slash defer window. Older-era leftovers can
+		/// arise when a backlog of slashes for a given era exceeds what could be consumed within
+		/// that era's blocks (e.g. mass-equivocation events, or chains with short eras + many
+		/// validators).
+		///
+		/// SECURITY: when applying a slash whose key era is `slash_era`, we MUST recompute
+		/// `offence_era = slash_era - SlashDeferDuration` and pass that to
+		/// [`slashing::apply_slash`]. The downstream `ledger.slash` uses this era to compute
+		/// `slashable_chunks_start = offence_era + BondingDuration`. Passing the deferred
+		/// `slash_era` instead would push the slashable boundary `SlashDeferDuration` eras into
+		/// the future, allowing every chunk unbonded during the defer window to escape slashing.
 		pub fn apply_unapplied_slashes(active_era: EraIndex) -> Weight {
-			let mut slashes = UnappliedSlashes::<T>::iter_prefix(&active_era).take(1);
-			if let Some((key, slash)) = slashes.next() {
+			// Per-block budget for slash application. We carve out a quarter of the block weight
+			// to bound this hook's footprint while still letting the auto-apply path drain a
+			// healthy backlog. Anything beyond this budget remains in storage and will be picked
+			// up on subsequent blocks (or via the permissionless `apply_slash` extrinsic).
+			//
+			// We still guarantee that at least one slash is applied per block (matching the prior
+			// behaviour), even if the per-slash worst-case weight estimate would otherwise exceed
+			// the budget. This is essential to keep liveness on chains where the worst-case slash
+			// weight (with the maximum exposure page size) is large compared to a quarter of the
+			// block weight.
+			let max_block =
+				<T as frame_system::Config>::BlockWeights::get().max_block;
+			let budget = max_block / 4;
+			// Approximate per-slash weight using the worst-case page size, matching the
+			// extrinsic's declared weight.
+			let per_slash_weight = T::WeightInfo::apply_slash(T::MaxExposurePageSize::get());
+
+			let mut consumed = T::DbWeight::get().reads(1);
+			let mut applied_any = false;
+
+			// Helper: process a single slash entry keyed at `entry_era`, applying it with the
+			// correctly recomputed offence era. Returns the actual weight consumed for the entry.
+			let process_one = |entry_era: EraIndex,
+			                   key: (T::AccountId, Perbill, u32),
+			                   slash: UnappliedSlash<T>|
+			 -> Weight {
+				let nominators_slashed = slash.others.len() as u32;
 				crate::log!(
 					debug,
 					"🦹 found slash {:?} scheduled to be executed in era {:?}",
 					slash,
-					active_era,
+					entry_era,
 				);
 
-				let nominators_slashed = slash.others.len() as u32;
-
-				// Check if this slash has been cancelled
-				if Self::check_slash_cancelled(active_era, &key.0, key.1) {
+				if Self::check_slash_cancelled(entry_era, &key.0, key.1) {
 					crate::log!(
 						debug,
 						"🦹 slash for {:?} in era {:?} was cancelled, skipping",
 						key.0,
-						active_era,
+						entry_era,
 					);
 				} else {
-					let offence_era = active_era.saturating_sub(T::SlashDeferDuration::get());
+					let offence_era = entry_era.saturating_sub(T::SlashDeferDuration::get());
 					slashing::apply_slash::<T>(slash, offence_era);
 				}
 
 				// Always remove the slash from UnappliedSlashes
-				UnappliedSlashes::<T>::remove(&active_era, &key);
+				UnappliedSlashes::<T>::remove(&entry_era, &key);
 
 				// Check if there are more slashes for this era
-				if UnappliedSlashes::<T>::iter_prefix(&active_era).next().is_none() {
+				if UnappliedSlashes::<T>::iter_prefix(&entry_era).next().is_none() {
 					// No more slashes for this era, clear CancelledSlashes
-					CancelledSlashes::<T>::remove(&active_era);
+					CancelledSlashes::<T>::remove(&entry_era);
 				}
 
 				T::WeightInfo::apply_slash(nominators_slashed)
-			} else {
-				// No slashes found for this era
-				T::DbWeight::get().reads(1)
+			};
+
+			// `over_budget` returns true once the consumed weight would not fit another worst-case
+			// slash. We always allow the *first* slash through, regardless of budget, to preserve
+			// liveness in mocked / minimal weight environments.
+			let over_budget = |applied_any: bool, consumed: Weight| -> bool {
+				if !applied_any {
+					return false;
+				}
+				let limit = budget.saturating_sub(per_slash_weight);
+				consumed.any_gte(limit)
+			};
+
+			// First, drain the current active era. This matches the prior behaviour for the
+			// first slash but additionally loops up to the per-block budget for any leftovers.
+			loop {
+				if over_budget(applied_any, consumed) {
+					return consumed;
+				}
+				let mut iter = UnappliedSlashes::<T>::iter_prefix(&active_era);
+				if let Some((key, slash)) = iter.next() {
+					consumed = consumed.saturating_add(process_one(active_era, key, slash));
+					applied_any = true;
+				} else {
+					break;
+				}
 			}
+
+			// Then drain any leftover entries from older eras inside the slash defer window.
+			// These are entries that the per-block budget could not absorb in the era they were
+			// keyed under. Without this drain, once `active_era` advances past `K`, the
+			// `UnappliedSlashes` prefix at `K` would never be auto-applied again — and the
+			// withdrawal gate (`ensure_era_slashes_applied`) would correctly block withdrawals
+			// indefinitely until someone calls the permissionless `apply_slash` extrinsic for
+			// each leaked entry.
+			let defer = T::SlashDeferDuration::get();
+			let window_start = active_era.saturating_sub(defer);
+			// Iterate older-to-newer so the oldest backlog drains first.
+			for entry_era in window_start..active_era {
+				loop {
+					if over_budget(applied_any, consumed) {
+						return consumed;
+					}
+					let mut iter = UnappliedSlashes::<T>::iter_prefix(&entry_era);
+					if let Some((key, slash)) = iter.next() {
+						consumed = consumed.saturating_add(process_one(entry_era, key, slash));
+						applied_any = true;
+					} else {
+						break;
+					}
+				}
+			}
+
+			consumed
 		}
 
 		/// Execute one step of era pruning and get actual weight used
@@ -2782,6 +2868,19 @@ pub mod pallet {
 			let active_era = ActiveEra::<T>::get().map(|a| a.index).unwrap_or_default();
 			ensure!(slash_era <= active_era, Error::<T>::EraNotStarted);
 
+			// SECURITY: enforce a lower bound on `slash_era`. `UnappliedSlashes` is keyed by
+			// `slash_era = offence_era + SlashDeferDuration`. Any entry whose `slash_era` is older
+			// than `active_era - SlashDeferDuration` corresponds to an `offence_era` that is
+			// further back than the bonding window — this should never be reachable through normal
+			// pruning, so we treat it as an invalid record. Without this lower bound, a stale
+			// entry that escaped pruning could be applied with a deeply-stale `slash_era`,
+			// pushing `slashable_chunks_start` (computed as `offence_era + BondingDuration`
+			// inside `ledger.slash`) far enough into the past that no chunks are slashed.
+			ensure!(
+				slash_era.saturating_add(T::SlashDeferDuration::get()) >= active_era,
+				Error::<T>::InvalidSlashRecord
+			);
+
 			// Check if this slash has been cancelled
 			ensure!(
 				!Self::check_slash_cancelled(slash_era, &slash_key.0, slash_key.1),
@@ -2790,7 +2889,19 @@ pub mod pallet {
 
 			let unapplied_slash = UnappliedSlashes::<T>::take(&slash_era, &slash_key)
 				.ok_or(Error::<T>::InvalidSlashRecord)?;
-			slashing::apply_slash::<T>(unapplied_slash, slash_era);
+
+			// CRITICAL: `slash_era` here is the *deferred* era at which the slash was scheduled
+			// to be applied; it is `offence_era + SlashDeferDuration`. The downstream
+			// `slashing::apply_slash` -> `do_slash` -> `ledger.slash(_, _, slash_era)` path
+			// computes `slashable_chunks_start = slash_era + BondingDuration` and treats only
+			// chunks at or beyond that era as slashable. Passing the *deferred* era here pushes
+			// that boundary `SlashDeferDuration` eras into the future, letting an attacker who
+			// `unbond`-ed during the defer window have those chunks escape slashing entirely.
+			//
+			// The auto-apply path in `apply_unapplied_slashes` already does this recomputation;
+			// this extrinsic MUST mirror it. Do NOT pass `slash_era` to `apply_slash`.
+			let offence_era = slash_era.saturating_sub(T::SlashDeferDuration::get());
+			slashing::apply_slash::<T>(unapplied_slash, offence_era);
 
 			Ok(Pays::No.into())
 		}

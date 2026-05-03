@@ -44,7 +44,7 @@ use sp_version::RuntimeVersion;
 use super::{
 	AccountId, Aura, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
-	System, Timestamp, EXISTENTIAL_DEPOSIT, SLOT_DURATION, VERSION,
+	SessionKeys, System, Timestamp, EXISTENTIAL_DEPOSIT, HOURS, SLOT_DURATION, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -122,7 +122,57 @@ impl pallet_grandpa::Config for Runtime {
 
 	type KeyOwnerProof = sp_core::Void;
 	type EquivocationReportSystem = ();
-	type SessionInfo = frame_support::traits::NoSession;
+}
+
+/// A trivial `Convert<AccountId, Option<AccountId>>` that returns `Some(account)` unchanged.
+///
+/// `pallet_session` requires a `ValidatorIdOf` to map `AccountId -> Option<ValidatorId>` so it
+/// can authorize `set_keys` callers and look up validators. The solochain template has no
+/// stash/controller distinction (validators are their own accounts), so identity conversion is
+/// the correct behavior. Mirrors `pallet_collator_selection::IdentityCollator` used in the
+/// parachain template.
+pub struct IdentityValidator;
+impl<T: Clone> sp_runtime::traits::Convert<T, Option<T>> for IdentityValidator {
+	fn convert(x: T) -> Option<T> {
+		Some(x)
+	}
+}
+
+parameter_types! {
+	/// Session length: with `MILLI_SECS_PER_BLOCK = 6000`, `HOURS = 600` blocks, so
+	/// `Period = 6 * HOURS = 3600 blocks ≈ 6 hours`. This is a placeholder cadence — the
+	/// template's `SessionManager = ()` never rotates the validator set, so `Period`/`Offset`
+	/// only feed `EstimateNextSessionRotation` (informational APIs); they don't change behavior.
+	pub const Period: BlockNumber = 6 * HOURS;
+	pub const Offset: BlockNumber = 0;
+}
+
+/// Minimal `pallet_session` integration to satisfy the `pallet_grandpa::Config` supertrait.
+///
+/// Design choices:
+/// - `SessionManager = ()`: validators are fixed at genesis (Aura authorities + GRANDPA
+///   authorities, set in `genesis_config_presets.rs`). No on-chain rotation, no staking, no
+///   collator selection. The unit `SessionManager` returns `None` from `new_session`, which
+///   pallet_session interprets as "keep the current validator set" — exactly what a static
+///   solochain template wants.
+/// - `ValidatorIdOf = IdentityValidator`: `AccountId == ValidatorId` here.
+/// - `SessionHandler = <SessionKeys as OpaqueKeys>::KeyTypeIdProviders`: the standard
+///   derivation that fans key changes out to Aura and Grandpa.
+/// - `DisablingStrategy = ()`: no slashing → no need to disable.
+/// - `Currency = Balances`, `KeyDeposit = ()`: no deposit required for `set_keys`.
+impl pallet_session::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type ValidatorId = <Self as frame_system::Config>::AccountId;
+	type ValidatorIdOf = IdentityValidator;
+	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
+	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
+	type SessionManager = ();
+	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
+	type Keys = SessionKeys;
+	type DisablingStrategy = ();
+	type WeightInfo = ();
+	type Currency = Balances;
+	type KeyDeposit = ();
 }
 
 impl pallet_timestamp::Config for Runtime {

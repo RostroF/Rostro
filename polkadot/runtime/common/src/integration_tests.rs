@@ -78,6 +78,7 @@ frame_support::construct_runtime!(
 		System: frame_system,
 		Balances: pallet_balances,
 		Babe: pallet_babe,
+		Session: pallet_session,
 
 		// Parachains Runtime
 		Configuration: configuration,
@@ -168,9 +169,58 @@ impl pallet_babe::Config for Test {
 	type MaxNominators = ConstU32<0>;
 	type KeyOwnerProof = sp_core::Void;
 	type EquivocationReportSystem = ();
-	type SessionInfo = frame_support::traits::NoSession;
 	type Moment = u64;
 	type SlotDuration = SlotDuration;
+}
+
+// Minimal `pallet_session` wiring for the new `pallet_babe::Config:
+// pallet_session::Config` supertrait. Test mock — no rotation, validators
+// genesis-only.
+sp_runtime::impl_opaque_keys! {
+	pub struct MockSessionKeys {
+		pub dummy: sp_runtime::testing::UintAuthorityId,
+	}
+}
+
+pub struct IdentityValidator;
+impl<T: Clone> sp_runtime::traits::Convert<T, Option<T>> for IdentityValidator {
+	fn convert(x: T) -> Option<T> {
+		Some(x)
+	}
+}
+
+pub struct NoopSessionHandler;
+impl<AId> pallet_session::SessionHandler<AId> for NoopSessionHandler {
+	const KEY_TYPE_IDS: &'static [sp_runtime::KeyTypeId] =
+		&[<sp_runtime::testing::UintAuthorityId as sp_runtime::RuntimeAppPublic>::ID];
+	fn on_genesis_session<Ks: sp_runtime::traits::OpaqueKeys>(_: &[(AId, Ks)]) {}
+	fn on_new_session<Ks: sp_runtime::traits::OpaqueKeys>(
+		_: bool,
+		_: &[(AId, Ks)],
+		_: &[(AId, Ks)],
+	) {}
+	fn on_before_session_ending() {}
+	fn on_disabled(_: u32) {}
+}
+
+parameter_types! {
+	pub const SessionPeriod: u32 = 100;
+	pub const SessionOffset: u32 = 0;
+}
+
+impl pallet_session::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type ValidatorId = <Self as frame_system::Config>::AccountId;
+	type ValidatorIdOf = IdentityValidator;
+	type ShouldEndSession = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
+	type NextSessionRotation = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
+	type SessionManager = ();
+	type SessionHandler = NoopSessionHandler;
+	type Keys = MockSessionKeys;
+	type DisablingStrategy = ();
+	type WeightInfo = ();
+	type Currency = Balances;
+	type KeyDeposit = ();
 }
 
 parameter_types! {

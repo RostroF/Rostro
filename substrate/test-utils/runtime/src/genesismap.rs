@@ -126,6 +126,13 @@ impl GenesisStorageBuilder {
 					.collect(),
 				..Default::default()
 			},
+			// `pallet_session` is wired in only to satisfy the `pallet_babe::Config`
+			// supertrait. The test runtime uses `EpochChangeTrigger = SameAuthoritiesForever`
+			// and `SessionManager = ()`, so the active Babe authority set is pinned at genesis
+			// and pallet_session's validator list is never consulted for authoring. Empty
+			// `keys` is the right fixture: any session-handler call would be a bug, and
+			// `TestSessionHandler` is a no-op anyway.
+			session: Default::default(),
 			substrate_test: substrate_test_pallet::GenesisConfig {
 				authorities: authorities_sr25519.clone(),
 				..Default::default()

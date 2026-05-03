@@ -202,7 +202,6 @@ impl Config for Test {
 	type KeyOwnerProof = sp_session::MembershipProof;
 	type EquivocationReportSystem =
 		super::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
-	type SessionInfo = Session;
 	type Moment = u64;
 	type SlotDuration = ConstU64<2>;
 }

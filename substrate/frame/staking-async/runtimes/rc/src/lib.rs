@@ -418,7 +418,6 @@ impl pallet_babe::Config for Runtime {
 	type EquivocationReportSystem =
 		pallet_babe::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
 
-	type SessionInfo = Session;
 
 	type Moment = u64;
 	type SlotDuration = SlotDuration;
@@ -1094,7 +1093,6 @@ impl pallet_grandpa::Config for Runtime {
 	type EquivocationReportSystem =
 		pallet_grandpa::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
 
-	type SessionInfo = Session;
 }
 
 impl frame_system::offchain::SigningTypes for Runtime {

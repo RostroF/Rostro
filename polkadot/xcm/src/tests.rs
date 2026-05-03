@@ -16,6 +16,7 @@
 
 use crate::*;
 use alloc::vec;
+use codec::{Decode, Encode};
 
 #[test]
 fn encode_decode_versioned_asset_id_v3() {
@@ -264,4 +265,74 @@ fn ensure_type_info_is_correct() {
 
 	let type_info = VersionedAssetId::type_info();
 	assert_eq!(type_info.path.segments, vec!["xcm", "VersionedAssetId"]);
+}
+
+// SECURITY regression for HIGH#1: `decode_xcm_instructions` previously enforced its
+// `MAX_INSTRUCTIONS_TO_DECODE` bound by truncating a `u32` length to `u8`. Any
+// multiple of 256 wrapped to 0, so the running counter never advanced and the
+// bound was bypassed. These tests verify both the legitimate path (under the
+// limit) and the truncation-attack path (a 256-instruction vector) using real
+// `Decode::decode` calls.
+#[test]
+fn decode_xcm_instructions_under_limit_succeeds() {
+	use crate::v5::{Instruction, Xcm};
+	// 99 ClearOrigin instructions — within MAX_INSTRUCTIONS_TO_DECODE (=100).
+	let xcm: Xcm<()> = Xcm(vec![Instruction::ClearOrigin; 99]);
+	let encoded = xcm.encode();
+	let decoded = Xcm::<()>::decode(&mut &encoded[..])
+		.expect("99 instructions must decode (well below MAX_INSTRUCTIONS_TO_DECODE)");
+	assert_eq!(decoded.0.len(), 99);
+}
+
+#[test]
+fn decode_xcm_instructions_rejects_truncation_attack_v5() {
+	use crate::v5::{Instruction, Xcm};
+	// 256 ClearOrigin instructions. With the buggy `vec_len as u8` cast this
+	// length truncated to 0 and decode succeeded with a 256-element vector
+	// (>>100). After the fix, `u8::try_from(256)` errors before decode.
+	let xcm: Xcm<()> = Xcm(vec![Instruction::ClearOrigin; 256]);
+	let encoded = xcm.encode();
+	let result = Xcm::<()>::decode(&mut &encoded[..]);
+	assert!(
+		result.is_err(),
+		"256 instructions must be rejected — the truncation bypass would let this through",
+	);
+}
+
+#[test]
+fn decode_xcm_instructions_rejects_truncation_attack_v4() {
+	use crate::v4::{Instruction, Xcm};
+	let xcm: Xcm<()> = Xcm(vec![Instruction::ClearOrigin; 256]);
+	let encoded = xcm.encode();
+	let result = Xcm::<()>::decode(&mut &encoded[..]);
+	assert!(result.is_err(), "v4: 256 instructions must be rejected");
+}
+
+#[test]
+fn decode_xcm_instructions_rejects_truncation_attack_v3() {
+	use crate::v3::{Instruction, Xcm};
+	let xcm: Xcm<()> = Xcm(vec![Instruction::ClearOrigin; 256]);
+	let encoded = xcm.encode();
+	let result = Xcm::<()>::decode(&mut &encoded[..]);
+	assert!(result.is_err(), "v3: 256 instructions must be rejected");
+}
+
+#[test]
+fn decode_xcm_instructions_rejects_large_lengths() {
+	// Forge a buffer whose compact-encoded length is much larger than `u8::MAX`
+	// — the previous implementation would wrap-truncate this and then attempt
+	// to decode that many instructions. After the fix, the cast errors
+	// immediately and decode returns Err without allocating a giant vector.
+	use crate::v5::Xcm;
+	use codec::Compact;
+	// vec_len = 65_536 (compact encoding fits in 4 bytes); no instruction body
+	// follows, but decode must fail at the length check before reading any.
+	let bytes = Compact(65_536u32).encode();
+	let result = Xcm::<()>::decode(&mut &bytes[..]);
+	assert!(result.is_err(), "65_536-length vec must be rejected at the size check");
+
+	// 2^30 — would attempt to allocate ~128 GiB on the buggy code path.
+	let bytes = Compact(1u32 << 30).encode();
+	let result = Xcm::<()>::decode(&mut &bytes[..]);
+	assert!(result.is_err(), "2^30-length vec must be rejected at the size check");
 }

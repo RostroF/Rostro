@@ -1664,17 +1664,19 @@ fn withdrawals_are_blocked_for_unprocessed_and_unapplied_slashes() {
 			// free balance increases by unlock chunk 1 value.
 			assert_eq!(nominator_balance_post_withdraw_1, nominator_balance_pre_withdraw + 100);
 
-			// rolling a block creates another unapplied slash for era 3 as well as process a
-			// remaining offence.
+			// Rolling a block processes one more remaining offence (which creates a new
+			// `UnappliedSlashes[5]` entry) and *also* drains the active era + the rest of the
+			// slash-defer window via `apply_unapplied_slashes`. With the multi-era drain in
+			// `apply_unapplied_slashes`, that newly created era-5 entry is auto-applied within
+			// the same block, so era 5's prefix ends up empty again.
 			Session::roll_next();
-			assert_eq!(era_unapplied_slash_count(5), 1);
-			// clear the pending slashes.
-			apply_pending_slashes_from_previous_era();
+			assert_eq!(era_unapplied_slash_count(5), 0);
 
 			// there is still one offence unprocessed for era 3.
 			assert_eq!(era_unprocessed_offence_count(3), 1);
 
-			// withdrawals are still not possible for era (3 + 3 =) 6.
+			// withdrawals for era 6 are still not possible because the offence queue for era 3
+			// still has work left, capping the earliest withdrawable era at 5.
 			assert_ok!(Staking::withdraw_unbonded(RuntimeOrigin::signed(nominator), 0));
 			assert_eq!(Balances::free_balance(&nominator), nominator_balance_post_withdraw_1);
 
@@ -1682,10 +1684,9 @@ fn withdrawals_are_blocked_for_unprocessed_and_unapplied_slashes() {
 			Session::roll_next();
 			// Note that active_era has bumped to 7.
 			assert_eq!(active_era(), 7);
-			// The previous block created another unapplied slash for era 5, but we only block
-			// withdrawals upto 1 block (to give enough time for offchain actors to apply slashes
-			// manually). So, we dont need to apply pending slashes for era 5.
-			assert_eq!(era_unapplied_slash_count(5), 1);
+			// With the multi-era drain in `apply_unapplied_slashes`, any era-5 entry created by
+			// processing the final offence is also auto-applied within the same block.
+			assert_eq!(era_unapplied_slash_count(5), 0);
 			// But era 6 (last era) has no unapplied slashes.
 			assert_eq!(era_unapplied_slash_count(6), 0);
 			// We also ensure all offences in the queue for era 3 are now processed.
@@ -1695,10 +1696,6 @@ fn withdrawals_are_blocked_for_unprocessed_and_unapplied_slashes() {
 			// Withdrawing for era 3 should be possible.
 			assert_ok!(Staking::withdraw_unbonded(RuntimeOrigin::signed(nominator), 0));
 			assert_eq!(Balances::free_balance(&nominator), nominator_balance_post_withdraw_1 + 150);
-
-			// Finally, we clear the unapplied slashes for era 5. Otherwise our try state checks
-			// will fail. (Try by commenting the next line :))
-			apply_pending_slashes_from_era(5);
 		});
 }
 
@@ -2215,4 +2212,253 @@ fn old_offences_rejected_with_zero_slash_defer_duration() {
 		assert!(OffenceQueue::<Test>::iter_prefix(4).next().is_none());
 		assert!(!OffenceQueueEras::<Test>::get().unwrap_or_default().contains(&4));
 	});
+}
+
+// =====================================================================================
+// Regression tests for the deferred-slash security cluster.
+// =====================================================================================
+//
+// These tests cover three related fixes in the deferred-slash machinery:
+//
+// 1. CRITICAL: the permissionless `apply_slash` extrinsic must pass the *recomputed*
+//    `offence_era` (= `slash_era - SlashDeferDuration`) — not the storage-key `slash_era` —
+//    to `slashing::apply_slash`. The downstream `ledger.slash` derives
+//    `slashable_chunks_start = era + BondingDuration` from this argument; passing the
+//    deferred `slash_era` would push the slashable boundary `SlashDeferDuration` eras into
+//    the future and let chunks unbonded during the defer window escape entirely.
+//
+// 2. HIGH: the permissionless `apply_slash` extrinsic must enforce a lower bound
+//    on `slash_era` so that stale entries surviving past the slash defer window cannot be
+//    applied with a deeply-stale era key (which would also push the slashable boundary).
+//
+// 3. HIGH: `do_withdraw_unbonded` must check the entire slash defer window for unapplied
+//    slashes, not just `active_era - 1`. Otherwise leftover entries from older eras can
+//    persist and let an attacker withdraw funds that should still be slashable.
+
+/// Directly construct an `UnappliedSlash` and insert it into storage, simulating a slash
+/// that was deferred and is now waiting to be applied. Used to bypass the auto-apply path
+/// for the regression tests below.
+fn insert_unapplied_slash(
+	slash_era: EraIndex,
+	validator: AccountId,
+	slash_fraction: Perbill,
+	page: u32,
+	own: Balance,
+) {
+	let unapplied = UnappliedSlash::<T> {
+		validator,
+		own,
+		others: WeakBoundedVec::force_from(vec![], None),
+		reporter: None,
+		payout: 0,
+	};
+	UnappliedSlashes::<T>::insert(slash_era, (validator, slash_fraction, page), unapplied);
+}
+
+#[test]
+fn apply_slash_extrinsic_uses_recomputed_offence_era_for_chunk_slashing() {
+	// Regression for the CRITICAL: the permissionless `apply_slash` extrinsic must pass
+	// the recomputed `offence_era` to `slashing::apply_slash`, not the deferred `slash_era`.
+	// Without the fix, a chunk unbonded during the defer window has `chunk.era` strictly
+	// less than `slash_era + BondingDuration`, so it is excluded from the slashable set
+	// and the validator's already-unbonded portion escapes slashing.
+	ExtBuilder::default()
+		.slash_defer_duration(2)
+		.bonding_duration(3)
+		.build_and_execute(|| {
+			// Active era = 1.
+			assert_eq!(active_era(), 1);
+
+			// Validator 11 unbonds 200 in era 1. The chunk lands at
+			// `chunk.era = active_era + BondingDuration = 1 + 3 = 4`.
+			assert_ok!(Staking::chill(RuntimeOrigin::signed(11)));
+			assert_ok!(Staking::unbond(RuntimeOrigin::signed(11), 200));
+
+			let unbond_chunks = Ledger::<T>::get(11)
+				.unwrap()
+				.unlocking
+				.iter()
+				.map(|c| (c.era, c.value))
+				.collect::<Vec<_>>();
+			assert_eq!(unbond_chunks, vec![(4, 200)]);
+			let active_before = Ledger::<T>::get(11).unwrap().active;
+			assert_eq!(active_before, 800);
+
+			// Roll to era 3 (= offence_era 1 + slash_defer_duration 2). The auto-apply
+			// path runs at every block; we then advance one more era to put the entry
+			// outside the active-era prefix the auto-apply path scans first.
+			Session::roll_until_active_era(3);
+			Session::roll_until_active_era(4);
+
+			// Now manually inject an unapplied slash keyed at `slash_era = 3`. We do this
+			// AFTER `on_initialize` has run so the auto-apply path doesn't immediately
+			// drain it. This mirrors the attack scenario where the auto-apply path failed
+			// to absorb a backlog of slashes within the era they were keyed under, and the
+			// attacker (or any account) calls the permissionless `apply_slash` extrinsic
+			// to discharge the leftover.
+			let slash_era: EraIndex = 3;
+			let slash_fraction = Perbill::from_percent(10);
+			insert_unapplied_slash(slash_era, 11, slash_fraction, 0, /* own = */ 100);
+
+			let key = (11u64, slash_fraction, 0u32);
+			assert!(UnappliedSlashes::<T>::contains_key(&slash_era, &key));
+
+			// Anyone calls `apply_slash` permissionlessly.
+			assert_ok!(Staking::apply_slash(RuntimeOrigin::signed(99), slash_era, key));
+
+			// The slash entry is gone.
+			assert!(!UnappliedSlashes::<T>::contains_key(&slash_era, &key));
+
+			// Now verify the chunk WAS slashed:
+			//
+			// Under the FIX (correct behaviour): `offence_era` is recomputed to `1`. Inside
+			// `ledger.slash`, `slashable_chunks_start = offence_era + BondingDuration = 1 + 3 = 4`.
+			// The chunk at era 4 is included in the slashable set; the slash is applied
+			// proportionally to active stake (800) and the chunk (200), so the chunk's
+			// value is reduced from 200.
+			//
+			// Under the BUG (pre-fix): `slash_era = 3` is passed unchanged. Inside
+			// `ledger.slash`, `slashable_chunks_start = slash_era + BondingDuration = 3 + 3 = 6`.
+			// The chunk at era 4 is excluded; the slash falls entirely on the active stake.
+			// The chunk's value remains 200 — the attacker has bailed.
+			let chunk_value_after = Ledger::<T>::get(11)
+				.unwrap()
+				.unlocking
+				.iter()
+				.find(|c| c.era == 4)
+				.map(|c| c.value);
+
+			assert!(
+				chunk_value_after.is_some() && chunk_value_after.unwrap() < 200,
+				"FIXED behaviour: chunk at era 4 should have been slashed (value < 200), \
+				 got {:?}. Pre-fix code leaves the chunk at 200, allowing the attacker to \
+				 withdraw the full unbonded amount after the bonding period.",
+				chunk_value_after,
+			);
+		});
+}
+
+#[test]
+fn apply_slash_extrinsic_rejects_slash_era_below_defer_window() {
+	// Regression for HIGH #2: the permissionless `apply_slash` extrinsic must reject any
+	// `slash_era` older than `active_era - SlashDeferDuration`. Without this lower bound,
+	// a stale entry (one that escaped pruning) could be applied with a deeply-stale era
+	// key, again pushing the slashable boundary into the past.
+	ExtBuilder::default()
+		.slash_defer_duration(2)
+		.bonding_duration(3)
+		.build_and_execute(|| {
+			// Advance to a comfortable active era well past any offence_era we'll use.
+			Session::roll_until_active_era(10);
+			assert_eq!(active_era(), 10);
+
+			// Construct a stale UnappliedSlashes entry at `slash_era = 1`. Under normal
+			// pruning this would never exist, but if it did escape pruning, applying it
+			// must be rejected: the call should fail before any slashing logic runs.
+			let stale_slash_era: EraIndex = 1;
+			let slash_fraction = Perbill::from_percent(10);
+			insert_unapplied_slash(stale_slash_era, 11, slash_fraction, 0, /* own = */ 100);
+			let key = (11u64, slash_fraction, 0u32);
+
+			assert_noop!(
+				Staking::apply_slash(RuntimeOrigin::signed(99), stale_slash_era, key.clone()),
+				Error::<T>::InvalidSlashRecord
+			);
+
+			// And the entry remains; nothing was applied.
+			assert!(UnappliedSlashes::<T>::contains_key(&stale_slash_era, &key));
+
+			// A `slash_era` exactly at the lower bound (active_era - SlashDeferDuration = 8)
+			// MUST be accepted. We synthesise a benign entry there to verify the boundary.
+			let valid_slash_era: EraIndex = 10 - SlashDeferDuration::get();
+			insert_unapplied_slash(valid_slash_era, 21, slash_fraction, 0, /* own = */ 0);
+			let valid_key = (21u64, slash_fraction, 0u32);
+			assert_ok!(Staking::apply_slash(
+				RuntimeOrigin::signed(99),
+				valid_slash_era,
+				valid_key.clone()
+			));
+		});
+}
+
+#[test]
+fn withdraw_unbonded_blocks_on_older_era_unapplied_slashes() {
+	// Regression for HIGH #3: `do_withdraw_unbonded` must consult the entire slash defer
+	// window, not just `active_era - 1`. An unapplied slash at any era within the window
+	// must continue to block withdrawals.
+	ExtBuilder::default()
+		.slash_defer_duration(2)
+		.bonding_duration(3)
+		.build_and_execute(|| {
+			// Advance to era 5 so we have space behind us.
+			Session::roll_until_active_era(5);
+			assert_eq!(active_era(), 5);
+
+			// Validator 21 unbonds at era 5; chunk lands at era 5 + 3 = 8.
+			assert_ok!(Staking::unbond(RuntimeOrigin::signed(21), 100));
+
+			// Roll forward several eras so the chunk becomes withdrawable. We pick era 8
+			// as the test point: SlashDeferDuration = 2, so the defer window at era 8 is
+			// `[6, 7]`. We seed an unapplied slash at era 6 (the *older* boundary).
+			Session::roll_until_active_era(8);
+			assert_eq!(active_era(), 8);
+
+			// Without the multi-era window check, withdrawal at era 8 would only inspect
+			// `active_era - 1 = 7` for unapplied slashes — even though era 6 still holds
+			// one. After the fix, withdrawal must be blocked.
+			//
+			// Note: we directly inject the entry to avoid the auto-apply path consuming
+			// it before we test the gate.
+			let stale_slash_era: EraIndex = 6;
+			let slash_fraction = Perbill::from_percent(10);
+			insert_unapplied_slash(stale_slash_era, 11, slash_fraction, 0, /* own = */ 0);
+
+			// Withdrawal must be blocked because era 6 has unapplied slashes.
+			assert_noop!(
+				Staking::withdraw_unbonded(RuntimeOrigin::signed(21), 0),
+				Error::<T>::UnappliedSlashesInPreviousEra
+			);
+
+			// Once the leftover is cleared, withdrawal must succeed.
+			let key = (11u64, slash_fraction, 0u32);
+			UnappliedSlashes::<T>::remove(&stale_slash_era, &key);
+			assert!(UnappliedSlashes::<T>::iter_prefix(&stale_slash_era).next().is_none());
+
+			assert_ok!(Staking::withdraw_unbonded(RuntimeOrigin::signed(21), 0));
+		});
+}
+
+#[test]
+fn auto_apply_drains_older_era_backlog() {
+	// Regression for HIGH #4: `apply_unapplied_slashes` must drain leftover entries from
+	// older eras within the slash defer window, not only the current `active_era`.
+	// Otherwise, once `active_era` advances past `K`, residue at era K is never auto-
+	// applied — and only the (previously buggy) permissionless extrinsic could clear it.
+	ExtBuilder::default()
+		.slash_defer_duration(2)
+		.bonding_duration(3)
+		.build_and_execute(|| {
+			Session::roll_until_active_era(5);
+			assert_eq!(active_era(), 5);
+
+			// Inject leftover entries at older eras inside the defer window. At
+			// active_era = 5, the window is `[3, 4]`. Both are "older than active".
+			let slash_fraction = Perbill::from_percent(10);
+			insert_unapplied_slash(3, 11, slash_fraction, 0, /* own = */ 0);
+			insert_unapplied_slash(4, 21, slash_fraction, 0, /* own = */ 0);
+
+			assert!(UnappliedSlashes::<T>::iter_prefix(&3).next().is_some());
+			assert!(UnappliedSlashes::<T>::iter_prefix(&4).next().is_some());
+
+			// Roll a few blocks so `on_initialize` -> `apply_unapplied_slashes` runs and
+			// drains the backlog. With the per-block budget capped to 1 worst-case slash
+			// in the test mock, two blocks are enough to drain two entries.
+			Session::roll_next();
+			Session::roll_next();
+			Session::roll_next();
+
+			// Both backlog prefixes are now empty.
+			assert!(UnappliedSlashes::<T>::iter_prefix(&3).next().is_none());
+			assert!(UnappliedSlashes::<T>::iter_prefix(&4).next().is_none());
+		});
 }

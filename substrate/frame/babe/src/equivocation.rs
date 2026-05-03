@@ -153,10 +153,20 @@ where
 
 		// Check if the offence has already been reported, and if so then we can discard the report.
 		if R::is_known_offence(&[offender], &equivocation_proof.slot) {
-			Err(InvalidTransaction::Stale.into())
-		} else {
-			Ok(())
+			return Err(InvalidTransaction::Stale.into());
 		}
+
+		// Validate the equivocation proof itself (header decode + two seal verifications)
+		// before allowing this report into the tx pool / a block. Without this check, a
+		// structurally-valid-but-bogus report passes pre_dispatch, lands in a block, and
+		// consumes full dispatch weight before failing in `process_evidence` — a free DoS
+		// vector against block authors since unsigned reports pay no fee even when
+		// dispatch fails. Mirrors the BEEFY/GRANDPA remediation.
+		if !sp_consensus_babe::check_equivocation_proof::<HeaderFor<T>>(equivocation_proof) {
+			return Err(InvalidTransaction::BadProof.into());
+		}
+
+		Ok(())
 	}
 
 	fn process_evidence(
@@ -165,7 +175,7 @@ where
 	) -> Result<(), DispatchError> {
 		let (equivocation_proof, key_owner_proof) = evidence;
 		let reporter = reporter.or_else(|| <pallet_authorship::Pallet<T>>::author());
-		let offender = equivocation_proof.offender.clone();
+		let offender_authority_id = equivocation_proof.offender.clone();
 		let slot = equivocation_proof.slot;
 
 		// Validate the equivocation proof (check votes are different and signatures are valid)
@@ -185,8 +195,30 @@ where
 			return Err(Error::<T>::InvalidKeyOwnershipProof.into());
 		}
 
+		// Defense-in-depth: when the equivocation is reported for the current epoch,
+		// verify the offender's AuthorityId actually appears in the current `Authorities`.
+		// `Historical` proves session-key-ownership only — that the AuthorityId was a
+		// registered key for SOME session validator at session N — not that the validator
+		// was specifically a BABE slot-leader for `epoch_index`. Without this check, on a
+		// runtime where the BABE set is a strict subset of the session set, an attacker
+		// could forge slashable equivocations against accounts that have BABE keys set but
+		// are not active BABE authorities. We can only check this against the current
+		// epoch since the pallet does not retain historical authority lists; for older
+		// epochs the existing Historical check is the only line of defense. Mirrors the
+		// BEEFY/GRANDPA remediation.
+		if epoch_index == crate::EpochIndex::<T>::get() {
+			let authorities = crate::Authorities::<T>::get();
+			// Skip if `Authorities` is empty (misconfigured-runtime corner; not an attack).
+			if !authorities.is_empty() {
+				let in_set = authorities.iter().any(|(id, _)| id == &offender_authority_id);
+				if !in_set {
+					return Err(Error::<T>::InvalidEquivocationProof.into());
+				}
+			}
+		}
+
 		// Check the membership proof and extract the offender's id
-		let offender = P::check_proof((KEY_TYPE, offender), key_owner_proof)
+		let offender = P::check_proof((KEY_TYPE, offender_authority_id), key_owner_proof)
 			.ok_or(Error::<T>::InvalidKeyOwnershipProof)?;
 
 		let offence = EquivocationOffence { slot, validator_set_count, offender, session_index };

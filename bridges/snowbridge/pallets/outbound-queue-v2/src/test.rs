@@ -18,7 +18,8 @@ use snowbridge_outbound_queue_primitives::{
 	v2::{abi::OutboundMessageWrapper, Command, Initializer, SendMessage},
 	SendError,
 };
-use sp_core::{hexdisplay::HexDisplay, H256};
+use sp_core::{hexdisplay::HexDisplay, H160, H256};
+use sp_runtime::AccountId32;
 
 #[test]
 fn submit_messages_and_commit() {
@@ -312,7 +313,12 @@ fn test_add_tip_cumulative() {
 		let initial_fee = 1000;
 		let additional_fee = 500;
 		let current_block = System::block_number();
-		let order = PendingOrder { nonce, fee: initial_fee, block_number: current_block };
+		let order = PendingOrder {
+			nonce,
+			fee: initial_fee,
+			block_number: current_block,
+			topic: H256::zero(),
+		};
 		PendingOrders::<Test>::insert(nonce, order);
 		assert_ok!(OutboundQueue::add_tip(nonce, additional_fee));
 		let order_after = PendingOrders::<Test>::get(nonce).unwrap();
@@ -336,7 +342,12 @@ fn test_add_tip_fails_amount_zero() {
 		let initial_fee = 1000;
 		let zero_amount = 0;
 		let current_block = System::block_number();
-		let order = PendingOrder { nonce, fee: initial_fee, block_number: current_block };
+		let order = PendingOrder {
+			nonce,
+			fee: initial_fee,
+			block_number: current_block,
+			topic: H256::zero(),
+		};
 		PendingOrders::<Test>::insert(nonce, order);
 
 		assert_noop!(OutboundQueue::add_tip(nonce, zero_amount), AddTipError::AmountZero);
@@ -344,5 +355,134 @@ fn test_add_tip_fails_amount_zero() {
 		// Verify the original fee is unchanged
 		let order_after = PendingOrders::<Test>::get(nonce).unwrap();
 		assert_eq!(order_after.fee, initial_fee);
+	});
+}
+
+// ----------------------------------------------------------------------------------------
+// HIGH#2 regression tests: process_delivery_receipt must enforce a tight binding between
+// the receipt and the original outbound message. Pre-fix, `topic` and `success` were
+// decoded but never checked, and `reward_address == 0` fell through to the submitter
+// (front-runnable). These tests pin the invariants in place.
+// ----------------------------------------------------------------------------------------
+
+const RELAYER_RAW: [u8; 32] = [9u8; 32];
+const REWARD_RAW: [u8; 32] = [7u8; 32];
+
+fn relayer() -> AccountId32 {
+	AccountId32::new(RELAYER_RAW)
+}
+
+fn gateway_h160() -> H160 {
+	H160(hex!("b1185ede04202fe62d38f5db72f71e38ff3e8305"))
+}
+
+fn make_pending_order(nonce: u64, fee: u128, topic: H256) -> PendingOrder<u64> {
+	PendingOrder { nonce, fee, block_number: System::block_number(), topic }
+}
+
+#[test]
+fn process_delivery_receipt_rejects_mismatched_topic() {
+	new_tester().execute_with(|| {
+		let nonce = 1u64;
+		let recorded_topic = H256::repeat_byte(0xAA);
+		let receipt_topic = H256::repeat_byte(0xBB);
+
+		PendingOrders::<Test>::insert(nonce, make_pending_order(nonce, 1_000, recorded_topic));
+
+		let receipt = DeliveryReceipt {
+			gateway: gateway_h160(),
+			nonce,
+			topic: receipt_topic,
+			success: true,
+			reward_address: REWARD_RAW,
+		};
+
+		// Attack shape: relayer presents a valid-looking receipt for nonce N, but the
+		// `topic` does not match the topic recorded against the pending order. Pre-fix this
+		// path silently paid out; post-fix it rejects.
+		assert_err!(
+			OutboundQueue::process_delivery_receipt(relayer(), receipt),
+			Error::<Test>::InvalidDeliveryReceiptTopic
+		);
+
+		// And the pending order is still there — we did NOT remove it on failure.
+		assert!(PendingOrders::<Test>::contains_key(nonce));
+	});
+}
+
+#[test]
+fn process_delivery_receipt_rejects_failed_dispatch() {
+	new_tester().execute_with(|| {
+		let nonce = 1u64;
+		let topic = H256::repeat_byte(0xCC);
+
+		PendingOrders::<Test>::insert(nonce, make_pending_order(nonce, 1_000, topic));
+
+		let receipt = DeliveryReceipt {
+			gateway: gateway_h160(),
+			nonce,
+			topic,
+			// Attack shape: the gateway log records `success=false` but the relayer wants
+			// to be paid anyway. Pre-fix `success` was decoded but ignored.
+			success: false,
+			reward_address: REWARD_RAW,
+		};
+
+		assert_err!(
+			OutboundQueue::process_delivery_receipt(relayer(), receipt),
+			Error::<Test>::DeliveryReceiptFailedDispatch
+		);
+		assert!(PendingOrders::<Test>::contains_key(nonce));
+	});
+}
+
+#[test]
+fn process_delivery_receipt_rejects_zero_reward_address() {
+	new_tester().execute_with(|| {
+		let nonce = 1u64;
+		let topic = H256::repeat_byte(0xDD);
+
+		PendingOrders::<Test>::insert(nonce, make_pending_order(nonce, 1_000, topic));
+
+		let receipt = DeliveryReceipt {
+			gateway: gateway_h160(),
+			nonce,
+			topic,
+			success: true,
+			// Attack shape: front-runner observes the pending receipt and submits theirs
+			// with a zero reward_address, expecting the runtime to fall through and pay the
+			// submitter. Pre-fix this worked; post-fix it is a hard error.
+			reward_address: [0u8; 32],
+		};
+
+		assert_err!(
+			OutboundQueue::process_delivery_receipt(relayer(), receipt),
+			Error::<Test>::MissingDeliveryReceiptRewardAddress
+		);
+		assert!(PendingOrders::<Test>::contains_key(nonce));
+	});
+}
+
+#[test]
+fn process_delivery_receipt_happy_path_pays_reward_address_not_submitter() {
+	new_tester().execute_with(|| {
+		let nonce = 1u64;
+		let topic = H256::repeat_byte(0xEE);
+		let fee = 1_000u128;
+
+		PendingOrders::<Test>::insert(nonce, make_pending_order(nonce, fee, topic));
+
+		let receipt = DeliveryReceipt {
+			gateway: gateway_h160(),
+			nonce,
+			topic,
+			success: true,
+			reward_address: REWARD_RAW,
+		};
+
+		assert_ok!(OutboundQueue::process_delivery_receipt(relayer(), receipt));
+
+		// On success the order is removed.
+		assert!(!PendingOrders::<Test>::contains_key(nonce));
 	});
 }

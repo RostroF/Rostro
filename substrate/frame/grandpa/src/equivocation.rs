@@ -166,10 +166,20 @@ where
 		let time_slot =
 			TimeSlot { set_id: equivocation_proof.set_id(), round: equivocation_proof.round() };
 		if R::is_known_offence(&[offender], &time_slot) {
-			Err(InvalidTransaction::Stale.into())
-		} else {
-			Ok(())
+			return Err(InvalidTransaction::Stale.into());
 		}
+
+		// Validate the equivocation proof itself (signatures + vote-pair distinctness)
+		// before allowing this report into the tx pool / a block. Without this check,
+		// a structurally-valid-but-bogus report passes pre_dispatch, lands in a block,
+		// and consumes full dispatch weight before failing in `process_evidence` — a
+		// free DoS vector against block authors since unsigned reports pay no fee
+		// even when dispatch fails. Mirrors the BEEFY remediation.
+		if !sp_consensus_grandpa::check_equivocation_proof(equivocation_proof) {
+			return Err(InvalidTransaction::BadProof.into());
+		}
+
+		Ok(())
 	}
 
 	fn process_evidence(
@@ -178,7 +188,7 @@ where
 	) -> Result<(), DispatchError> {
 		let (equivocation_proof, key_owner_proof) = evidence;
 		let reporter = reporter.or_else(|| pallet_authorship::Pallet::<T>::author());
-		let offender = equivocation_proof.offender().clone();
+		let offender_authority_id = equivocation_proof.offender().clone();
 
 		// We check the equivocation within the context of its set id (and
 		// associated session) and round. We also need to know the validator
@@ -195,8 +205,31 @@ where
 		}
 
 		// Validate the key ownership proof extracting the id of the offender.
-		let offender = P::check_proof((KEY_TYPE, offender), key_owner_proof)
+		let offender = P::check_proof((KEY_TYPE, offender_authority_id.clone()), key_owner_proof)
 			.ok_or(Error::<T>::InvalidKeyOwnershipProof)?;
+
+		// Defense-in-depth: when the equivocation is reported against the current
+		// GRANDPA set, verify the offender's AuthorityId actually appears in
+		// `Authorities`. `Historical` proves session-key-ownership only — that the
+		// AuthorityId was a registered key for SOME session validator at session N
+		// — not that the validator was specifically a GRANDPA voter for `set_id`.
+		// Without this check, on a runtime where the GRANDPA set is a strict subset
+		// of the session set, an attacker could forge slashable equivocations against
+		// accounts that have GRANDPA keys set but are not active GRANDPA authorities.
+		// We can only check this against the current set since the pallet does not
+		// retain historical authority lists; for older `set_id`s the existing
+		// Historical check is the only line of defense. Mirrors the BEEFY remediation.
+		if set_id == crate::CurrentSetId::<T>::get() {
+			let authorities = crate::Authorities::<T>::get();
+			// Skip if `Authorities` is empty (misconfigured-runtime corner; not an
+			// attack). Failing closed here would lock out legitimate reports.
+			if !authorities.is_empty() {
+				let in_set = authorities.iter().any(|(id, _)| id == &offender_authority_id);
+				if !in_set {
+					return Err(Error::<T>::InvalidEquivocationProof.into());
+				}
+			}
+		}
 
 		// Fetch the current and previous sets last session index.
 		// For genesis set there's no previous set.

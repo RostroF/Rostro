@@ -256,7 +256,8 @@ impl<T: Config> Pallet<T> {
 		let (stash, old_total) = (ledger.stash.clone(), ledger.total);
 		let active_era = Rotator::<T>::active_era();
 
-		// Ensure last era slashes are applied. Else we block the withdrawals.
+		// Ensure unapplied slashes across the entire defer window are applied before allowing a
+		// withdrawal. Else we block the withdrawals.
 		if active_era > 1 {
 			Self::ensure_era_slashes_applied(active_era.saturating_sub(1))?;
 		}
@@ -312,10 +313,28 @@ impl<T: Config> Pallet<T> {
 	}
 
 	fn ensure_era_slashes_applied(era: EraIndex) -> Result<(), DispatchError> {
-		ensure!(
-			!UnappliedSlashes::<T>::contains_prefix(era),
-			Error::<T>::UnappliedSlashesInPreviousEra
-		);
+		// SECURITY: scan the entire slash defer window, not just `era`.
+		//
+		// Background: `apply_unapplied_slashes` (the auto-apply path in `on_initialize`) only
+		// processes a bounded number of `UnappliedSlashes` entries per block. When the volume of
+		// pending slashes for an era exceeds what can be drained in that era's blocks (e.g. from
+		// a mass-equivocation event, or short eras with many validators), entries leak past the
+		// era boundary. With a single-era check, once `active_era` advances past `K` even once,
+		// the residue at `K` is no longer auto-cleaned and the gate at `K + 2` looks only at
+		// `K + 1` (now empty) and lets the withdrawal through, exfiltrating funds that should
+		// still be slashable.
+		//
+		// We must therefore check every era in `[era - SlashDeferDuration, era]` to ensure no
+		// `UnappliedSlashes` entries are still pending for any era within the slash defer
+		// window. Any leftover entry will block the withdrawal until cleared (e.g. via the
+		// permissionless `apply_slash` extrinsic).
+		let window_start = era.saturating_sub(T::SlashDeferDuration::get());
+		for e in window_start..=era {
+			ensure!(
+				!UnappliedSlashes::<T>::contains_prefix(e),
+				Error::<T>::UnappliedSlashesInPreviousEra
+			);
+		}
 		Ok(())
 	}
 

@@ -33,10 +33,22 @@ pub fn decode_xcm_instructions<I: codec::Input, T: Decode>(
 	instructions_count::using_once(&mut 0, || {
 		let vec_len: u32 = <Compact<u32>>::decode(input)?.into();
 		instructions_count::with(|count| {
-			*count = count.saturating_add(vec_len as u8);
-			if *count > MAX_INSTRUCTIONS_TO_DECODE {
+			// SECURITY: previously this was `count.saturating_add(vec_len as u8)`. The
+			// `as u8` cast silently truncated `vec_len`, so any multiple of 256 wrapped
+			// to 0, leaving `count` unchanged and bypassing the
+			// `MAX_INSTRUCTIONS_TO_DECODE` bound entirely. Reject lengths that don't
+			// fit in `u8`, and reject the running total exceeding the bound BEFORE
+			// performing the cast, so attacker-chosen values like 256, 65_536, 2^30
+			// can no longer slip past the check.
+			let vec_len_u8: u8 = u8::try_from(vec_len)
+				.map_err(|_| codec::Error::from("Max instructions exceeded"))?;
+			let prev = count
+				.checked_add(vec_len_u8)
+				.ok_or(codec::Error::from("Max instructions exceeded"))?;
+			if prev > MAX_INSTRUCTIONS_TO_DECODE {
 				return Err(codec::Error::from("Max instructions exceeded"));
 			}
+			*count = prev;
 			Ok(())
 		})
 		.unwrap_or(Err(codec::Error::from("Error calling `instructions_count::with()`")))?;

@@ -160,10 +160,14 @@ mod benchmarks {
 
 		let receipt = DeliveryReceipt::try_from(&message.event.event_log).unwrap();
 
+		// Mirror the topic from the receipt so that `process_delivery_receipt`'s topic-binding
+		// check passes; without this the benchmark would fail with
+		// `Error::InvalidDeliveryReceiptTopic`.
 		let order = PendingOrder {
 			nonce: receipt.nonce,
 			fee: 0,
 			block_number: frame_system::Pallet::<T>::current_block_number(),
+			topic: receipt.topic,
 		};
 		<PendingOrders<T>>::insert(receipt.nonce, order);
 

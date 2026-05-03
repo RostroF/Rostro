@@ -40,7 +40,7 @@ use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays},
 	pallet_prelude::Get,
-	traits::{OneSessionHandler, ValidatorSet},
+	traits::OneSessionHandler,
 	weights::Weight,
 	WeakBoundedVec,
 };
@@ -82,8 +82,17 @@ pub mod pallet {
 	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
+	// Note: `pallet_session::Config` is a supertrait so the equivocation reporter can use
+	// `pallet_session::Pallet::<T>::current_index()` directly — the canonical session index
+	// that `pallet_session_historical` keys key-ownership proofs by. An earlier Rostro
+	// refactor abstracted this via a `ValidatorSet` trait (`type SessionInfo`), but that
+	// abstraction was unsound: nothing required the trait impl's `session_index()` to match
+	// Historical's, so a pluggable impl could desync `SetIdSession` from the proofs the
+	// reporter checks against (best case: legitimate proofs rejected; worst case: bogus
+	// proofs accepted against the wrong window). The coupling is fundamental to equivocation
+	// reporting, so we keep it concrete here. Mirrors the revert applied to BEEFY.
 	#[pallet::config]
-	pub trait Config: frame_system::Config {
+	pub trait Config: frame_system::Config + pallet_session::Config {
 		/// The event type of this module.
 		#[allow(deprecated)]
 		type RuntimeEvent: From<Event>
@@ -114,14 +123,6 @@ pub mod pallet {
 		/// The proof include the session index and validator count of the
 		/// session at which the equivocation occurred.
 		type KeyOwnerProof: Parameter + GetSessionNumber + GetValidatorCount;
-
-		/// Source of session information (current session index, validator set).
-		///
-		/// Typically wired up to `pallet_session::Pallet<Self>` in the runtime, but any type
-		/// implementing [`ValidatorSet`] can be used. Bound here on a trait surface rather than
-		/// reaching into `pallet_session::Pallet` concretely so consensus is independent of the
-		/// session implementation.
-		type SessionInfo: ValidatorSet<Self::AccountId>;
 
 		/// The equivocation handling subsystem, defines methods to check/report an
 		/// offence and for submitting a transaction to report an equivocation
@@ -201,7 +202,7 @@ pub mod pallet {
 		/// against the extracted offender. If both are valid, the offence
 		/// will be reported.
 		#[pallet::call_index(0)]
-		#[pallet::weight(T::WeightInfo::report_equivocation(
+		#[pallet::weight(<T as Config>::WeightInfo::report_equivocation(
 			key_owner_proof.validator_count(),
 			T::MaxNominators::get(),
 		))]
@@ -230,7 +231,7 @@ pub mod pallet {
 		/// if the block author is defined it will be defined as the equivocation
 		/// reporter.
 		#[pallet::call_index(1)]
-		#[pallet::weight(T::WeightInfo::report_equivocation(
+		#[pallet::weight(<T as Config>::WeightInfo::report_equivocation(
 			key_owner_proof.validator_count(),
 			T::MaxNominators::get(),
 		))]
@@ -261,7 +262,7 @@ pub mod pallet {
 		///
 		/// Only callable by root.
 		#[pallet::call_index(2)]
-		#[pallet::weight(T::WeightInfo::note_stalled())]
+		#[pallet::weight(<T as Config>::WeightInfo::note_stalled())]
 		pub fn note_stalled(
 			origin: OriginFor<T>,
 			delay: BlockNumberFor<T>,
@@ -648,7 +649,12 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 
 		// update the mapping to note that the current set corresponds to the
 		// latest equivalent session (i.e. now).
-		let session_index = T::SessionInfo::session_index();
+		// MUST use `pallet_session::Pallet::<T>::current_index()` here — `SetIdSession` is
+		// read during equivocation processing and compared to `key_owner_proof.session()`,
+		// which comes from `pallet_session_historical` keyed by this exact value. Any
+		// indirection that lets these diverge breaks the reporter (best case: valid proofs
+		// rejected; worst case: bogus proofs accepted against the wrong session window).
+		let session_index = pallet_session::Pallet::<T>::current_index();
 		SetIdSession::<T>::insert(current_set_id, &session_index);
 	}
 

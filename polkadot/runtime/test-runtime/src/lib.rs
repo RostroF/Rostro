@@ -241,7 +241,6 @@ impl pallet_babe::Config for Runtime {
 
 	type EquivocationReportSystem = ();
 
-	type SessionInfo = Session;
 
 	type Moment = u64;
 	type SlotDuration = SlotDuration;
@@ -444,7 +443,6 @@ impl pallet_grandpa::Config for Runtime {
 
 	type KeyOwnerProof = sp_core::Void;
 	type EquivocationReportSystem = ();
-	type SessionInfo = Session;
 }
 
 impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Runtime

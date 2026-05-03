@@ -12,8 +12,18 @@
 //!
 //! Merkle Tree is constructed from arbitrary-length leaves, that are initially hashed using the
 //! same `\[`Hasher`\]` as the inner nodes.
-//! Inner nodes are created by concatenating child hashes and hashing again. The implementation
-//! does not perform any sorting of the input data (leaves) nor when inner nodes are created.
+//! Inner nodes are created by concatenating the left and right child hashes in **positional**
+//! (`left ‖ right`) order and hashing again. The position of each leaf is therefore bound into
+//! the root: a `(leaf, proof)` pair only verifies against the index it was constructed for.
+//!
+//! Earlier revisions of this crate hashed sibling pairs in *sorted* order (`min ‖ max`), which
+//! made `leaf_index` decorative — any `(leaf, proof)` pair verified against any index in the
+//! tree. That was the missing-bounds half of the Hyperbridge bug class. The current
+//! implementation uses fixed (left, right) ordering driven by the bits of `leaf_index` so the
+//! verifier is forced to use the position the proof was generated for. **This is a wire-format
+//! change**: roots produced by this crate now differ from the upstream Snowbridge / Solidity
+//! `verify` paths that still use sorted-pair hashing. Any downstream consumer
+//! (Solidity gateway, runtime tests pinning hex roots) must be updated together with this crate.
 //!
 //! If the number of leaves is not even, last leaf (hash of) is promoted to the upper layer.
 
@@ -216,6 +226,16 @@ impl<'a> From<H256> for Leaf<'a> {
 /// concatenating and hashing end up with given root hash.
 ///
 /// The proof must not contain the root hash.
+///
+/// `leaf_index` is **load-bearing**: at each tree layer the verifier consults
+/// `position & 1` of the *current* row position to decide whether the running hash sits on
+/// the left (`current ‖ sibling`) or right (`sibling ‖ current`) of its parent. When the row
+/// has odd width and the running hash is the trailing odd-element, that layer is *promoted*
+/// (no sibling consumed, no hash performed) — exactly mirroring [`merkelize_row`]. This binds
+/// the proof to a specific tree position: a proof generated for index `i` will not verify
+/// against any other index `j != i`. Earlier revisions of this crate hashed sibling pairs in
+/// sorted order, which made `leaf_index` decorative; see the crate-level docs for the
+/// security rationale.
 pub fn verify_proof<'a, H, P, L>(
 	root: &'a H256,
 	proof: P,
@@ -239,18 +259,40 @@ where
 
 	let hash_len = <H as sp_core::Hasher>::LENGTH;
 	let mut combined = [0_u8; 64];
-	let computed = proof.into_iter().fold(leaf_hash, |a, b| {
-		if a < b {
-			combined[..hash_len].copy_from_slice(a.as_ref());
-			combined[hash_len..].copy_from_slice(b.as_ref());
-		} else {
-			combined[..hash_len].copy_from_slice(b.as_ref());
-			combined[hash_len..].copy_from_slice(a.as_ref());
-		}
-		<H as Hash>::hash(&combined)
-	});
+	let mut current = leaf_hash;
+	let mut position = leaf_index;
+	let mut row_width = number_of_leaves;
+	let mut proof_iter = proof.into_iter();
 
-	root == &computed
+	while row_width > 1 {
+		// Trailing-odd-element promotion: when the current row has odd width and the running
+		// hash is the last element in the row, it is simply forwarded to the next row without
+		// consuming a sibling. This MUST mirror `merkelize_row`'s odd-promotion branch.
+		let is_trailing_odd = (row_width % 2 == 1) && (position == row_width - 1);
+		if !is_trailing_odd {
+			let sibling = match proof_iter.next() {
+				Some(s) => s,
+				None => return false,
+			};
+			if position & 1 == 0 {
+				combined[..hash_len].copy_from_slice(current.as_ref());
+				combined[hash_len..].copy_from_slice(sibling.as_ref());
+			} else {
+				combined[..hash_len].copy_from_slice(sibling.as_ref());
+				combined[hash_len..].copy_from_slice(current.as_ref());
+			}
+			current = <H as Hash>::hash(&combined);
+		}
+		position /= 2;
+		row_width = row_width.div_ceil(2);
+	}
+
+	// Reject if the proof has unconsumed siblings; that indicates a malformed/forged proof.
+	if proof_iter.next().is_some() {
+		return false;
+	}
+
+	root == &current
 }
 
 /// Processes a single row (layer) of a tree by taking pairs of elements,
@@ -281,13 +323,12 @@ where
 		index += 2;
 		match (a, b) {
 			(Some(a), Some(b)) => {
-				if a < b {
-					combined[..hash_len].copy_from_slice(a.as_ref());
-					combined[hash_len..].copy_from_slice(b.as_ref());
-				} else {
-					combined[..hash_len].copy_from_slice(b.as_ref());
-					combined[hash_len..].copy_from_slice(a.as_ref());
-				}
+				// Positional `(left ‖ right)` hashing: `a` came from `iter` first and so it
+				// holds the lower-index (left) sibling, `b` the higher-index (right) one. We
+				// must NOT sort by hash value here — doing so would erase the position
+				// information that `verify_proof` consumes via the bits of `leaf_index`.
+				combined[..hash_len].copy_from_slice(a.as_ref());
+				combined[hash_len..].copy_from_slice(b.as_ref());
 
 				next.push(<H as Hash>::hash(&combined));
 			},
@@ -372,28 +413,32 @@ mod tests {
 			);
 		};
 
-		test("816cc37bd8d39f7b0851838ebc875faf2afe58a03e95aca3b1333b3693f39dd3", make_leaves(3));
+		// NOTE: these roots changed from the upstream sorted-pair values when this crate switched
+		// to positional `(left ‖ right)` hashing — see the crate-level docs and the security
+		// rationale on `verify_proof`.
+		test("9f0ed730035045c3a5bf327ad69bcbe7b97565b22508bafcfca2c143331b324a", make_leaves(3));
 
-		test("7501ea976cb92f305cca65ab11254589ea28bb8b59d3161506350adaa237d22f", make_leaves(4));
+		test("763b4b6dc3a1c0abfe1802a0251376b9a7e20865c8dc6604c51b8607e687ddf0", make_leaves(4));
 
-		test("d26ba4eb398747bdd39255b1fadb99b803ce39696021b3b0bff7301ac146ee4e", make_leaves(10));
+		test("3680559a0d08b50da89aeb450645af94af494a2fb196f742cba51cafd1ca6c44", make_leaves(10));
 	}
 
 	#[test]
-	#[ignore]
 	fn should_generate_and_verify_proof() {
 		// given
 		sp_tracing::init_for_tests();
 		let data: Vec<H256> = make_leaves(3);
 
-		// when
+		// Note: we feed the `proof.leaf` (already-hashed) back into `verify_proof` so the
+		// `Leaf::Hash` variant is used. Passing `&data[i]` would route through `Leaf::Value`
+		// and re-hash, which is a different (and incorrect) usage.
 		let proof0 = merkle_proof::<Keccak256, _>(data.clone().into_iter(), 0);
 		assert!(verify_proof::<Keccak256, _, _>(
 			&proof0.root,
 			proof0.proof.clone(),
 			data.len() as u64,
 			proof0.leaf_index,
-			&data[0],
+			proof0.leaf,
 		));
 
 		let proof1 = merkle_proof::<Keccak256, _>(data.clone().into_iter(), 1);
@@ -402,7 +447,7 @@ mod tests {
 			proof1.proof,
 			data.len() as u64,
 			proof1.leaf_index,
-			&proof1.leaf,
+			proof1.leaf,
 		));
 
 		let proof2 = merkle_proof::<Keccak256, _>(data.clone().into_iter(), 2);
@@ -411,7 +456,7 @@ mod tests {
 			proof2.proof,
 			data.len() as u64,
 			proof2.leaf_index,
-			&proof2.leaf
+			proof2.leaf
 		));
 
 		// then
@@ -425,7 +470,7 @@ mod tests {
 			proof0.proof,
 			data.len() as u64,
 			proof0.leaf_index,
-			&proof0.leaf
+			proof0.leaf
 		));
 
 		assert!(!verify_proof::<Keccak256, _, _>(
@@ -433,8 +478,92 @@ mod tests {
 			vec![],
 			data.len() as u64,
 			proof0.leaf_index,
-			&proof0.leaf
+			proof0.leaf
 		));
+	}
+
+	/// Regression test for the "decorative `leaf_index`" bug class. Pre-fix, the verifier
+	/// hashed sibling pairs in sorted order, so a `(leaf, proof)` pair for index `i` would
+	/// verify against ANY other index `j` in `[0, number_of_leaves)`. Post-fix, the proof
+	/// is bound to its position via the bits of `leaf_index`.
+	#[test]
+	fn verify_proof_rejects_substituted_leaf_index() {
+		sp_tracing::init_for_tests();
+		// 4 leaves so that all sibling positions exercise the bit logic at multiple layers.
+		let data: Vec<H256> = make_leaves(4);
+		let n = data.len() as u64;
+
+		let proof0 = merkle_proof::<Keccak256, _>(data.clone().into_iter(), 0);
+
+		// Positive control: legitimate position must verify.
+		assert!(verify_proof::<Keccak256, _, _>(
+			&proof0.root,
+			proof0.proof.clone(),
+			n,
+			0,
+			proof0.leaf,
+		));
+
+		// Negative: same `(leaf, proof)` payload, but claim it sits at every other index.
+		// Pre-fix, all of these would have returned `true`. Post-fix, all must reject.
+		for fake_index in 1..n {
+			assert!(
+				!verify_proof::<Keccak256, _, _>(
+					&proof0.root,
+					proof0.proof.clone(),
+					n,
+					fake_index,
+					proof0.leaf,
+				),
+				"verify_proof must reject (leaf=0, proof=0) when claimed at index {fake_index}"
+			);
+		}
+
+		// And a proof for a different index, with index 0's leaf, must also reject —
+		// the proof path itself differs from index 0's path.
+		let proof2 = merkle_proof::<Keccak256, _>(data.clone().into_iter(), 2);
+		assert!(!verify_proof::<Keccak256, _, _>(
+			&proof2.root,
+			proof2.proof,
+			n,
+			0,
+			proof0.leaf,
+		));
+	}
+
+	/// Exhaustive sanity check that no `(leaf_i, proof_i)` verifies at any index `j != i`.
+	/// This guards against a future regression that reintroduces sorted-pair fold logic.
+	#[test]
+	fn verify_proof_is_position_binding_across_all_indices() {
+		sp_tracing::init_for_tests();
+		let data: Vec<H256> = make_leaves(8);
+		let n = data.len() as u64;
+
+		for i in 0..n {
+			let proof_i = merkle_proof::<Keccak256, _>(data.clone().into_iter(), i);
+			assert!(verify_proof::<Keccak256, _, _>(
+				&proof_i.root,
+				proof_i.proof.clone(),
+				n,
+				i,
+				proof_i.leaf,
+			));
+			for j in 0..n {
+				if i == j {
+					continue;
+				}
+				assert!(
+					!verify_proof::<Keccak256, _, _>(
+						&proof_i.root,
+						proof_i.proof.clone(),
+						n,
+						j,
+						proof_i.leaf,
+					),
+					"index {i}'s proof must not verify at index {j}"
+				);
+			}
+		}
 	}
 
 	#[test]

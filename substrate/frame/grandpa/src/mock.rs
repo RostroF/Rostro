@@ -206,7 +206,6 @@ impl Config for Test {
 	type KeyOwnerProof = sp_session::MembershipProof;
 	type EquivocationReportSystem =
 		super::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
-	type SessionInfo = Session;
 }
 
 pub fn grandpa_log(log: ConsensusLog<u64>) -> DigestItem {

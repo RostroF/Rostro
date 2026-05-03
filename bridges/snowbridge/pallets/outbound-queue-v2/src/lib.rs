@@ -106,6 +106,15 @@ use snowbridge_beacon_primitives::BeaconHeader;
 
 pub use pallet::*;
 
+/// In-code storage version. Bumped from the implicit 0 to 1 alongside the addition of
+/// `PendingOrder.topic` (see `types.rs`). This fork has not seen production traffic, so any
+/// `PendingOrders` map is expected to be empty at upgrade time and a no-op `StorageVersion`
+/// bump is sufficient. If non-empty state is observed at upgrade time we deliberately let
+/// SCALE decoding fail loudly rather than silently translate; entries can be cleared via
+/// governance before the upgrade.
+pub const STORAGE_VERSION: frame_support::traits::StorageVersion =
+	frame_support::traits::StorageVersion::new(1);
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -113,6 +122,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
@@ -240,6 +250,20 @@ pub mod pallet {
 		InvalidPendingNonce,
 		/// Reward payment failed
 		RewardPaymentFailed,
+		/// The `topic` in the delivery receipt does not match the topic recorded against the
+		/// pending order at message submission time. Without this binding, an attacker could
+		/// redeem a delivery receipt for nonce `N` against an unrelated outbound message
+		/// that happened to use the same nonce.
+		InvalidDeliveryReceiptTopic,
+		/// The Ethereum-side dispatch reported `success = false`. Pre-fix, this was decoded
+		/// but never consulted, so the relayer was paid for failed deliveries. We now reject
+		/// the receipt outright; the bridge consumer can resubmit the message.
+		DeliveryReceiptFailedDispatch,
+		/// The delivery receipt's `reward_address` is the zero address. Pre-fix, this fell
+		/// through to "pay the submitter", which is front-runnable: anyone observing the
+		/// pending receipt could submit theirs first and steal the reward. We require the
+		/// gateway to set a non-zero address.
+		MissingDeliveryReceiptRewardAddress,
 	}
 
 	/// Messages to be committed in the current block. This storage value is killed in
@@ -428,10 +452,16 @@ pub mod pallet {
 			// When the message is processed on ethereum side, the relayer will send the nonce
 			// back with delivery proof, only after that the order can
 			// be resolved and the fee will be rewarded to the relayer.
+			//
+			// We persist `topic` (== `Message.id`) here so that `process_delivery_receipt`
+			// can cross-check the Ethereum-side `InboundMessageDispatched.topic` against the
+			// topic recorded at submission. See `PendingOrder` doc and the `Error::*Topic`
+			// variants for the security rationale.
 			let order = PendingOrder {
 				nonce,
 				fee,
 				block_number: frame_system::Pallet::<T>::current_block_number(),
+				topic: id,
 			};
 			<PendingOrders<T>>::insert(nonce, order);
 
@@ -443,8 +473,25 @@ pub mod pallet {
 		}
 
 		/// Process a delivery receipt from a relayer, to allocate the relayer reward.
+		///
+		/// Defense-in-depth checks on top of the verifier-side proof of inclusion:
+		///
+		/// * `receipt.gateway` must match `GatewayAddress`.
+		/// * The receipt's `nonce` must correspond to a known `PendingOrder`.
+		/// * `receipt.topic` must equal `order.topic` (the topic pinned at submission). Pre-
+		///   fix this was decoded but never consulted, allowing a receipt for nonce `N` to
+		///   pay out against any unrelated outbound message at the same nonce.
+		/// * `receipt.success` must be `true`. Pre-fix this was decoded but never consulted,
+		///   so the relayer was paid even when the on-chain dispatch failed.
+		/// * `receipt.reward_address` must be non-zero. Pre-fix this fell through to "pay the
+		///   submitter", which is front-runnable: anyone observing pending receipts could
+		///   submit theirs first to claim the reward. Requiring a non-zero address forces
+		///   the gateway to faithfully attribute the reward to the on-chain relayer.
+		///
+		/// Together these close the missing-binding half of the Hyperbridge bug class on the
+		/// outbound-v2 path.
 		pub fn process_delivery_receipt(
-			relayer: <T as frame_system::Config>::AccountId,
+			_relayer: <T as frame_system::Config>::AccountId,
 			receipt: DeliveryReceipt,
 		) -> DispatchResult
 		where
@@ -453,15 +500,25 @@ pub mod pallet {
 			// Verify that the message was submitted from the known Gateway contract
 			ensure!(T::GatewayAddress::get() == receipt.gateway, Error::<T>::InvalidGateway);
 
-			let reward_account = if receipt.reward_address == [0u8; 32] {
-				relayer
-			} else {
-				receipt.reward_address.into()
-			};
-
 			let nonce = receipt.nonce;
 
 			let order = <PendingOrders<T>>::get(nonce).ok_or(Error::<T>::InvalidPendingNonce)?;
+
+			// Bind the receipt to the original outbound message via the persisted topic.
+			ensure!(receipt.topic == order.topic, Error::<T>::InvalidDeliveryReceiptTopic);
+
+			// Reject receipts that report a failed dispatch.
+			ensure!(receipt.success, Error::<T>::DeliveryReceiptFailedDispatch);
+
+			// The gateway MUST set a non-zero reward_address; falling through to the submitter
+			// is front-runnable.
+			ensure!(
+				receipt.reward_address != [0u8; 32],
+				Error::<T>::MissingDeliveryReceiptRewardAddress
+			);
+
+			let reward_account: <T as frame_system::Config>::AccountId =
+				receipt.reward_address.into();
 
 			if order.fee > 0 {
 				// Pay relayer reward

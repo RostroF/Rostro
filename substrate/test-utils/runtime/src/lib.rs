@@ -341,6 +341,7 @@ construct_runtime!(
 	{
 		System: frame_system,
 		Babe: pallet_babe,
+		Session: pallet_session,
 		SubstrateTest: substrate_test_pallet::pallet,
 		Utility: pallet_utility,
 		Balances: pallet_balances,
@@ -461,9 +462,78 @@ impl pallet_babe::Config for Runtime {
 	type WeightInfo = ();
 	type MaxAuthorities = ConstU32<10>;
 	type MaxNominators = ConstU32<100>;
-	type SessionInfo = frame_support::traits::NoSession;
 	type Moment = u64;
 	type SlotDuration = ConstU64<1000>;
+}
+
+/// Trivial `Convert<AccountId, Option<AccountId>>` returning `Some` unchanged. Required by
+/// `pallet_session::Config::ValidatorIdOf`.
+pub struct IdentityValidator;
+impl<T: Clone> sp_runtime::traits::Convert<T, Option<T>> for IdentityValidator {
+	fn convert(x: T) -> Option<T> {
+		Some(x)
+	}
+}
+
+/// No-op `SessionHandler` whose `KEY_TYPE_IDS` matches the test runtime's `SessionKeys` in
+/// order: `[ED25519, SR25519, ECDSA]`. `pallet_session`'s genesis builder asserts this length
+/// and ordering match `<Keys as OpaqueKeys>::key_ids()`, so a generic no-op handler like
+/// `pallet_session::TestSessionHandler` (which advertises only `DUMMY`) traps at genesis.
+///
+/// All callbacks are no-ops because the test runtime's `SessionManager = ()` never produces
+/// a new session, and Babe is pinned via `EpochChangeTrigger = SameAuthoritiesForever`.
+pub struct NoopSessionHandler;
+impl<AId> pallet_session::SessionHandler<AId> for NoopSessionHandler {
+	const KEY_TYPE_IDS: &'static [sp_runtime::KeyTypeId] = &[
+		sp_core::testing::ED25519,
+		sp_core::testing::SR25519,
+		sp_core::testing::ECDSA,
+	];
+	fn on_genesis_session<Ks: sp_runtime::traits::OpaqueKeys>(_: &[(AId, Ks)]) {}
+	fn on_new_session<Ks: sp_runtime::traits::OpaqueKeys>(
+		_: bool,
+		_: &[(AId, Ks)],
+		_: &[(AId, Ks)],
+	) {
+	}
+	fn on_before_session_ending() {}
+	fn on_disabled(_: u32) {}
+}
+
+parameter_types! {
+	/// Session period in blocks. Arbitrary for the test runtime — `SessionManager = ()` means
+	/// the validator set never rotates, so this only feeds the informational
+	/// `EstimateNextSessionRotation` API.
+	pub const Period: BlockNumber = 100;
+	pub const Offset: BlockNumber = 0;
+}
+
+/// Minimal `pallet_session` integration to satisfy the `pallet_babe::Config` supertrait. This
+/// is a test fixture: validators are fixed (genesis-only), there is no rotation, no slashing,
+/// no key deposit. `EpochChangeTrigger = SameAuthoritiesForever` already pins the Babe
+/// authority set, so pallet_session here exists purely so the equivocation reporter and
+/// `pallet_session::Pallet::<T>::current_index()` are wired through the canonical pallet.
+///
+/// `SessionHandler = NoopSessionHandler`: the test-runtime's `SessionKeys` (raw `AppPublic`
+/// crypto types) do not implement `OneSessionHandler`, so the auto-derived
+/// `<SessionKeys as OpaqueKeys>::KeyTypeIdProviders` cannot be used. We supply a hand-rolled
+/// no-op handler whose `KEY_TYPE_IDS` matches `SessionKeys::key_ids()` exactly, which is what
+/// `pallet_session::GenesisConfig::build` requires. Since `SessionManager = ()` never produces
+/// a new session and `SameAuthoritiesForever` keeps Babe pinned, the handler's callbacks
+/// never fire.
+impl pallet_session::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type ValidatorId = <Self as frame_system::Config>::AccountId;
+	type ValidatorIdOf = IdentityValidator;
+	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
+	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
+	type SessionManager = ();
+	type SessionHandler = NoopSessionHandler;
+	type Keys = SessionKeys;
+	type DisablingStrategy = ();
+	type WeightInfo = ();
+	type Currency = Balances;
+	type KeyDeposit = ();
 }
 
 /// Adds one to the given input and returns the final result.
@@ -1006,6 +1076,12 @@ pub mod storage_key_generator {
 			vec![b"Babe", b"SegmentIndex"],
 			vec![b"Balances", b":__STORAGE_VERSION__:"],
 			vec![b"Balances", b"TotalIssuance"],
+			vec![b"Session", b":__STORAGE_VERSION__:"],
+			// `pallet_session::GenesisConfig::build` writes `Validators` and `QueuedKeys`
+			// (both `ValueQuery` for `Vec<_>`) unconditionally at genesis, even when the
+			// initial validator list is empty.
+			vec![b"Session", b"QueuedKeys"],
+			vec![b"Session", b"Validators"],
 			vec![b"SubstrateTest", b":__STORAGE_VERSION__:"],
 			vec![b"SubstrateTest", b"Authorities"],
 			vec![b"System", b":__STORAGE_VERSION__:"],
@@ -1134,6 +1210,12 @@ pub mod storage_key_generator {
 			"c2261276cc9d1f8598ea4b6a74b15c2f4e7b9012096b41c4eb3aaf947f6ea429",
 			// Balances|TotalIssuance
 			"c2261276cc9d1f8598ea4b6a74b15c2f57c875e4cff74148e4628f264b974c80",
+			//Session|:__STORAGE_VERSION__:
+			"cec5070d609dd3497f72bde07fc96ba04e7b9012096b41c4eb3aaf947f6ea429",
+			// Session|QueuedKeys (or Validators — these two `ValueQuery` storage items
+			// write empty-Vec defaults at genesis even with no initial validators)
+			"cec5070d609dd3497f72bde07fc96ba088dcde934c658227ee1dfafcd6e16903",
+			"cec5070d609dd3497f72bde07fc96ba0e0cdd062e6eaf24295ad4ccfc41d4609",
 			//Utility|:__STORAGE_VERSION__:
 			"d5e1a2fa16732ce6906189438c0a82c64e7b9012096b41c4eb3aaf947f6ea429",
 		];
@@ -1384,7 +1466,7 @@ mod tests {
 		#[test]
 		fn build_minimal_genesis_config_works() {
 			sp_tracing::try_init_simple();
-			let default_minimal_json = r#"{"system":{},"babe":{"authorities":[],"epochConfig":{"c": [ 3, 10 ],"allowed_slots":"PrimaryAndSecondaryPlainSlots"}},"substrateTest":{"authorities":[]},"balances":{"balances":[]}}"#;
+			let default_minimal_json = r#"{"system":{},"babe":{"authorities":[],"epochConfig":{"c": [ 3, 10 ],"allowed_slots":"PrimaryAndSecondaryPlainSlots"}},"session":{"keys":[],"nonAuthorityKeys":[]},"substrateTest":{"authorities":[]},"balances":{"balances":[]}}"#;
 			let mut t = BasicExternalities::new_empty();
 
 			executor_call(&mut t, "GenesisBuilder_build_state", &default_minimal_json.encode())
@@ -1425,6 +1507,11 @@ mod tests {
 				"1cb6f36e027abb2091cfb5110ab5087f4e7b9012096b41c4eb3aaf947f6ea429",
 				//SubstrateTest|:__STORAGE_VERSION__:
 				"00771836bebdd29870ff246d305c578c4e7b9012096b41c4eb3aaf947f6ea429",
+				//Session|:__STORAGE_VERSION__:
+				"cec5070d609dd3497f72bde07fc96ba04e7b9012096b41c4eb3aaf947f6ea429",
+				// Session|QueuedKeys, Session|Validators (empty Vecs at genesis)
+				"cec5070d609dd3497f72bde07fc96ba088dcde934c658227ee1dfafcd6e16903",
+				"cec5070d609dd3497f72bde07fc96ba0e0cdd062e6eaf24295ad4ccfc41d4609",
 				//Utility|:__STORAGE_VERSION__:
 				"d5e1a2fa16732ce6906189438c0a82c64e7b9012096b41c4eb3aaf947f6ea429",
 				].into_iter().map(String::from).collect::<Vec<_>>();
@@ -1444,7 +1531,7 @@ mod tests {
 				.expect("default config is there");
 			let json = String::from_utf8(r.into()).expect("returned value is json. qed.");
 
-			let expected = r#"{"system":{},"babe":{"authorities":[],"epochConfig":{"c":[1,4],"allowed_slots":"PrimaryAndSecondaryVRFSlots"}},"substrateTest":{"authorities":[]},"balances":{"balances":[],"devAccounts":null}}"#;
+			let expected = r#"{"system":{},"babe":{"authorities":[],"epochConfig":{"c":[1,4],"allowed_slots":"PrimaryAndSecondaryVRFSlots"}},"session":{"keys":[],"nonAuthorityKeys":[]},"substrateTest":{"authorities":[]},"balances":{"balances":[],"devAccounts":null}}"#;
 			assert_eq!(expected.to_string(), json);
 		}
 
@@ -1525,7 +1612,7 @@ mod tests {
 			let r = executor_call(&mut t, "GenesisBuilder_build_state", &j.encode()).unwrap();
 			let r = BuildResult::decode(&mut &r[..]).unwrap();
 			assert_eq!(r, Err(
-				"Invalid JSON blob: unknown field `babex`, expected one of `system`, `babe`, `substrateTest`, `balances` at line 3 column 9".to_string(),
+				"Invalid JSON blob: unknown field `babex`, expected one of `system`, `babe`, `session`, `substrateTest`, `balances` at line 3 column 9".to_string(),
 			));
 		}
 

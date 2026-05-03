@@ -30,7 +30,6 @@ use frame_support::{
 	ensure,
 	traits::{
 		ConstU32, DisabledValidators, FindAuthor, Get, OnTimestampSet, OneSessionHandler,
-		ValidatorSet,
 	},
 	weights::Weight,
 	BoundedVec, WeakBoundedVec,
@@ -122,8 +121,18 @@ pub mod pallet {
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
+	// Note: `pallet_session::Config` is a supertrait so the equivocation reporter can use
+	// `pallet_session::Pallet::<T>::current_index()` directly — the canonical session index
+	// that `pallet_session_historical` keys key-ownership proofs by. An earlier Rostro
+	// refactor abstracted this via a `ValidatorSet` trait (`type SessionInfo`), but that
+	// abstraction was unsound: nothing required the trait impl's `session_index()` to match
+	// Historical's, so a pluggable impl could desync `SkippedEpochs`/`session_index_for_epoch`
+	// from the proofs the reporter checks against (best case: legitimate proofs rejected;
+	// worst case: bogus proofs accepted against the wrong window). The coupling is
+	// fundamental to equivocation reporting, so we keep it concrete here. Mirrors the
+	// revert applied to BEEFY.
 	#[pallet::config]
-	pub trait Config: frame_system::Config {
+	pub trait Config: frame_system::Config + pallet_session::Config {
 		/// The moment / timestamp type BABE uses for slot duration accounting.
 		///
 		/// Decoupled from `pallet_timestamp::Config::Moment` — runtimes typically wire this to
@@ -193,13 +202,6 @@ pub mod pallet {
 			(EquivocationProof<HeaderFor<Self>>, Self::KeyOwnerProof),
 		>;
 
-		/// Source of session information (current session index, validator set).
-		///
-		/// Typically wired up to `pallet_session::Pallet<Self>` in the runtime, but any type
-		/// implementing [`ValidatorSet`] can be used. Bound on a trait surface rather than
-		/// reaching into `pallet_session::Pallet` concretely so consensus is independent of the
-		/// session implementation.
-		type SessionInfo: ValidatorSet<Self::AccountId>;
 	}
 
 	#[pallet::error]
@@ -1104,7 +1106,13 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 			),
 		);
 
-		let session_index = T::SessionInfo::session_index();
+		// MUST use `pallet_session::Pallet::<T>::current_index()` here — `SkippedEpochs`
+		// and `enact_epoch_change` write this value, and equivocation reports compare it
+		// to `key_owner_proof.session()` from `pallet_session_historical` keyed by this
+		// exact value. Any indirection that lets these diverge breaks the reporter (best
+		// case: valid proofs rejected; worst case: bogus proofs accepted against the
+		// wrong epoch window). Mirrors the BEEFY/GRANDPA remediation.
+		let session_index = pallet_session::Pallet::<T>::current_index();
 
 		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities, Some(session_index))
 	}
