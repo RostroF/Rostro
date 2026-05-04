@@ -375,7 +375,7 @@ impl<T: Sized> SaturatedConversion for T {}
 /// This module provide a readable way to do safe arithmetics, turning this:
 ///
 /// ```
-/// # use rp_arithmetic::{traits::EnsureSub, ArithmeticError};
+/// # use sp_arithmetic::{traits::EnsureSub, ArithmeticError};
 /// # fn foo() -> Result<(), ArithmeticError> {
 /// # let mut my_value: i32 = 1;
 /// # let other_value: i32 = 1;
@@ -387,7 +387,7 @@ impl<T: Sized> SaturatedConversion for T {}
 /// into this:
 ///
 /// ```
-/// # use rp_arithmetic::{traits::EnsureSubAssign, ArithmeticError};
+/// # use sp_arithmetic::{traits::EnsureSubAssign, ArithmeticError};
 /// # fn foo() -> Result<(), ArithmeticError> {
 /// # let mut my_value: i32 = 1;
 /// # let other_value: i32 = 1;
@@ -416,7 +416,7 @@ mod ensure {
 		/// # Examples
 		///
 		/// ```
-		/// use rp_arithmetic::traits::EnsureAdd;
+		/// use sp_arithmetic::traits::EnsureAdd;
 		///
 		/// let a: i32 = 10;
 		/// let b: i32 = 20;
@@ -425,7 +425,7 @@ mod ensure {
 		/// ```
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureAdd, ArithmeticError};
+		/// use sp_arithmetic::{traits::EnsureAdd, ArithmeticError};
 		///
 		/// fn overflow() -> Result<(), ArithmeticError> {
 		///     u32::MAX.ensure_add(1)?;
@@ -458,7 +458,7 @@ mod ensure {
 		/// # Examples
 		///
 		/// ```
-		/// use rp_arithmetic::traits::EnsureSub;
+		/// use sp_arithmetic::traits::EnsureSub;
 		///
 		/// let a: i32 = 10;
 		/// let b: i32 = 20;
@@ -467,7 +467,7 @@ mod ensure {
 		/// ```
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureSub, ArithmeticError};
+		/// use sp_arithmetic::{traits::EnsureSub, ArithmeticError};
 		///
 		/// fn underflow() -> Result<(), ArithmeticError> {
 		///     0u32.ensure_sub(1)?;
@@ -500,7 +500,7 @@ mod ensure {
 		/// # Examples
 		///
 		/// ```
-		/// use rp_arithmetic::traits::EnsureMul;
+		/// use sp_arithmetic::traits::EnsureMul;
 		///
 		/// let a: i32 = 10;
 		/// let b: i32 = 20;
@@ -509,7 +509,7 @@ mod ensure {
 		/// ```
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureMul, ArithmeticError};
+		/// use sp_arithmetic::{traits::EnsureMul, ArithmeticError};
 		///
 		/// fn overflow() -> Result<(), ArithmeticError> {
 		///     u32::MAX.ensure_mul(2)?;
@@ -541,7 +541,7 @@ mod ensure {
 		/// # Examples
 		///
 		/// ```
-		/// use rp_arithmetic::traits::EnsureDiv;
+		/// use sp_arithmetic::traits::EnsureDiv;
 		///
 		/// let a: i32 = 20;
 		/// let b: i32 = 10;
@@ -550,7 +550,7 @@ mod ensure {
 		/// ```
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureDiv, ArithmeticError};
+		/// use sp_arithmetic::{traits::EnsureDiv, ArithmeticError};
 		///
 		/// fn extrinsic_zero() -> Result<(), ArithmeticError> {
 		///     1.ensure_div(0)?;
@@ -576,7 +576,7 @@ mod ensure {
 	/// Check [`checked_pow`] for more info about border cases.
 	///
 	/// ```
-	/// use rp_arithmetic::{traits::ensure_pow, ArithmeticError};
+	/// use sp_arithmetic::{traits::ensure_pow, ArithmeticError};
 	///
 	/// fn overflow() -> Result<(), ArithmeticError> {
 	///     ensure_pow(2u64, 64)?;
@@ -611,7 +611,7 @@ mod ensure {
 		/// # Examples
 		///
 		/// ```
-		/// use rp_arithmetic::traits::EnsureAddAssign;
+		/// use sp_arithmetic::traits::EnsureAddAssign;
 		///
 		/// let mut a: i32 = 10;
 		/// let b: i32 = 20;
@@ -621,7 +621,7 @@ mod ensure {
 		/// ```
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureAddAssign, ArithmeticError};
+		/// use sp_arithmetic::{traits::EnsureAddAssign, ArithmeticError};
 		///
 		/// fn overflow() -> Result<(), ArithmeticError> {
 		///     let mut max = u32::MAX;
@@ -654,7 +654,7 @@ mod ensure {
 		/// # Examples
 		///
 		/// ```
-		/// use rp_arithmetic::traits::EnsureSubAssign;
+		/// use sp_arithmetic::traits::EnsureSubAssign;
 		///
 		/// let mut a: i32 = 10;
 		/// let b: i32 = 20;
@@ -664,7 +664,7 @@ mod ensure {
 		/// ```
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureSubAssign, ArithmeticError};
+		/// use sp_arithmetic::{traits::EnsureSubAssign, ArithmeticError};
 		///
 		/// fn underflow() -> Result<(), ArithmeticError> {
 		///     let mut zero: u32 = 0;
@@ -697,7 +697,7 @@ mod ensure {
 		/// # Examples
 		///
 		/// ```
-		/// use rp_arithmetic::traits::EnsureMulAssign;
+		/// use sp_arithmetic::traits::EnsureMulAssign;
 		///
 		/// let mut a: i32 = 10;
 		/// let b: i32 = 20;
@@ -707,7 +707,7 @@ mod ensure {
 		/// ```
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureMulAssign, ArithmeticError};
+		/// use sp_arithmetic::{traits::EnsureMulAssign, ArithmeticError};
 		///
 		/// fn overflow() -> Result<(), ArithmeticError> {
 		///     let mut max = u32::MAX;
@@ -740,7 +740,7 @@ mod ensure {
 		/// # Examples
 		///
 		/// ```
-		/// use rp_arithmetic::traits::EnsureDivAssign;
+		/// use sp_arithmetic::traits::EnsureDivAssign;
 		///
 		/// let mut a: i32 = 20;
 		/// let b: i32 = 10;
@@ -750,7 +750,7 @@ mod ensure {
 		/// ```
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureDivAssign, ArithmeticError, FixedI64};
+		/// use sp_arithmetic::{traits::EnsureDivAssign, ArithmeticError, FixedI64};
 		///
 		/// fn extrinsic_zero() -> Result<(), ArithmeticError> {
 		///     let mut one = 1;
@@ -801,7 +801,7 @@ mod ensure {
 		/// [`ArithmeticError`] error.
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureFixedPointNumber, ArithmeticError, FixedI64};
+		/// use sp_arithmetic::{traits::EnsureFixedPointNumber, ArithmeticError, FixedI64};
 		///
 		/// fn extrinsic_zero() -> Result<(), ArithmeticError> {
 		///     FixedI64::ensure_from_rational(1, 0)?;
@@ -832,7 +832,7 @@ mod ensure {
 		/// error.
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureFixedPointNumber, ArithmeticError, FixedI64};
+		/// use sp_arithmetic::{traits::EnsureFixedPointNumber, ArithmeticError, FixedI64};
 		///
 		/// fn overflow() -> Result<(), ArithmeticError> {
 		///     FixedI64::from(i64::MAX).ensure_mul_int(2)?;
@@ -859,7 +859,7 @@ mod ensure {
 		/// error.
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureFixedPointNumber, ArithmeticError, FixedI64};
+		/// use sp_arithmetic::{traits::EnsureFixedPointNumber, ArithmeticError, FixedI64};
 		///
 		/// fn extrinsic_zero() -> Result<(), ArithmeticError> {
 		///     FixedI64::from(1).ensure_div_int(0)?;
@@ -888,7 +888,7 @@ mod ensure {
 		/// Similar to [`TryFrom::try_from()`] but returning an [`ArithmeticError`] error.
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureFrom, ArithmeticError};
+		/// use sp_arithmetic::{traits::EnsureFrom, ArithmeticError};
 		///
 		/// fn overflow() -> Result<(), ArithmeticError> {
 		///     let byte: u8 = u8::ensure_from(256u16)?;
@@ -916,7 +916,7 @@ mod ensure {
 		/// Similar to [`TryInto::try_into()`] but returning an [`ArithmeticError`] error
 		///
 		/// ```
-		/// use rp_arithmetic::{traits::EnsureInto, ArithmeticError};
+		/// use sp_arithmetic::{traits::EnsureInto, ArithmeticError};
 		///
 		/// fn overflow() -> Result<(), ArithmeticError> {
 		///     let byte: u8 = 256u16.ensure_into()?;

@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
 
-use rp_weights::Weight;
+use sp_weights::Weight;
 use frame_support::traits::Get;
 use rns_types::DomainHash;
-use rp_std::vec::Vec;
+use sp_std::vec::Vec;
 
 use crate::{nft, origin, price_oracle, registry};
 

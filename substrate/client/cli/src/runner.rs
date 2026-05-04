@@ -372,7 +372,7 @@ mod tests {
 		let output = run_test_in_another_process(
 			"ensure_run_until_exit_is_not_blocking_indefinitely",
 			|| {
-				rp_tracing::try_init_simple();
+				sp_tracing::try_init_simple();
 
 				let runner = create_runner();
 

@@ -23,7 +23,7 @@
 use crate::transaction::event::{TransactionError, TransactionEvent};
 use jsonrpsee::types::error::ErrorObject;
 use rc_transaction_pool_api::error::Error as PoolError;
-use rp_runtime::transaction_validity::InvalidTransaction;
+use sp_runtime::transaction_validity::InvalidTransaction;
 
 /// Transaction RPC errors.
 #[derive(Debug, thiserror::Error)]

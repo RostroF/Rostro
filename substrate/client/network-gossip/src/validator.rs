@@ -18,7 +18,7 @@
 
 use rc_network_common::role::ObservedRole;
 use rc_network_types::PeerId;
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 /// Validates consensus messages.
 pub trait Validator<B: BlockT>: Send + Sync {

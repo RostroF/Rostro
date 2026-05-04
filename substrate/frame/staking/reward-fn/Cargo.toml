@@ -16,8 +16,8 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 log = { workspace = true }
-rp-arithmetic = { workspace = true }
+sp-arithmetic = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["log/std", "rp-arithmetic/std"]
+std = ["log/std", "sp-arithmetic/std"]

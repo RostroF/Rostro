@@ -25,9 +25,9 @@ mod tests;
 use jsonrpsee::Extensions;
 use rc_client_api::{BlockBackend, HeaderBackend};
 use rc_rpc_api::{check_if_safe, dev::error::Error};
-use rp_api::{ApiExt, Core, ProvideRuntimeApi};
-use rp_core::Encode;
-use rp_runtime::{
+use sp_api::{ApiExt, Core, ProvideRuntimeApi};
+use sp_core::Encode;
+use sp_runtime::{
 	generic::DigestItem,
 	traits::{Block as BlockT, Header},
 };

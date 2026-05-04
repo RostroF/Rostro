@@ -24,7 +24,7 @@ use futures::Future;
 pub use http::SharedClient;
 use rc_network::Multiaddr;
 use rc_network_types::PeerId;
-use rp_core::{
+use sp_core::{
 	offchain::{
 		self, HttpError, HttpRequestId, HttpRequestStatus, OpaqueMultiaddr, OpaqueNetworkState,
 		Timestamp,
@@ -225,7 +225,7 @@ mod tests {
 		config::MultiaddrWithPeerId, types::ProtocolName, NetworkPeers, NetworkStateInfo,
 		ObservedRole, ReputationChange,
 	};
-	use rp_core::offchain::{storage::OffchainDb, DbExternalities, Externalities, StorageKind};
+	use sp_core::offchain::{storage::OffchainDb, DbExternalities, Externalities, StorageKind};
 	use std::time::SystemTime;
 
 	pub(super) struct TestNetwork();
@@ -324,7 +324,7 @@ mod tests {
 	}
 
 	fn offchain_api() -> (Api, AsyncApi) {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mock = Arc::new(TestNetwork());
 		let shared_client = SharedClient::new().unwrap();
 
@@ -362,7 +362,7 @@ mod tests {
 
 		// Arrange.
 		let now = api.timestamp();
-		let delta = rp_core::offchain::Duration::from_millis(100);
+		let delta = sp_core::offchain::Duration::from_millis(100);
 		let deadline = now.add(delta);
 
 		// Act.

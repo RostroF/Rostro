@@ -152,7 +152,7 @@ pub use crate::{
 #[cfg(feature = "std")]
 mod std_reexport {
 	pub use crate::{testing::TestExternalities, trie_backend::create_proof_check_backend};
-	pub use rp_trie::{
+	pub use sp_trie::{
 		trie_types::{TrieDBMutV0, TrieDBMutV1},
 		CompactProof, DBValue, LayoutV0, LayoutV1, MemoryDB, StorageProof, TrieMut,
 	};
@@ -166,13 +166,13 @@ mod execution {
 	use codec::Codec;
 	use hash_db::Hasher;
 	use smallvec::SmallVec;
-	use rp_core::{
+	use sp_core::{
 		hexdisplay::HexDisplay,
 		storage::{ChildInfo, ChildType, PrefixedStorageKey},
 		traits::{CallContext, CodeExecutor, RuntimeCode},
 	};
-	use rp_externalities::Extensions;
-	use rp_trie::PrefixedMemoryDB;
+	use sp_externalities::Extensions;
+	use sp_trie::PrefixedMemoryDB;
 	use std::collections::{HashMap, HashSet};
 
 	pub(crate) type CallResult<E> = Result<Vec<u8>, E>;
@@ -599,7 +599,7 @@ mod execution {
 			return Err(Box::new("Invalid start of range."));
 		}
 
-		let recorder = rp_trie::recorder::Recorder::default();
+		let recorder = sp_trie::recorder::Recorder::default();
 		let proving_backend =
 			TrieBackendBuilder::wrap(trie_backend).with_recorder(recorder.clone()).build();
 		let mut count = 0;
@@ -652,7 +652,7 @@ mod execution {
 				let (key, value) = item.map_err(|e| Box::new(e) as Box<dyn Error>)?;
 
 				if depth < MAX_NESTED_TRIE_DEPTH &&
-					rp_core::storage::well_known_keys::is_child_storage_key(key.as_slice())
+					sp_core::storage::well_known_keys::is_child_storage_key(key.as_slice())
 				{
 					count += 1;
 					// do not add two child trie with same root
@@ -726,7 +726,7 @@ mod execution {
 		H: Hasher,
 		H::Out: Ord + Codec,
 	{
-		let recorder = rp_trie::recorder::Recorder::default();
+		let recorder = sp_trie::recorder::Recorder::default();
 		let proving_backend =
 			TrieBackendBuilder::wrap(trie_backend).with_recorder(recorder.clone()).build();
 		let mut count = 0;
@@ -1060,7 +1060,7 @@ mod execution {
 				values.push((key.to_vec(), value.to_vec()));
 
 				if depth < MAX_NESTED_TRIE_DEPTH &&
-					rp_core::storage::well_known_keys::is_child_storage_key(key.as_slice())
+					sp_core::storage::well_known_keys::is_child_storage_key(key.as_slice())
 				{
 					// Do not add two chid trie with same root.
 					if !child_roots.contains(value.as_slice()) {
@@ -1097,14 +1097,14 @@ mod tests {
 	use crate::{execution::CallResult, in_memory_backend::new_in_mem};
 	use assert_matches::assert_matches;
 	use codec::Encode;
-	use rp_core::{
+	use sp_core::{
 		map,
 		storage::{ChildInfo, StateVersion},
 		traits::{CallContext, CodeExecutor, Externalities, RuntimeCode},
 		H256,
 	};
-	use rp_runtime::traits::BlakeTwo256;
-	use rp_trie::{
+	use sp_runtime::traits::BlakeTwo256;
+	use sp_trie::{
 		trie_types::{TrieDBMutBuilderV0, TrieDBMutBuilderV1},
 		KeySpacedDBMut, PrefixedMemoryDB,
 	};
@@ -1141,7 +1141,7 @@ mod tests {
 		}
 	}
 
-	impl rp_core::traits::ReadRuntimeVersion for DummyCodeExecutor {
+	impl sp_core::traits::ReadRuntimeVersion for DummyCodeExecutor {
 		fn read_runtime_version(
 			&self,
 			_: &[u8],
@@ -1579,7 +1579,7 @@ mod tests {
 		}
 	}
 
-	fn test_compact(remote_proof: StorageProof, remote_root: &rp_core::H256) -> StorageProof {
+	fn test_compact(remote_proof: StorageProof, remote_root: &sp_core::H256) -> StorageProof {
 		let compact_remote_proof =
 			remote_proof.into_compact_proof::<BlakeTwo256>(*remote_root).unwrap();
 		compact_remote_proof

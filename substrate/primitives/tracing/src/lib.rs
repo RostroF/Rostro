@@ -79,17 +79,17 @@ pub use crate::types::{WASM_NAME_KEY, WASM_TARGET_KEY, WASM_TRACE_IDENTIFIER};
 /// # Example
 ///
 /// ```rust
-/// rp_tracing::enter_span!(rp_tracing::Level::TRACE, "fn wide span");
+/// sp_tracing::enter_span!(sp_tracing::Level::TRACE, "fn wide span");
 /// {
-/// 		rp_tracing::enter_span!(rp_tracing::trace_span!("outer-span"));
+/// 		sp_tracing::enter_span!(sp_tracing::trace_span!("outer-span"));
 /// 		{
-/// 			rp_tracing::enter_span!(rp_tracing::Level::TRACE, "inner-span");
+/// 			sp_tracing::enter_span!(sp_tracing::Level::TRACE, "inner-span");
 /// 			// ..
 /// 		}  // inner span exists here
 /// 	} // outer span exists here
 ///
-/// rp_tracing::within_span! {
-/// 		rp_tracing::debug_span!("debug-span", you_can_pass="any params");
+/// sp_tracing::within_span! {
+/// 		sp_tracing::debug_span!("debug-span", you_can_pass="any params");
 ///     1 + 1;
 ///     // some other complex code
 /// } // debug span ends here
@@ -152,26 +152,26 @@ pub fn init_for_tests() {
 /// Runs given code within a tracing span, measuring it's execution time.
 ///
 /// If tracing is not enabled, the code is still executed. Pass in level and name or
-/// use any valid `rp_tracing::Span`followed by `;` and the code to execute,
+/// use any valid `sp_tracing::Span`followed by `;` and the code to execute,
 ///
 /// # Example
 ///
 /// ```
-/// rp_tracing::within_span! {
-///     rp_tracing::Level::TRACE,
+/// sp_tracing::within_span! {
+///     sp_tracing::Level::TRACE,
 ///     "test-span";
 ///     1 + 1;
 ///     // some other complex code
 /// }
 ///
-/// rp_tracing::within_span! {
-///     rp_tracing::span!(rp_tracing::Level::WARN, "warn-span", you_can_pass="any params");
+/// sp_tracing::within_span! {
+///     sp_tracing::span!(sp_tracing::Level::WARN, "warn-span", you_can_pass="any params");
 ///     1 + 1;
 ///     // some other complex code
 /// }
 ///
-/// rp_tracing::within_span! {
-///     rp_tracing::debug_span!("debug-span", you_can_pass="any params");
+/// sp_tracing::within_span! {
+///     sp_tracing::debug_span!("debug-span", you_can_pass="any params");
 ///     1 + 1;
 ///     // some other complex code
 /// }
@@ -229,7 +229,7 @@ macro_rules! enter_span {
 /// Enter a span.
 ///
 /// The span will be valid, until the scope is left. Use either level and name
-/// or pass in any valid `rp_tracing::Span` for extended usage. The span will
+/// or pass in any valid `sp_tracing::Span` for extended usage. The span will
 /// be exited on drop – which is at the end of the block or to the next
 /// `enter_span!` calls, as this overwrites the local variable. For nested
 /// usage or to ensure the span closes at certain time either put it into a block
@@ -238,16 +238,16 @@ macro_rules! enter_span {
 /// # Example
 ///
 /// ```
-/// rp_tracing::enter_span!(rp_tracing::Level::TRACE, "test-span");
+/// sp_tracing::enter_span!(sp_tracing::Level::TRACE, "test-span");
 /// // previous will be dropped here
-/// rp_tracing::enter_span!(
-/// 	rp_tracing::span!(rp_tracing::Level::DEBUG, "debug-span", params="value"));
-/// rp_tracing::enter_span!(rp_tracing::info_span!("info-span",  params="value"));
+/// sp_tracing::enter_span!(
+/// 	sp_tracing::span!(sp_tracing::Level::DEBUG, "debug-span", params="value"));
+/// sp_tracing::enter_span!(sp_tracing::info_span!("info-span",  params="value"));
 ///
 /// {
-/// 		rp_tracing::enter_span!(rp_tracing::Level::TRACE, "outer-span");
+/// 		sp_tracing::enter_span!(sp_tracing::Level::TRACE, "outer-span");
 /// 		{
-/// 			rp_tracing::enter_span!(rp_tracing::Level::TRACE, "inner-span");
+/// 			sp_tracing::enter_span!(sp_tracing::Level::TRACE, "inner-span");
 /// 			// ..
 /// 		}  // inner span exists here
 /// 	} // outer span exists here
@@ -280,7 +280,7 @@ pub mod test_log_capture {
 	///
 	/// # Examples
 	/// ```
-	/// use rp_tracing::test_log_capture::LogCapture;
+	/// use sp_tracing::test_log_capture::LogCapture;
 	/// use std::io::Write;
 	///
 	/// let mut log_capture = LogCapture::new();
@@ -296,7 +296,7 @@ pub mod test_log_capture {
 		///
 		/// # Examples
 		/// ```
-		/// use rp_tracing::test_log_capture::LogCapture;
+		/// use sp_tracing::test_log_capture::LogCapture;
 		///
 		/// let log_capture = LogCapture::new();
 		/// assert!(log_capture.get_logs().is_empty());
@@ -309,7 +309,7 @@ pub mod test_log_capture {
 		///
 		/// # Examples
 		/// ```
-		/// use rp_tracing::test_log_capture::LogCapture;
+		/// use sp_tracing::test_log_capture::LogCapture;
 		/// use std::io::Write;
 		///
 		/// let mut log_capture = LogCapture::new();
@@ -326,7 +326,7 @@ pub mod test_log_capture {
 		///
 		/// # Examples
 		/// ```
-		/// use rp_tracing::test_log_capture::LogCapture;
+		/// use sp_tracing::test_log_capture::LogCapture;
 		/// use std::io::Write;
 		///
 		/// let mut log_capture = LogCapture::new();
@@ -390,7 +390,7 @@ pub mod test_log_capture {
 	/// # Examples
 	///
 	/// ```
-	/// use rp_tracing::{
+	/// use sp_tracing::{
 	///     test_log_capture::init_log_capture,
 	///     tracing::{info, subscriber, Level},
 	/// };
@@ -408,7 +408,7 @@ pub mod test_log_capture {
 	///   `init_log_capture(max_level, false)`.
 	/// - If you need both **capturing and printing logs**, use `init_log_capture(max_level, true)`.
 	/// - If you only need to **print logs** but not capture them, use
-	///   `rp_tracing::init_for_tests()`.
+	///   `sp_tracing::init_for_tests()`.
 	pub fn init_log_capture(
 		max_level: impl Into<LevelFilter>,
 		print_logs: bool,
@@ -458,7 +458,7 @@ pub mod test_log_capture {
 	/// # Examples
 	///
 	/// ```
-	/// use rp_tracing::{
+	/// use sp_tracing::{
 	///     capture_test_logs,
 	///     tracing::{info, warn, Level},
 	/// };
@@ -482,15 +482,15 @@ pub mod test_log_capture {
 	///
 	/// # Related functions:
 	/// - [`init_log_capture()`]: Captures logs for assertions.
-	/// - `rp_tracing::init_for_tests()`: Outputs logs but does not capture them.
+	/// - `sp_tracing::init_for_tests()`: Outputs logs but does not capture them.
 	#[macro_export]
 	macro_rules! capture_test_logs {
 		// Case when max_level and print_logs are provided
 		($max_level:expr, $print_logs:expr, $test:block) => {{
 			let (log_capture, subscriber) =
-				rp_tracing::test_log_capture::init_log_capture($max_level, $print_logs);
+				sp_tracing::test_log_capture::init_log_capture($max_level, $print_logs);
 
-			rp_tracing::tracing::subscriber::with_default(subscriber, || $test);
+			sp_tracing::tracing::subscriber::with_default(subscriber, || $test);
 
 			log_capture
 		}};
@@ -502,7 +502,7 @@ pub mod test_log_capture {
 
 		// Case when max_level is omitted (defaults to DEBUG, no printing)
 		($test:block) => {{
-			capture_test_logs!(rp_tracing::tracing::Level::DEBUG, false, $test)
+			capture_test_logs!(sp_tracing::tracing::Level::DEBUG, false, $test)
 		}};
 	}
 }

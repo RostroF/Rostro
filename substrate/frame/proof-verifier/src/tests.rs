@@ -11,7 +11,7 @@
 use crate::{mock::*, *};
 use frame_support::{assert_noop, assert_ok, pallet_prelude::ConstU32, BoundedVec};
 use frame_system::RawOrigin;
-use rp_runtime::traits::Hash;
+use sp_runtime::traits::Hash;
 
 fn make_key(byte: u8, len: usize) -> BoundedVec<u8, ConstU32<MAX_VERIFYING_KEY_LEN>> {
 	let v = vec![byte; len];

@@ -47,8 +47,8 @@ use frame_support::{
 	BoundedSlice, BoundedVec, ConsensusEngineId, Parameter,
 };
 use log;
-use rp_consensus_aura::{AuthorityIndex, ConsensusLog, Slot, AURA_ENGINE_ID};
-use rp_runtime::{
+use sp_consensus_aura::{AuthorityIndex, ConsensusLog, Slot, AURA_ENGINE_ID};
+use sp_runtime::{
 	generic::DigestItem,
 	traits::{IsMember, Member, SaturatedConversion, Saturating, Zero},
 	RuntimeAppPublic,
@@ -88,7 +88,7 @@ pub mod pallet {
 		///
 		/// Decoupled from `pallet_timestamp::Config::Moment` — runtimes typically wire this to
 		/// the same `Moment` type as their timestamp pallet (e.g. `u64`).
-		type Moment: rp_runtime::traits::AtLeast32Bit
+		type Moment: sp_runtime::traits::AtLeast32Bit
 			+ Parameter
 			+ Default
 			+ Copy
@@ -211,7 +211,7 @@ pub mod pallet {
 		}
 
 		#[cfg(feature = "try-runtime")]
-		fn try_state(_: BlockNumberFor<T>) -> Result<(), rp_runtime::TryRuntimeError> {
+		fn try_state(_: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 			Self::do_try_state()
 		}
 	}
@@ -323,7 +323,7 @@ impl<T: Config> Pallet<T> {
 	///
 	/// The timestamp divided by the slot duration must equal the current slot (after genesis).
 	#[cfg(any(test, feature = "try-runtime"))]
-	pub fn do_try_state() -> Result<(), rp_runtime::TryRuntimeError> {
+	pub fn do_try_state() -> Result<(), sp_runtime::TryRuntimeError> {
 		// We don't have any guarantee that we are already after `on_initialize` and thus we have to
 		// check the current slot from the digest or take the last known slot.
 		let current_slot =
@@ -369,7 +369,7 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-impl<T: Config> rp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
+impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
 	type Public = T::AuthorityId;
 }
 

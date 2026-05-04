@@ -25,7 +25,7 @@
 //! ```
 //! use rc_consensus::import_queue::Link;
 //! # use rc_consensus::import_queue::buffered_link::buffered_link;
-//! # use rp_test_primitives::Block;
+//! # use sp_test_primitives::Block;
 //! # struct DummyLink; impl Link<Block> for DummyLink {}
 //! # let my_link = DummyLink;
 //! let (mut tx, mut rx) = buffered_link::<Block>(100_000);
@@ -41,7 +41,7 @@
 use crate::import_queue::{JustificationImportResult, Link, RuntimeOrigin};
 use futures::prelude::*;
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use rp_runtime::traits::{Block as BlockT, NumberFor};
+use sp_runtime::traits::{Block as BlockT, NumberFor};
 use std::{
 	pin::Pin,
 	task::{Context, Poll},
@@ -176,7 +176,7 @@ impl<B: BlockT> BufferedLinkReceiver<B> {
 
 #[cfg(test)]
 mod tests {
-	use rp_test_primitives::Block;
+	use sp_test_primitives::Block;
 
 	#[test]
 	fn is_closed() {

@@ -27,10 +27,10 @@ use alloc::vec::Vec;
 use codec::Encode;
 use core::marker::PhantomData;
 use hash_db::Hasher;
-use rp_core::storage::{ChildInfo, StateVersion, TrackedStorageKey};
+use sp_core::storage::{ChildInfo, StateVersion, TrackedStorageKey};
 #[cfg(feature = "std")]
-use rp_core::traits::RuntimeCode;
-use rp_trie::{MerkleValue, PrefixedMemoryDB, RandomState};
+use sp_core::traits::RuntimeCode;
+use sp_trie::{MerkleValue, PrefixedMemoryDB, RandomState};
 
 /// A struct containing arguments for iterating over the storage.
 #[derive(Default)]
@@ -384,7 +384,7 @@ pub trait Backend<H: Hasher>: core::fmt::Debug {
 
 /// Something that can be converted into a [`TrieBackend`].
 #[cfg(feature = "std")]
-pub trait AsTrieBackend<H: Hasher, C = rp_trie::cache::LocalTrieCache<H>> {
+pub trait AsTrieBackend<H: Hasher, C = sp_trie::cache::LocalTrieCache<H>> {
 	/// Type of trie backend storage.
 	type TrieBackendStorage: TrieBackendStorage<H>;
 
@@ -408,11 +408,11 @@ pub enum TryPendingCode {
 }
 
 #[cfg(feature = "std")]
-impl From<rp_core::traits::CallContext> for TryPendingCode {
-	fn from(context: rp_core::traits::CallContext) -> Self {
+impl From<sp_core::traits::CallContext> for TryPendingCode {
+	fn from(context: sp_core::traits::CallContext) -> Self {
 		match context {
-			rp_core::traits::CallContext::Onchain => TryPendingCode::Yes,
-			rp_core::traits::CallContext::Offchain => TryPendingCode::No,
+			sp_core::traits::CallContext::Onchain => TryPendingCode::Yes,
+			sp_core::traits::CallContext::Offchain => TryPendingCode::No,
 		}
 	}
 }
@@ -426,14 +426,14 @@ pub struct BackendRuntimeCode<'a, B, H> {
 }
 
 #[cfg(feature = "std")]
-impl<'a, B: Backend<H>, H: Hasher> rp_core::traits::FetchRuntimeCode
+impl<'a, B: Backend<H>, H: Hasher> sp_core::traits::FetchRuntimeCode
 	for BackendRuntimeCode<'a, B, H>
 {
 	fn fetch_runtime_code(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
 		if matches!(self.try_pending_code, TryPendingCode::Yes) {
 			let pending_code = self
 				.backend
-				.storage(rp_core::storage::well_known_keys::PENDING_CODE)
+				.storage(sp_core::storage::well_known_keys::PENDING_CODE)
 				.ok()
 				.flatten()
 				.map(Into::into);
@@ -443,7 +443,7 @@ impl<'a, B: Backend<H>, H: Hasher> rp_core::traits::FetchRuntimeCode
 			}
 		}
 		self.backend
-			.storage(rp_core::storage::well_known_keys::CODE)
+			.storage(sp_core::storage::well_known_keys::CODE)
 			.ok()
 			.flatten()
 			.map(Into::into)
@@ -468,7 +468,7 @@ where
 			TryPendingCode::No => None,
 			TryPendingCode::Yes => self
 				.backend
-				.storage_hash(rp_core::storage::well_known_keys::PENDING_CODE)
+				.storage_hash(sp_core::storage::well_known_keys::PENDING_CODE)
 				.ok()
 				.flatten(),
 		};
@@ -476,7 +476,7 @@ where
 			pending_code_hash.encode()
 		} else {
 			self.backend
-				.storage_hash(rp_core::storage::well_known_keys::CODE)
+				.storage_hash(sp_core::storage::well_known_keys::CODE)
 				.ok()
 				.flatten()
 				.ok_or("`:code` hash not found")?
@@ -484,7 +484,7 @@ where
 		};
 		let heap_pages = self
 			.backend
-			.storage(rp_core::storage::well_known_keys::HEAP_PAGES)
+			.storage(sp_core::storage::well_known_keys::HEAP_PAGES)
 			.ok()
 			.flatten()
 			.and_then(|d| codec::Decode::decode(&mut &d[..]).ok());

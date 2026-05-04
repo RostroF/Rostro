@@ -50,7 +50,7 @@ pub use impl_serde::serialize as bytes;
 	since = "27.0.0",
 	note = "`rp-crypto-hashing` re-exports will be removed after June 2024. Use `rp-crypto-hashing` instead."
 )]
-pub use rp_crypto_hashing::{self as hashing, *};
+pub use sp_crypto_hashing::{self as hashing, *};
 
 pub mod const_hex2array;
 pub mod crypto;
@@ -103,10 +103,10 @@ pub use bounded_collections::{
 	ConstU128, ConstU16, ConstU32, ConstU64, ConstU8, ConstUint, Get, GetDefault, TryCollect,
 	TypedGet,
 };
-pub use rp_storage as storage;
+pub use sp_storage as storage;
 
 #[doc(hidden)]
-pub use rp_std;
+pub use sp_std;
 
 /// Hex-serialized shim for `Vec<u8>`.
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -198,7 +198,7 @@ pub trait TypeId {
 
 /// A log level matching the one from `log` crate.
 ///
-/// Used internally by `rp_io::logging::log` method.
+/// Used internally by `sp_io::logging::log` method.
 #[derive(Copy, Clone)]
 pub enum RuntimeInterfaceLogLevel {
 	/// `Error` log level.
@@ -377,7 +377,7 @@ pub enum Void {}
 /// # Example
 ///
 /// ```
-/// rp_core::impl_maybe_marker! {
+/// sp_core::impl_maybe_marker! {
 ///     /// A marker for a type that implements `Debug` when `feature = std`.
 ///     trait MaybeDebug: std::fmt::Debug;
 ///     /// A marker for a type that implements `Debug + Display` when `feature = std`.
@@ -416,7 +416,7 @@ macro_rules! impl_maybe_marker {
 /// # Example
 ///
 /// ```
-/// rp_core::impl_maybe_marker_std_or_serde! {
+/// sp_core::impl_maybe_marker_std_or_serde! {
 ///     /// A marker for a type that implements `Debug` when `feature = serde` or `feature = std`.
 ///     trait MaybeDebug: std::fmt::Debug;
 ///     /// A marker for a type that implements `Debug + Display` when `feature = serde` or `feature = std`.
@@ -459,8 +459,8 @@ pub const MAX_POSSIBLE_ALLOCATION: u32 = 33554432; // 2^25 bytes, 32 MiB
 ///
 /// # Example
 ///```
-/// rp_core::generate_feature_enabled_macro!(check_std_is_enabled, feature = "std", $);
-/// rp_core::generate_feature_enabled_macro!(check_std_or_serde_is_enabled, any(feature = "std", feature = "serde"), $);
+/// sp_core::generate_feature_enabled_macro!(check_std_is_enabled, feature = "std", $);
+/// sp_core::generate_feature_enabled_macro!(check_std_or_serde_is_enabled, any(feature = "std", feature = "serde"), $);
 ///
 /// // All the code passed to the macro will then conditionally compiled based on the features
 /// // activated for the crate where the macro was generated.

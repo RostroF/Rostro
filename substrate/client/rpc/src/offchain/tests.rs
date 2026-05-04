@@ -19,7 +19,7 @@
 use super::*;
 use crate::testing::{allow_unsafe, deny_unsafe};
 use assert_matches::assert_matches;
-use rp_core::{offchain::storage::InMemOffchainStorage, Bytes};
+use sp_core::{offchain::storage::InMemOffchainStorage, Bytes};
 
 #[test]
 fn local_storage_should_work() {

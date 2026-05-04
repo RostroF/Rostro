@@ -24,7 +24,7 @@ use jsonrpsee::{core::EmptyServerParams as EmptyParams, MethodsError as RpcError
 use rc_network::{self, config::Role, PeerId};
 use rc_rpc_api::system::helpers::PeerInfo;
 use rc_utils::mpsc::tracing_unbounded;
-use rp_core::H256;
+use sp_core::H256;
 use std::{
 	env,
 	io::{BufRead, BufReader, Write},

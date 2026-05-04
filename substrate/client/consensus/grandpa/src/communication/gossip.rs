@@ -96,8 +96,8 @@ use rc_network_gossip::{MessageIntent, ValidatorContext};
 use rc_network_types::PeerId;
 use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG};
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use rp_consensus_grandpa::AuthorityId;
-use rp_runtime::traits::{Block as BlockT, NumberFor, Zero};
+use sp_consensus_grandpa::AuthorityId;
+use sp_runtime::traits::{Block as BlockT, NumberFor, Zero};
 
 use super::{benefit, cost, Round, SetId, NEIGHBOR_REBROADCAST_PERIOD};
 use crate::{environment, CatchUp, CompactCommit, SignedMessage, LOG_TARGET};
@@ -924,7 +924,7 @@ impl<Block: BlockT> Inner<Block> {
 			return Action::Discard(cost::UNKNOWN_VOTER);
 		}
 
-		if !rp_consensus_grandpa::check_message_signature(
+		if !sp_consensus_grandpa::check_message_signature(
 			&full.message.message,
 			&full.message.id,
 			&full.message.signature,
@@ -1677,7 +1677,7 @@ mod tests {
 	use crate::communication;
 	use rc_network::config::Role;
 	use rc_network_gossip::Validator as GossipValidatorT;
-	use rp_core::{crypto::UncheckedFrom, H256};
+	use sp_core::{crypto::UncheckedFrom, H256};
 	use std::time::Instant;
 	use substrate_test_runtime_client::runtime::{Block, Header};
 

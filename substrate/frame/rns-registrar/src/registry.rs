@@ -14,11 +14,11 @@
 //!
 //! - `burn` - destroy a domain name, requires the domain's operational privileges
 //! - `set_official` - Set official account, needs manager privileges
-use rp_weights::Weight;
+use sp_weights::Weight;
 
 pub use pallet::*;
-use rp_runtime::DispatchError;
-use rp_std::vec::Vec;
+use sp_runtime::DispatchError;
+use sp_std::vec::Vec;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -28,8 +28,8 @@ pub mod pallet {
     use frame_support::traits::EnsureOrigin;
     use frame_system::pallet_prelude::*;
     use rns_types::{DomainHash, DomainTracing, Record};
-    use rp_runtime::traits::Zero;
-    use rp_std::vec::Vec;
+    use sp_runtime::traits::Zero;
+    use sp_std::vec::Vec;
 
     #[pallet::config]
     pub trait Config:
@@ -409,7 +409,7 @@ pub mod pallet {
                 let node_children = info.data.children;
                 info.data.children = node_children
                     .checked_add(1)
-                    .ok_or(rp_runtime::ArithmeticError::Overflow)?;
+                    .ok_or(sp_runtime::ArithmeticError::Overflow)?;
                 Ok(())
             })
         }
@@ -426,7 +426,7 @@ pub mod pallet {
                 ensure!(node_children < capacity, Error::<T>::CapacityNotEnough);
                 info.data.children = node_children
                     .checked_add(1)
-                    .ok_or(rp_runtime::ArithmeticError::Overflow)?;
+                    .ok_or(sp_runtime::ArithmeticError::Overflow)?;
                 Ok(())
             })
         }
@@ -498,7 +498,7 @@ pub mod pallet {
                 let node_children = info.data.children;
                 info.data.children = node_children
                     .checked_sub(1)
-                    .ok_or(rp_runtime::ArithmeticError::Overflow)?;
+                    .ok_or(sp_runtime::ArithmeticError::Overflow)?;
                 Ok(())
             })
         }
@@ -515,7 +515,7 @@ pub mod pallet {
         fn clear_subnames(root_node: DomainHash) {
             let class_id = T::ClassId::zero();
             const MAX_CHILDREN_PER_CLEANUP: usize = 100;
-            let children: rp_std::vec::Vec<DomainHash> =
+            let children: sp_std::vec::Vec<DomainHash> =
                 SubNames::<T>::iter_prefix(root_node)
                     .take(MAX_CHILDREN_PER_CLEANUP)
                     .map(|(child, _)| child)
@@ -612,7 +612,7 @@ impl<T: pallet::Config> crate::traits::NFT<T::AccountId> for pallet::Pallet<T> {
         to: &T::AccountId,
         token: (Self::ClassId, Self::TokenId),
     ) -> DispatchResult {
-        use rp_runtime::traits::Zero;
+        use sp_runtime::traits::Zero;
         ensure!(token.0 == T::ClassId::zero(), Error::<T>::NotExist);
 
         Self::do_transfer(from, to, token.1)
@@ -676,11 +676,11 @@ impl<T: pallet::Config> crate::traits::Registry for pallet::Pallet<T> {
     fn offer_subname(
         parent: DomainHash,
         label_node: DomainHash,
-        label_bytes: frame_support::BoundedVec<u8, rp_core::ConstU32<63>>,
+        label_bytes: frame_support::BoundedVec<u8, sp_core::ConstU32<63>>,
         to: Self::AccountId,
         capacity: u32,
     ) -> DispatchResult {
-        use rp_runtime::traits::Zero;
+        use sp_runtime::traits::Zero;
         // Depth check: parent must be a root domain (.dot name), not a subname.
         match pallet::RuntimeOrigin::<T>::get(parent) {
             Some(rns_types::DomainTracing::Root) => {}
@@ -747,12 +747,12 @@ impl<T: pallet::Config> crate::traits::Registry for pallet::Pallet<T> {
         // the acceptor holds a subname record but cannot call `set_record` /
         // `set_text` etc. — the feature was unreachable before this fix. NFTs
         // remain the canonical ownership token everywhere in PNS.
-        use rp_runtime::traits::Zero;
+        use sp_runtime::traits::Zero;
         let class_id = T::ClassId::zero();
         crate::nft::Pallet::<T>::mint(
             acceptor,
             (class_id, label_node),
-            rp_std::vec::Vec::new(),
+            sp_std::vec::Vec::new(),
             Default::default(),
         )?;
         // Track the subname's domain origin as rooted at the parent so
@@ -783,7 +783,7 @@ impl<T: pallet::Config> crate::traits::Registry for pallet::Pallet<T> {
     }
 
     fn revoke_subname(parent: DomainHash, label_node: DomainHash) -> DispatchResult {
-        use rp_runtime::traits::Zero;
+        use sp_runtime::traits::Zero;
         let record = pallet::SubnameRecords::<T>::take(label_node)
             .ok_or(pallet::Error::<T>::SubnameNotFound)?;
         ensure!(record.parent == parent, pallet::Error::<T>::NotSubnameOfferer);
@@ -813,7 +813,7 @@ impl<T: pallet::Config> crate::traits::Registry for pallet::Pallet<T> {
         label_node: DomainHash,
         by: &Self::AccountId,
     ) -> Result<DomainHash, DispatchError> {
-        use rp_runtime::traits::Zero;
+        use sp_runtime::traits::Zero;
         let record = pallet::SubnameRecords::<T>::take(label_node)
             .ok_or(pallet::Error::<T>::SubnameNotFound)?;
         ensure!(
@@ -884,7 +884,7 @@ mod benchmarks {
         // runtime without PNS dev genesis), install the current owner
         // from NFT state so the transfer branch still executes.
         if pallet::Official::<T>::get().is_none() {
-            use rp_runtime::traits::Zero;
+            use sp_runtime::traits::Zero;
             let class_id = T::ClassId::zero();
             if let Some(token) = crate::nft::Tokens::<T>::get(class_id, basenode) {
                 pallet::Official::<T>::put(&token.owner);

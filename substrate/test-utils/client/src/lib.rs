@@ -26,17 +26,17 @@ pub use rc_client_api::{execution_extensions::ExecutionExtensions, BadBlocks, Fo
 pub use rc_client_db::{self, Backend, BlocksPruning};
 pub use rc_executor::{self, WasmExecutionMethod, WasmExecutor};
 pub use rc_service::{client, RpcHandlers};
-pub use rp_consensus;
-pub use rp_keyring::{Ed25519Keyring, Sr25519Keyring};
-pub use rp_keystore::{Keystore, KeystorePtr};
-pub use rp_runtime::{Storage, StorageChild};
+pub use sp_consensus;
+pub use sp_keyring::{Ed25519Keyring, Sr25519Keyring};
+pub use sp_keystore::{Keystore, KeystorePtr};
+pub use sp_runtime::{Storage, StorageChild};
 
 use futures::{future::Future, stream::StreamExt};
 use rc_client_api::BlockchainEvents;
 use rc_service::client::{ClientConfig, LocalCallExecutor};
 use serde::Deserialize;
-use rp_core::{storage::ChildInfo, testing::TaskExecutor};
-use rp_runtime::{
+use sp_core::{storage::ChildInfo, testing::TaskExecutor};
+use sp_runtime::{
 	codec::Encode,
 	traits::{Block as BlockT, Header},
 	OpaqueExtrinsic,

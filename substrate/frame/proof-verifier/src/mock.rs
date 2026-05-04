@@ -6,8 +6,8 @@
 use crate as pallet_proof_verifier;
 use frame_support::derive_impl;
 use frame_system::EnsureRoot;
-use rp_core::H256;
-use rp_runtime::{
+use sp_core::H256;
+use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 	BuildStorage,
 };
@@ -37,11 +37,11 @@ impl pallet_proof_verifier::Config for Test {
 	type WeightInfo = ();
 }
 
-pub fn new_test_ext() -> rp_io::TestExternalities {
+pub fn new_test_ext() -> sp_io::TestExternalities {
 	let t = frame_system::GenesisConfig::<Test>::default()
 		.build_storage()
 		.unwrap();
-	let mut ext = rp_io::TestExternalities::new(t);
+	let mut ext = sp_io::TestExternalities::new(t);
 	ext.execute_with(|| System::set_block_number(1));
 	ext
 }

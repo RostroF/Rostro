@@ -47,7 +47,7 @@ use futures::{channel::oneshot, future::Either, FutureExt, StreamExt};
 use libp2p::PeerId;
 use log::{debug, error, trace, warn};
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use rp_arithmetic::traits::SaturatedConversion;
+use sp_arithmetic::traits::SaturatedConversion;
 use std::{
 	collections::{HashMap, HashSet},
 	sync::Arc,

@@ -35,22 +35,22 @@ use frame_support::{
 	BoundedVec, WeakBoundedVec,
 };
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
-use rp_consensus_babe::{
+use sp_consensus_babe::{
 	digests::{NextConfigDescriptor, NextEpochDescriptor, PreDigest},
 	AllowedSlots, BabeAuthorityWeight, BabeEpochConfiguration, ConsensusLog, Epoch,
 	EquivocationProof, Randomness as BabeRandomness, Slot, BABE_ENGINE_ID, RANDOMNESS_LENGTH,
 	RANDOMNESS_VRF_CONTEXT,
 };
-use rp_core::crypto::Wraps;
-use rp_runtime::{
+use sp_core::crypto::Wraps;
+use sp_runtime::{
 	generic::DigestItem,
 	traits::{IsMember, One, SaturatedConversion, Saturating, Zero},
 	ConsensusEngineId, Permill,
 };
-use rp_session::{GetSessionNumber, GetValidatorCount};
-use rp_staking::{offence::OffenceReportSystem, SessionIndex};
+use sp_session::{GetSessionNumber, GetValidatorCount};
+use sp_staking::{offence::OffenceReportSystem, SessionIndex};
 
-pub use rp_consensus_babe::AuthorityId;
+pub use sp_consensus_babe::AuthorityId;
 
 const LOG_TARGET: &str = "runtime::babe";
 
@@ -137,7 +137,7 @@ pub mod pallet {
 		///
 		/// Decoupled from `pallet_timestamp::Config::Moment` — runtimes typically wire this to
 		/// the same `Moment` type as their timestamp pallet (e.g. `u64`).
-		type Moment: rp_runtime::traits::AtLeast32Bit
+		type Moment: sp_runtime::traits::AtLeast32Bit
 			+ Parameter
 			+ Default
 			+ Copy
@@ -369,7 +369,7 @@ pub mod pallet {
 		}
 
 		#[cfg(feature = "try-runtime")]
-		fn try_state(_n: BlockNumberFor<T>) -> Result<(), rp_runtime::TryRuntimeError> {
+		fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 			Self::do_try_state()
 		}
 
@@ -395,7 +395,7 @@ pub mod pallet {
 						.get(authority_index as usize)
 						.and_then(|(authority, _)| {
 							let public = authority.as_inner_ref();
-							let transcript = rp_consensus_babe::make_vrf_transcript(
+							let transcript = sp_consensus_babe::make_vrf_transcript(
 								&Randomness::<T>::get(),
 								CurrentSlot::<T>::get(),
 								EpochIndex::<T>::get(),
@@ -405,7 +405,7 @@ pub mod pallet {
 							// execution. We don't run the verification again here to avoid slowing
 							// down the runtime.
 							debug_assert!({
-								use rp_core::crypto::VrfPublic;
+								use sp_core::crypto::VrfPublic;
 								public.vrf_verify(&transcript.clone().into_sign_data(), &signature)
 							});
 
@@ -670,7 +670,7 @@ impl<T: Config> Pallet<T> {
 		// will be using the randomness and authorities for that epoch that had
 		// been previously announced for epoch N+1, and the randomness collected
 		// during the current epoch (N) will be used for epoch N+5.
-		let epoch_index = rp_consensus_babe::epoch_index(
+		let epoch_index = sp_consensus_babe::epoch_index(
 			CurrentSlot::<T>::get(),
 			GenesisSlot::<T>::get(),
 			T::EpochDuration::get(),
@@ -755,7 +755,7 @@ impl<T: Config> Pallet<T> {
 	/// Only guaranteed to give correct results after `initialize` of the first
 	/// block in the chain (as its result is based off of `GenesisSlot`).
 	pub fn current_epoch_start() -> Slot {
-		rp_consensus_babe::epoch_start_slot(
+		sp_consensus_babe::epoch_start_slot(
 			EpochIndex::<T>::get(),
 			GenesisSlot::<T>::get(),
 			T::EpochDuration::get(),
@@ -783,7 +783,7 @@ impl<T: Config> Pallet<T> {
 			 if u64 is not enough we should crash for safety; qed.",
 		);
 
-		let start_slot = rp_consensus_babe::epoch_start_slot(
+		let start_slot = sp_consensus_babe::epoch_start_slot(
 			next_epoch_index,
 			GenesisSlot::<T>::get(),
 			T::EpochDuration::get(),
@@ -976,7 +976,7 @@ impl<T: Config> Pallet<T> {
 	/// * Each `SkippedEpochs` entry must have `epoch_index >= session_index`.
 	/// * `EpochStart` previous epoch start block must be less than or equal to the current epoch
 	///   start block.
-	pub fn do_try_state() -> Result<(), rp_runtime::TryRuntimeError> {
+	pub fn do_try_state() -> Result<(), sp_runtime::TryRuntimeError> {
 		use frame_support::ensure;
 
 		ensure!(
@@ -1069,7 +1069,7 @@ impl<T: Config> frame_support::traits::Lateness<BlockNumberFor<T>> for Pallet<T>
 	}
 }
 
-impl<T: Config> rp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
+impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
 	type Public = AuthorityId;
 }
 
@@ -1140,7 +1140,7 @@ fn compute_randomness(
 		s.extend_from_slice(&vrf_output[..]);
 	}
 
-	rp_io::hashing::blake2_256(&s)
+	sp_io::hashing::blake2_256(&s)
 }
 
 pub mod migrations {

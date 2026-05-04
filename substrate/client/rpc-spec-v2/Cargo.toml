@@ -34,12 +34,12 @@ rc-rpc = { default-features = true, workspace = true }
 rc-transaction-pool-api = { default-features = true, workspace = true }
 schnellru = { workspace = true }
 serde = { workspace = true, default-features = true }
-rp-api = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-rpc = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
-rp-version = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-rpc = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+sp-version = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 tokio = { features = ["sync"], workspace = true, default-features = true }
 tokio-stream = { features = ["sync"], workspace = true }
@@ -55,9 +55,9 @@ rc-service = { default-features = true, workspace = true }
 rc-transaction-pool = { default-features = true, workspace = true }
 rc-utils = { default-features = true, workspace = true }
 serde_json = { workspace = true, default-features = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-externalities = { default-features = true, workspace = true }
-rp-maybe-compressed-blob = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-externalities = { default-features = true, workspace = true }
+sp-maybe-compressed-blob = { default-features = true, workspace = true }
 substrate-test-runtime = { workspace = true }
 substrate-test-runtime-client = { workspace = true }
 substrate-test-runtime-transaction-pool = { workspace = true }

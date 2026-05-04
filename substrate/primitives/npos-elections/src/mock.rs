@@ -20,11 +20,11 @@
 #![cfg(test)]
 
 use alloc::collections::btree_map::BTreeMap;
-use rp_arithmetic::{
+use sp_arithmetic::{
 	traits::{One, SaturatedConversion, Zero},
 	PerThing,
 };
-use rp_runtime::assert_eq_error_rate;
+use sp_runtime::assert_eq_error_rate;
 
 use crate::{seq_phragmen, Assignment, ElectionResult, ExtendedBalance, PerThing128, VoteWeight};
 

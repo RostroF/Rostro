@@ -24,8 +24,8 @@ use futures::{stream::FusedStream, Future, FutureExt, Stream, StreamExt};
 use log::{debug, error, trace, warn};
 use rc_network_common::sync::message::BlockAnnounce;
 use rc_network_types::PeerId;
-use rp_consensus::block_validation::Validation;
-use rp_runtime::traits::{Block as BlockT, Header, Zero};
+use sp_consensus::block_validation::Validation;
+use sp_runtime::traits::{Block as BlockT, Header, Zero};
 use std::{
 	collections::{hash_map::Entry, HashMap},
 	default::Default,
@@ -94,7 +94,7 @@ enum AllocateSlotForBlockAnnounceValidation {
 
 pub(crate) struct BlockAnnounceValidator<B: BlockT> {
 	/// A type to check incoming block announcements.
-	validator: Box<dyn rp_consensus::block_validation::BlockAnnounceValidator<B> + Send>,
+	validator: Box<dyn sp_consensus::block_validation::BlockAnnounceValidator<B> + Send>,
 	/// All block announcements that are currently being validated.
 	validations: FuturesStream<
 		Pin<Box<dyn Future<Output = BlockAnnounceValidationResult<B::Header>> + Send>>,
@@ -105,7 +105,7 @@ pub(crate) struct BlockAnnounceValidator<B: BlockT> {
 
 impl<B: BlockT> BlockAnnounceValidator<B> {
 	pub(crate) fn new(
-		validator: Box<dyn rp_consensus::block_validation::BlockAnnounceValidator<B> + Send>,
+		validator: Box<dyn sp_consensus::block_validation::BlockAnnounceValidator<B> + Send>,
 	) -> Self {
 		Self {
 			validator,
@@ -311,7 +311,7 @@ mod tests {
 	use super::*;
 	use crate::block_announce_validator::AllocateSlotForBlockAnnounceValidation;
 	use rc_network_types::PeerId;
-	use rp_consensus::block_validation::DefaultBlockAnnounceValidator;
+	use sp_consensus::block_validation::DefaultBlockAnnounceValidator;
 	use substrate_test_runtime_client::runtime::Block;
 
 	#[test]

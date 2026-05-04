@@ -148,8 +148,8 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 			for #pallet_ident<#type_use_gen> #where_clause
 		{
 			fn on_finalize(n: #frame_system::pallet_prelude::BlockNumberFor::<T>) {
-				#frame_support::__private::rp_tracing::enter_span!(
-					#frame_support::__private::rp_tracing::trace_span!("on_finalize")
+				#frame_support::__private::sp_tracing::enter_span!(
+					#frame_support::__private::sp_tracing::trace_span!("on_finalize")
 				);
 				<
 					Self as #frame_support::traits::Hooks<
@@ -198,8 +198,8 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 			fn on_initialize(
 				n: #frame_system::pallet_prelude::BlockNumberFor::<T>
 			) -> #frame_support::weights::Weight {
-				#frame_support::__private::rp_tracing::enter_span!(
-					#frame_support::__private::rp_tracing::trace_span!("on_initialize")
+				#frame_support::__private::sp_tracing::enter_span!(
+					#frame_support::__private::sp_tracing::trace_span!("on_initialize")
 				);
 				<
 					Self as #frame_support::traits::Hooks<
@@ -217,8 +217,8 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 				use #frame_support::traits::{Get, PalletInfoAccess};
 				use #frame_support::__private::hashing::twox_128;
 				use #frame_support::storage::unhashed::contains_prefixed_key;
-				#frame_support::__private::rp_tracing::enter_span!(
-					#frame_support::__private::rp_tracing::trace_span!("before_all")
+				#frame_support::__private::sp_tracing::enter_span!(
+					#frame_support::__private::sp_tracing::trace_span!("before_all")
 				);
 
 				// Check if the pallet has any keys set, including the storage version. If there are
@@ -240,8 +240,8 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 			for #pallet_ident<#type_use_gen> #where_clause
 		{
 			fn on_runtime_upgrade() -> #frame_support::weights::Weight {
-				#frame_support::__private::rp_tracing::enter_span!(
-					#frame_support::__private::rp_tracing::trace_span!("on_runtime_update")
+				#frame_support::__private::sp_tracing::enter_span!(
+					#frame_support::__private::sp_tracing::trace_span!("on_runtime_update")
 				);
 
 				// log info about the upgrade.
@@ -255,7 +255,7 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 			}
 
 			#frame_support::try_runtime_enabled! {
-				fn pre_upgrade() -> Result<#frame_support::__private::Vec<u8>, #frame_support::rp_runtime::TryRuntimeError> {
+				fn pre_upgrade() -> Result<#frame_support::__private::Vec<u8>, #frame_support::sp_runtime::TryRuntimeError> {
 					<
 						Self
 						as
@@ -263,7 +263,7 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 					>::pre_upgrade()
 				}
 
-				fn post_upgrade(state: #frame_support::__private::Vec<u8>) -> Result<(), #frame_support::rp_runtime::TryRuntimeError> {
+				fn post_upgrade(state: #frame_support::__private::Vec<u8>) -> Result<(), #frame_support::sp_runtime::TryRuntimeError> {
 					#post_storage_version_check
 
 					<
@@ -295,7 +295,7 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 			for #pallet_ident<#type_use_gen> #where_clause
 			{
 				fn integrity_test() {
-					#frame_support::__private::rp_io::TestExternalities::default().execute_with(|| {
+					#frame_support::__private::sp_io::TestExternalities::default().execute_with(|| {
 						<
 							Self as #frame_support::traits::Hooks<
 								#frame_system::pallet_prelude::BlockNumberFor::<T>
@@ -314,7 +314,7 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 				fn try_state(
 					n: #frame_system::pallet_prelude::BlockNumberFor::<T>,
 					_s: #frame_support::traits::TryStateSelect
-				) -> Result<(), #frame_support::rp_runtime::TryRuntimeError> {
+				) -> Result<(), #frame_support::sp_runtime::TryRuntimeError> {
 					#frame_support::__private::log::info!(
 						target: #frame_support::LOG_TARGET,
 						"🩺 Running {:?} try-state checks",

@@ -66,8 +66,8 @@ pub(crate) mod beefy_protocol_name {
 /// [`rc_network::config::FullNetworkConfiguration`].
 /// For standard protocol name see [`beefy_protocol_name::gossip_protocol_name`].
 pub fn beefy_peers_set_config<
-	B: rp_runtime::traits::Block,
-	N: rc_network::NetworkBackend<B, <B as rp_runtime::traits::Block>::Hash>,
+	B: sp_runtime::traits::Block,
+	N: rc_network::NetworkBackend<B, <B as sp_runtime::traits::Block>::Hash>,
 >(
 	gossip_protocol_name: rc_network::ProtocolName,
 	metrics: rc_network::service::NotificationMetrics,
@@ -125,7 +125,7 @@ mod benefit {
 mod tests {
 	use super::*;
 
-	use rp_core::H256;
+	use sp_core::H256;
 
 	#[test]
 	fn beefy_protocols_names() {

@@ -20,8 +20,8 @@ codec = { features = ["derive"], workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-io = { workspace = true }
-rp-runtime = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
 
 [dev-dependencies]
 pallet-balances = { default-features = true, workspace = true }
@@ -33,12 +33,12 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"scale-info/std",
-	"rp-io/std",
-	"rp-runtime/std",
+	"sp-io/std",
+	"sp-runtime/std",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"pallet-balances/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

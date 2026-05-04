@@ -38,8 +38,8 @@ use core::fmt::{
 	Debug, {self},
 };
 use scale_info::{build::Fields, meta_type, Path, StaticTypeInfo, Type, TypeInfo, TypeParameter};
-use rp_io::hashing::blake2_256;
-use rp_weights::Weight;
+use sp_io::hashing::blake2_256;
+use sp_weights::Weight;
 
 /// Type to represent the version of the [Extension](TransactionExtension) used in this extrinsic.
 pub type ExtensionVersion = u8;
@@ -627,7 +627,7 @@ impl<'a, Address: Decode, Signature: Decode, Call: DecodeWithMemTracking, Extens
 	where
 		D: serde::Deserializer<'a>,
 	{
-		let r = rp_core::bytes::deserialize(de)?;
+		let r = sp_core::bytes::deserialize(de)?;
 		Self::decode(&mut &r[..])
 			.map_err(|e| serde::de::Error::custom(format!("Decode error: {}", e)))
 	}
@@ -905,7 +905,7 @@ mod tests {
 		testing::TestSignature as TestSig,
 		traits::{FakeDispatchable, IdentityLookup, TransactionExtension},
 	};
-	use rp_io::hashing::blake2_256;
+	use sp_io::hashing::blake2_256;
 
 	type TestContext = IdentityLookup<u64>;
 	type TestAccountId = u64;

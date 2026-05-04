@@ -26,8 +26,8 @@ use frame_support::{
 	Parameter,
 };
 use scale_info::{Type, TypeInfo};
-use rp_arithmetic::{Rounding::*, SignedRounding::*};
-use rp_runtime::{FixedI64, PerThing};
+use sp_arithmetic::{Rounding::*, SignedRounding::*};
+use sp_runtime::{FixedI64, PerThing};
 
 pub type BalanceOf<T, I = ()> =
 	<<T as Config<I>>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -645,7 +645,7 @@ impl Debug for Curve {
 mod tests {
 	use super::*;
 	use frame_support::traits::ConstU32;
-	use rp_runtime::{str_array as s, PerThing};
+	use sp_runtime::{str_array as s, PerThing};
 
 	const fn percent(x: u128) -> FixedI64 {
 		FixedI64::from_rational(x, 100)

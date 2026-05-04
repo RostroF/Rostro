@@ -25,9 +25,9 @@ prost = { workspace = true }
 rc-client-api = { default-features = true, workspace = true }
 rc-network = { default-features = true, workspace = true }
 rc-network-types = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 
 [build-dependencies]

@@ -22,11 +22,11 @@
 use super::*;
 use crate::mock::*;
 use frame_support::{assert_noop, dispatch};
-use rp_core::offchain::{
+use sp_core::offchain::{
 	testing::{TestOffchainExt, TestTransactionPoolExt},
 	OffchainDbExt, OffchainWorkerExt, TransactionPoolExt,
 };
-use rp_runtime::testing::UintAuthorityId;
+use sp_runtime::testing::UintAuthorityId;
 
 #[test]
 fn test_unresponsiveness_slash_fraction() {

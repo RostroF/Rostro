@@ -227,25 +227,25 @@ pub mod prelude {
 
 	/// Runtime traits
 	#[doc(no_inline)]
-	pub use rp_runtime::traits::{
+	pub use sp_runtime::traits::{
 		AccountIdConversion, BlockNumberProvider, Bounded, Convert, ConvertBack, DispatchInfoOf,
 		Dispatchable, ReduceBy, ReplaceWithDefault, SaturatedConversion, Saturating, StaticLookup,
 		TrailingZeroInput,
 	};
 
 	/// Bounded storage related types.
-	pub use rp_runtime::{BoundedSlice, BoundedVec};
+	pub use sp_runtime::{BoundedSlice, BoundedVec};
 
 	/// Other error/result types for runtime
 	#[doc(no_inline)]
-	pub use rp_runtime::{
+	pub use sp_runtime::{
 		BoundToRuntimeAppPublic, DispatchErrorWithPostInfo, DispatchResultWithInfo, TokenError,
 	};
 }
 
 #[cfg(any(feature = "try-runtime", test))]
 pub mod try_runtime {
-	pub use rp_runtime::TryRuntimeError;
+	pub use sp_runtime::TryRuntimeError;
 }
 
 /// Prelude to be included in the `benchmarking.rs` of a pallet.
@@ -335,12 +335,12 @@ pub mod testing_prelude {
 	pub use frame_system::{self, mocking::*, RunToBlockHooks};
 
 	#[deprecated(note = "Use `frame::testing_prelude::TestState` instead.")]
-	pub use rp_io::TestExternalities;
+	pub use sp_io::TestExternalities;
 
-	pub use rp_io::TestExternalities as TestState;
+	pub use sp_io::TestExternalities as TestState;
 
 	/// Commonly used runtime traits for testing.
-	pub use rp_runtime::{traits::BadOrigin, StateVersion};
+	pub use sp_runtime::{traits::BadOrigin, StateVersion};
 }
 
 /// All of the types and tools needed to build FRAME-based runtimes.
@@ -399,24 +399,24 @@ pub mod runtime {
 		/// Types to define your runtime version.
 		// TODO: Remove deprecation suppression once
 		#[allow(deprecated)]
-		pub use rp_version::create_runtime_str;
-		pub use rp_version::{runtime_version, RuntimeVersion};
+		pub use sp_version::create_runtime_str;
+		pub use sp_version::{runtime_version, RuntimeVersion};
 
 		#[cfg(feature = "std")]
-		pub use rp_version::NativeVersion;
+		pub use sp_version::NativeVersion;
 
 		/// Macro to implement runtime APIs.
-		pub use rp_api::impl_runtime_apis;
+		pub use sp_api::impl_runtime_apis;
 
 		// Types often used in the runtime APIs.
-		pub use rp_core::OpaqueMetadata;
-		pub use rp_genesis_builder::{
+		pub use sp_core::OpaqueMetadata;
+		pub use sp_genesis_builder::{
 			PresetId, Result as GenesisBuilderResult, DEV_RUNTIME_PRESET,
 			LOCAL_TESTNET_RUNTIME_PRESET,
 		};
-		pub use rp_inherents::{CheckInherentsResult, InherentData};
-		pub use rp_keyring::Sr25519Keyring;
-		pub use rp_runtime::{ApplyExtrinsicResult, ExtrinsicInclusionMode};
+		pub use sp_inherents::{CheckInherentsResult, InherentData};
+		pub use sp_keyring::Sr25519Keyring;
+		pub use sp_runtime::{ApplyExtrinsicResult, ExtrinsicInclusionMode};
 	}
 
 	/// Types and traits for runtimes that implement runtime APIs.
@@ -430,19 +430,19 @@ pub mod runtime {
 	/// ```
 	// TODO: This is because of wildcard imports, and it should be not needed once we can avoid
 	// that. Imports like that are needed because we seem to need some unknown types in the macro
-	// expansion. See `rp_session::runtime_api::*;` as one example. All runtime api decls should be
+	// expansion. See `sp_session::runtime_api::*;` as one example. All runtime api decls should be
 	// moved to file similarly.
 	#[allow(ambiguous_glob_reexports)]
 	pub mod apis {
 		pub use frame_system_rpc_runtime_api::*;
-		pub use rp_api::{self, *};
-		pub use rp_block_builder::*;
-		pub use rp_consensus_aura::*;
-		pub use rp_consensus_grandpa::*;
-		pub use rp_genesis_builder::*;
-		pub use rp_offchain::*;
-		pub use rp_session::runtime_api::*;
-		pub use rp_transaction_pool::runtime_api::*;
+		pub use sp_api::{self, *};
+		pub use sp_block_builder::*;
+		pub use sp_consensus_aura::*;
+		pub use sp_consensus_grandpa::*;
+		pub use sp_genesis_builder::*;
+		pub use sp_offchain::*;
+		pub use sp_session::runtime_api::*;
+		pub use sp_transaction_pool::runtime_api::*;
 	}
 
 	/// A set of opinionated types aliases commonly used in runtimes.
@@ -453,16 +453,16 @@ pub mod runtime {
 	/// Some note-worthy opinions in this prelude:
 	///
 	/// - `u32` block number.
-	/// - [`rp_runtime::MultiAddress`] and [`rp_runtime::MultiSignature`] are used as the account id
+	/// - [`sp_runtime::MultiAddress`] and [`sp_runtime::MultiSignature`] are used as the account id
 	///   and signature types. This implies that this prelude can possibly used with an
 	///   "account-index" system (eg `pallet-indices`). And, in any case, it should be paired with
 	///   `AccountIdLookup` in [`frame_system::Config::Lookup`].
 	pub mod types_common {
 		use frame_system::Config as SysConfig;
-		use rp_runtime::{generic, traits, OpaqueExtrinsic};
+		use sp_runtime::{generic, traits, OpaqueExtrinsic};
 
 		/// A signature type compatible capably of handling multiple crypto-schemes.
-		pub type Signature = rp_runtime::MultiSignature;
+		pub type Signature = sp_runtime::MultiSignature;
 
 		/// The corresponding account-id type of [`Signature`].
 		pub type AccountId =
@@ -477,7 +477,7 @@ pub mod runtime {
 		// NOTE: `AccountIndex` is provided for future compatibility, if you want to introduce
 		// something like `pallet-indices`.
 		type ExtrinsicInner<T, Extra, AccountIndex = ()> = generic::UncheckedExtrinsic<
-			rp_runtime::MultiAddress<AccountId, AccountIndex>,
+			sp_runtime::MultiAddress<AccountId, AccountIndex>,
 			<T as SysConfig>::RuntimeCall,
 			Signature,
 			Extra,
@@ -492,7 +492,7 @@ pub mod runtime {
 		pub type BlockOf<T, Extra = ()> = generic::Block<HeaderInner, ExtrinsicInner<T, Extra>>;
 
 		/// The opaque block type. This is the same [`BlockOf`], but it has
-		/// [`rp_runtime::OpaqueExtrinsic`] as its final extrinsic type.
+		/// [`sp_runtime::OpaqueExtrinsic`] as its final extrinsic type.
 		///
 		/// This should be provided to the client side as the extrinsic type.
 		pub type OpaqueBlock = generic::Block<HeaderInner, OpaqueExtrinsic>;
@@ -518,8 +518,8 @@ pub mod runtime {
 	/// counter part of `runtime::prelude`.
 	#[cfg(feature = "std")]
 	pub mod testing_prelude {
-		pub use rp_core::storage::Storage;
-		pub use rp_runtime::{BuildStorage, DispatchError};
+		pub use sp_core::storage::Storage;
+		pub use sp_runtime::{BuildStorage, DispatchError};
 	}
 }
 
@@ -531,14 +531,14 @@ pub mod runtime {
 #[allow(ambiguous_glob_reexports)]
 pub mod traits {
 	pub use frame_support::traits::*;
-	pub use rp_runtime::traits::*;
+	pub use sp_runtime::traits::*;
 }
 
 /// The arithmetic types used for safe math.
 ///
 /// This is already part of the main [`prelude`].
 pub mod arithmetic {
-	pub use rp_arithmetic::{traits::*, *};
+	pub use sp_arithmetic::{traits::*, *};
 }
 
 /// All token related types and traits.
@@ -579,15 +579,15 @@ pub mod derive {
 ///
 /// This is already part of the main [`prelude`].
 pub mod hashing {
-	pub use rp_core::{hashing::*, H160, H256, H512, U256, U512};
-	pub use rp_runtime::traits::{BlakeTwo256, Hash, Keccak256};
+	pub use sp_core::{hashing::*, H160, H256, H512, U256, U512};
+	pub use sp_runtime::traits::{BlakeTwo256, Hash, Keccak256};
 }
 
 // Systems involved in transaction execution in the runtime.
 /// This is already part of the [`prelude`].
 pub mod transaction {
 	pub use frame_support::traits::{CallMetadata, GetCallMetadata};
-	pub use rp_runtime::{
+	pub use sp_runtime::{
 		generic::ExtensionVersion,
 		impl_tx_ext_default,
 		traits::{
@@ -605,7 +605,7 @@ pub mod account {
 	pub use frame_support::traits::{
 		AsEnsureOriginWithArg, ChangeMembers, EitherOfDiverse, InitializeMembers,
 	};
-	pub use rp_runtime::traits::{IdentifyAccount, IdentityLookup};
+	pub use sp_runtime::traits::{IdentifyAccount, IdentityLookup};
 }
 
 /// Access to all of the dependencies of this crate. In case the prelude re-exports are not enough,
@@ -622,10 +622,10 @@ pub mod deps {
 	pub use frame_support;
 	pub use frame_system;
 
-	pub use rp_arithmetic;
-	pub use rp_core;
-	pub use rp_io;
-	pub use rp_runtime;
+	pub use sp_arithmetic;
+	pub use sp_core;
+	pub use sp_io;
+	pub use sp_runtime;
 
 	pub use codec;
 	pub use scale_info;
@@ -633,25 +633,25 @@ pub mod deps {
 	#[cfg(feature = "runtime")]
 	pub use frame_executive;
 	#[cfg(feature = "runtime")]
-	pub use rp_api;
+	pub use sp_api;
 	#[cfg(feature = "runtime")]
-	pub use rp_block_builder;
+	pub use sp_block_builder;
 	#[cfg(feature = "runtime")]
-	pub use rp_consensus_aura;
+	pub use sp_consensus_aura;
 	#[cfg(feature = "runtime")]
-	pub use rp_consensus_grandpa;
+	pub use sp_consensus_grandpa;
 	#[cfg(feature = "runtime")]
-	pub use rp_genesis_builder;
+	pub use sp_genesis_builder;
 	#[cfg(feature = "runtime")]
-	pub use rp_inherents;
+	pub use sp_inherents;
 	#[cfg(feature = "runtime")]
-	pub use rp_keyring;
+	pub use sp_keyring;
 	#[cfg(feature = "runtime")]
-	pub use rp_offchain;
+	pub use sp_offchain;
 	#[cfg(feature = "runtime")]
-	pub use rp_storage;
+	pub use sp_storage;
 	#[cfg(feature = "runtime")]
-	pub use rp_version;
+	pub use sp_version;
 
 	#[cfg(feature = "runtime-benchmarks")]
 	pub use frame_benchmarking;

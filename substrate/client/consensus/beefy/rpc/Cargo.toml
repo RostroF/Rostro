@@ -20,10 +20,10 @@ parking_lot = { workspace = true, default-features = true }
 rc-consensus-beefy = { default-features = true, workspace = true }
 rc-rpc = { default-features = true, workspace = true }
 serde = { features = ["derive"], workspace = true, default-features = true }
-rp-application-crypto = { default-features = true, workspace = true }
-rp-consensus-beefy = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
+sp-application-crypto = { default-features = true, workspace = true }
+sp-consensus-beefy = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

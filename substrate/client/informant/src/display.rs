@@ -21,7 +21,7 @@ use log::info;
 use rc_client_api::ClientInfo;
 use rc_network::NetworkStatus;
 use rc_network_sync::{SyncState, SyncStatus, WarpSyncPhase, WarpSyncProgress};
-use rp_runtime::traits::{Block as BlockT, CheckedDiv, NumberFor, Saturating, Zero};
+use sp_runtime::traits::{Block as BlockT, CheckedDiv, NumberFor, Saturating, Zero};
 use std::{fmt, time::Instant};
 
 use crate::PrintFullHashOnDebugLogging;

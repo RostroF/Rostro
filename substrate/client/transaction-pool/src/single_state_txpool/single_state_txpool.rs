@@ -44,9 +44,9 @@ use rc_transaction_pool_api::{
 	PoolStatus, TransactionFor, TransactionPool, TransactionSource, TransactionStatusStreamFor,
 	TxHash, TxInvalidityReportMap,
 };
-use rp_blockchain::{HashAndNumber, TreeRoute};
-use rp_core::traits::SpawnEssentialNamed;
-use rp_runtime::{
+use sp_blockchain::{HashAndNumber, TreeRoute};
+use sp_core::traits::SpawnEssentialNamed;
+use sp_runtime::{
 	generic::BlockId,
 	traits::{
 		AtLeast32Bit, Block as BlockT, Header as HeaderT, NumberFor, SaturatedConversion, Zero,
@@ -423,17 +423,17 @@ where
 impl<Block, Client> BasicPool<FullChainApi<Client, Block>, Block>
 where
 	Block: BlockT,
-	Client: rp_api::ProvideRuntimeApi<Block>
+	Client: sp_api::ProvideRuntimeApi<Block>
 		+ rc_client_api::BlockBackend<Block>
 		+ rc_client_api::blockchain::HeaderBackend<Block>
-		+ rp_runtime::traits::BlockIdTo<Block>
+		+ sp_runtime::traits::BlockIdTo<Block>
 		+ rc_client_api::ExecutorProvider<Block>
 		+ rc_client_api::UsageProvider<Block>
-		+ rp_blockchain::HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ Send
 		+ Sync
 		+ 'static,
-	Client::Api: rp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
+	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
 {
 	/// Create new basic transaction pool for a full node with the provided api.
 	pub fn new_full(
@@ -464,13 +464,13 @@ impl<Block, Client> rc_transaction_pool_api::LocalTransactionPool
 	for BasicPool<FullChainApi<Client, Block>, Block>
 where
 	Block: BlockT,
-	Client: rp_api::ProvideRuntimeApi<Block>
+	Client: sp_api::ProvideRuntimeApi<Block>
 		+ rc_client_api::BlockBackend<Block>
 		+ rc_client_api::blockchain::HeaderBackend<Block>
-		+ rp_runtime::traits::BlockIdTo<Block>
-		+ rp_blockchain::HeaderMetadata<Block, Error = rp_blockchain::Error>,
+		+ sp_runtime::traits::BlockIdTo<Block>
+		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>,
 	Client: Send + Sync + 'static,
-	Client::Api: rp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
+	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
 {
 	type Block = Block;
 	type Hash = graph::ExtrinsicHash<FullChainApi<Client, Block>>;

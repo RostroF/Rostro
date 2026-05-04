@@ -541,8 +541,8 @@ pub fn storage_alias(attributes: TokenStream, input: TokenStream) -> TokenStream
 ///     type DbWeight = ();
 ///     type Nonce = u64;
 ///     type BlockNumber = u64;
-///     type Hash = rp_core::hash::H256;
-///     type Hashing = rp_runtime::traits::BlakeTwo256;
+///     type Hash = sp_core::hash::H256;
+///     type Hashing = sp_runtime::traits::BlakeTwo256;
 ///     type AccountId = AccountId;
 ///     type Lookup = IdentityLookup<AccountId>;
 ///     type BlockHashCount = frame_support::traits::ConstU64<10>;

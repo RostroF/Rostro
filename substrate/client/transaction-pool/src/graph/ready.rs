@@ -26,7 +26,7 @@ use std::{
 use crate::LOG_TARGET;
 use rc_transaction_pool_api::error;
 use serde::Serialize;
-use rp_runtime::{traits::Member, transaction_validity::TransactionTag as Tag};
+use sp_runtime::{traits::Member, transaction_validity::TransactionTag as Tag};
 use tracing::trace;
 
 use super::{

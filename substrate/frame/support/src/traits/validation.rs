@@ -20,11 +20,11 @@
 use crate::{dispatch::Parameter, weights::Weight};
 use alloc::{vec, vec::Vec};
 use codec::{Codec, Decode, MaxEncodedLen};
-use rp_runtime::{
+use sp_runtime::{
 	traits::{Convert, Zero},
 	BoundToRuntimeAppPublic, ConsensusEngineId, Permill, RuntimeAppPublic,
 };
-use rp_staking::SessionIndex;
+use sp_staking::SessionIndex;
 
 /// A trait for online node inspection in a session.
 ///
@@ -236,8 +236,8 @@ pub trait KeyOwnerProofSystem<Key> {
 impl<Key> KeyOwnerProofSystem<Key> for () {
 	// The proof and identification tuples is any bottom type to guarantee that the methods of this
 	// implementation can never be called or return anything other than `None`.
-	type Proof = rp_core::Void;
-	type IdentificationTuple = rp_core::Void;
+	type Proof = sp_core::Void;
+	type IdentificationTuple = sp_core::Void;
 
 	fn prove(_key: Key) -> Option<Self::Proof> {
 		None

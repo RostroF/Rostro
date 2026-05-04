@@ -44,9 +44,9 @@ use rc_network_types::{
 	multiaddr::{Multiaddr, Protocol},
 	PeerId,
 };
-use rp_api::{ApiRef, ProvideRuntimeApi};
-use rp_keystore::{testing::MemoryKeystore, Keystore};
-use rp_runtime::traits::{Block as BlockT, NumberFor, Zero};
+use sp_api::{ApiRef, ProvideRuntimeApi};
+use sp_keystore::{testing::MemoryKeystore, Keystore};
+use sp_runtime::traits::{Block as BlockT, NumberFor, Zero};
 use substrate_test_runtime_client::runtime::Block;
 
 #[derive(Clone)]
@@ -67,7 +67,7 @@ impl<Block: BlockT> HeaderBackend<Block> for TestApi {
 	fn header(
 		&self,
 		_hash: Block::Hash,
-	) -> std::result::Result<Option<Block::Header>, rp_blockchain::Error> {
+	) -> std::result::Result<Option<Block::Header>, sp_blockchain::Error> {
 		Ok(None)
 	}
 
@@ -87,21 +87,21 @@ impl<Block: BlockT> HeaderBackend<Block> for TestApi {
 	fn status(
 		&self,
 		_hash: Block::Hash,
-	) -> std::result::Result<rc_client_api::blockchain::BlockStatus, rp_blockchain::Error> {
+	) -> std::result::Result<rc_client_api::blockchain::BlockStatus, sp_blockchain::Error> {
 		Ok(rc_client_api::blockchain::BlockStatus::Unknown)
 	}
 
 	fn number(
 		&self,
 		_hash: Block::Hash,
-	) -> std::result::Result<Option<NumberFor<Block>>, rp_blockchain::Error> {
+	) -> std::result::Result<Option<NumberFor<Block>>, sp_blockchain::Error> {
 		Ok(None)
 	}
 
 	fn hash(
 		&self,
 		_number: NumberFor<Block>,
-	) -> std::result::Result<Option<Block::Hash>, rp_blockchain::Error> {
+	) -> std::result::Result<Option<Block::Hash>, sp_blockchain::Error> {
 		Ok(None)
 	}
 }
@@ -110,7 +110,7 @@ pub(crate) struct RuntimeApi {
 	authorities: Vec<AuthorityId>,
 }
 
-rp_api::mock_impl_runtime_apis! {
+sp_api::mock_impl_runtime_apis! {
 	impl AuthorityDiscoveryApi<Block> for RuntimeApi {
 		fn authorities(&self) -> Vec<AuthorityId> {
 			self.authorities.clone()
@@ -338,7 +338,7 @@ async fn new_registers_metrics() {
 
 #[tokio::test]
 async fn triggers_dht_get_query() {
-	rp_tracing::try_init_simple();
+	sp_tracing::try_init_simple();
 	let (_dht_event_tx, dht_event_rx) = channel(1000);
 
 	// Generate authority keys
@@ -374,7 +374,7 @@ async fn triggers_dht_get_query() {
 
 #[tokio::test]
 async fn publish_discover_cycle() {
-	rp_tracing::try_init_simple();
+	sp_tracing::try_init_simple();
 
 	let mut pool = LocalPool::new();
 
@@ -615,13 +615,13 @@ async fn dont_stop_polling_dht_event_stream_after_bogus_event() {
 
 struct DhtValueFoundTester {
 	pub remote_key_store: MemoryKeystore,
-	pub remote_authority_public: rp_core::sr25519::Public,
+	pub remote_authority_public: sp_core::sr25519::Public,
 	pub remote_node_key: Keypair,
 	pub local_worker: Option<
 		Worker<
 			TestApi,
-			rp_runtime::generic::Block<
-				rp_runtime::generic::Header<u64, rp_runtime::traits::BlakeTwo256>,
+			sp_runtime::generic::Block<
+				sp_runtime::generic::Header<u64, sp_runtime::traits::BlakeTwo256>,
 				substrate_test_runtime_client::runtime::Extrinsic,
 			>,
 			std::pin::Pin<Box<futures::channel::mpsc::Receiver<DhtEvent>>>,

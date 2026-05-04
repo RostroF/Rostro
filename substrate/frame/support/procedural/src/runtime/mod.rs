@@ -35,9 +35,9 @@
 //! is defined inside `#[runtime::derive]`:
 //!  - `enum RuntimeCall`: This type contains the information needed to decode extrinsics.
 //!  - `enum RuntimeEvent`: This type contains the information needed to decode events.
-//!  - `enum RuntimeError`: While this cannot be used directly to decode `rp_runtime::DispatchError`
+//!  - `enum RuntimeError`: While this cannot be used directly to decode `sp_runtime::DispatchError`
 //!    from the chain, it contains the information needed to decode the
-//!    `rp_runtime::DispatchError::Module`.
+//!    `sp_runtime::DispatchError::Module`.
 //!
 //! # State Transitions
 //!

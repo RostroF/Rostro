@@ -35,12 +35,12 @@ rc-network = { default-features = true, workspace = true }
 rc-network-types = { default-features = true, workspace = true }
 rc-transaction-pool-api = { default-features = true, workspace = true }
 rc-utils = { default-features = true, workspace = true }
-rp-api = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-externalities = { default-features = true, workspace = true }
-rp-keystore = { default-features = true, workspace = true }
-rp-offchain = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-externalities = { default-features = true, workspace = true }
+sp-keystore = { default-features = true, workspace = true }
+sp-offchain = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
 threadpool = { workspace = true }
 tracing = { workspace = true, default-features = true }
 
@@ -49,8 +49,8 @@ async-trait = { workspace = true }
 rc-block-builder = { default-features = true, workspace = true }
 rc-client-db = { default-features = true, workspace = true }
 rc-transaction-pool = { default-features = true, workspace = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tokio = { workspace = true, default-features = true }
 

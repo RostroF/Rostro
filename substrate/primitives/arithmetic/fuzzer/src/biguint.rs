@@ -28,7 +28,7 @@
 //! [here](https://docs.rs/honggfuzz/).
 
 use honggfuzz::fuzz;
-use rp_arithmetic::biguint::{BigUint, Single};
+use sp_arithmetic::biguint::{BigUint, Single};
 
 fn main() {
 	loop {

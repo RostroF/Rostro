@@ -22,7 +22,7 @@ use crate::{
 };
 use array_bytes::bytes2hex;
 use clap::Parser;
-use rp_core::crypto::SecretString;
+use sp_core::crypto::SecretString;
 use std::io::{BufRead, Write};
 
 /// The `sign` command
@@ -74,7 +74,7 @@ impl SignCmd {
 	}
 }
 
-fn sign<P: rp_core::Pair>(
+fn sign<P: sp_core::Pair>(
 	suri: &str,
 	password: Option<SecretString>,
 	message: Vec<u8>,

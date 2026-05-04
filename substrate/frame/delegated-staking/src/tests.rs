@@ -22,7 +22,7 @@ use crate::mock::*;
 use frame_support::{assert_noop, assert_ok, traits::fungible::InspectHold};
 use pallet_nomination_pools::{Error as PoolsError, Event as PoolsEvent};
 use pallet_staking::{Error as StakingError, RewardDestination};
-use rp_staking::{Agent, DelegationInterface, Delegator, StakerStatus};
+use sp_staking::{Agent, DelegationInterface, Delegator, StakerStatus};
 
 #[test]
 fn create_an_agent_with_first_delegator() {
@@ -342,7 +342,7 @@ fn allow_full_amount_to_be_delegated() {
 /// Integration tests with pallet-staking.
 mod staking_integration {
 	use super::*;
-	use rp_staking::Stake;
+	use sp_staking::Stake;
 
 	#[test]
 	fn bond() {

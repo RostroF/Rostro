@@ -33,7 +33,7 @@ use frame_support::{
 	},
 };
 use frame_system::RawOrigin;
-use rp_core::crypto::FromEntropy;
+use sp_core::crypto::FromEntropy;
 
 /// Trait describing factory functions for dispatchables' parameters.
 pub trait ArgumentsFactory<AssetKind, Beneficiary> {

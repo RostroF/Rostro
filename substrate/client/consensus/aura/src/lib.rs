@@ -42,15 +42,15 @@ use rc_consensus_slots::{
 	SlotInfo, StorageChanges,
 };
 use rc_telemetry::TelemetryHandle;
-use rp_api::{ApiExt, Core, ProvideRuntimeApi};
-use rp_application_crypto::AppPublic;
-use rp_blockchain::HeaderBackend;
-use rp_consensus::{BlockOrigin, Environment, Error as ConsensusError, Proposer, SelectChain};
-use rp_consensus_slots::Slot;
-use rp_core::crypto::Pair;
-use rp_inherents::CreateInherentDataProviders;
-use rp_keystore::KeystorePtr;
-use rp_runtime::traits::{Block as BlockT, Header, Member, NumberFor};
+use sp_api::{ApiExt, Core, ProvideRuntimeApi};
+use sp_application_crypto::AppPublic;
+use sp_blockchain::HeaderBackend;
+use sp_consensus::{BlockOrigin, Environment, Error as ConsensusError, Proposer, SelectChain};
+use sp_consensus_slots::Slot;
+use sp_core::crypto::Pair;
+use sp_inherents::CreateInherentDataProviders;
+use sp_keystore::KeystorePtr;
+use sp_runtime::traits::{Block as BlockT, Header, Member, NumberFor};
 
 mod authorities_tracker;
 mod import_queue;
@@ -63,8 +63,8 @@ pub use import_queue::{
 	ImportQueueParams,
 };
 pub use rc_consensus_slots::SlotProportion;
-pub use rp_consensus::SyncOracle;
-pub use rp_consensus_aura::{
+pub use sp_consensus::SyncOracle;
+pub use sp_consensus_aura::{
 	digests::CompatibleDigestItem,
 	inherents::{InherentDataProvider, InherentType as AuraInherent, INHERENT_IDENTIFIER},
 	AuraApi, ConsensusLog, SlotDuration, AURA_ENGINE_ID,
@@ -381,7 +381,7 @@ where
 		crate::standalone::claim_slot::<P>(slot, authorities, &self.keystore).await
 	}
 
-	fn pre_digest_data(&self, slot: Slot, _claim: &Self::Claim) -> Vec<rp_runtime::DigestItem> {
+	fn pre_digest_data(&self, slot: Slot, _claim: &Self::Claim) -> Vec<sp_runtime::DigestItem> {
 		vec![crate::standalone::pre_digest::<P>(slot)]
 	}
 
@@ -482,10 +482,10 @@ pub enum Error<B: BlockT> {
 	BadSignature(B::Hash),
 	/// Client Error
 	#[error(transparent)]
-	Client(rp_blockchain::Error),
+	Client(sp_blockchain::Error),
 	/// Inherents Error
 	#[error("Inherent error: {0}")]
-	Inherent(rp_inherents::Error),
+	Inherent(sp_inherents::Error),
 }
 
 impl<B: BlockT> From<Error<B>> for String {
@@ -538,7 +538,7 @@ where
 		},
 	}
 
-	runtime_api.set_call_context(rp_core::traits::CallContext::Onchain);
+	runtime_api.set_call_context(sp_core::traits::CallContext::Onchain);
 	runtime_api
 		.authorities(parent_hash)
 		.ok()
@@ -555,13 +555,13 @@ mod tests {
 	use rc_consensus_slots::{BackoffAuthoringOnFinalizedHeadLagging, SimpleSlotWorker};
 	use rc_keystore::LocalKeystore;
 	use rc_network_test::{Block as TestBlock, *};
-	use rp_application_crypto::{key_types::AURA, AppCrypto};
-	use rp_consensus::{NoNetwork as DummyOracle, Proposal, ProposeArgs};
-	use rp_consensus_aura::sr25519::AuthorityPair;
-	use rp_keyring::sr25519::Keyring;
-	use rp_keystore::Keystore;
-	use rp_runtime::traits::{Block as BlockT, Header as _};
-	use rp_timestamp::Timestamp;
+	use sp_application_crypto::{key_types::AURA, AppCrypto};
+	use sp_consensus::{NoNetwork as DummyOracle, Proposal, ProposeArgs};
+	use sp_consensus_aura::sr25519::AuthorityPair;
+	use sp_keyring::sr25519::Keyring;
+	use sp_keystore::Keystore;
+	use sp_runtime::traits::{Block as BlockT, Header as _};
+	use sp_timestamp::Timestamp;
 	use std::{
 		task::Poll,
 		time::{Duration, Instant},
@@ -573,7 +573,7 @@ mod tests {
 
 	const SLOT_DURATION_MS: u64 = 1000;
 
-	type Error = rp_blockchain::Error;
+	type Error = sp_blockchain::Error;
 
 	struct DummyFactory(Arc<TestClient>);
 	struct DummyProposer(Arc<TestClient>);
@@ -682,7 +682,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn authoring_blocks() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let net = AuraTestNet::new(3);
 
 		let peers = &[(0, Keyring::Alice), (1, Keyring::Bob), (2, Keyring::Charlie)];

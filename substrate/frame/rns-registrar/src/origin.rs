@@ -24,7 +24,7 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_support::traits::{EnsureOrigin, Get};
     use frame_system::pallet_prelude::*;
-    use rp_runtime::traits::StaticLookup;
+    use sp_runtime::traits::StaticLookup;
 
     #[pallet::config]
     pub trait Config: frame_system::Config {
@@ -51,14 +51,14 @@ pub mod pallet {
 
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
-        pub origins: rp_std::vec::Vec<T::AccountId>,
+        pub origins: sp_std::vec::Vec<T::AccountId>,
     }
 
     #[cfg(feature = "std")]
     impl<T: Config> Default for GenesisConfig<T> {
         fn default() -> Self {
             Self {
-                origins: rp_std::vec::Vec::with_capacity(0),
+                origins: sp_std::vec::Vec::with_capacity(0),
             }
         }
     }
@@ -133,7 +133,7 @@ pub mod pallet {
     }
 }
 use frame_support::traits::EnsureOrigin;
-use rp_weights::Weight;
+use sp_weights::Weight;
 use frame_system::RawOrigin;
 
 impl<T: Config> EnsureOrigin<T::RuntimeOrigin> for Pallet<T> {
@@ -154,7 +154,7 @@ impl<T: Config> EnsureOrigin<T::RuntimeOrigin> for Pallet<T> {
         }
 
         let zero_account_id =
-            T::AccountId::decode(&mut rp_runtime::traits::TrailingZeroInput::zeroes())
+            T::AccountId::decode(&mut sp_runtime::traits::TrailingZeroInput::zeroes())
                 .map_err(|_| ())?;
 
         Ok(T::RuntimeOrigin::from(RawOrigin::Signed(zero_account_id)))

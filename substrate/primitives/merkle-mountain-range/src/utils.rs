@@ -22,7 +22,7 @@ use mmr_lib::helper;
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use rp_runtime::traits::{CheckedAdd, CheckedSub, Header, One};
+use sp_runtime::traits::{CheckedAdd, CheckedSub, Header, One};
 
 use crate::{Error, LeafIndex, NodeIndex};
 

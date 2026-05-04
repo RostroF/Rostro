@@ -30,7 +30,7 @@ use rc_transaction_pool_api::{
 	MaintainedTransactionPool, PoolStatus, ReadyTransactions, TransactionFor, TransactionPool,
 	TransactionSource, TransactionStatusStreamFor, TxHash, TxInvalidityReportMap,
 };
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 
 /// The wrapper for actual object providing implementation of TransactionPool.
@@ -41,25 +41,25 @@ pub struct TransactionPoolWrapper<Block, Client>(
 )
 where
 	Block: BlockT,
-	Client: rp_api::ProvideRuntimeApi<Block>
+	Client: sp_api::ProvideRuntimeApi<Block>
 		+ rc_client_api::BlockBackend<Block>
 		+ rc_client_api::blockchain::HeaderBackend<Block>
-		+ rp_runtime::traits::BlockIdTo<Block>
-		+ rp_blockchain::HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ sp_runtime::traits::BlockIdTo<Block>
+		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ 'static,
-	Client::Api: rp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>;
+	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>;
 
 #[async_trait]
 impl<Block, Client> TransactionPool for TransactionPoolWrapper<Block, Client>
 where
 	Block: BlockT,
-	Client: rp_api::ProvideRuntimeApi<Block>
+	Client: sp_api::ProvideRuntimeApi<Block>
 		+ rc_client_api::BlockBackend<Block>
 		+ rc_client_api::blockchain::HeaderBackend<Block>
-		+ rp_runtime::traits::BlockIdTo<Block>
-		+ rp_blockchain::HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ sp_runtime::traits::BlockIdTo<Block>
+		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ 'static,
-	Client::Api: rp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
+	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
 {
 	type Block = Block;
 	type Hash = ExtrinsicHash<FullChainApi<Client, Block>>;
@@ -152,13 +152,13 @@ where
 impl<Block, Client> MaintainedTransactionPool for TransactionPoolWrapper<Block, Client>
 where
 	Block: BlockT,
-	Client: rp_api::ProvideRuntimeApi<Block>
+	Client: sp_api::ProvideRuntimeApi<Block>
 		+ rc_client_api::BlockBackend<Block>
 		+ rc_client_api::blockchain::HeaderBackend<Block>
-		+ rp_runtime::traits::BlockIdTo<Block>
-		+ rp_blockchain::HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ sp_runtime::traits::BlockIdTo<Block>
+		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ 'static,
-	Client::Api: rp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
+	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
 {
 	async fn maintain(&self, event: ChainEvent<Self::Block>) {
 		self.0.maintain(event).await;
@@ -168,13 +168,13 @@ where
 impl<Block, Client> LocalTransactionPool for TransactionPoolWrapper<Block, Client>
 where
 	Block: BlockT,
-	Client: rp_api::ProvideRuntimeApi<Block>
+	Client: sp_api::ProvideRuntimeApi<Block>
 		+ rc_client_api::BlockBackend<Block>
 		+ rc_client_api::blockchain::HeaderBackend<Block>
-		+ rp_runtime::traits::BlockIdTo<Block>
-		+ rp_blockchain::HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ sp_runtime::traits::BlockIdTo<Block>
+		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ 'static,
-	Client::Api: rp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
+	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
 {
 	type Block = Block;
 	type Hash = ExtrinsicHash<FullChainApi<Client, Block>>;

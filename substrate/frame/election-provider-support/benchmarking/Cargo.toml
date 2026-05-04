@@ -19,8 +19,8 @@ codec = { features = ["derive"], workspace = true }
 frame-benchmarking = { optional = true, workspace = true }
 frame-election-provider-support = { workspace = true }
 frame-system = { workspace = true }
-rp-npos-elections = { workspace = true }
-rp-runtime = { workspace = true }
+sp-npos-elections = { workspace = true }
+sp-runtime = { workspace = true }
 
 [features]
 default = ["std"]
@@ -29,12 +29,12 @@ std = [
 	"frame-benchmarking?/std",
 	"frame-election-provider-support/std",
 	"frame-system/std",
-	"rp-npos-elections/std",
-	"rp-runtime/std",
+	"sp-npos-elections/std",
+	"sp-runtime/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-election-provider-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"rp-runtime/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]

@@ -57,7 +57,7 @@ use syn::parse::{Parse, ParseStream};
 ///
 /// ```
 /// # fn main() {}
-/// use rp_runtime::curve::PiecewiseLinear;
+/// use sp_runtime::curve::PiecewiseLinear;
 ///
 /// pallet_staking_reward_curve::build! {
 ///     const I_NPOS: PiecewiseLinear<'static> = curve!(
@@ -82,16 +82,16 @@ pub fn build(input: TokenStream) -> TokenStream {
 	let imports = match crate_name("rp-runtime") {
 		Ok(FoundCrate::Itself) => quote!(
 			#[doc(hidden)]
-			pub use rp_runtime as _sp_runtime;
+			pub use sp_runtime as _sp_runtime;
 		),
-		Ok(FoundCrate::Name(rp_runtime)) => {
-			let ident = syn::Ident::new(&rp_runtime, Span::call_site());
+		Ok(FoundCrate::Name(sp_runtime)) => {
+			let ident = syn::Ident::new(&sp_runtime, Span::call_site());
 			quote!( #[doc(hidden)] pub use #ident as _sp_runtime; )
 		},
 		Err(e) => match crate_name("polkadot-sdk") {
 			Ok(FoundCrate::Name(polkadot_sdk)) => {
 				let ident = syn::Ident::new(&polkadot_sdk, Span::call_site());
-				quote!( #[doc(hidden)] pub use #ident::rp_runtime as _sp_runtime; )
+				quote!( #[doc(hidden)] pub use #ident::sp_runtime as _sp_runtime; )
 			},
 			_ => syn::Error::new(Span::call_site(), e).to_compile_error(),
 		},

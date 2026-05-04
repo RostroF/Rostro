@@ -19,13 +19,13 @@
 //! Block import helpers.
 
 use serde::{Deserialize, Serialize};
-use rp_runtime::{
+use sp_runtime::{
 	traits::{Block as BlockT, HashingFor, Header as HeaderT, NumberFor},
 	DigestItem, Justification, Justifications,
 };
 use std::{any::Any, borrow::Cow, collections::HashMap, sync::Arc};
 
-use rp_consensus::{BlockOrigin, Error};
+use sp_consensus::{BlockOrigin, Error};
 
 /// Block import result.
 #[derive(Debug, PartialEq, Eq)]
@@ -121,7 +121,7 @@ pub struct BlockCheckParams<Block: BlockT> {
 /// Precomputed storage.
 pub enum StorageChanges<Block: BlockT> {
 	/// Changes coming from block execution.
-	Changes(rp_state_machine::StorageChanges<HashingFor<Block>>),
+	Changes(sp_state_machine::StorageChanges<HashingFor<Block>>),
 	/// Whole new state.
 	Import(ImportedState<Block>),
 }
@@ -132,7 +132,7 @@ pub struct ImportedState<B: BlockT> {
 	/// Target block hash.
 	pub block: B::Hash,
 	/// State keys and values.
-	pub state: rp_state_machine::KeyValueStates,
+	pub state: sp_state_machine::KeyValueStates,
 }
 
 impl<B: BlockT> std::fmt::Debug for ImportedState<B> {
@@ -171,10 +171,10 @@ impl<Block: BlockT> From<StorageChanges<Block>> for StateAction<Block> {
 	}
 }
 
-impl<Block: BlockT> From<rp_state_machine::StorageChanges<HashingFor<Block>>>
+impl<Block: BlockT> From<sp_state_machine::StorageChanges<HashingFor<Block>>>
 	for StateAction<Block>
 {
-	fn from(value: rp_state_machine::StorageChanges<HashingFor<Block>>) -> Self {
+	fn from(value: sp_state_machine::StorageChanges<HashingFor<Block>>) -> Self {
 		Self::ApplyChanges(StorageChanges::Changes(value))
 	}
 }
@@ -343,7 +343,7 @@ pub trait BlockImport<B: BlockT> {
 
 #[async_trait::async_trait]
 impl<B: BlockT> BlockImport<B> for crate::import_queue::BoxBlockImport<B> {
-	type Error = rp_consensus::error::Error;
+	type Error = sp_consensus::error::Error;
 
 	/// Check block preconditions.
 	async fn check_block(&self, block: BlockCheckParams<B>) -> Result<ImportResult, Self::Error> {

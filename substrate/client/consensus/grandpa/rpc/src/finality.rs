@@ -19,10 +19,10 @@
 use serde::{Deserialize, Serialize};
 
 use rc_consensus_grandpa::FinalityProofProvider;
-use rp_runtime::traits::{Block as BlockT, NumberFor};
+use sp_runtime::traits::{Block as BlockT, NumberFor};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct EncodedFinalityProof(pub rp_core::Bytes);
+pub struct EncodedFinalityProof(pub sp_core::Bytes);
 
 /// Local trait mainly to allow mocking in tests.
 pub trait RpcFinalityProofProvider<Block: BlockT> {

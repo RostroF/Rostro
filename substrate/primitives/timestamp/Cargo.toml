@@ -1,5 +1,5 @@
 [package]
-name = "rp-timestamp"
+name = "sp-timestamp"
 version = "41.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -18,8 +18,8 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 async-trait = { optional = true, workspace = true }
 codec = { features = ["derive"], workspace = true }
-rp-inherents = { workspace = true }
-rp-runtime = { workspace = true }
+sp-inherents = { workspace = true }
+sp-runtime = { workspace = true }
 thiserror = { optional = true, workspace = true }
 
 [features]
@@ -27,7 +27,7 @@ default = ["std"]
 std = [
 	"async-trait",
 	"codec/std",
-	"rp-inherents/std",
-	"rp-runtime/std",
+	"sp-inherents/std",
+	"sp-runtime/std",
 	"thiserror",
 ]

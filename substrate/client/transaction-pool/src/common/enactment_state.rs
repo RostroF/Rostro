@@ -20,8 +20,8 @@
 
 use crate::LOG_TARGET;
 use rc_transaction_pool_api::ChainEvent;
-use rp_blockchain::TreeRoute;
-use rp_runtime::traits::{Block as BlockT, NumberFor, Saturating};
+use sp_blockchain::TreeRoute;
+use sp_runtime::traits::{Block as BlockT, NumberFor, Saturating};
 use tracing::{debug, trace};
 
 /// The threshold since the last update where we will skip any maintenance for blocks.
@@ -192,8 +192,8 @@ where
 mod enactment_state_tests {
 	use super::{EnactmentAction, EnactmentState};
 	use rc_transaction_pool_api::ChainEvent;
-	use rp_blockchain::{HashAndNumber, TreeRoute};
-	use rp_runtime::traits::NumberFor;
+	use sp_blockchain::{HashAndNumber, TreeRoute};
+	use sp_runtime::traits::NumberFor;
 	use std::sync::Arc;
 	use substrate_test_runtime_client::runtime::{Block, Hash};
 
@@ -494,7 +494,7 @@ mod enactment_state_tests {
 
 	#[test]
 	fn test_enactment_helper() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut es = EnactmentState::new(a().hash, a().hash);
 
 		//   B1-C1-D1-E1
@@ -554,7 +554,7 @@ mod enactment_state_tests {
 
 	#[test]
 	fn test_enactment_helper_2() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut es = EnactmentState::new(a().hash, a().hash);
 
 		// A-B1-C1-D1-E1
@@ -586,7 +586,7 @@ mod enactment_state_tests {
 
 	#[test]
 	fn test_enactment_helper_3() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut es = EnactmentState::new(a().hash, a().hash);
 
 		// A-B1-C1-D1-E1
@@ -602,7 +602,7 @@ mod enactment_state_tests {
 
 	#[test]
 	fn test_enactment_helper_4() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut es = EnactmentState::new(a().hash, a().hash);
 
 		// A-B1-C1-D1-E1
@@ -618,7 +618,7 @@ mod enactment_state_tests {
 
 	#[test]
 	fn test_enactment_helper_5() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut es = EnactmentState::new(a().hash, a().hash);
 
 		//   B1-C1-D1-E1
@@ -638,7 +638,7 @@ mod enactment_state_tests {
 
 	#[test]
 	fn test_enactment_helper_6() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut es = EnactmentState::new(a().hash, a().hash);
 
 		// A-B1-C1-D1-E1
@@ -662,7 +662,7 @@ mod enactment_state_tests {
 
 	#[test]
 	fn test_enactment_forced_update_best_block() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut es = EnactmentState::new(a().hash, a().hash);
 
 		es.force_update(&ChainEvent::NewBestBlock { hash: b1().hash, tree_route: None });
@@ -671,7 +671,7 @@ mod enactment_state_tests {
 
 	#[test]
 	fn test_enactment_forced_update_finalize() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut es = EnactmentState::new(a().hash, a().hash);
 
 		es.force_update(&ChainEvent::Finalized { hash: b1().hash, tree_route: Arc::from([]) });
@@ -680,7 +680,7 @@ mod enactment_state_tests {
 
 	#[test]
 	fn test_enactment_skip_long_enacted_path() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut es = EnactmentState::new(a().hash, a().hash);
 
 		// A-B1-C1-..-X1
@@ -691,7 +691,7 @@ mod enactment_state_tests {
 
 	#[test]
 	fn test_enactment_proceed_with_enacted_path_at_threshold() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut es = EnactmentState::new(b1().hash, b1().hash);
 
 		// A-B1-C1-..-X1

@@ -40,7 +40,7 @@ pub mod v1 {
 	pub struct MigrateToV1<T>(core::marker::PhantomData<T>);
 	impl<T: Config> OnRuntimeUpgrade for MigrateToV1<T> {
 		#[cfg(feature = "try-runtime")]
-		fn pre_upgrade() -> Result<Vec<u8>, rp_runtime::TryRuntimeError> {
+		fn pre_upgrade() -> Result<Vec<u8>, sp_runtime::TryRuntimeError> {
 			log!(info, "Number of calls to refund and delete: {}", Calls::<T>::iter().count());
 
 			Ok(Vec::new())
@@ -73,7 +73,7 @@ pub mod v1 {
 		}
 
 		#[cfg(feature = "try-runtime")]
-		fn post_upgrade(_state: Vec<u8>) -> Result<(), rp_runtime::TryRuntimeError> {
+		fn post_upgrade(_state: Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
 			ensure!(
 				Calls::<T>::iter().count() == 0,
 				"there are some dangling calls that need to be destroyed and refunded"

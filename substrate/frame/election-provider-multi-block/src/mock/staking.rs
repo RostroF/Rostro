@@ -21,8 +21,8 @@ use frame_election_provider_support::{
 	data_provider, DataProviderBounds, ElectionDataProvider, PageIndex, VoteWeight,
 };
 use frame_support::pallet_prelude::*;
-use rp_core::bounded_vec;
-use rp_std::prelude::*;
+use sp_core::bounded_vec;
+use sp_std::prelude::*;
 
 pub type T = Runtime;
 

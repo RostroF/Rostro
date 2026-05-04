@@ -27,7 +27,7 @@ use frame_support::{
 #[cfg(feature = "try-runtime")]
 use frame_support::ensure;
 #[cfg(feature = "try-runtime")]
-use rp_runtime::TryRuntimeError;
+use sp_runtime::TryRuntimeError;
 
 /// The log target.
 const TARGET: &'static str = "runtime::preimage::migration::v1";
@@ -197,7 +197,7 @@ mod test {
 	use super::*;
 	use crate::mock::{Test as T, *};
 
-	use rp_runtime::bounded_vec;
+	use sp_runtime::bounded_vec;
 
 	#[test]
 	fn migration_works() {

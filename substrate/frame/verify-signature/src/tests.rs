@@ -29,8 +29,8 @@ use frame_support::{
 	traits::OriginTrait,
 };
 use frame_system::Call as SystemCall;
-use rp_io::hashing::blake2_256;
-use rp_runtime::{
+use sp_io::hashing::blake2_256;
+use sp_runtime::{
 	generic::ExtensionVersion,
 	testing::{TestSignature, UintAuthorityId},
 	traits::DispatchTransaction,
@@ -69,10 +69,10 @@ impl crate::Config for Test {
 }
 
 #[cfg(feature = "runtime-benchmarks")]
-pub fn new_test_ext() -> rp_io::TestExternalities {
-	use rp_runtime::BuildStorage;
+pub fn new_test_ext() -> sp_io::TestExternalities {
+	use sp_runtime::BuildStorage;
 	let t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	let mut ext = rp_io::TestExternalities::new(t);
+	let mut ext = sp_io::TestExternalities::new(t);
 	ext.execute_with(|| System::set_block_number(1));
 	ext
 }

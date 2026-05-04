@@ -37,7 +37,7 @@
 //! ```rust
 //! # use codec::{Decode, Encode, Codec};
 //! // in your off-chain worker code
-//! use rp_runtime::offchain::{
+//! use sp_runtime::offchain::{
 //! 		storage::StorageValueRef,
 //! 		storage_lock::{StorageLock, Time},
 //! };
@@ -67,8 +67,8 @@ use crate::{
 };
 use codec::{Codec, Decode, Encode};
 use core::fmt;
-use rp_core::offchain::{Duration, Timestamp};
-use rp_io::offchain;
+use sp_core::offchain::{Duration, Timestamp};
+use sp_io::offchain;
 
 /// Default expiry duration for time based locks in milliseconds.
 const STORAGE_LOCK_DEFAULT_EXPIRY_DURATION: Duration = Duration::from_millis(20_000);
@@ -101,7 +101,7 @@ pub trait Lockable: Sized {
 	/// Note that `deadline` is only passed to allow optimizations
 	/// for `Lockables` which have a time based component.
 	fn snooze(_deadline: &Self::Deadline) {
-		rp_io::offchain::sleep_until(
+		sp_io::offchain::sleep_until(
 			offchain::timestamp().add(STORAGE_LOCK_PER_CHECK_ITERATION_SNOOZE_MAX),
 		);
 	}
@@ -141,7 +141,7 @@ impl Lockable for Time {
 			STORAGE_LOCK_PER_CHECK_ITERATION_SNOOZE_MIN,
 			STORAGE_LOCK_PER_CHECK_ITERATION_SNOOZE_MAX,
 		);
-		rp_io::offchain::sleep_until(now.add(snooze));
+		sp_io::offchain::sleep_until(now.add(snooze));
 	}
 }
 
@@ -242,7 +242,7 @@ impl<B: BlockNumberProvider> Lockable for BlockAndTime<B> {
 			STORAGE_LOCK_PER_CHECK_ITERATION_SNOOZE_MIN,
 			STORAGE_LOCK_PER_CHECK_ITERATION_SNOOZE_MAX,
 		);
-		rp_io::offchain::sleep_until(now.add(snooze));
+		sp_io::offchain::sleep_until(now.add(snooze));
 	}
 }
 
@@ -434,8 +434,8 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_core::offchain::{testing, OffchainDbExt, OffchainWorkerExt};
-	use rp_io::TestExternalities;
+	use sp_core::offchain::{testing, OffchainDbExt, OffchainWorkerExt};
+	use sp_io::TestExternalities;
 
 	const VAL_1: u32 = 0u32;
 	const VAL_2: u32 = 0xFFFF_FFFFu32;

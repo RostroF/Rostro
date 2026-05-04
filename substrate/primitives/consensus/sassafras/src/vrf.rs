@@ -21,9 +21,9 @@ use crate::{Randomness, TicketBody, TicketId};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use codec::Encode;
-use rp_consensus_slots::Slot;
+use sp_consensus_slots::Slot;
 
-pub use rp_core::bandersnatch::{
+pub use sp_core::bandersnatch::{
 	ring_vrf::{RingProver, RingVerifier, RingVerifierKey, RingVrfSignature},
 	vrf::{VrfInput, VrfPreOutput, VrfSignData, VrfSignature},
 };
@@ -32,7 +32,7 @@ pub use rp_core::bandersnatch::{
 pub const RING_SIZE: usize = 1024;
 
 /// Bandersnatch VRF [`RingContext`] specialization for Sassafras using [`RING_SIZE`].
-pub type RingContext = rp_core::bandersnatch::ring_vrf::RingContext<RING_SIZE>;
+pub type RingContext = sp_core::bandersnatch::ring_vrf::RingContext<RING_SIZE>;
 
 /// Input for slot claim
 pub fn slot_claim_input(randomness: &Randomness, slot: Slot, epoch: u64) -> VrfInput {

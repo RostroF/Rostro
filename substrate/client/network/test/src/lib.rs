@@ -82,15 +82,15 @@ use rc_network_sync::{
 };
 use rc_network_types::{build_multiaddr, multiaddr::Multiaddr};
 use rc_service::client::Client;
-use rp_blockchain::{
+use sp_blockchain::{
 	Backend as BlockchainBackend, HeaderBackend, Info as BlockchainInfo, Result as ClientResult,
 };
-use rp_consensus::{
+use sp_consensus::{
 	block_validation::{BlockAnnounceValidator, DefaultBlockAnnounceValidator},
 	BlockOrigin, Error as ConsensusError, SyncOracle,
 };
-use rp_core::H256;
-use rp_runtime::{
+use sp_core::H256;
+use sp_runtime::{
 	codec::{Decode, Encode},
 	generic::BlockId,
 	traits::{Block as BlockT, Header as HeaderT, NumberFor, Zero},
@@ -772,7 +772,7 @@ pub struct FullPeerConfig {
 	/// Syncing mode
 	pub sync_mode: SyncMode,
 	/// Extra genesis storage.
-	pub extra_storage: Option<rp_core::storage::Storage>,
+	pub extra_storage: Option<sp_core::storage::Storage>,
 	/// Enable transaction indexing.
 	pub storage_chain: bool,
 	/// Optional target block header to sync to
@@ -862,7 +862,7 @@ pub trait TestNetFactory: Default + Sized + Send {
 			verifier.clone(),
 			Box::new(block_import.clone()),
 			justification_import,
-			&rp_core::testing::TaskExecutor::new(),
+			&sp_core::testing::TaskExecutor::new(),
 			None,
 		));
 

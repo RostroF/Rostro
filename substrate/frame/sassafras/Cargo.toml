@@ -26,14 +26,14 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 log = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-consensus-sassafras = { features = ["serde"], workspace = true }
-rp-io = { workspace = true }
-rp-runtime = { workspace = true }
+sp-consensus-sassafras = { features = ["serde"], workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
 
 [dev-dependencies]
 array-bytes = { workspace = true, default-features = true }
-rp-core = { default-features = true, workspace = true }
-rp-crypto-hashing = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-crypto-hashing = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -44,20 +44,20 @@ std = [
 	"frame-system/std",
 	"log/std",
 	"scale-info/std",
-	"rp-consensus-sassafras/std",
-	"rp-io/std",
-	"rp-runtime/std",
+	"sp-consensus-sassafras/std",
+	"sp-io/std",
+	"sp-runtime/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"rp-runtime/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]
 # Construct dummy ring context on genesis.
 # Mostly used for testing and development.

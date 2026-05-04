@@ -19,7 +19,7 @@
 use clap::Args;
 use rc_network::config::{ed25519, NodeKeyConfig};
 use rc_service::Role;
-use rp_core::H256;
+use sp_core::H256;
 use std::{path::PathBuf, str::FromStr};
 
 use crate::{arg_enums::NodeKeyType, error, Error};

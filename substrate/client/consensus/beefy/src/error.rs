@@ -20,7 +20,7 @@
 //!
 //! Used for BEEFY gadget internal error handling only
 
-use rp_blockchain::Error as ClientError;
+use sp_blockchain::Error as ClientError;
 use std::fmt::Debug;
 
 #[derive(Debug, thiserror::Error)]
@@ -30,7 +30,7 @@ pub enum Error {
 	#[error("Keystore error: {0}")]
 	Keystore(String),
 	#[error("Runtime api error: {0}")]
-	RuntimeApi(rp_api::ApiError),
+	RuntimeApi(sp_api::ApiError),
 	#[error("Signature error: {0}")]
 	Signature(String),
 	#[error("Session uninitialized")]

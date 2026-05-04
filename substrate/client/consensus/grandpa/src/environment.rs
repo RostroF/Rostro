@@ -40,14 +40,14 @@ use rc_client_api::{
 };
 use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_INFO};
 use rc_transaction_pool_api::OffchainTransactionPoolFactory;
-use rp_api::ApiExt;
-use rp_blockchain::HeaderMetadata;
-use rp_consensus::SelectChain as SelectChainT;
-use rp_consensus_grandpa::{
+use sp_api::ApiExt;
+use sp_blockchain::HeaderMetadata;
+use sp_consensus::SelectChain as SelectChainT;
+use sp_consensus_grandpa::{
 	AuthorityId, AuthoritySignature, Equivocation, EquivocationProof, GrandpaApi, RoundNumber,
 	SetId, GRANDPA_ENGINE_ID,
 };
-use rp_runtime::traits::{Block as BlockT, Header as HeaderT, NumberFor, Zero};
+use sp_runtime::traits::{Block as BlockT, Header as HeaderT, NumberFor, Zero};
 
 use crate::{
 	authorities::{AuthoritySet, SharedAuthoritySet},
@@ -616,13 +616,13 @@ pub(crate) fn ancestry<Block: BlockT, Client>(
 	block: Block::Hash,
 ) -> Result<Vec<Block::Hash>, GrandpaError>
 where
-	Client: HeaderMetadata<Block, Error = rp_blockchain::Error>,
+	Client: HeaderMetadata<Block, Error = sp_blockchain::Error>,
 {
 	if base == block {
 		return Err(GrandpaError::NotDescendent);
 	}
 
-	let tree_route_res = rp_blockchain::tree_route(&**client, block, base);
+	let tree_route_res = sp_blockchain::tree_route(&**client, block, base);
 
 	let tree_route = match tree_route_res {
 		Ok(tree_route) => tree_route,

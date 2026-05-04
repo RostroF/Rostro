@@ -37,8 +37,8 @@ use rc_service::{
 	SpawnTaskHandle, TaskManager,
 };
 use rc_transaction_pool_api::TransactionPool;
-use rp_blockchain::HeaderBackend;
-use rp_runtime::traits::Block as BlockT;
+use sp_blockchain::HeaderBackend;
+use sp_runtime::traits::Block as BlockT;
 use std::{iter, net::Ipv4Addr, pin::Pin, sync::Arc, task::Context, time::Duration};
 use tempfile::TempDir;
 use tokio::{runtime::Runtime, time};
@@ -284,7 +284,7 @@ where
 		authorities: impl Iterator<Item = (String, impl FnOnce(Configuration) -> Result<(F, U), Error>)>,
 		base_port: u16,
 	) -> TestNet<E, F, U> {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		fdlimit::raise_fd_limit().unwrap();
 		let runtime = Runtime::new().expect("Error creating tokio runtime");
 		let mut net = TestNet {

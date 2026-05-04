@@ -23,8 +23,8 @@ use frame_support::{
 	traits::{OnRuntimeUpgrade, WhitelistedStorageKeys},
 };
 use mock::{RuntimeOrigin, *};
-use rp_core::{hexdisplay::HexDisplay, storage::well_known_keys, H256};
-use rp_runtime::{
+use sp_core::{hexdisplay::HexDisplay, storage::well_known_keys, H256};
+use sp_runtime::{
 	generic::{Digest, DigestItem},
 	traits::{BlakeTwo256, Header},
 	DispatchError, DispatchErrorWithPostInfo,
@@ -62,36 +62,36 @@ fn origin_works() {
 fn unique_datum_works() {
 	new_test_ext().execute_with(|| {
 		System::initialize(&1, &[0u8; 32].into(), &Default::default());
-		assert!(rp_io::storage::exists(well_known_keys::INTRABLOCK_ENTROPY));
+		assert!(sp_io::storage::exists(well_known_keys::INTRABLOCK_ENTROPY));
 
 		let h1 = unique(b"");
 		assert_eq!(
 			32,
-			rp_io::storage::read(well_known_keys::INTRABLOCK_ENTROPY, &mut [], 0).unwrap()
+			sp_io::storage::read(well_known_keys::INTRABLOCK_ENTROPY, &mut [], 0).unwrap()
 		);
 		let h2 = unique(b"");
 		assert_eq!(
 			32,
-			rp_io::storage::read(well_known_keys::INTRABLOCK_ENTROPY, &mut [], 0).unwrap()
+			sp_io::storage::read(well_known_keys::INTRABLOCK_ENTROPY, &mut [], 0).unwrap()
 		);
 		assert_ne!(h1, h2);
 
 		let h3 = unique(b"Hello");
 		assert_eq!(
 			32,
-			rp_io::storage::read(well_known_keys::INTRABLOCK_ENTROPY, &mut [], 0).unwrap()
+			sp_io::storage::read(well_known_keys::INTRABLOCK_ENTROPY, &mut [], 0).unwrap()
 		);
 		assert_ne!(h2, h3);
 
 		let h4 = unique(b"Hello");
 		assert_eq!(
 			32,
-			rp_io::storage::read(well_known_keys::INTRABLOCK_ENTROPY, &mut [], 0).unwrap()
+			sp_io::storage::read(well_known_keys::INTRABLOCK_ENTROPY, &mut [], 0).unwrap()
 		);
 		assert_ne!(h3, h4);
 
 		System::finalize();
-		assert!(!rp_io::storage::exists(well_known_keys::INTRABLOCK_ENTROPY));
+		assert!(!sp_io::storage::exists(well_known_keys::INTRABLOCK_ENTROPY));
 	});
 }
 
@@ -618,11 +618,11 @@ fn prunes_block_hash_mappings() {
 fn set_code_checks_works() {
 	struct ReadRuntimeVersion(Vec<u8>);
 
-	impl rp_core::traits::ReadRuntimeVersion for ReadRuntimeVersion {
+	impl sp_core::traits::ReadRuntimeVersion for ReadRuntimeVersion {
 		fn read_runtime_version(
 			&self,
 			_wasm_code: &[u8],
-			_ext: &mut dyn rp_externalities::Externalities,
+			_ext: &mut dyn sp_externalities::Externalities,
 		) -> Result<Vec<u8>, String> {
 			Ok(self.0.clone())
 		}
@@ -652,7 +652,7 @@ fn set_code_checks_works() {
 		let read_runtime_version = ReadRuntimeVersion(version.encode());
 
 		let mut ext = new_test_ext();
-		ext.register_extension(rp_core::traits::ReadRuntimeVersionExt::new(read_runtime_version));
+		ext.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(read_runtime_version));
 		ext.execute_with(|| {
 			let res = System::set_code(RawOrigin::Root.into(), vec![1, 2, 3, 4]);
 
@@ -678,7 +678,7 @@ fn assert_runtime_updated_digest(num: usize) {
 fn set_code_with_real_wasm_blob() {
 	let executor = WasmExecutor::default();
 	let mut ext = new_test_ext();
-	ext.register_extension(rp_core::traits::ReadRuntimeVersionExt::new(executor));
+	ext.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(executor));
 	ext.execute_with(|| {
 		System::set_block_number(1);
 		System::set_code(
@@ -704,7 +704,7 @@ fn set_code_rejects_during_mbm() {
 
 	let executor = substrate_test_runtime_client::WasmExecutor::default();
 	let mut ext = new_test_ext();
-	ext.register_extension(rp_core::traits::ReadRuntimeVersionExt::new(executor));
+	ext.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(executor));
 	ext.execute_with(|| {
 		System::set_block_number(1);
 		let res = System::set_code(
@@ -724,7 +724,7 @@ fn set_code_rejects_during_mbm() {
 fn set_code_via_authorization_works() {
 	let executor = substrate_test_runtime_client::WasmExecutor::default();
 	let mut ext = new_test_ext();
-	ext.register_extension(rp_core::traits::ReadRuntimeVersionExt::new(executor));
+	ext.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(executor));
 	ext.execute_with(|| {
 		System::set_block_number(1);
 		assert!(System::authorized_upgrade().is_none());
@@ -764,7 +764,7 @@ fn set_code_via_authorization_works() {
 fn runtime_upgraded_with_set_storage() {
 	let executor = substrate_test_runtime_client::WasmExecutor::default();
 	let mut ext = new_test_ext();
-	ext.register_extension(rp_core::traits::ReadRuntimeVersionExt::new(executor));
+	ext.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(executor));
 	ext.execute_with(|| {
 		System::set_storage(
 			RawOrigin::Root.into(),
@@ -808,7 +808,7 @@ fn extrinsics_root_is_calculated_correctly() {
 
 		let ext_root = extrinsics_data_root::<BlakeTwo256>(
 			vec![vec![1], vec![2]],
-			rp_core::storage::StateVersion::V0,
+			sp_core::storage::StateVersion::V0,
 		);
 		assert_eq!(ext_root, *header.extrinsics_root());
 	});
@@ -1005,7 +1005,7 @@ fn set_code_version_3_schedules_and_applies_pending_code() {
 		assert!(System::digest()
 			.logs()
 			.iter()
-			.any(|d| *d == rp_runtime::generic::DigestItem::RuntimeEnvironmentUpdated));
+			.any(|d| *d == sp_runtime::generic::DigestItem::RuntimeEnvironmentUpdated));
 		// CodeUpdated event is emitted immediately when the upgrade is scheduled.
 		System::assert_has_event(SysEvent::CodeUpdated.into());
 		// First on_finalize (block N): counter goes 2 -> 1, no apply yet
@@ -1070,7 +1070,7 @@ fn block_size_includes_digest_and_header_overhead() {
 		let block_size = System::block_size();
 
 		let digest_size = digest.encoded_size();
-		use rp_runtime::traits::{Block as BlockT, Header as HeaderT};
+		use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 		let empty_header = <<Test as Config>::Block as BlockT>::Header::new(
 			1,
 			Default::default(),

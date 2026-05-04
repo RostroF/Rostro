@@ -23,8 +23,8 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::{EnsureSignedBy, RawOrigin};
-use rp_runtime::{BuildStorage, DispatchResult, FixedU128};
-use rp_staking::{
+use sp_runtime::{BuildStorage, DispatchResult, FixedU128};
+use sp_staking::{
 	Agent, DelegationInterface, DelegationMigrator, Delegator, OnStakingUpdate, Stake,
 };
 
@@ -84,7 +84,7 @@ impl StakingMock {
 	}
 }
 
-impl rp_staking::StakingInterface for StakingMock {
+impl sp_staking::StakingInterface for StakingMock {
 	type Balance = Balance;
 	type AccountId = AccountId;
 	type CurrencyToVote = ();
@@ -110,9 +110,9 @@ impl rp_staking::StakingInterface for StakingMock {
 
 	fn status(
 		_: &Self::AccountId,
-	) -> Result<rp_staking::StakerStatus<Self::AccountId>, DispatchError> {
+	) -> Result<sp_staking::StakerStatus<Self::AccountId>, DispatchError> {
 		Nominations::get()
-			.map(|noms| rp_staking::StakerStatus::Nominator(noms))
+			.map(|noms| sp_staking::StakerStatus::Nominator(noms))
 			.ok_or(DispatchError::Other("NotStash"))
 	}
 
@@ -144,7 +144,7 @@ impl rp_staking::StakingInterface for StakingMock {
 		unimplemented!("method currently not used in testing")
 	}
 
-	fn chill(_: &Self::AccountId) -> rp_runtime::DispatchResult {
+	fn chill(_: &Self::AccountId) -> sp_runtime::DispatchResult {
 		Ok(())
 	}
 
@@ -213,7 +213,7 @@ impl rp_staking::StakingInterface for StakingMock {
 		unimplemented!("method currently not used in testing")
 	}
 
-	fn force_unstake(_who: Self::AccountId) -> rp_runtime::DispatchResult {
+	fn force_unstake(_who: Self::AccountId) -> sp_runtime::DispatchResult {
 		unimplemented!("method currently not used in testing")
 	}
 
@@ -236,7 +236,7 @@ impl rp_staking::StakingInterface for StakingMock {
 	}
 
 	#[cfg(feature = "runtime-benchmarks")]
-	fn max_exposure_page_size() -> rp_staking::Page {
+	fn max_exposure_page_size() -> sp_staking::Page {
 		unimplemented!("method currently not used in testing")
 	}
 
@@ -430,7 +430,7 @@ impl DelegationMigrator for DelegateMock {
 impl frame_system::Config for Runtime {
 	type Nonce = u64;
 	type AccountId = AccountId;
-	type Lookup = rp_runtime::traits::IdentityLookup<Self::AccountId>;
+	type Lookup = sp_runtime::traits::IdentityLookup<Self::AccountId>;
 	type Block = Block;
 	type AccountData = pallet_balances::AccountData<Balance>;
 }
@@ -570,8 +570,8 @@ impl ExtBuilder {
 		self
 	}
 
-	pub fn build(self) -> rp_io::TestExternalities {
-		rp_tracing::try_init_simple();
+	pub fn build(self) -> sp_io::TestExternalities {
+		sp_tracing::try_init_simple();
 		let mut storage =
 			frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
 
@@ -585,7 +585,7 @@ impl ExtBuilder {
 		}
 		.assimilate_storage(&mut storage);
 
-		let mut ext = rp_io::TestExternalities::from(storage);
+		let mut ext = sp_io::TestExternalities::from(storage);
 
 		ext.execute_with(|| {
 			// for events to be deposited.
@@ -690,7 +690,7 @@ pub enum RewardImbalance {
 	Deficit(Balance),
 }
 
-pub fn pool_pending_rewards(pool: PoolId) -> Result<BalanceOf<T>, rp_runtime::DispatchError> {
+pub fn pool_pending_rewards(pool: PoolId) -> Result<BalanceOf<T>, sp_runtime::DispatchError> {
 	let bonded_pool = BondedPools::<T>::get(pool).ok_or(Error::<T>::PoolNotFound)?;
 	let reward_pool = RewardPools::<T>::get(pool).ok_or(Error::<T>::PoolNotFound)?;
 

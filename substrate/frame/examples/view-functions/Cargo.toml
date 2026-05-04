@@ -21,10 +21,10 @@ frame-support = { default-features = false, workspace = true }
 frame-system = { default-features = false, workspace = true }
 log = { workspace = true }
 scale-info = { default-features = false, features = ["derive"], workspace = true }
-rp-core = { default-features = false, workspace = true }
-rp-io = { default-features = false, workspace = true }
-rp-metadata-ir = { default-features = false, workspace = true }
-rp-runtime = { default-features = false, workspace = true }
+sp-core = { default-features = false, workspace = true }
+sp-io = { default-features = false, workspace = true }
+sp-metadata-ir = { default-features = false, workspace = true }
+sp-runtime = { default-features = false, workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
@@ -38,18 +38,18 @@ std = [
 	"frame-system/std",
 	"log/std",
 	"scale-info/std",
-	"rp-core/std",
-	"rp-io/std",
-	"rp-metadata-ir/std",
-	"rp-runtime/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-metadata-ir/std",
+	"sp-runtime/std",
 ]
 runtime-benchmarks = [
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"rp-runtime/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

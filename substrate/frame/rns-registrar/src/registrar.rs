@@ -50,9 +50,9 @@ pub mod pallet {
     };
     use frame_system::{ensure_signed, pallet_prelude::*};
     use rns_types::{DomainHash, RegistrarInfo};
-    use rp_runtime::traits::{AtLeast32Bit, CheckedAdd, MaybeSerializeDeserialize, Saturating, StaticLookup, Zero};
-    use rp_runtime::{ArithmeticError, SaturatedConversion};
-    use rp_std::vec::Vec;
+    use sp_runtime::traits::{AtLeast32Bit, CheckedAdd, MaybeSerializeDeserialize, Saturating, StaticLookup, Zero};
+    use sp_runtime::{ArithmeticError, SaturatedConversion};
+    use sp_std::vec::Vec;
 
     #[pallet::config]
     pub trait Config: frame_system::Config {
@@ -205,21 +205,21 @@ pub mod pallet {
     pub struct GenesisConfig<T: Config> {
         pub infos: Vec<(DomainHash, RegistrarInfoOf<T>)>,
         /// Pre-computed namehashes to reserve. Use `reserved_names` for human-readable names instead.
-        pub reserved_list: rp_std::collections::btree_set::BTreeSet<DomainHash>,
+        pub reserved_list: sp_std::collections::btree_set::BTreeSet<DomainHash>,
         /// Plain-text labels (e.g. b"rostro") to reserve at genesis.
         /// Each is hashed against the runtime's BaseNode at build time.
         /// Invalid or unrecognised labels are silently skipped.
         /// The `add_reserved` / `remove_reserved` extrinsics can extend or shrink
         /// the reserved set at any time after genesis.
-        pub reserved_names: rp_std::vec::Vec<rp_std::vec::Vec<u8>>,
+        pub reserved_names: sp_std::vec::Vec<sp_std::vec::Vec<u8>>,
     }
 
     impl<T: Config> Default for GenesisConfig<T> {
         fn default() -> Self {
             GenesisConfig {
                 infos: Vec::with_capacity(0),
-                reserved_list: rp_std::collections::btree_set::BTreeSet::new(),
-                reserved_names: rp_std::vec::Vec::new(),
+                reserved_list: sp_std::collections::btree_set::BTreeSet::new(),
+                reserved_names: sp_std::vec::Vec::new(),
             }
         }
     }
@@ -545,7 +545,7 @@ pub mod pallet {
                         ExistenceRequirement::KeepAlive,
                     )?;
                     // 40/95 of the spendable goes to block author, remainder to custodian.
-                    use rp_runtime::Perbill;
+                    use sp_runtime::Perbill;
                     let author_share = Perbill::from_rational(40u32, 95u32) * spendable;
                     let (author_imbalance, org_imbalance) = imbalance.split(author_share);
                     T::Currency::resolve_creating(&T::PnsCustodian::get(), org_imbalance);
@@ -655,7 +655,7 @@ pub mod pallet {
                     ExistenceRequirement::KeepAlive,
                 )?;
                 // 40/95 of the spendable goes to block author, remainder to custodian.
-                use rp_runtime::Perbill;
+                use sp_runtime::Perbill;
                 let author_share = Perbill::from_rational(40u32, 95u32) * spendable;
                 let (author_imbalance, org_imbalance) = imbalance.split(author_share);
                 T::Currency::resolve_creating(&T::PnsCustodian::get(), org_imbalance);
@@ -811,7 +811,7 @@ pub mod pallet {
 
             let bounded_label: frame_support::BoundedVec<
                 u8,
-                rp_core::ConstU32<63>,
+                sp_core::ConstU32<63>,
             > = label.clone().try_into().map_err(|_| Error::<T>::LabelTooLong)?;
 
             T::Registry::offer_subname(parent_node, label_node, bounded_label, target.clone(), info.capacity)?;
@@ -1093,8 +1093,8 @@ use frame_support::{
     dispatch::DispatchResult,
     traits::{Get, Time},
 };
-use rp_runtime::traits::CheckedAdd;
-use rp_weights::Weight;
+use sp_runtime::traits::CheckedAdd;
+use sp_weights::Weight;
 
 pub trait WeightInfo {
     fn offer_subdomain(len: u32) -> Weight;
@@ -1117,7 +1117,7 @@ impl<T: Config> crate::traits::Registrar for Pallet<T> {
     type AccountId = T::AccountId;
     type Moment = T::Moment;
 
-    fn check_expires_registrable(node: DomainHash) -> rp_runtime::DispatchResult {
+    fn check_expires_registrable(node: DomainHash) -> sp_runtime::DispatchResult {
         let now = T::NowProvider::now();
 
         let expire = RegistrarInfos::<T>::get(node)
@@ -1129,7 +1129,7 @@ impl<T: Config> crate::traits::Registrar for Pallet<T> {
         Ok(())
     }
 
-    fn check_expires_renewable(node: DomainHash) -> rp_runtime::DispatchResult {
+    fn check_expires_renewable(node: DomainHash) -> sp_runtime::DispatchResult {
         let now = T::NowProvider::now();
 
         let expire = RegistrarInfos::<T>::get(node)
@@ -1144,7 +1144,7 @@ impl<T: Config> crate::traits::Registrar for Pallet<T> {
         Ok(())
     }
 
-    fn check_expires_useable(node: DomainHash) -> rp_runtime::DispatchResult {
+    fn check_expires_useable(node: DomainHash) -> sp_runtime::DispatchResult {
         let now = T::NowProvider::now();
 
         let expire = RegistrarInfos::<T>::get(node)
@@ -1159,7 +1159,7 @@ impl<T: Config> crate::traits::Registrar for Pallet<T> {
     fn clear_registrar_info(
         node: DomainHash,
         _owner: &Self::AccountId,
-    ) -> rp_runtime::DispatchResult {
+    ) -> sp_runtime::DispatchResult {
         RegistrarInfos::<T>::try_mutate_exists(node, |maybe_info| -> DispatchResult {
             *maybe_info = None;
             Ok(())
@@ -1247,7 +1247,7 @@ impl<T: Config> crate::traits::NameRegistry for Pallet<T> {
         T::Registry::owner_of(node)
     }
 
-    fn transfer_name(from: &T::AccountId, to: &T::AccountId, node: DomainHash) -> rp_runtime::DispatchResult {
+    fn transfer_name(from: &T::AccountId, to: &T::AccountId, node: DomainHash) -> sp_runtime::DispatchResult {
         // Prevent transfer to an account that already holds any name.
         if let Some(existing) = OwnerToPrimaryName::<T>::get(to) {
             let now = T::NowProvider::now();
@@ -1280,7 +1280,7 @@ impl<T: Config> crate::traits::NameRegistry for Pallet<T> {
         buyer: &T::AccountId,
         recipient: &T::AccountId,
         node: DomainHash,
-    ) -> rp_runtime::DispatchResult {
+    ) -> sp_runtime::DispatchResult {
         // The name must not already be in offered state.
         frame_support::ensure!(
             !OfferedNames::<T>::contains_key(node),
@@ -1336,7 +1336,7 @@ impl<T: Config> crate::traits::NameRegistry for Pallet<T> {
     fn charge_sale_fee(
         buyer: &T::AccountId,
         node: DomainHash,
-    ) -> rp_runtime::DispatchResult {
+    ) -> sp_runtime::DispatchResult {
         use crate::traits::{BlockAuthor, PriceOracle};
         use frame_support::traits::{
             Currency, Imbalance, ExistenceRequirement, WithdrawReasons,
@@ -1346,7 +1346,7 @@ impl<T: Config> crate::traits::NameRegistry for Pallet<T> {
         let info = RegistrarInfos::<T>::get(node)
             .ok_or(Error::<T>::NotExistOrOccupied)?;
         let fee = T::PriceOracle::registration_fee(info.label_len as usize)
-            .ok_or(rp_runtime::ArithmeticError::Overflow)?;
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
 
         // Release the seller's old cleanup deposit back to them.
         if let Some((old_depositor, old_amount)) = pallet::CleanupDeposit::<T>::take(node) {
@@ -1370,7 +1370,7 @@ impl<T: Config> crate::traits::NameRegistry for Pallet<T> {
             WithdrawReasons::FEE,
             ExistenceRequirement::KeepAlive,
         )?;
-        use rp_runtime::Perbill;
+        use sp_runtime::Perbill;
         let author_share = Perbill::from_rational(40u32, 95u32) * spendable;
         let (author_imbalance, org_imbalance) = imbalance.split(author_share);
         T::Currency::resolve_creating(&T::PnsCustodian::get(), org_imbalance);
@@ -1401,8 +1401,8 @@ mod benchmarks {
     use frame_benchmarking::v2::*;
     use frame_support::traits::{Currency, Get};
     use frame_system::RawOrigin;
-    use rp_runtime::traits::{SaturatedConversion, StaticLookup, Zero};
-    use rp_std::vec::Vec;
+    use sp_runtime::traits::{SaturatedConversion, StaticLookup, Zero};
+    use sp_std::vec::Vec;
     use crate::traits::Label;
     use rns_types::{DomainHash, OfferedNameRecord};
 

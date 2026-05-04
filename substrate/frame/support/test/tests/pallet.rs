@@ -34,11 +34,11 @@ use frame_support::{
 };
 use frame_system::offchain::{CreateSignedTransaction, CreateTransactionBase, SigningTypes};
 use scale_info::{meta_type, TypeInfo};
-use rp_io::{
+use sp_io::{
 	hashing::{blake2_128, twox_128, twox_64},
 	TestExternalities,
 };
-use rp_runtime::{
+use sp_runtime::{
 	testing::UintAuthorityId,
 	traits::{Block as BlockT, Dispatchable},
 	DispatchError, ModuleError,
@@ -121,7 +121,7 @@ pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use rp_runtime::DispatchResult;
+	use sp_runtime::DispatchResult;
 
 	type BalanceOf<T> = <T as Config>::Balance;
 
@@ -728,10 +728,10 @@ impl frame_system::Config for Runtime {
 	type RuntimeOrigin = RuntimeOrigin;
 	type Nonce = u64;
 	type RuntimeCall = RuntimeCall;
-	type Hash = rp_runtime::testing::H256;
-	type Hashing = rp_runtime::traits::BlakeTwo256;
+	type Hash = sp_runtime::testing::H256;
+	type Hashing = sp_runtime::traits::BlakeTwo256;
 	type AccountId = u64;
-	type Lookup = rp_runtime::traits::IdentityLookup<Self::AccountId>;
+	type Lookup = sp_runtime::traits::IdentityLookup<Self::AccountId>;
 	type Block = Block;
 	type RuntimeEvent = RuntimeEvent;
 	type BlockWeights = ();
@@ -771,15 +771,15 @@ impl pallet5::Config for Runtime {
 	type RuntimeOrigin = RuntimeOrigin;
 }
 
-pub type Header = rp_runtime::generic::Header<u32, rp_runtime::traits::BlakeTwo256>;
-pub type Block = rp_runtime::generic::Block<Header, UncheckedExtrinsic>;
-pub type UncheckedExtrinsic = rp_runtime::generic::UncheckedExtrinsic<
+pub type Header = sp_runtime::generic::Header<u32, sp_runtime::traits::BlakeTwo256>;
+pub type Block = sp_runtime::generic::Block<Header, UncheckedExtrinsic>;
+pub type UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic<
 	u64,
 	RuntimeCall,
 	UintAuthorityId,
 	frame_system::CheckNonZeroSender<Runtime>,
 >;
-pub type UncheckedSignaturePayload = rp_runtime::generic::UncheckedSignaturePayload<
+pub type UncheckedSignaturePayload = sp_runtime::generic::UncheckedSignaturePayload<
 	u64,
 	UintAuthorityId,
 	frame_system::CheckNonZeroSender<Runtime>,
@@ -985,8 +985,8 @@ fn instance_expand() {
 #[test]
 fn inherent_expand() {
 	use frame_support::inherent::InherentData;
-	use rp_core::Hasher;
-	use rp_runtime::{
+	use sp_core::Hasher;
+	use sp_runtime::{
 		traits::{BlakeTwo256, Block as _, Header},
 		Digest,
 	};
@@ -1351,9 +1351,9 @@ fn migrate_from_pallet_version_to_storage_version() {
 
 	TestExternalities::default().execute_with(|| {
 		// Insert some fake pallet versions
-		rp_io::storage::set(&pallet_version_key(Example::name()), &[1, 2, 3]);
-		rp_io::storage::set(&pallet_version_key(Example2::name()), &[1, 2, 3]);
-		rp_io::storage::set(&pallet_version_key(System::name()), &[1, 2, 3]);
+		sp_io::storage::set(&pallet_version_key(Example::name()), &[1, 2, 3]);
+		sp_io::storage::set(&pallet_version_key(Example2::name()), &[1, 2, 3]);
+		sp_io::storage::set(&pallet_version_key(System::name()), &[1, 2, 3]);
 
 		// Check that everyone currently is at version 0
 		assert_eq!(Example::on_chain_storage_version(), StorageVersion::new(0));
@@ -1377,9 +1377,9 @@ fn migrate_from_pallet_version_to_storage_version() {
 		assert_eq!(Weight::from_parts(pallet_num * 2 * 5, 0), weight);
 
 		// All pallet versions should be removed
-		assert!(rp_io::storage::get(&pallet_version_key(Example::name())).is_none());
-		assert!(rp_io::storage::get(&pallet_version_key(Example2::name())).is_none());
-		assert!(rp_io::storage::get(&pallet_version_key(System::name())).is_none());
+		assert!(sp_io::storage::get(&pallet_version_key(Example::name())).is_none());
+		assert!(sp_io::storage::get(&pallet_version_key(Example2::name())).is_none());
+		assert!(sp_io::storage::get(&pallet_version_key(System::name())).is_none());
 
 		assert_eq!(Example::on_chain_storage_version(), pallet::STORAGE_VERSION);
 		assert_eq!(Example2::on_chain_storage_version(), pallet2::STORAGE_VERSION);
@@ -1917,7 +1917,7 @@ fn metadata_v15() {
 #[test]
 fn metadata_at_version() {
 	use frame_metadata::*;
-	use rp_core::Decode;
+	use sp_core::Decode;
 
 	// Metadata always returns the V14.3
 	let metadata = Runtime::metadata();
@@ -2533,7 +2533,7 @@ fn test_error_feature_parsing() {
 
 #[test]
 fn pallet_metadata() {
-	use rp_metadata_ir::{EnumDeprecationInfoIR, ItemDeprecationInfoIR, VariantDeprecationInfoIR};
+	use sp_metadata_ir::{EnumDeprecationInfoIR, ItemDeprecationInfoIR, VariantDeprecationInfoIR};
 	let pallets = Runtime::metadata_ir().pallets;
 	let example = pallets[0].clone();
 	let example2 = pallets[1].clone();

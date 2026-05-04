@@ -21,7 +21,7 @@ use crate::{ExtendedBalance, IdentifierT, PerThing128};
 use alloc::vec::Vec;
 #[cfg(feature = "serde")]
 use codec::{Decode, Encode};
-use rp_arithmetic::{
+use sp_arithmetic::{
 	traits::{Bounded, Zero},
 	Normalizable, PerThing,
 };

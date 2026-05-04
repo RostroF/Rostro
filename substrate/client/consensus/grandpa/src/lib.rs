@@ -71,16 +71,16 @@ use rc_network::{types::ProtocolName, NetworkBackend, NotificationService};
 use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_INFO};
 use rc_transaction_pool_api::OffchainTransactionPoolFactory;
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver};
-use rp_api::ProvideRuntimeApi;
-use rp_application_crypto::AppCrypto;
-use rp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata, Result as ClientResult};
-use rp_consensus::SelectChain;
-use rp_consensus_grandpa::{
+use sp_api::ProvideRuntimeApi;
+use sp_application_crypto::AppCrypto;
+use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata, Result as ClientResult};
+use sp_consensus::SelectChain;
+use sp_consensus_grandpa::{
 	AuthorityList, AuthoritySignature, SetId, CLIENT_LOG_TARGET as LOG_TARGET,
 };
-use rp_core::{crypto::ByteArray, traits::CallContext};
-use rp_keystore::KeystorePtr;
-use rp_runtime::{
+use sp_core::{crypto::ByteArray, traits::CallContext};
+use sp_keystore::KeystorePtr;
+use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, NumberFor, Zero},
 };
@@ -146,7 +146,7 @@ use environment::{Environment, VoterSetState};
 use until_imported::UntilGlobalMessageBlocksImported;
 
 // Re-export these two because it's just so damn convenient.
-pub use rp_consensus_grandpa::{
+pub use sp_consensus_grandpa::{
 	AuthorityId, AuthorityPair, CatchUp, Commit, CompactCommit, GrandpaApi, Message, Precommit,
 	Prevote, PrimaryPropose, ScheduledChange, SignedMessage, GRANDPA_ENGINE_ID,
 };
@@ -161,7 +161,7 @@ use std::marker::PhantomData;
 pub struct GrandpaPruningFilter;
 
 impl rc_client_db::PruningFilter for GrandpaPruningFilter {
-	fn should_retain(&self, justifications: &rp_runtime::Justifications) -> bool {
+	fn should_retain(&self, justifications: &sp_runtime::Justifications) -> bool {
 		justifications.get(GRANDPA_ENGINE_ID).is_some()
 	}
 }
@@ -288,7 +288,7 @@ pub enum Error {
 
 	/// A runtime api request failed.
 	#[error("runtime API request failed: {0}")]
-	RuntimeApi(rp_api::ApiError),
+	RuntimeApi(sp_api::ApiError),
 }
 
 /// Something which can determine if a block is known.
@@ -317,12 +317,12 @@ pub trait ClientForGrandpa<Block, BE>:
 	LockImportRun<Block, BE>
 	+ Finalizer<Block, BE>
 	+ AuxStore
-	+ HeaderMetadata<Block, Error = rp_blockchain::Error>
+	+ HeaderMetadata<Block, Error = sp_blockchain::Error>
 	+ HeaderBackend<Block>
 	+ BlockchainEvents<Block>
 	+ ProvideRuntimeApi<Block>
 	+ ExecutorProvider<Block>
-	+ BlockImport<Block, Error = rp_consensus::Error>
+	+ BlockImport<Block, Error = sp_consensus::Error>
 	+ StorageProvider<Block, BE>
 where
 	BE: Backend<Block>,
@@ -337,12 +337,12 @@ where
 	T: LockImportRun<Block, BE>
 		+ Finalizer<Block, BE>
 		+ AuxStore
-		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ HeaderBackend<Block>
 		+ BlockchainEvents<Block>
 		+ ProvideRuntimeApi<Block>
 		+ ExecutorProvider<Block>
-		+ BlockImport<Block, Error = rp_consensus::Error>
+		+ BlockImport<Block, Error = sp_consensus::Error>
 		+ StorageProvider<Block, BE>,
 {
 }
@@ -748,7 +748,7 @@ pub fn grandpa_peers_set_config<B: BlockT, N: NetworkBackend<B, <B as BlockT>::H
 /// block import worker that has already been instantiated with `block_import`.
 pub fn run_grandpa_voter<Block: BlockT, BE: 'static, C, N, S, SC, VR>(
 	grandpa_params: GrandpaParams<Block, C, N, S, SC, VR>,
-) -> rp_blockchain::Result<impl Future<Output = ()> + Send>
+) -> sp_blockchain::Result<impl Future<Output = ()> + Send>
 where
 	BE: Backend<Block> + 'static,
 	N: NetworkT<Block> + Sync + 'static,

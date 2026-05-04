@@ -24,7 +24,7 @@
 //! `cargo hfuzz run-debug per_thing_mult_fraction hfuzz_workspace/per_thing_mult_fraction/*.fuzz`.
 
 use honggfuzz::fuzz;
-use rp_arithmetic::{PerThing, Perbill, Percent, Perquintill, *};
+use sp_arithmetic::{PerThing, Perbill, Percent, Perquintill, *};
 
 /// Tries to disprove `(n / d) * d <= n` for any `PerThing`s.
 fn main() {

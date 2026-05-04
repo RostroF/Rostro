@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use rp_runtime_interface::runtime_interface;
+use sp_runtime_interface::runtime_interface;
 
 #[runtime_interface]
 trait Test<T> {

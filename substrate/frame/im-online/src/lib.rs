@@ -100,13 +100,13 @@ use frame_system::{
 };
 pub use pallet::*;
 use scale_info::TypeInfo;
-use rp_application_crypto::RuntimeAppPublic;
-use rp_runtime::{
+use sp_application_crypto::RuntimeAppPublic;
+use sp_runtime::{
 	offchain::storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
 	traits::{AtLeast32BitUnsigned, Convert, Saturating, TrailingZeroInput},
 	Debug, PerThing, Perbill, Permill, SaturatedConversion,
 };
-use rp_staking::{
+use sp_staking::{
 	offence::{Kind, Offence, ReportOffence},
 	SessionIndex,
 };
@@ -114,11 +114,11 @@ pub use weights::WeightInfo;
 
 pub mod sr25519 {
 	mod app_sr25519 {
-		use rp_application_crypto::{app_crypto, key_types::IM_ONLINE, sr25519};
+		use sp_application_crypto::{app_crypto, key_types::IM_ONLINE, sr25519};
 		app_crypto!(sr25519, IM_ONLINE);
 	}
 
-	rp_application_crypto::with_pair! {
+	sp_application_crypto::with_pair! {
 		/// An i'm online keypair using sr25519 as its crypto.
 		pub type AuthorityPair = app_sr25519::Pair;
 	}
@@ -132,11 +132,11 @@ pub mod sr25519 {
 
 pub mod ed25519 {
 	mod app_ed25519 {
-		use rp_application_crypto::{app_crypto, ed25519, key_types::IM_ONLINE};
+		use sp_application_crypto::{app_crypto, ed25519, key_types::IM_ONLINE};
 		app_crypto!(ed25519, IM_ONLINE);
 	}
 
-	rp_application_crypto::with_pair! {
+	sp_application_crypto::with_pair! {
 		/// An i'm online keypair using ed25519 as its crypto.
 		pub type AuthorityPair = app_ed25519::Pair;
 	}
@@ -422,7 +422,7 @@ pub mod pallet {
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn offchain_worker(now: BlockNumberFor<T>) {
 			// Only send messages if we are a potential validator.
-			if rp_io::offchain::is_validator() {
+			if sp_io::offchain::is_validator() {
 				for res in Self::send_heartbeats(now).into_iter().flatten() {
 					if let Err(e) = res {
 						log::debug!(
@@ -565,7 +565,7 @@ impl<T: Config> Pallet<T> {
 			let residual = Permill::from_rational(1u32, session_length.saturated_into());
 			let threshold: Permill = progress.saturating_pow(6).saturating_add(residual);
 
-			let seed = rp_io::offchain::random_seed();
+			let seed = sp_io::offchain::random_seed();
 			let random = <u32>::decode(&mut TrailingZeroInput::new(seed.as_ref()))
 				.expect("input is padded with zeroes; qed");
 			let random = Permill::from_parts(random % Permill::ACCURACY);
@@ -737,7 +737,7 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-impl<T: Config> rp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
+impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
 	type Public = T::AuthorityId;
 }
 
@@ -807,7 +807,7 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 			let validator_set_count = keys.len() as u32;
 			let offence = UnresponsivenessOffence { session_index, validator_set_count, offenders };
 			if let Err(e) = T::ReportUnresponsiveness::report_offence(vec![], offence) {
-				rp_runtime::print(e);
+				sp_runtime::print(e);
 			}
 		}
 	}

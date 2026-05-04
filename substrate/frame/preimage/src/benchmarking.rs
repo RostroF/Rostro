@@ -21,7 +21,7 @@ use alloc::vec;
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
 use frame_system::RawOrigin;
-use rp_runtime::traits::Bounded;
+use sp_runtime::traits::Bounded;
 
 use crate::*;
 

@@ -26,5 +26,5 @@ codec = { features = ["derive"], workspace = true }
 frame-election-provider-solution-type = { default-features = true, workspace = true }
 frame-election-provider-support = { default-features = true, workspace = true }
 frame-support = { default-features = true, workspace = true }
-rp-arithmetic = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
+sp-arithmetic = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }

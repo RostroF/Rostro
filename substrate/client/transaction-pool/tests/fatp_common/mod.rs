@@ -20,7 +20,7 @@
 
 use rc_transaction_pool::{ChainApi, PoolLimit};
 use rc_transaction_pool_api::ChainEvent;
-use rp_runtime::transaction_validity::TransactionSource;
+use sp_runtime::transaction_validity::TransactionSource;
 use std::sync::Arc;
 use substrate_test_runtime_client::{
 	runtime::{Block, Hash, Header},
@@ -328,7 +328,7 @@ pub mod test_chain_with_forks {
 
 	#[test]
 	fn test_chain_works() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (api, f) = chain(None);
 		debug!(forks = ?f, "forks");
 		f[0].iter().for_each(|h| print_block(api.clone(), h.hash()));

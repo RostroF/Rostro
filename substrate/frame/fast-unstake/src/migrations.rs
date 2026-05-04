@@ -23,12 +23,12 @@ pub mod v1 {
 		traits::{Defensive, Get, GetStorageVersion, OnRuntimeUpgrade},
 		weights::Weight,
 	};
-	use rp_staking::EraIndex;
+	use sp_staking::EraIndex;
 
 	#[cfg(feature = "try-runtime")]
 	use frame_support::ensure;
 	#[cfg(feature = "try-runtime")]
-	use rp_runtime::TryRuntimeError;
+	use sp_runtime::TryRuntimeError;
 
 	pub struct MigrateToV1<T>(core::marker::PhantomData<T>);
 	impl<T: Config> OnRuntimeUpgrade for MigrateToV1<T> {

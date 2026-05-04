@@ -33,7 +33,7 @@ use frame_support::{
 		Currency,
 	},
 };
-use rp_runtime::{traits::Dispatchable, TokenError};
+use sp_runtime::{traits::Dispatchable, TokenError};
 
 #[test]
 fn fails_to_filter_calls_to_safe_mode_pallet() {

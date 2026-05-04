@@ -23,18 +23,18 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use codec::{Codec, Decode, Encode};
-use rp_runtime::ConsensusEngineId;
+use sp_runtime::ConsensusEngineId;
 
 pub mod digests;
 pub mod inherents;
 
 pub mod sr25519 {
 	mod app_sr25519 {
-		use rp_application_crypto::{app_crypto, key_types::AURA, sr25519};
+		use sp_application_crypto::{app_crypto, key_types::AURA, sr25519};
 		app_crypto!(sr25519, AURA);
 	}
 
-	rp_application_crypto::with_pair! {
+	sp_application_crypto::with_pair! {
 		/// An Aura authority keypair using S/R 25519 as its crypto.
 		pub type AuthorityPair = app_sr25519::Pair;
 	}
@@ -48,11 +48,11 @@ pub mod sr25519 {
 
 pub mod ed25519 {
 	mod app_ed25519 {
-		use rp_application_crypto::{app_crypto, ed25519, key_types::AURA};
+		use sp_application_crypto::{app_crypto, ed25519, key_types::AURA};
 		app_crypto!(ed25519, AURA);
 	}
 
-	rp_application_crypto::with_pair! {
+	sp_application_crypto::with_pair! {
 		/// An Aura authority keypair using Ed25519 as its crypto.
 		pub type AuthorityPair = app_ed25519::Pair;
 	}
@@ -64,7 +64,7 @@ pub mod ed25519 {
 	pub type AuthorityId = app_ed25519::Public;
 }
 
-pub use rp_consensus_slots::{Slot, SlotDuration};
+pub use sp_consensus_slots::{Slot, SlotDuration};
 
 /// The `ConsensusEngineId` of AuRa.
 pub const AURA_ENGINE_ID: ConsensusEngineId = [b'a', b'u', b'r', b'a'];
@@ -83,7 +83,7 @@ pub enum ConsensusLog<AuthorityId: Codec> {
 	OnDisabled(AuthorityIndex),
 }
 
-rp_api::decl_runtime_apis! {
+sp_api::decl_runtime_apis! {
 	/// API necessary for block authorship with aura.
 	pub trait AuraApi<AuthorityId: Codec> {
 		/// Returns the slot duration for Aura.

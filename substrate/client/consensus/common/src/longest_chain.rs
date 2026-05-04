@@ -19,9 +19,9 @@
 //! Longest chain implementation
 
 use rc_client_api::backend;
-use rp_blockchain::{Backend, HeaderBackend};
-use rp_consensus::{Error as ConsensusError, SelectChain};
-use rp_runtime::traits::{Block as BlockT, Header, NumberFor};
+use sp_blockchain::{Backend, HeaderBackend};
+use sp_consensus::{Error as ConsensusError, SelectChain};
+use sp_runtime::traits::{Block as BlockT, Header, NumberFor};
 use std::{marker::PhantomData, sync::Arc};
 
 /// Implement Longest Chain Select implementation
@@ -48,7 +48,7 @@ where
 		LongestChain { backend, _phantom: Default::default() }
 	}
 
-	fn best_hash(&self) -> rp_blockchain::Result<<Block as BlockT>::Hash> {
+	fn best_hash(&self) -> sp_blockchain::Result<<Block as BlockT>::Hash> {
 		let info = self.backend.blockchain().info();
 		let import_lock = self.backend.get_import_lock();
 		let best_hash = self
@@ -59,7 +59,7 @@ where
 		Ok(best_hash)
 	}
 
-	fn best_header(&self) -> rp_blockchain::Result<<Block as BlockT>::Header> {
+	fn best_header(&self) -> sp_blockchain::Result<<Block as BlockT>::Header> {
 		let best_hash = self.best_hash()?;
 		Ok(self
 			.backend
@@ -81,8 +81,8 @@ where
 		&self,
 		base_hash: Block::Hash,
 		maybe_max_number: Option<NumberFor<Block>>,
-	) -> rp_blockchain::Result<Block::Hash> {
-		use rp_blockchain::Error::{Application, MissingHeader};
+	) -> sp_blockchain::Result<Block::Hash> {
+		use sp_blockchain::Error::{Application, MissingHeader};
 		let blockchain = self.backend.blockchain();
 
 		let mut current_head = self.best_header()?;
@@ -127,7 +127,7 @@ where
 		Ok(best_hash)
 	}
 
-	fn leaves(&self) -> Result<Vec<<Block as BlockT>::Hash>, rp_blockchain::Error> {
+	fn leaves(&self) -> Result<Vec<<Block as BlockT>::Hash>, sp_blockchain::Error> {
 		self.backend.blockchain().leaves()
 	}
 }

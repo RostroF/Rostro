@@ -24,7 +24,7 @@ use frame_support::traits::{
 	},
 };
 use pallet_assets::BalanceOnHold;
-use rp_runtime::{
+use sp_runtime::{
 	traits::{CheckedAdd, CheckedSub, Zero},
 	ArithmeticError,
 };

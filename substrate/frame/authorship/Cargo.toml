@@ -21,11 +21,11 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 impl-trait-for-tuples = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-runtime = { workspace = true }
+sp-runtime = { workspace = true }
 
 [dev-dependencies]
-rp-core = { default-features = true, workspace = true }
-rp-io = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-io = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -34,10 +34,10 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"scale-info/std",
-	"rp-runtime/std",
+	"sp-runtime/std",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

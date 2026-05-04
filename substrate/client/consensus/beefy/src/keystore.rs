@@ -18,17 +18,17 @@
 use codec::Decode;
 use log::warn;
 
-use rp_application_crypto::{key_types::BEEFY as BEEFY_KEY_TYPE, RuntimeAppPublic};
+use sp_application_crypto::{key_types::BEEFY as BEEFY_KEY_TYPE, RuntimeAppPublic};
 
-use rp_keystore::KeystorePtr;
+use sp_keystore::KeystorePtr;
 use std::marker::PhantomData;
 
-use rp_consensus_beefy::{AuthorityIdBound, BeefyAuthorityId};
+use sp_consensus_beefy::{AuthorityIdBound, BeefyAuthorityId};
 
 use crate::{error, LOG_TARGET};
 
 /// A BEEFY specific keystore implemented as a `Newtype`. This is basically a
-/// wrapper around [`rp_keystore::Keystore`] and allows to customize
+/// wrapper around [`sp_keystore::Keystore`] and allows to customize
 /// common cryptographic functionality.
 pub(crate) struct BeefyKeystore<AuthorityId: AuthorityIdBound>(
 	Option<KeystorePtr>,
@@ -99,7 +99,7 @@ impl<AuthorityId: AuthorityIdBound> BeefyKeystore<AuthorityId> {
 		Ok(signature)
 	}
 
-	/// Returns a vector of [`rp_consensus_beefy::crypto::Public`] keys which are currently
+	/// Returns a vector of [`sp_consensus_beefy::crypto::Public`] keys which are currently
 	/// supported (i.e. found in the keystore).
 	pub fn public_keys(&self) -> Result<Vec<AuthorityId>, error::Error> {
 		let store = self.0.clone().ok_or_else(|| error::Error::Keystore("no Keystore".into()))?;
@@ -133,17 +133,17 @@ impl<AuthorityId: AuthorityIdBound> From<Option<KeystorePtr>> for BeefyKeystore<
 
 #[cfg(test)]
 pub mod tests {
-	use rp_application_crypto::AppCrypto;
+	use sp_application_crypto::AppCrypto;
 	#[cfg(feature = "bls-experimental")]
-	use rp_consensus_beefy::ecdsa_bls_crypto;
-	use rp_consensus_beefy::{
+	use sp_consensus_beefy::ecdsa_bls_crypto;
+	use sp_consensus_beefy::{
 		ecdsa_crypto,
 		test_utils::{BeefySignerAuthority, Keyring},
 	};
 	#[cfg(feature = "bls-experimental")]
-	use rp_core::ecdsa_bls381;
-	use rp_core::{ecdsa, Pair as PairT};
-	use rp_keystore::{testing::MemoryKeystore, Keystore};
+	use sp_core::ecdsa_bls381;
+	use sp_core::{ecdsa, Pair as PairT};
+	use sp_keystore::{testing::MemoryKeystore, Keystore};
 
 	use super::*;
 	use crate::error::Error;
@@ -156,7 +156,7 @@ pub mod tests {
 		AuthorityId: AuthorityIdBound + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Public>,
 	>()
 	where
-		<AuthorityId as rp_runtime::RuntimeAppPublic>::Signature:
+		<AuthorityId as sp_runtime::RuntimeAppPublic>::Signature:
 			Send + Sync + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Signature>,
 		<AuthorityId as AppCrypto>::Pair: BeefySignerAuthority,
 	{
@@ -189,7 +189,7 @@ pub mod tests {
 	/// Generate key pair in the given store using the provided seed
 	fn generate_in_store<AuthorityId>(
 		store: KeystorePtr,
-		key_type: rp_application_crypto::KeyTypeId,
+		key_type: sp_application_crypto::KeyTypeId,
 		owner: Option<Keyring<AuthorityId>>,
 	) -> AuthorityId
 	where
@@ -233,7 +233,7 @@ pub mod tests {
 		AuthorityId: AuthorityIdBound + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Public>,
 	>()
 	where
-		<AuthorityId as rp_runtime::RuntimeAppPublic>::Signature:
+		<AuthorityId as sp_runtime::RuntimeAppPublic>::Signature:
 			Send + Sync + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Signature>,
 		<AuthorityId as AppCrypto>::Pair: BeefySignerAuthority,
 	{
@@ -301,7 +301,7 @@ pub mod tests {
 		AuthorityId: AuthorityIdBound + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Public>,
 	>()
 	where
-		<AuthorityId as rp_runtime::RuntimeAppPublic>::Signature:
+		<AuthorityId as sp_runtime::RuntimeAppPublic>::Signature:
 			Send + Sync + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Signature>,
 		<AuthorityId as AppCrypto>::Pair: BeefySignerAuthority,
 	{
@@ -342,7 +342,7 @@ pub mod tests {
 		AuthorityId: AuthorityIdBound + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Public>,
 	>()
 	where
-		<AuthorityId as rp_runtime::RuntimeAppPublic>::Signature:
+		<AuthorityId as sp_runtime::RuntimeAppPublic>::Signature:
 			Send + Sync + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Signature>,
 		<AuthorityId as AppCrypto>::Pair: BeefySignerAuthority,
 	{
@@ -378,7 +378,7 @@ pub mod tests {
 	>(
 		expected_error_message: &str,
 	) where
-		<AuthorityId as rp_runtime::RuntimeAppPublic>::Signature:
+		<AuthorityId as sp_runtime::RuntimeAppPublic>::Signature:
 			Send + Sync + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Signature>,
 		<AuthorityId as AppCrypto>::Pair: BeefySignerAuthority,
 	{
@@ -400,7 +400,7 @@ pub mod tests {
 	#[test]
 	fn sign_error_for_ecdsa() {
 		sign_error::<ecdsa_crypto::AuthorityId>(
-			"rp_consensus_beefy::ecdsa_crypto::Public::try_sign_with_store() failed",
+			"sp_consensus_beefy::ecdsa_crypto::Public::try_sign_with_store() failed",
 		);
 	}
 
@@ -408,7 +408,7 @@ pub mod tests {
 	#[test]
 	fn sign_error_for_ecdsa_n_bls() {
 		sign_error::<ecdsa_bls_crypto::AuthorityId>(
-			"rp_consensus_beefy::ecdsa_bls_crypto::Public::try_sign_with_store() failed",
+			"sp_consensus_beefy::ecdsa_bls_crypto::Public::try_sign_with_store() failed",
 		);
 	}
 
@@ -428,7 +428,7 @@ pub mod tests {
 		AuthorityId: AuthorityIdBound + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Public>,
 	>()
 	where
-		<AuthorityId as rp_runtime::RuntimeAppPublic>::Signature:
+		<AuthorityId as sp_runtime::RuntimeAppPublic>::Signature:
 			Send + Sync + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Signature>,
 		<AuthorityId as AppCrypto>::Pair: BeefySignerAuthority,
 	{
@@ -467,12 +467,12 @@ pub mod tests {
 		AuthorityId: AuthorityIdBound + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Public>,
 	>()
 	where
-		<AuthorityId as rp_runtime::RuntimeAppPublic>::Signature:
+		<AuthorityId as sp_runtime::RuntimeAppPublic>::Signature:
 			Send + Sync + From<<<AuthorityId as AppCrypto>::Pair as AppCrypto>::Signature>,
 		<AuthorityId as AppCrypto>::Pair: BeefySignerAuthority,
 	{
-		const TEST_TYPE: rp_application_crypto::KeyTypeId =
-			rp_application_crypto::KeyTypeId(*b"test");
+		const TEST_TYPE: sp_application_crypto::KeyTypeId =
+			sp_application_crypto::KeyTypeId(*b"test");
 
 		let store = keystore();
 

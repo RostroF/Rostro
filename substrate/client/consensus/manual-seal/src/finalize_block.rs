@@ -20,7 +20,7 @@
 
 use crate::rpc;
 use rc_client_api::backend::{Backend as ClientBackend, Finalizer};
-use rp_runtime::{traits::Block as BlockT, Justification};
+use sp_runtime::{traits::Block as BlockT, Justification};
 use std::{marker::PhantomData, sync::Arc};
 
 /// params for block finalization.

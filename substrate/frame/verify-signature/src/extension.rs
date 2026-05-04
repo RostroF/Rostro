@@ -22,8 +22,8 @@ use crate::{Config, WeightInfo};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{pallet_prelude::TransactionSource, traits::OriginTrait};
 use scale_info::TypeInfo;
-use rp_io::hashing::blake2_256;
-use rp_runtime::{
+use sp_io::hashing::blake2_256;
+use sp_runtime::{
 	impl_tx_ext_default,
 	traits::{
 		transaction_extension::TransactionExtension, AsTransactionAuthorizedOrigin, DispatchInfoOf,
@@ -31,12 +31,12 @@ use rp_runtime::{
 	},
 	transaction_validity::{InvalidTransaction, TransactionValidityError, ValidTransaction},
 };
-use rp_weights::Weight;
+use sp_weights::Weight;
 
 /// Extension that, if enabled, validates a signature type against the payload constructed from the
 /// call and the rest of the transaction extension pipeline. This extension provides the
 /// functionality that traditionally signed transactions had with the implicit signature checking
-/// implemented in [`Checkable`](rp_runtime::traits::Checkable). It is meant to be placed ahead of
+/// implemented in [`Checkable`](sp_runtime::traits::Checkable). It is meant to be placed ahead of
 /// any other extensions that do authorization work in the [`TransactionExtension`] pipeline.
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]

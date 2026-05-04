@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use crate::runtime::{InstanceCounter, ReleaseInstanceHandle, Store, StoreData};
 use rc_executor_common::error::{Backtrace, Error, MessageWithBacktrace, Result, WasmError};
-use rp_wasm_interface::{Pointer, WordSize};
+use sp_wasm_interface::{Pointer, WordSize};
 use wasmtime::{AsContext, AsContextMut, Engine, Instance, InstancePre, Memory};
 
 /// Wasm blob entry point.

@@ -19,7 +19,7 @@
 //! Substrate block builder
 //!
 //! This crate provides the [`BlockBuilder`] utility and the corresponding runtime api
-//! [`BlockBuilder`](rp_block_builder::BlockBuilder).
+//! [`BlockBuilder`](sp_block_builder::BlockBuilder).
 //!
 //! The block builder utility is used in the node as an abstraction over the runtime api to
 //! initialize a block, to push extrinsics and to finalize a block.
@@ -28,21 +28,21 @@
 
 use codec::Encode;
 
-use rp_api::{
+use sp_api::{
 	ApiExt, ApiRef, CallApiAt, Core, ProofRecorder, ProvideRuntimeApi, StorageChanges,
 	TransactionOutcome,
 };
-use rp_blockchain::{ApplyExtrinsicFailed, Error, HeaderBackend};
-use rp_core::traits::CallContext;
-use rp_externalities::Extensions;
-use rp_runtime::{
+use sp_blockchain::{ApplyExtrinsicFailed, Error, HeaderBackend};
+use sp_core::traits::CallContext;
+use sp_externalities::Extensions;
+use sp_runtime::{
 	legacy,
 	traits::{Block as BlockT, Hash, HashingFor, Header as HeaderT, NumberFor, One},
 	Digest, ExtrinsicInclusionMode,
 };
 use std::marker::PhantomData;
 
-pub use rp_block_builder::BlockBuilder as BlockBuilderApi;
+pub use sp_block_builder::BlockBuilder as BlockBuilderApi;
 
 /// A builder for creating an instance of [`BlockBuilder`].
 pub struct BlockBuilderBuilder<'a, B, C> {
@@ -339,7 +339,7 @@ where
 		let storage_changes = self
 			.api
 			.into_storage_changes(&state, self.parent_hash)
-			.map_err(rp_blockchain::Error::StorageChanges)?;
+			.map_err(sp_blockchain::Error::StorageChanges)?;
 
 		Ok(BuiltBlock { block: <Block as BlockT>::new(header, self.extrinsics), storage_changes })
 	}
@@ -349,7 +349,7 @@ where
 	/// Returns the inherents created by the runtime or an error if something failed.
 	pub fn create_inherents(
 		&mut self,
-		inherent_data: rp_inherents::InherentData,
+		inherent_data: sp_inherents::InherentData,
 	) -> Result<Vec<Block::Extrinsic>, Error> {
 		let parent_hash = self.parent_hash;
 		self.api
@@ -380,9 +380,9 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_blockchain::HeaderBackend;
-	use rp_core::Blake2Hasher;
-	use rp_state_machine::Backend;
+	use sp_blockchain::HeaderBackend;
+	use sp_core::Blake2Hasher;
+	use sp_state_machine::Backend;
 	use substrate_test_runtime_client::{
 		runtime::{Block, ExtrinsicBuilder},
 		DefaultTestClientBuilderExt, TestClientBuilderExt,
@@ -410,11 +410,11 @@ mod tests {
 		let genesis_state_root = client.header(genesis_hash).unwrap().unwrap().state_root;
 
 		let backend =
-			rp_state_machine::create_proof_check_backend::<Blake2Hasher>(genesis_state_root, proof)
+			sp_state_machine::create_proof_check_backend::<Blake2Hasher>(genesis_state_root, proof)
 				.unwrap();
 
 		assert!(backend
-			.storage(&rp_core::storage::well_known_keys::CODE)
+			.storage(&sp_core::storage::well_known_keys::CODE)
 			.unwrap_err()
 			.contains("Database missing expected key"),);
 	}

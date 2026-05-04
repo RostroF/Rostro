@@ -15,10 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use rp_api::{
+use sp_api::{
 	decl_runtime_apis, impl_runtime_apis, mock_impl_runtime_apis, ApiError, ApiExt, RuntimeApiInfo,
 };
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 use substrate_test_runtime_client::runtime::{Block, Hash};
 
@@ -135,14 +135,14 @@ impl_runtime_apis! {
 		fn staging_one() {}
 	}
 
-	impl rp_api::Core<Block> for Runtime {
-		fn version() -> rp_version::RuntimeVersion {
+	impl sp_api::Core<Block> for Runtime {
+		fn version() -> sp_version::RuntimeVersion {
 			unimplemented!()
 		}
 		fn execute_block(_: <Block as BlockT>::LazyBlock) {
 			unimplemented!()
 		}
-		fn initialize_block(_: &<Block as BlockT>::Header) -> rp_runtime::ExtrinsicInclusionMode {
+		fn initialize_block(_: &<Block as BlockT>::Header) -> sp_runtime::ExtrinsicInclusionMode {
 			unimplemented!()
 		}
 	}
@@ -282,7 +282,7 @@ fn check_runtime_api_versions() {
 	);
 	check_staging_runtime_api_versions::<dyn ApiWithStagingAndChangedBase<Block>>(99);
 
-	check_runtime_api_versions_contains::<dyn rp_api::Core<Block>>();
+	check_runtime_api_versions_contains::<dyn sp_api::Core<Block>>();
 }
 
 #[test]
@@ -318,7 +318,7 @@ fn mock_runtime_api_works_with_advanced() {
 
 #[test]
 fn runtime_api_metadata_matches_version_implemented() {
-	use rp_metadata_ir::InternalImplRuntimeApis;
+	use sp_metadata_ir::InternalImplRuntimeApis;
 
 	let rt = Runtime {};
 	let runtime_metadata = rt.runtime_metadata();

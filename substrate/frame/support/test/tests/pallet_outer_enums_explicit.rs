@@ -19,9 +19,9 @@ use frame_support::derive_impl;
 
 mod common;
 
-pub type Header = rp_runtime::generic::Header<u32, rp_runtime::traits::BlakeTwo256>;
-pub type Block = rp_runtime::generic::Block<Header, UncheckedExtrinsic>;
-pub type UncheckedExtrinsic = rp_runtime::generic::UncheckedExtrinsic<u32, RuntimeCall, (), ()>;
+pub type Header = sp_runtime::generic::Header<u32, sp_runtime::traits::BlakeTwo256>;
+pub type Block = sp_runtime::generic::Block<Header, UncheckedExtrinsic>;
+pub type UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic<u32, RuntimeCall, (), ()>;
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Runtime {

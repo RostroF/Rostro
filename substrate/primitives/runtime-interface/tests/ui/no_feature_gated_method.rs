@@ -19,7 +19,7 @@
 // cfg is also unexpected. This is a `trybuild` bug, and this part of error is not
 // exposed to a real developer.
 
-use rp_runtime_interface::runtime_interface;
+use sp_runtime_interface::runtime_interface;
 
 #[runtime_interface]
 trait Test {

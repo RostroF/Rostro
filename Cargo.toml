@@ -9,6 +9,7 @@ repository = "https://github.com/rostro-foundation/rostro.git"
 resolver = "2"
 
 members = [
+	"substrate/bin/rostro-node",
 	"substrate/bin/utils/chain-spec-builder",
 	"substrate/bin/utils/subkey",
 	"substrate/client/allocator",
@@ -255,6 +256,7 @@ members = [
 	"substrate/primitives/version/proc-macro",
 	"substrate/primitives/wasm-interface",
 	"substrate/primitives/weights",
+	"substrate/runtime/rostro",
 	"substrate/scripts/ci/node-template-release",
 	"substrate/test-utils",
 	"substrate/test-utils/client",
@@ -776,65 +778,66 @@ simple-mermaid = { version = "0.1.1" }
 slotmap = { version = "1.0" }
 smallvec = { version = "1.11.0", default-features = false }
 soketto = { version = "0.8.0" }
+rostro-runtime = { path = "substrate/runtime/rostro", default-features = false }
 rns-ddns = { path = "substrate/utils/rns-ddns", default-features = false }
 rns-runtime-api = { path = "substrate/frame/rns-runtime-api", default-features = false }
 rns-types = { path = "substrate/frame/rns-types", default-features = false }
-rp-api = { path = "substrate/primitives/api", default-features = false }
-rp-api-proc-macro = { path = "substrate/primitives/api/proc-macro", default-features = false }
-rp-application-crypto = { path = "substrate/primitives/application-crypto", default-features = false }
-rp-arithmetic = { path = "substrate/primitives/arithmetic", default-features = false }
-rp-authority-discovery = { path = "substrate/primitives/authority-discovery", default-features = false }
-rp-block-builder = { path = "substrate/primitives/block-builder", default-features = false }
-rp-blockchain = { path = "substrate/primitives/blockchain", default-features = false }
-rp-consensus = { path = "substrate/primitives/consensus/common", default-features = false }
-rp-consensus-aura = { path = "substrate/primitives/consensus/aura", default-features = false }
-rp-consensus-babe = { path = "substrate/primitives/consensus/babe", default-features = false }
-rp-consensus-beefy = { path = "substrate/primitives/consensus/beefy", default-features = false }
-rp-consensus-grandpa = { path = "substrate/primitives/consensus/grandpa", default-features = false }
-rp-consensus-pow = { path = "substrate/primitives/consensus/pow", default-features = false }
-rp-consensus-sassafras = { path = "substrate/primitives/consensus/sassafras", default-features = false }
-rp-consensus-slots = { path = "substrate/primitives/consensus/slots", default-features = false }
-rp-core = { path = "substrate/primitives/core", default-features = false }
-rp-crypto-ec-utils = { default-features = false, path = "substrate/primitives/crypto/ec-utils" }
-rp-crypto-hashing = { path = "substrate/primitives/crypto/hashing", default-features = false }
-rp-crypto-hashing-proc-macro = { path = "substrate/primitives/crypto/hashing/proc-macro", default-features = false }
-rp-database = { path = "substrate/primitives/database", default-features = false }
-rp-debug-derive = { path = "substrate/primitives/debug-derive", default-features = false }
-rp-externalities = { path = "substrate/primitives/externalities", default-features = false }
-rp-genesis-builder = { path = "substrate/primitives/genesis-builder", default-features = false }
-rp-inherents = { path = "substrate/primitives/inherents", default-features = false }
-rp-io = { path = "substrate/primitives/io", default-features = false }
-rp-keyring = { path = "substrate/primitives/keyring", default-features = false }
-rp-keystore = { path = "substrate/primitives/keystore", default-features = false }
-rp-maybe-compressed-blob = { path = "substrate/primitives/maybe-compressed-blob", default-features = false }
-rp-metadata-ir = { path = "substrate/primitives/metadata-ir", default-features = false }
-rp-mixnet = { path = "substrate/primitives/mixnet", default-features = false }
-rp-mmr-primitives = { path = "substrate/primitives/merkle-mountain-range", default-features = false }
-rp-npos-elections = { path = "substrate/primitives/npos-elections", default-features = false }
-rp-offchain = { path = "substrate/primitives/offchain", default-features = false }
-rp-panic-handler = { path = "substrate/primitives/panic-handler", default-features = false }
-rp-rpc = { path = "substrate/primitives/rpc", default-features = false }
-rp-runtime = { path = "substrate/primitives/runtime", default-features = false }
-rp-runtime-interface = { path = "substrate/primitives/runtime-interface", default-features = false }
-rp-runtime-interface-proc-macro = { path = "substrate/primitives/runtime-interface/proc-macro", default-features = false }
-rp-runtime-interface-test-wasm = { path = "substrate/primitives/runtime-interface/test-wasm" }
-rp-runtime-interface-test-wasm-deprecated = { path = "substrate/primitives/runtime-interface/test-wasm-deprecated" }
-rp-session = { path = "substrate/primitives/session", default-features = false }
-rp-staking = { path = "substrate/primitives/staking", default-features = false }
-rp-state-machine = { path = "substrate/primitives/state-machine", default-features = false }
-rp-statement-store = { path = "substrate/primitives/statement-store", default-features = false }
-rp-std = { path = "substrate/primitives/std", default-features = false }
-rp-storage = { path = "substrate/primitives/storage", default-features = false }
-rp-test-primitives = { path = "substrate/primitives/test-primitives" }
-rp-timestamp = { path = "substrate/primitives/timestamp", default-features = false }
-rp-tracing = { path = "substrate/primitives/tracing", default-features = false }
-rp-transaction-pool = { path = "substrate/primitives/transaction-pool", default-features = false }
-rp-transaction-storage-proof = { path = "substrate/primitives/transaction-storage-proof", default-features = false }
-rp-trie = { path = "substrate/primitives/trie", default-features = false }
-rp-version = { path = "substrate/primitives/version", default-features = false }
-rp-version-proc-macro = { path = "substrate/primitives/version/proc-macro", default-features = false }
-rp-wasm-interface = { path = "substrate/primitives/wasm-interface", default-features = false }
-rp-weights = { path = "substrate/primitives/weights", default-features = false }
+sp-api = { path = "substrate/primitives/api", default-features = false }
+sp-api-proc-macro = { path = "substrate/primitives/api/proc-macro", default-features = false }
+sp-application-crypto = { path = "substrate/primitives/application-crypto", default-features = false }
+sp-arithmetic = { path = "substrate/primitives/arithmetic", default-features = false }
+sp-authority-discovery = { path = "substrate/primitives/authority-discovery", default-features = false }
+sp-block-builder = { path = "substrate/primitives/block-builder", default-features = false }
+sp-blockchain = { path = "substrate/primitives/blockchain", default-features = false }
+sp-consensus = { path = "substrate/primitives/consensus/common", default-features = false }
+sp-consensus-aura = { path = "substrate/primitives/consensus/aura", default-features = false }
+sp-consensus-babe = { path = "substrate/primitives/consensus/babe", default-features = false }
+sp-consensus-beefy = { path = "substrate/primitives/consensus/beefy", default-features = false }
+sp-consensus-grandpa = { path = "substrate/primitives/consensus/grandpa", default-features = false }
+sp-consensus-pow = { path = "substrate/primitives/consensus/pow", default-features = false }
+sp-consensus-sassafras = { path = "substrate/primitives/consensus/sassafras", default-features = false }
+sp-consensus-slots = { path = "substrate/primitives/consensus/slots", default-features = false }
+sp-core = { path = "substrate/primitives/core", default-features = false }
+sp-crypto-ec-utils = { default-features = false, path = "substrate/primitives/crypto/ec-utils" }
+sp-crypto-hashing = { path = "substrate/primitives/crypto/hashing", default-features = false }
+sp-crypto-hashing-proc-macro = { path = "substrate/primitives/crypto/hashing/proc-macro", default-features = false }
+sp-database = { path = "substrate/primitives/database", default-features = false }
+sp-debug-derive = { path = "substrate/primitives/debug-derive", default-features = false }
+sp-externalities = { path = "substrate/primitives/externalities", default-features = false }
+sp-genesis-builder = { path = "substrate/primitives/genesis-builder", default-features = false }
+sp-inherents = { path = "substrate/primitives/inherents", default-features = false }
+sp-io = { path = "substrate/primitives/io", default-features = false }
+sp-keyring = { path = "substrate/primitives/keyring", default-features = false }
+sp-keystore = { path = "substrate/primitives/keystore", default-features = false }
+sp-maybe-compressed-blob = { path = "substrate/primitives/maybe-compressed-blob", default-features = false }
+sp-metadata-ir = { path = "substrate/primitives/metadata-ir", default-features = false }
+sp-mixnet = { path = "substrate/primitives/mixnet", default-features = false }
+sp-mmr-primitives = { path = "substrate/primitives/merkle-mountain-range", default-features = false }
+sp-npos-elections = { path = "substrate/primitives/npos-elections", default-features = false }
+sp-offchain = { path = "substrate/primitives/offchain", default-features = false }
+sp-panic-handler = { path = "substrate/primitives/panic-handler", default-features = false }
+sp-rpc = { path = "substrate/primitives/rpc", default-features = false }
+sp-runtime = { path = "substrate/primitives/runtime", default-features = false }
+sp-runtime-interface = { path = "substrate/primitives/runtime-interface", default-features = false }
+sp-runtime-interface-proc-macro = { path = "substrate/primitives/runtime-interface/proc-macro", default-features = false }
+sp-runtime-interface-test-wasm = { path = "substrate/primitives/runtime-interface/test-wasm" }
+sp-runtime-interface-test-wasm-deprecated = { path = "substrate/primitives/runtime-interface/test-wasm-deprecated" }
+sp-session = { path = "substrate/primitives/session", default-features = false }
+sp-staking = { path = "substrate/primitives/staking", default-features = false }
+sp-state-machine = { path = "substrate/primitives/state-machine", default-features = false }
+sp-statement-store = { path = "substrate/primitives/statement-store", default-features = false }
+sp-std = { path = "substrate/primitives/std", default-features = false }
+sp-storage = { path = "substrate/primitives/storage", default-features = false }
+sp-test-primitives = { path = "substrate/primitives/test-primitives" }
+sp-timestamp = { path = "substrate/primitives/timestamp", default-features = false }
+sp-tracing = { path = "substrate/primitives/tracing", default-features = false }
+sp-transaction-pool = { path = "substrate/primitives/transaction-pool", default-features = false }
+sp-transaction-storage-proof = { path = "substrate/primitives/transaction-storage-proof", default-features = false }
+sp-trie = { path = "substrate/primitives/trie", default-features = false }
+sp-version = { path = "substrate/primitives/version", default-features = false }
+sp-version-proc-macro = { path = "substrate/primitives/version/proc-macro", default-features = false }
+sp-wasm-interface = { path = "substrate/primitives/wasm-interface", default-features = false }
+sp-weights = { path = "substrate/primitives/weights", default-features = false }
 spinners = { version = "4.1.1" }
 sqlx = { version = "0.8.2" }
 ss58-registry = { version = "1.34.0", default-features = false }

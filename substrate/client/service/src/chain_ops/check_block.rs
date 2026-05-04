@@ -20,7 +20,7 @@ use crate::error::Error;
 use codec::Encode;
 use rc_client_api::{BlockBackend, HeaderBackend};
 use rc_consensus::import_queue::ImportQueue;
-use rp_runtime::{generic::BlockId, traits::Block as BlockT};
+use sp_runtime::{generic::BlockId, traits::Block as BlockT};
 
 use crate::chain_ops::import_blocks;
 use std::sync::Arc;

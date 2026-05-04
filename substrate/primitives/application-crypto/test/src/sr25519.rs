@@ -17,15 +17,15 @@
 
 //! Integration tests for sr25519
 
-use rp_api::{ApiExt, ProvideRuntimeApi};
-use rp_application_crypto::{sr25519::AppPair, RuntimePublic};
-use rp_core::{
+use sp_api::{ApiExt, ProvideRuntimeApi};
+use sp_application_crypto::{sr25519::AppPair, RuntimePublic};
+use sp_core::{
 	crypto::{ByteArray, Pair},
 	proof_of_possession::{ProofOfPossessionGenerator, ProofOfPossessionVerifier},
 	sr25519::Pair as Sr25519Pair,
 	testing::SR25519,
 };
-use rp_keystore::{testing::MemoryKeystore, Keystore, KeystoreExt};
+use sp_keystore::{testing::MemoryKeystore, Keystore, KeystoreExt};
 use std::sync::Arc;
 use substrate_test_runtime_client::{
 	runtime::{TestAPI, TEST_OWNER},
@@ -34,7 +34,7 @@ use substrate_test_runtime_client::{
 
 #[test]
 fn sr25519_works_in_runtime() {
-	rp_tracing::try_init_simple();
+	sp_tracing::try_init_simple();
 	let keystore = Arc::new(MemoryKeystore::new());
 	let test_client = TestClientBuilder::new().build();
 

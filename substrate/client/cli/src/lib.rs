@@ -46,7 +46,7 @@ pub use runner::*;
 pub use rc_service::{ChainSpec, Role};
 pub use rc_tracing::logging::LoggerBuilder;
 pub use signals::Signals;
-pub use rp_version::RuntimeVersion;
+pub use sp_version::RuntimeVersion;
 
 /// Substrate client CLI
 ///

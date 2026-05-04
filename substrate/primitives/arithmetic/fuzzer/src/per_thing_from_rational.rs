@@ -25,7 +25,7 @@
 
 use fraction::prelude::BigFraction as Fraction;
 use honggfuzz::fuzz;
-use rp_arithmetic::{
+use sp_arithmetic::{
 	traits::SaturatedConversion, PerThing, Perbill, Percent, Perquintill, Rounding::*, *,
 };
 

@@ -37,8 +37,8 @@ use rc_consensus::{BlockImportError, BlockImportStatus, IncomingBlock};
 use rc_network::{IfDisconnected, ProtocolName};
 use rc_network_common::sync::message::BlockAnnounce;
 use rc_network_types::PeerId;
-use rp_consensus::BlockOrigin;
-use rp_runtime::{
+use sp_consensus::BlockOrigin;
+use sp_runtime::{
 	traits::{Block as BlockT, Header, NumberFor},
 	Justifications, SaturatedConversion,
 };
@@ -402,8 +402,8 @@ mod test {
 	use rc_block_builder::BlockBuilderBuilder;
 	use rc_client_api::KeyValueStates;
 	use rc_consensus::{ImportedAux, ImportedState};
-	use rp_core::H256;
-	use rp_runtime::traits::Zero;
+	use sp_core::H256;
+	use sp_runtime::traits::Zero;
 	use substrate_test_runtime_client::{
 		runtime::{Block, Hash},
 		BlockBuilderExt, DefaultTestClientBuilderExt, TestClientBuilder, TestClientBuilderExt,

@@ -25,7 +25,7 @@ use frame_support::{
 	assert_noop, assert_ok, assert_storage_noop, traits::BatchFootprint, StorageNoopGuard,
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use rp_crypto_hashing::blake2_256;
+use sp_crypto_hashing::blake2_256;
 
 #[test]
 fn mocked_weight_works() {
@@ -1993,27 +1993,27 @@ fn execute_overweight_keeps_stack_ov_message() {
 #[test]
 fn process_message_error_reverts_storage_changes() {
 	build_and_execute::<Test>(|| {
-		assert!(!rp_io::storage::exists(b"key"), "Key should not exist");
+		assert!(!sp_io::storage::exists(b"key"), "Key should not exist");
 
 		Callback::set(Box::new(|_, _| {
-			rp_io::storage::set(b"key", b"value");
+			sp_io::storage::set(b"key", b"value");
 			Err(())
 		}));
 
 		MessageQueue::enqueue_message(msg("callback=0"), MessageOrigin::Here);
 		MessageQueue::service_queues(10.into_weight());
 
-		assert!(!rp_io::storage::exists(b"key"), "Key should have been rolled back");
+		assert!(!sp_io::storage::exists(b"key"), "Key should have been rolled back");
 	});
 }
 
 #[test]
 fn process_message_ok_false_keeps_storage_changes() {
 	build_and_execute::<Test>(|| {
-		assert!(!rp_io::storage::exists(b"key"), "Key should not exist");
+		assert!(!sp_io::storage::exists(b"key"), "Key should not exist");
 
 		Callback::set(Box::new(|_, _| {
-			rp_io::storage::set(b"key", b"value");
+			sp_io::storage::set(b"key", b"value");
 			Ok(())
 		}));
 
@@ -2021,24 +2021,24 @@ fn process_message_ok_false_keeps_storage_changes() {
 		MessageQueue::enqueue_message(msg("callback=000"), MessageOrigin::Here);
 		MessageQueue::service_queues(10.into_weight());
 
-		assert_eq!(rp_io::storage::exists(b"key"), true);
+		assert_eq!(sp_io::storage::exists(b"key"), true);
 	});
 }
 
 #[test]
 fn process_message_ok_true_keeps_storage_changes() {
 	build_and_execute::<Test>(|| {
-		assert!(!rp_io::storage::exists(b"key"), "Key should not exist");
+		assert!(!sp_io::storage::exists(b"key"), "Key should not exist");
 
 		Callback::set(Box::new(|_, _| {
-			rp_io::storage::set(b"key", b"value");
+			sp_io::storage::set(b"key", b"value");
 			Ok(())
 		}));
 
 		MessageQueue::enqueue_message(msg("callback=0"), MessageOrigin::Here);
 		MessageQueue::service_queues(10.into_weight());
 
-		assert_eq!(rp_io::storage::exists(b"key"), true);
+		assert_eq!(sp_io::storage::exists(b"key"), true);
 	});
 }
 

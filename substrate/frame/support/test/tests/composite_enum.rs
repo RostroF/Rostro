@@ -22,8 +22,8 @@
 
 use codec::Encode;
 use frame_support::{derive_impl, traits::VariantCount};
-use rp_core::sr25519;
-use rp_runtime::{
+use sp_core::sr25519;
+use sp_runtime::{
 	generic,
 	traits::{BlakeTwo256, Verify},
 };

@@ -38,9 +38,9 @@ use rc_consensus::{BlockImportError, BlockImportStatus, IncomingBlock};
 use rc_network::ProtocolName;
 use rc_network_common::sync::message::BlockAnnounce;
 use rc_network_types::PeerId;
-use rp_blockchain::Error as ClientError;
-use rp_consensus::BlockOrigin;
-use rp_runtime::{
+use sp_blockchain::Error as ClientError;
+use sp_consensus::BlockOrigin;
+use sp_runtime::{
 	traits::{Block as BlockT, NumberFor},
 	Justifications,
 };

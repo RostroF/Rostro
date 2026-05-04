@@ -20,7 +20,7 @@ use crate::error::Error;
 use codec::Encode;
 use futures::{future, prelude::*};
 use log::info;
-use rp_runtime::{
+use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, NumberFor, One, SaturatedConversion, Zero},
 };

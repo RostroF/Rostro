@@ -21,8 +21,8 @@ use async_trait::async_trait;
 use futures::channel::mpsc::Receiver;
 use indexmap::IndexMap;
 use rc_transaction_pool_api::error;
-use rp_blockchain::{HashAndNumber, TreeRoute};
-use rp_runtime::{
+use sp_blockchain::{HashAndNumber, TreeRoute};
+use sp_runtime::{
 	generic::BlockId,
 	traits::{self, Block as BlockT, SaturatedConversion},
 	transaction_validity::{
@@ -610,7 +610,7 @@ mod tests {
 	use futures::executor::block_on;
 	use parking_lot::Mutex;
 	use rc_transaction_pool_api::TransactionStatus;
-	use rp_runtime::transaction_validity::TransactionSource;
+	use sp_runtime::transaction_validity::TransactionSource;
 	use std::{collections::HashMap, time::Instant};
 	use substrate_test_runtime::{AccountId, ExtrinsicBuilder, Transfer, H256};
 	use substrate_test_runtime_client::Sr25519Keyring::{Alice, Bob};
@@ -648,7 +648,7 @@ mod tests {
 
 	#[test]
 	fn submit_at_preserves_order() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		// given
 		let (pool, api) = pool();
 
@@ -892,7 +892,7 @@ mod tests {
 
 	#[test]
 	fn should_limit_futures() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 
 		let xt = uxt(Transfer {
 			from: Alice.into(),

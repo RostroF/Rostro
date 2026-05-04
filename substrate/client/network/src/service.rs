@@ -84,7 +84,7 @@ use rc_network_common::{
 	ExHashT,
 };
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 pub use behaviour::{InboundFailure, OutboundFailure, ResponseFailure};
 pub use libp2p::identity::{DecodingError, Keypair, PublicKey};
@@ -838,7 +838,7 @@ impl<B: BlockT + 'static, H: ExHashT> NetworkService<B, H> {
 
 impl<B, H> NetworkStateInfo for NetworkService<B, H>
 where
-	B: rp_runtime::traits::Block,
+	B: sp_runtime::traits::Block,
 	H: ExHashT,
 {
 	/// Returns the local external addresses.
@@ -859,7 +859,7 @@ where
 
 impl<B, H> NetworkSigner for NetworkService<B, H>
 where
-	B: rp_runtime::traits::Block,
+	B: sp_runtime::traits::Block,
 	H: ExHashT,
 {
 	fn sign_with_local_identity(&self, msg: Vec<u8>) -> Result<Signature, SigningError> {

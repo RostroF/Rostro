@@ -23,7 +23,7 @@
 //! if the parallel chain itself provides price oracle related functions,
 //! and can be directly replaced.
 //!
-use rp_weights::Weight;
+use sp_weights::Weight;
 pub use pallet::*;
 
 type BalanceOf<T> = <<T as Config>::Currency as frame_support::traits::Currency<
@@ -38,7 +38,7 @@ pub mod pallet {
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*};
     use frame_system::pallet_prelude::*;
     use scale_info::TypeInfo;
-    use rp_runtime::traits::AtLeast32BitUnsigned;
+    use sp_runtime::traits::AtLeast32BitUnsigned;
 
     #[pallet::config]
     pub trait Config: frame_system::Config {

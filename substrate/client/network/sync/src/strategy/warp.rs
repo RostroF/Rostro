@@ -19,7 +19,7 @@
 //! Warp syncing strategy. Bootstraps chain by downloading warp proofs and state.
 
 use rc_consensus::IncomingBlock;
-use rp_consensus::BlockOrigin;
+use sp_consensus::BlockOrigin;
 
 use crate::{
 	block_relay_protocol::{BlockDownloader, BlockResponseError},
@@ -39,8 +39,8 @@ use rc_network_common::sync::message::{
 	BlockAnnounce, BlockAttributes, BlockData, BlockRequest, Direction, FromBlock,
 };
 use rc_network_types::PeerId;
-use rp_blockchain::HeaderBackend;
-use rp_runtime::{
+use sp_blockchain::HeaderBackend;
+use sp_runtime::{
 	traits::{Block as BlockT, Header, NumberFor, Zero},
 	Justifications, SaturatedConversion,
 };
@@ -789,9 +789,9 @@ mod test {
 	use super::*;
 	use crate::{mock::MockBlockDownloader, service::network::NetworkServiceProvider};
 	use rc_block_builder::BlockBuilderBuilder;
-	use rp_blockchain::{BlockStatus, Error as BlockchainError, HeaderBackend, Info};
-	use rp_core::H256;
-	use rp_runtime::{
+	use sp_blockchain::{BlockStatus, Error as BlockchainError, HeaderBackend, Info};
+	use sp_core::H256;
+	use sp_runtime::{
 		traits::{Block as BlockT, Header as HeaderT, NumberFor},
 		ConsensusEngineId,
 	};
@@ -1372,7 +1372,7 @@ mod test {
 	#[test]
 	fn complete_warp_proof_advances_phase() {
 		// Initialize logging
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 
 		let client = Arc::new(TestClientBuilder::new().set_no_genesis().build());
 		let mut provider = MockWarpSyncProvider::<Block>::new();
@@ -1741,7 +1741,7 @@ mod test {
 
 	#[test]
 	fn target_block_response_with_wrong_block_drops_peer() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 
 		let client = Arc::new(TestClientBuilder::new().set_no_genesis().build());
 		let mut provider = MockWarpSyncProvider::<Block>::new();

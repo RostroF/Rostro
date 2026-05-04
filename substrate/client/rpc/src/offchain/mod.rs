@@ -27,7 +27,7 @@ use parking_lot::RwLock;
 use rc_rpc_api::check_if_safe;
 /// Re-export the API for backward compatibility.
 pub use rc_rpc_api::offchain::*;
-use rp_core::{
+use sp_core::{
 	offchain::{OffchainStorage, StorageKind},
 	Bytes,
 };
@@ -59,7 +59,7 @@ impl<T: OffchainStorage + 'static> OffchainApiServer for Offchain<T> {
 		check_if_safe(ext)?;
 
 		let prefix = match kind {
-			StorageKind::PERSISTENT => rp_offchain::STORAGE_PREFIX,
+			StorageKind::PERSISTENT => sp_offchain::STORAGE_PREFIX,
 			StorageKind::LOCAL => return Err(Error::UnavailableStorageKind),
 		};
 		self.storage.write().set(prefix, &key, &value);
@@ -75,7 +75,7 @@ impl<T: OffchainStorage + 'static> OffchainApiServer for Offchain<T> {
 		check_if_safe(ext)?;
 
 		let prefix = match kind {
-			StorageKind::PERSISTENT => rp_offchain::STORAGE_PREFIX,
+			StorageKind::PERSISTENT => sp_offchain::STORAGE_PREFIX,
 			StorageKind::LOCAL => return Err(Error::UnavailableStorageKind),
 		};
 		self.storage.write().remove(prefix, &key);
@@ -92,7 +92,7 @@ impl<T: OffchainStorage + 'static> OffchainApiServer for Offchain<T> {
 		check_if_safe(ext)?;
 
 		let prefix = match kind {
-			StorageKind::PERSISTENT => rp_offchain::STORAGE_PREFIX,
+			StorageKind::PERSISTENT => sp_offchain::STORAGE_PREFIX,
 			StorageKind::LOCAL => return Err(Error::UnavailableStorageKind),
 		};
 

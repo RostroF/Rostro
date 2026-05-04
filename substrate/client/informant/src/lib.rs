@@ -25,8 +25,8 @@ use log::{debug, info, log_enabled, trace};
 use rc_client_api::{BlockchainEvents, UsageProvider};
 use rc_network::NetworkStatusProvider;
 use rc_network_sync::{SyncStatusProvider, SyncingService};
-use rp_blockchain::HeaderMetadata;
-use rp_runtime::traits::{Block as BlockT, Header};
+use sp_blockchain::HeaderMetadata;
+use sp_runtime::traits::{Block as BlockT, Header};
 use std::{
 	collections::VecDeque,
 	fmt::{Debug, Display},
@@ -116,7 +116,7 @@ where
 		if let Some((ref last_num, ref last_hash)) = last_best {
 			if n.header.parent_hash() != last_hash && n.is_new_best {
 				let maybe_ancestor =
-					rp_blockchain::lowest_common_ancestor(&*client, *last_hash, n.hash);
+					sp_blockchain::lowest_common_ancestor(&*client, *last_hash, n.hash);
 
 				match maybe_ancestor {
 					Ok(ref ancestor) if ancestor.hash != *last_hash => info!(

@@ -29,7 +29,7 @@ use frame_support::{
 	unsigned::TransactionValidityError,
 };
 use pallet_asset_conversion::{QuotePrice, SwapCredit};
-use rp_runtime::{
+use sp_runtime::{
 	traits::{DispatchInfoOf, Get, PostDispatchInfoOf, Zero},
 	transaction_validity::InvalidTransaction,
 	Saturating,

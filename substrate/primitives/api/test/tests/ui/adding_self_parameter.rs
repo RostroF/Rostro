@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-rp_api::decl_runtime_apis! {
+sp_api::decl_runtime_apis! {
 	pub trait Api {
 		fn test(&self);
 	}

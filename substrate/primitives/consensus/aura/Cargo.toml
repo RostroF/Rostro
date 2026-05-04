@@ -1,5 +1,5 @@
 [package]
-name = "rp-consensus-aura"
+name = "sp-consensus-aura"
 version = "0.47.0"
 authors.workspace = true
 description = "Primitives for Aura consensus"
@@ -19,12 +19,12 @@ targets = ["x86_64-unknown-linux-gnu"]
 async-trait = { optional = true, workspace = true }
 codec = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-api = { workspace = true }
-rp-application-crypto = { workspace = true }
-rp-consensus-slots = { workspace = true }
-rp-inherents = { workspace = true }
-rp-runtime = { workspace = true }
-rp-timestamp = { workspace = true }
+sp-api = { workspace = true }
+sp-application-crypto = { workspace = true }
+sp-consensus-slots = { workspace = true }
+sp-inherents = { workspace = true }
+sp-runtime = { workspace = true }
+sp-timestamp = { workspace = true }
 
 [features]
 default = ["std"]
@@ -32,18 +32,20 @@ std = [
 	"async-trait",
 	"codec/std",
 	"scale-info/std",
-	"rp-api/std",
-	"rp-application-crypto/std",
-	"rp-consensus-slots/std",
-	"rp-inherents/std",
-	"rp-runtime/std",
-	"rp-timestamp/std",
+	"sp-api/std",
+	"sp-application-crypto/std",
+	"sp-consensus-slots/std",
+	"sp-inherents/std",
+	"sp-runtime/std",
+	"sp-timestamp/std",
 ]
 
 # Serde support without relying on std features.
 serde = [
 	"scale-info/serde",
-	"rp-application-crypto/serde",
-	"rp-consensus-slots/serde",
-	"rp-runtime/serde",
+	"sp-application-crypto/serde",
+	"sp-consensus-slots/serde",
+	"sp-runtime/serde",
 ]
+
+[lib]

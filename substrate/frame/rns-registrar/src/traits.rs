@@ -1,7 +1,7 @@
 use codec::{Encode, FullCodec};
 use core::fmt::Debug;
 use frame_support::traits::Currency;
-use rp_std::vec::Vec;
+use sp_std::vec::Vec;
 use rns_types::DomainHash;
 
 pub trait BlockAuthor {
@@ -9,8 +9,8 @@ pub trait BlockAuthor {
     fn author() -> Option<Self::AccountId>;
 }
 
-use rp_io::hashing::keccak_256;
-use rp_runtime::{
+use sp_io::hashing::keccak_256;
+use sp_runtime::{
     traits::{AtLeast32BitUnsigned, MaybeSerializeDeserialize},
     DispatchError, DispatchResult,
 };
@@ -62,7 +62,7 @@ pub trait Registry: NFT<Self::AccountId> {
     fn offer_subname(
         parent: DomainHash,
         label_node: DomainHash,
-        label_bytes: frame_support::BoundedVec<u8, rp_core::ConstU32<63>>,
+        label_bytes: frame_support::BoundedVec<u8, sp_core::ConstU32<63>>,
         to: Self::AccountId,
         capacity: u32,
     ) -> DispatchResult;
@@ -72,7 +72,7 @@ pub trait Registry: NFT<Self::AccountId> {
     fn accept_subname_offer(
         label_node: rns_types::DomainHash,
         acceptor: &Self::AccountId,
-    ) -> Result<rns_types::DomainHash, rp_runtime::DispatchError>;
+    ) -> Result<rns_types::DomainHash, sp_runtime::DispatchError>;
 
     /// Reject a pending offer. Changes state from Offered to Rejected.
     /// Removes from OfferedToAccount so it no longer appears as pending.
@@ -94,7 +94,7 @@ pub trait Registry: NFT<Self::AccountId> {
     fn release_subname(
         label_node: DomainHash,
         by: &Self::AccountId,
-    ) -> Result<rns_types::DomainHash, rp_runtime::DispatchError>;
+    ) -> Result<rns_types::DomainHash, sp_runtime::DispatchError>;
 
     /// Fully delete a pending subdomain offer where `target` is the intended recipient.
     ///

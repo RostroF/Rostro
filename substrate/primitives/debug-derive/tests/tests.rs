@@ -17,7 +17,7 @@
 
 #![allow(deprecated)]
 
-use rp_debug_derive::RuntimeDebug;
+use sp_debug_derive::RuntimeDebug;
 
 #[derive(RuntimeDebug)]
 struct Unnamed(u64, String);

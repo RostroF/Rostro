@@ -19,8 +19,8 @@
 use crate::{CliConfiguration, DatabaseParams, PruningParams, Result as CliResult, SharedParams};
 use codec::{Decode, Encode};
 use rc_client_api::{backend::Backend as BackendT, blockchain::HeaderBackend};
-use rp_blockchain::Info;
-use rp_runtime::traits::{Block as BlockT, Header as HeaderT};
+use sp_blockchain::Info;
+use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 use std::{fmt::Debug, io};
 
 /// The `chain-info` subcommand used to output db meta columns information.

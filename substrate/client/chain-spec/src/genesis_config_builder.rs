@@ -19,29 +19,29 @@
 //! A helper module for calling the GenesisBuilder API from arbitrary runtime wasm blobs.
 
 use codec::{Decode, Encode};
-pub use rc_executor::rp_wasm_interface::HostFunctions;
+pub use rc_executor::sp_wasm_interface::HostFunctions;
 use rc_executor::{error::Result, WasmExecutor};
 use serde_json::{from_slice, Value};
-use rp_core::{
+use sp_core::{
 	storage::Storage,
 	traits::{CallContext, CodeExecutor, Externalities, FetchRuntimeCode, RuntimeCode},
 };
-use rp_genesis_builder::{PresetId, Result as BuildResult};
-pub use rp_genesis_builder::{DEV_RUNTIME_PRESET, LOCAL_TESTNET_RUNTIME_PRESET};
-use rp_state_machine::BasicExternalities;
+use sp_genesis_builder::{PresetId, Result as BuildResult};
+pub use sp_genesis_builder::{DEV_RUNTIME_PRESET, LOCAL_TESTNET_RUNTIME_PRESET};
+use sp_state_machine::BasicExternalities;
 use std::borrow::Cow;
 
 /// A utility that facilitates calling the GenesisBuilder API from the runtime wasm code blob.
 ///
 /// `EHF` type allows to specify the extended host function required for building runtime's genesis
-/// config. The type will be combined with default `rp_io::SubstrateHostFunctions`.
+/// config. The type will be combined with default `sp_io::SubstrateHostFunctions`.
 pub struct GenesisConfigBuilderRuntimeCaller<'a, EHF = ()>
 where
 	EHF: HostFunctions,
 {
 	code: Cow<'a, [u8]>,
 	code_hash: Vec<u8>,
-	executor: WasmExecutor<(rp_io::SubstrateHostFunctions, EHF)>,
+	executor: WasmExecutor<(sp_io::SubstrateHostFunctions, EHF)>,
 }
 
 impl<'a, EHF> FetchRuntimeCode for GenesisConfigBuilderRuntimeCaller<'a, EHF>
@@ -63,8 +63,8 @@ where
 	pub fn new(code: &'a [u8]) -> Self {
 		GenesisConfigBuilderRuntimeCaller {
 			code: code.into(),
-			code_hash: rp_crypto_hashing::blake2_256(code).to_vec(),
-			executor: WasmExecutor::<(rp_io::SubstrateHostFunctions, EHF)>::builder()
+			code_hash: sp_crypto_hashing::blake2_256(code).to_vec(),
+			executor: WasmExecutor::<(sp_io::SubstrateHostFunctions, EHF)>::builder()
 				.with_allow_missing_host_functions(true)
 				.build(),
 		}
@@ -85,7 +85,7 @@ where
 	/// Returns a json representation of the default `RuntimeGenesisConfig` provided by the
 	/// `runtime`.
 	///
-	/// Calls [`GenesisBuilder::get_preset`](rp_genesis_builder::GenesisBuilder::get_preset) in the
+	/// Calls [`GenesisBuilder::get_preset`](sp_genesis_builder::GenesisBuilder::get_preset) in the
 	/// `runtime` with `None` argument.
 	pub fn get_default_config(&self) -> core::result::Result<Value, String> {
 		self.get_named_preset(None)
@@ -93,7 +93,7 @@ where
 
 	/// Returns a JSON blob representation of the builtin `GenesisConfig` identified by `id`.
 	///
-	/// Calls [`GenesisBuilder::get_preset`](rp_genesis_builder::GenesisBuilder::get_preset)
+	/// Calls [`GenesisBuilder::get_preset`](sp_genesis_builder::GenesisBuilder::get_preset)
 	/// provided by the `runtime`.
 	pub fn get_named_preset(&self, id: Option<&String>) -> core::result::Result<Value, String> {
 		let mut t = BasicExternalities::new_empty();
@@ -111,7 +111,7 @@ where
 		}
 	}
 
-	/// Calls [`rp_genesis_builder::GenesisBuilder::build_state`] provided by runtime.
+	/// Calls [`sp_genesis_builder::GenesisBuilder::build_state`] provided by runtime.
 	pub fn get_storage_for_config(&self, config: Value) -> core::result::Result<Storage, String> {
 		let mut ext = BasicExternalities::new_empty();
 
@@ -177,12 +177,12 @@ where
 mod tests {
 	use super::*;
 	use serde_json::{from_str, json};
-	pub use rp_consensus_babe::{AllowedSlots, BabeEpochConfiguration};
-	pub use rp_genesis_builder::PresetId;
+	pub use sp_consensus_babe::{AllowedSlots, BabeEpochConfiguration};
+	pub use sp_genesis_builder::PresetId;
 
 	#[test]
 	fn list_presets_works() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let presets =
 			<GenesisConfigBuilderRuntimeCaller>::new(substrate_test_runtime::wasm_binary_unwrap())
 				.preset_names()
@@ -202,7 +202,7 @@ mod tests {
 
 	#[test]
 	fn get_named_preset_works() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let config =
 			<GenesisConfigBuilderRuntimeCaller>::new(substrate_test_runtime::wasm_binary_unwrap())
 				.get_named_preset(Some(&"foobar".to_string()))

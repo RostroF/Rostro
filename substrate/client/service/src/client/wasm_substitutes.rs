@@ -20,11 +20,11 @@
 
 use rc_client_api::backend;
 use rc_executor::RuntimeVersionOf;
-use rp_blockchain::{HeaderBackend, Result};
-use rp_core::traits::{FetchRuntimeCode, RuntimeCode, WrappedRuntimeCode};
-use rp_runtime::traits::{Block as BlockT, NumberFor};
-use rp_state_machine::BasicExternalities;
-use rp_version::RuntimeVersion;
+use sp_blockchain::{HeaderBackend, Result};
+use sp_core::traits::{FetchRuntimeCode, RuntimeCode, WrappedRuntimeCode};
+use sp_runtime::traits::{Block as BlockT, NumberFor};
+use sp_state_machine::BasicExternalities;
+use sp_version::RuntimeVersion;
 use std::{
 	collections::{hash_map::DefaultHasher, HashMap},
 	hash::Hasher as _,
@@ -83,7 +83,7 @@ pub enum WasmSubstituteError {
 	VersionInvalid(String),
 }
 
-impl From<WasmSubstituteError> for rp_blockchain::Error {
+impl From<WasmSubstituteError> for sp_blockchain::Error {
 	fn from(err: WasmSubstituteError) -> Self {
 		Self::Application(Box::new(err))
 	}

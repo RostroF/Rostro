@@ -39,9 +39,9 @@ use rc_network_sync::{SyncEvent as SyncStreamEvent, SyncEventStream};
 use rc_network_test::{Block, Hash};
 use rc_network_types::PeerId;
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use rp_consensus_grandpa::AuthorityList;
-use rp_keyring::Ed25519Keyring;
-use rp_runtime::traits::NumberFor;
+use sp_consensus_grandpa::AuthorityList;
+use sp_keyring::Ed25519Keyring;
+use sp_runtime::traits::NumberFor;
 use std::{collections::HashSet, pin::Pin, sync::Arc, task::Poll};
 
 #[derive(Debug)]
@@ -307,8 +307,8 @@ fn config() -> crate::Config {
 fn voter_set_state() -> SharedVoterSetState<Block> {
 	use crate::{authorities::AuthoritySet, environment::VoterSetState};
 	use finality_grandpa::round::State as RoundState;
-	use rp_consensus_grandpa::AuthorityId;
-	use rp_core::{crypto::ByteArray, H256};
+	use sp_consensus_grandpa::AuthorityId;
+	use sp_core::{crypto::ByteArray, H256};
 
 	let state = RoundState::genesis((H256::zero(), 0));
 	let base = state.prevote_ghost.unwrap();
@@ -378,7 +378,7 @@ fn good_commit_leads_to_relay() {
 		let target_number = 500;
 
 		let precommit = finality_grandpa::Precommit { target_hash, target_number };
-		let payload = rp_consensus_grandpa::localized_payload(
+		let payload = sp_consensus_grandpa::localized_payload(
 			round,
 			set_id,
 			&finality_grandpa::Message::Precommit(precommit.clone()),
@@ -390,7 +390,7 @@ fn good_commit_leads_to_relay() {
 		for (i, key) in private.iter().enumerate() {
 			precommits.push(precommit.clone());
 
-			let signature = rp_consensus_grandpa::AuthoritySignature::from(key.sign(&payload[..]));
+			let signature = sp_consensus_grandpa::AuthoritySignature::from(key.sign(&payload[..]));
 			auth_data.push((signature, public[i].0.clone()))
 		}
 
@@ -516,7 +516,7 @@ fn good_commit_leads_to_relay() {
 
 #[test]
 fn bad_commit_leads_to_report() {
-	rp_tracing::try_init_simple();
+	sp_tracing::try_init_simple();
 	let private = [Ed25519Keyring::Alice, Ed25519Keyring::Bob, Ed25519Keyring::Charlie];
 	let public = make_ids(&private[..]);
 	let voter_set = Arc::new(VoterSet::new(public.iter().cloned()).unwrap());
@@ -529,7 +529,7 @@ fn bad_commit_leads_to_report() {
 		let target_number = 500;
 
 		let precommit = finality_grandpa::Precommit { target_hash, target_number };
-		let payload = rp_consensus_grandpa::localized_payload(
+		let payload = sp_consensus_grandpa::localized_payload(
 			round,
 			set_id,
 			&finality_grandpa::Message::Precommit(precommit.clone()),
@@ -541,7 +541,7 @@ fn bad_commit_leads_to_report() {
 		for (i, key) in private.iter().enumerate() {
 			precommits.push(precommit.clone());
 
-			let signature = rp_consensus_grandpa::AuthoritySignature::from(key.sign(&payload[..]));
+			let signature = sp_consensus_grandpa::AuthoritySignature::from(key.sign(&payload[..]));
 			auth_data.push((signature, public[i].0.clone()))
 		}
 
@@ -705,7 +705,7 @@ fn grandpa_protocol_name() {
 	let chain_spec = local_chain_spec();
 
 	// Create protocol name using random genesis hash.
-	let genesis_hash = rp_core::H256::random();
+	let genesis_hash = sp_core::H256::random();
 	let expected = format!("/{}/grandpa/1", array_bytes::bytes2hex("", genesis_hash));
 	let proto_name = grandpa_protocol_name::standard_name(&genesis_hash, &chain_spec);
 	assert_eq!(proto_name.to_string(), expected);

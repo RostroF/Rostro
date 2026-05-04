@@ -22,7 +22,7 @@
 use super::{mock::*, *};
 use frame_support::{assert_noop, assert_ok, pallet_prelude::Pays};
 use pallet_balances::Error as BalancesError;
-use rp_runtime::MultiAddress::Id;
+use sp_runtime::MultiAddress::Id;
 
 #[test]
 fn claiming_should_work() {

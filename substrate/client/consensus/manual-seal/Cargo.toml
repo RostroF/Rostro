@@ -31,19 +31,19 @@ rc-consensus-epochs = { default-features = true, workspace = true }
 rc-transaction-pool = { default-features = true, workspace = true }
 rc-transaction-pool-api = { default-features = true, workspace = true }
 serde = { features = ["derive"], workspace = true, default-features = true }
-rp-api = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-consensus-aura = { default-features = true, workspace = true }
-rp-consensus-babe = { default-features = true, workspace = true }
-rp-consensus-slots = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-externalities = { default-features = true, workspace = true }
-rp-inherents = { default-features = true, workspace = true }
-rp-keystore = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
-rp-timestamp = { default-features = true, workspace = true }
-rp-trie = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-consensus-aura = { default-features = true, workspace = true }
+sp-consensus-babe = { default-features = true, workspace = true }
+sp-consensus-slots = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-externalities = { default-features = true, workspace = true }
+sp-inherents = { default-features = true, workspace = true }
+sp-keystore = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+sp-timestamp = { default-features = true, workspace = true }
+sp-trie = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

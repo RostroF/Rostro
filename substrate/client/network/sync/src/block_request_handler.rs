@@ -44,8 +44,8 @@ use rc_network::{
 };
 use rc_network_common::sync::message::{BlockAttributes, BlockData, BlockRequest, FromBlock};
 use rc_network_types::PeerId;
-use rp_blockchain::HeaderBackend;
-use rp_runtime::{
+use sp_blockchain::HeaderBackend;
+use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, Header, One, Zero},
 };
@@ -503,7 +503,7 @@ enum HandleRequestError {
 	#[error("Failed to parse BlockRequest::direction.")]
 	ParseDirection,
 	#[error(transparent)]
-	Client(#[from] rp_blockchain::Error),
+	Client(#[from] sp_blockchain::Error),
 	#[error("Failed to send response.")]
 	SendResponse,
 }

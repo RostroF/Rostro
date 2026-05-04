@@ -39,7 +39,7 @@
 //! ## Low-Level / Implementation Details
 //!
 //! The structure of a meta transaction is identical to the
-//! [`General`](rp_runtime::generic::Preamble::General) transaction.
+//! [`General`](sp_runtime::generic::Preamble::General) transaction.
 //! It contains the target call along with a configurable set of extensions and its associated
 //! version. Typically, these extensions include type like
 //! `pallet_verify_signature::VerifySignature`, which provides the signer address
@@ -69,13 +69,13 @@ use frame_support::{
 	pallet_prelude::*,
 };
 use frame_system::{pallet_prelude::*, RawOrigin as SystemOrigin};
-use rp_runtime::{
+use sp_runtime::{
 	generic::ExtensionVersion,
 	traits::{
 		AsTransactionAuthorizedOrigin, DispatchTransaction, Dispatchable, TransactionExtension,
 	},
 };
-use rp_std::prelude::*;
+use sp_std::prelude::*;
 
 /// Meta Transaction type.
 ///

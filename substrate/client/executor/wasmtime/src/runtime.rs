@@ -32,8 +32,8 @@ use rc_executor_common::{
 	util::checked_range,
 	wasm_runtime::{HeapAllocStrategy, WasmInstance, WasmModule},
 };
-use rp_runtime_interface::unpack_ptr_and_len;
-use rp_wasm_interface::{HostFunctions, Pointer, WordSize};
+use sp_runtime_interface::unpack_ptr_and_len;
+use sp_wasm_interface::{HostFunctions, Pointer, WordSize};
 use std::{
 	path::{Path, PathBuf},
 	sync::{

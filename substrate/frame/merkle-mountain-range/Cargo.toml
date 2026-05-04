@@ -20,17 +20,17 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 log = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-arithmetic = { workspace = true }
-rp-core = { workspace = true }
-rp-io = { workspace = true }
-rp-mmr-primitives = { workspace = true }
-rp-runtime = { workspace = true }
+sp-arithmetic = { workspace = true }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-mmr-primitives = { workspace = true }
+sp-runtime = { workspace = true }
 
 [dev-dependencies]
 itertools = { workspace = true }
-rp-core = { workspace = true, default-features = true }
-rp-io = { workspace = true, default-features = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-core = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
+sp-tracing = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -40,19 +40,19 @@ std = [
 	"frame-system/std",
 	"log/std",
 	"scale-info/std",
-	"rp-arithmetic/std",
-	"rp-core/std",
-	"rp-io/std",
-	"rp-mmr-primitives/std",
-	"rp-runtime/std",
+	"sp-arithmetic/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-mmr-primitives/std",
+	"sp-runtime/std",
 ]
 runtime-benchmarks = [
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"rp-runtime/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

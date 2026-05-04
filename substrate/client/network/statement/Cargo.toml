@@ -31,9 +31,9 @@ rc-network = { default-features = true, workspace = true }
 rc-network-common = { default-features = true, workspace = true }
 rc-network-sync = { default-features = true, workspace = true }
 rc-network-types = { default-features = true, workspace = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
-rp-statement-store = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+sp-statement-store = { default-features = true, workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
@@ -41,10 +41,10 @@ async-trait = { workspace = true }
 criterion = { workspace = true, default-features = true }
 rc-keystore = { default-features = true, workspace = true }
 rc-statement-store = { default-features = true, workspace = true }
-rp-api = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-keyring = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-keyring = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tempfile = { workspace = true }
 

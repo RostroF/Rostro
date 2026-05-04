@@ -28,11 +28,11 @@ use jsonrpsee::{
 };
 
 use rc_transaction_pool_api::{InPoolTransaction, TransactionPool};
-use rp_api::ApiExt;
-use rp_block_builder::BlockBuilder;
-use rp_blockchain::HeaderBackend;
-use rp_core::{hexdisplay::HexDisplay, Bytes};
-use rp_runtime::{legacy, traits};
+use sp_api::ApiExt;
+use sp_block_builder::BlockBuilder;
+use sp_blockchain::HeaderBackend;
+use sp_core::{hexdisplay::HexDisplay, Bytes};
+use sp_runtime::{legacy, traits};
 
 pub use frame_system_rpc_runtime_api::AccountNonceApi;
 
@@ -88,7 +88,7 @@ impl<P: TransactionPool, C, B> System<P, C, B> {
 impl<P, C, Block, AccountId, Nonce>
 	SystemApiServer<<Block as traits::Block>::Hash, AccountId, Nonce> for System<P, C, Block>
 where
-	C: rp_api::ProvideRuntimeApi<Block>,
+	C: sp_api::ProvideRuntimeApi<Block>,
 	C: HeaderBackend<Block>,
 	C: Send + Sync + 'static,
 	C::Api: AccountNonceApi<Block, AccountId, Nonce>,
@@ -220,7 +220,7 @@ mod tests {
 	use futures::executor::block_on;
 	use rc_rpc_api::DenyUnsafe;
 	use rc_transaction_pool::BasicPool;
-	use rp_runtime::{
+	use sp_runtime::{
 		transaction_validity::{InvalidTransaction, TransactionValidityError},
 		ApplyExtrinsicResult,
 	};
@@ -240,11 +240,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn should_return_next_nonce_for_some_account() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 
 		// given
 		let client = Arc::new(substrate_test_runtime_client::new());
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let pool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -253,7 +253,7 @@ mod tests {
 			client.clone(),
 		));
 
-		let source = rp_runtime::transaction_validity::TransactionSource::External;
+		let source = sp_runtime::transaction_validity::TransactionSource::External;
 		let new_transaction = |nonce: u64| {
 			let t = Transfer {
 				from: Sr25519Keyring::Alice.into(),
@@ -281,11 +281,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn dry_run_should_deny_unsafe() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 
 		// given
 		let client = Arc::new(substrate_test_runtime_client::new());
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let pool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -305,11 +305,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn dry_run_should_work() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 
 		// given
 		let client = Arc::new(substrate_test_runtime_client::new());
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let pool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -341,11 +341,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn dry_run_should_indicate_error() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 
 		// given
 		let client = Arc::new(substrate_test_runtime_client::new());
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let pool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),

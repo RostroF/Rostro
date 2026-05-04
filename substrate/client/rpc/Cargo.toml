@@ -32,16 +32,16 @@ rc-tracing = { default-features = true, workspace = true }
 rc-transaction-pool-api = { default-features = true, workspace = true }
 rc-utils = { default-features = true, workspace = true }
 serde_json = { workspace = true, default-features = true }
-rp-api = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-keystore = { default-features = true, workspace = true }
-rp-offchain = { default-features = true, workspace = true }
-rp-rpc = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
-rp-session = { default-features = true, workspace = true }
-rp-statement-store = { default-features = true, workspace = true }
-rp-version = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-keystore = { default-features = true, workspace = true }
+sp-offchain = { default-features = true, workspace = true }
+sp-rpc = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+sp-session = { default-features = true, workspace = true }
+sp-statement-store = { default-features = true, workspace = true }
+sp-version = { default-features = true, workspace = true }
 tokio = { workspace = true, default-features = true }
 
 [dev-dependencies]
@@ -51,8 +51,8 @@ pretty_assertions = { workspace = true }
 rc-keystore = { workspace = true, default-features = false }
 rc-network = { default-features = true, workspace = true }
 rc-transaction-pool = { default-features = true, workspace = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-crypto-hashing = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-crypto-hashing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tempfile = { workspace = true }
 

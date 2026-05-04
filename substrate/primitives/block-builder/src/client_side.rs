@@ -17,24 +17,24 @@
 
 use crate::BlockBuilder;
 
-use rp_inherents::{InherentData, InherentDataProvider, InherentIdentifier};
-use rp_runtime::traits::Block as BlockT;
+use sp_inherents::{InherentData, InherentDataProvider, InherentIdentifier};
+use sp_runtime::traits::Block as BlockT;
 
 /// Errors that occur when creating and checking on the client side.
 #[derive(Debug)]
 pub enum CheckInherentsError {
 	/// Create inherents error.
-	CreateInherentData(rp_inherents::Error),
+	CreateInherentData(sp_inherents::Error),
 	/// Client Error
-	Client(rp_api::ApiError),
+	Client(sp_api::ApiError),
 	/// Check inherents error
-	CheckInherents(rp_inherents::Error),
+	CheckInherents(sp_inherents::Error),
 	/// Unknown inherent error for identifier
 	CheckInherentsUnknownError(InherentIdentifier),
 }
 
 /// Create inherent data and check that the inherents are valid.
-pub async fn check_inherents<Block: BlockT, Client: rp_api::ProvideRuntimeApi<Block>>(
+pub async fn check_inherents<Block: BlockT, Client: sp_api::ProvideRuntimeApi<Block>>(
 	client: std::sync::Arc<Client>,
 	at_hash: Block::Hash,
 	block: Block,
@@ -52,7 +52,7 @@ where
 }
 
 /// Check that the inherents are valid.
-pub async fn check_inherents_with_data<Block: BlockT, Client: rp_api::ProvideRuntimeApi<Block>>(
+pub async fn check_inherents_with_data<Block: BlockT, Client: sp_api::ProvideRuntimeApi<Block>>(
 	client: std::sync::Arc<Client>,
 	at_hash: Block::Hash,
 	block: Block,

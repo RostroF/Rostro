@@ -54,8 +54,8 @@ fn decl_runtime_version_impl_inner(item: ItemConst) -> Result<TokenStream> {
 	})
 }
 
-/// This is a duplicate of `rp_version::RuntimeVersion`. We cannot unfortunately use the original
-/// declaration, because if we directly depend on `rp_version` from this proc-macro cargo will
+/// This is a duplicate of `sp_version::RuntimeVersion`. We cannot unfortunately use the original
+/// declaration, because if we directly depend on `sp_version` from this proc-macro cargo will
 /// enable `std` feature even for `no_std` wasm runtime builds.
 ///
 /// One difference from the original definition is the `apis` field. Since we don't actually parse
@@ -190,7 +190,7 @@ impl ParseRuntimeVersion {
 
 	fn parse_str_literal(expr: &Expr) -> Result<String> {
 		match expr {
-			// TODO: Remove this branch when `rp_runtime::create_runtime_str` is removed
+			// TODO: Remove this branch when `sp_runtime::create_runtime_str` is removed
 			Expr::Macro(syn::ExprMacro { mac, .. }) => {
 				let lit: ExprLit = mac.parse_body().map_err(|e| {
 					Error::new(
@@ -296,9 +296,9 @@ mod tests {
 		.encode();
 
 		assert_eq!(
-			rp_version::RuntimeVersion::decode_with_version_hint(&mut &version_bytes[..], Some(4))
+			sp_version::RuntimeVersion::decode_with_version_hint(&mut &version_bytes[..], Some(4))
 				.unwrap(),
-			rp_version::RuntimeVersion {
+			sp_version::RuntimeVersion {
 				spec_name: "hello".into(),
 				impl_name: "world".into(),
 				authoring_version: 10,

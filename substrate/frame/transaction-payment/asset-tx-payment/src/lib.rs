@@ -50,7 +50,7 @@ use frame_support::{
 };
 use pallet_transaction_payment::OnChargeTransaction;
 use scale_info::TypeInfo;
-use rp_runtime::{
+use sp_runtime::{
 	traits::{
 		AsSystemOriginSigner, DispatchInfoOf, Dispatchable, PostDispatchInfoOf, RefundWeight,
 		TransactionExtension, Zero,

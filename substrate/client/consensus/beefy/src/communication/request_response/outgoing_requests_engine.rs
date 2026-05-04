@@ -27,8 +27,8 @@ use rc_network::{
 	NetworkRequest, ProtocolName,
 };
 use rc_network_types::PeerId;
-use rp_consensus_beefy::{AuthorityIdBound, ValidatorSet};
-use rp_runtime::traits::{Block, NumberFor};
+use sp_consensus_beefy::{AuthorityIdBound, ValidatorSet};
+use sp_runtime::traits::{Block, NumberFor};
 use std::{collections::VecDeque, result::Result, sync::Arc};
 
 use crate::{

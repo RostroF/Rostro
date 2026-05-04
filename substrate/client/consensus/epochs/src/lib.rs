@@ -23,8 +23,8 @@ pub mod migration;
 use codec::{Decode, Encode};
 use fork_tree::{FilterAction, ForkTree};
 use rc_client_api::utils::is_descendent_of;
-use rp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
-use rp_runtime::traits::{Block as BlockT, NumberFor, One, Zero};
+use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
+use sp_runtime::traits::{Block as BlockT, NumberFor, One, Zero};
 use std::{
 	borrow::{Borrow, BorrowMut},
 	collections::BTreeMap,

@@ -17,12 +17,12 @@
 
 //! A set of well-known keys used for testing.
 
-pub use rp_core::bandersnatch;
+pub use sp_core::bandersnatch;
 
 use crate::ParseKeyringError;
 #[cfg(feature = "std")]
-use rp_core::bandersnatch::Signature;
-use rp_core::{
+use sp_core::bandersnatch::Signature;
+use sp_core::{
 	bandersnatch::{Pair, Public},
 	crypto::UncheckedFrom,
 	hex2array, ByteArray, Pair as PairT,
@@ -173,7 +173,7 @@ impl From<Keyring> for [u8; PUBLIC_RAW_LEN] {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_core::{bandersnatch::Pair, Pair as PairT};
+	use sp_core::{bandersnatch::Pair, Pair as PairT};
 
 	#[test]
 	fn should_work() {

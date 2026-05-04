@@ -20,7 +20,7 @@ use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 use frame_support::traits::{OnRuntimeUpgrade, UncheckedOnRuntimeUpgrade};
 
 #[cfg(feature = "try-runtime")]
-use rp_runtime::TryRuntimeError;
+use sp_runtime::TryRuntimeError;
 
 /// Exports for versioned migration `type`s for this pallet.
 pub mod versioned {
@@ -851,7 +851,7 @@ pub mod v3 {
 
 pub mod v2 {
 	use super::*;
-	use rp_runtime::Perbill;
+	use sp_runtime::Perbill;
 
 	#[test]
 	fn migration_assumption_is_correct() {

@@ -20,7 +20,7 @@ use codec::{Decode, Encode};
 use frame_metadata::{RuntimeMetadata, RuntimeMetadataPrefixed};
 use merkleized_metadata::{generate_metadata_digest, ExtraInfo};
 use rc_executor::WasmExecutor;
-use rp_core::traits::{CallContext, CodeExecutor, RuntimeCode, WrappedRuntimeCode};
+use sp_core::traits::{CallContext, CodeExecutor, RuntimeCode, WrappedRuntimeCode};
 use std::path::Path;
 
 /// The host functions that we provide when calling into the wasm file.
@@ -28,15 +28,15 @@ use std::path::Path;
 /// Any other host function will return an error.
 type HostFunctions = (
 	// The allocator functions.
-	rp_io::allocator::HostFunctions,
+	sp_io::allocator::HostFunctions,
 	// Logging is good to have for debugging issues.
-	rp_io::logging::HostFunctions,
+	sp_io::logging::HostFunctions,
 	// Give access to the "state", actually the state will be empty, but some chains put constants
 	// into the state and this would panic at metadata generation. Thus, we give them an empty
 	// state to not panic.
-	rp_io::storage::HostFunctions,
+	sp_io::storage::HostFunctions,
 	// The hashing functions.
-	rp_io::hashing::HostFunctions,
+	sp_io::hashing::HostFunctions,
 );
 
 /// Generate the metadata hash.
@@ -46,7 +46,7 @@ type HostFunctions = (
 ///
 /// Returns the metadata hash.
 pub fn generate_metadata_hash(wasm: &Path, extra_info: MetadataExtraInfo) -> [u8; 32] {
-	rp_tracing::try_init_simple();
+	sp_tracing::try_init_simple();
 
 	let wasm = std::fs::read(wasm).expect("Wasm file was just created and should be readable.");
 
@@ -63,7 +63,7 @@ pub fn generate_metadata_hash(wasm: &Path, extra_info: MetadataExtraInfo) -> [u8
 
 	let metadata = executor
 		.call(
-			&mut rp_io::TestExternalities::default().ext(),
+			&mut sp_io::TestExternalities::default().ext(),
 			&runtime_code,
 			"Metadata_metadata_at_version",
 			&15u32.encode(),
@@ -83,7 +83,7 @@ pub fn generate_metadata_hash(wasm: &Path, extra_info: MetadataExtraInfo) -> [u8
 
 	let runtime_version = executor
 		.call(
-			&mut rp_io::TestExternalities::default().ext(),
+			&mut sp_io::TestExternalities::default().ext(),
 			&runtime_code,
 			"Core_version",
 			&[],
@@ -91,7 +91,7 @@ pub fn generate_metadata_hash(wasm: &Path, extra_info: MetadataExtraInfo) -> [u8
 		)
 		.0
 		.expect("`Core_version` should exist.");
-	let runtime_version = rp_version::RuntimeVersion::decode(&mut &runtime_version[..])
+	let runtime_version = sp_version::RuntimeVersion::decode(&mut &runtime_version[..])
 		.expect("Invalid `RuntimeVersion` encoding");
 
 	let base58_prefix = extract_ss58_prefix(&metadata);

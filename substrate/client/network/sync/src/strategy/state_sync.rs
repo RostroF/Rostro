@@ -27,8 +27,8 @@ use log::debug;
 use rc_client_api::{CompactProof, KeyValueStates, ProofProvider};
 use rc_consensus::ImportedState;
 use smallvec::SmallVec;
-use rp_core::storage::well_known_keys;
-use rp_runtime::{
+use sp_core::storage::well_known_keys;
+use sp_runtime::{
 	traits::{Block as BlockT, Header, NumberFor},
 	Justifications,
 };
@@ -227,8 +227,8 @@ where
 			debug!(
 				target: LOG_TARGET,
 				"Importing state from {:?} to {:?}",
-				state.entries.last().map(|e| rp_core::hexdisplay::HexDisplay::from(&e.key)),
-				state.entries.first().map(|e| rp_core::hexdisplay::HexDisplay::from(&e.key)),
+				state.entries.last().map(|e| sp_core::hexdisplay::HexDisplay::from(&e.key)),
+				state.entries.first().map(|e| sp_core::hexdisplay::HexDisplay::from(&e.key)),
 			);
 
 			if !state.complete {

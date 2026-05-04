@@ -55,10 +55,10 @@ schnellru = { workspace = true }
 serde = { features = ["derive"], workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
 smallvec = { workspace = true, default-features = true }
-rp-arithmetic = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
+sp-arithmetic = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 tokio = { features = ["macros", "sync"], workspace = true, default-features = true }
 tokio-stream = { workspace = true }
@@ -72,9 +72,9 @@ assert_matches = { workspace = true }
 cid = { workspace = true }
 multistream-select = { workspace = true }
 rc-block-builder = { default-features = true, workspace = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-crypto-hashing = { default-features = true, workspace = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-crypto-hashing = { default-features = true, workspace = true }
+sp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime = { workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tempfile = { workspace = true }

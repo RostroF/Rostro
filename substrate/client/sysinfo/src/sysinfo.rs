@@ -19,8 +19,8 @@
 use crate::{ExecutionLimit, HwBench};
 
 use rc_telemetry::SysInfo;
-use rp_core::{sr25519, Pair};
-use rp_io::crypto::sr25519_verify;
+use sp_core::{sr25519, Pair};
+use sp_io::crypto::sr25519_verify;
 
 use core::f64;
 use derive_more::From;
@@ -397,7 +397,7 @@ pub fn benchmark_cpu_parallelism(limit: ExecutionLimit, refhw_num_cores: usize) 
 
 			let run = || -> Result<(), ()> {
 				clobber_slice(&mut buffer);
-				hash = rp_crypto_hashing::blake2_256(&buffer);
+				hash = sp_crypto_hashing::blake2_256(&buffer);
 				clobber_slice(&mut hash);
 
 				Ok(())
@@ -791,7 +791,7 @@ impl Requirements {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_runtime::assert_eq_error_rate_float;
+	use sp_runtime::assert_eq_error_rate_float;
 
 	#[cfg(target_os = "linux")]
 	#[test]

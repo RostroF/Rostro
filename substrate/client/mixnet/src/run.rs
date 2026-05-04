@@ -50,11 +50,11 @@ use rc_network::{
 use rc_transaction_pool_api::{
 	LocalTransactionPool, OffchainTransactionPoolFactory, TransactionPool,
 };
-use rp_api::{ApiExt, ProvideRuntimeApi};
-use rp_consensus::SyncOracle;
-use rp_keystore::{KeystoreExt, KeystorePtr};
-use rp_mixnet::{runtime_api::MixnetApi, types::Mixnode};
-use rp_runtime::{
+use sp_api::{ApiExt, ProvideRuntimeApi};
+use sp_consensus::SyncOracle;
+use sp_keystore::{KeystoreExt, KeystorePtr};
+use sp_mixnet::{runtime_api::MixnetApi, types::Mixnode};
+use sp_runtime::{
 	traits::{Block, Header},
 	transaction_validity::TransactionSource,
 	Saturating,

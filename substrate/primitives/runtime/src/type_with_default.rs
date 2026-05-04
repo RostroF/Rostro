@@ -32,7 +32,7 @@ use num_traits::{
 	Num, NumCast, PrimInt, Saturating, ToPrimitive,
 };
 use scale_info::{StaticTypeInfo, TypeInfo};
-use rp_core::Get;
+use sp_core::Get;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -524,8 +524,8 @@ impl<T: HasCompact, D: Get<T>> CompactAs for TypeWithDefault<T, D> {
 mod tests {
 	use super::TypeWithDefault;
 	use scale_info::TypeInfo;
-	use rp_arithmetic::traits::{AtLeast16Bit, AtLeast32Bit, AtLeast8Bit};
-	use rp_core::Get;
+	use sp_arithmetic::traits::{AtLeast16Bit, AtLeast32Bit, AtLeast8Bit};
+	use sp_core::Get;
 
 	#[test]
 	#[allow(dead_code)]

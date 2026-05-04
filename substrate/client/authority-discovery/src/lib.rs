@@ -42,10 +42,10 @@ use futures::{
 
 use rc_network::{event::DhtEvent, Multiaddr};
 use rc_network_types::PeerId;
-use rp_authority_discovery::AuthorityId;
-use rp_blockchain::HeaderBackend;
-use rp_core::traits::SpawnNamed;
-use rp_runtime::traits::Block as BlockT;
+use sp_authority_discovery::AuthorityId;
+use sp_blockchain::HeaderBackend;
+use sp_core::traits::SpawnNamed;
+use sp_runtime::traits::Block as BlockT;
 mod error;
 mod interval;
 mod service;

@@ -36,8 +36,8 @@ use rc_network_sync::{
 	state_request_handler::StateRequestHandler,
 	strategy::polkadot::{PolkadotSyncingStrategy, PolkadotSyncingStrategyConfig},
 };
-use rp_blockchain::HeaderBackend;
-use rp_runtime::traits::{Block as BlockT, Zero};
+use sp_blockchain::HeaderBackend;
+use sp_runtime::traits::{Block as BlockT, Zero};
 use substrate_test_runtime_client::{
 	runtime::{Block as TestBlock, Hash as TestHash},
 	TestClientBuilder, TestClientBuilderExt as _,
@@ -149,7 +149,7 @@ impl TestNetworkBuilder {
 				PassThroughVerifier(false),
 				Box::new(client.clone()),
 				None,
-				&rp_core::testing::TaskExecutor::new(),
+				&sp_core::testing::TaskExecutor::new(),
 				None,
 			)));
 
@@ -227,7 +227,7 @@ impl TestNetworkBuilder {
 			&full_net_config,
 			protocol_id.clone(),
 			None,
-			Box::new(rp_consensus::block_validation::DefaultBlockAnnounceValidator),
+			Box::new(sp_consensus::block_validation::DefaultBlockAnnounceValidator),
 			syncing_strategy,
 			chain_sync_network_handle,
 			import_queue.service(),
@@ -460,7 +460,7 @@ async fn notifications_state_consistent() {
 
 #[tokio::test]
 async fn lots_of_incoming_peers_works() {
-	rp_tracing::try_init_simple();
+	sp_tracing::try_init_simple();
 	let listen_addr = config::build_multiaddr![Memory(rand::random::<u64>())];
 
 	let (main_node, handle1) = TestNetworkBuilder::new()
@@ -588,7 +588,7 @@ async fn notifications_back_pressure() {
 
 #[tokio::test]
 async fn fallback_name_working() {
-	rp_tracing::try_init_simple();
+	sp_tracing::try_init_simple();
 	// Node 1 supports the protocols "new" and "old". Node 2 only supports "old". Checks whether
 	// they can connect.
 	const NEW_PROTOCOL_NAME: &str = "/new-shiny-protocol-that-isnt-PROTOCOL_NAME";

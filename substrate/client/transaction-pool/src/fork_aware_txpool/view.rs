@@ -37,8 +37,8 @@ use indexmap::IndexMap;
 use parking_lot::Mutex;
 use rc_transaction_pool_api::{error::Error as TxPoolError, PoolStatus, TransactionStatus};
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use rp_blockchain::HashAndNumber;
-use rp_runtime::{
+use sp_blockchain::HashAndNumber;
+use sp_runtime::{
 	generic::BlockId, traits::Block as BlockT, transaction_validity::TransactionValidityError,
 	SaturatedConversion,
 };

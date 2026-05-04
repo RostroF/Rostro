@@ -17,8 +17,8 @@
 
 use frame_election_provider_solution_type::generate_solution_type;
 use honggfuzz::fuzz;
-use rp_arithmetic::Percent;
-use rp_runtime::codec::{Encode, Error};
+use sp_arithmetic::Percent;
+use sp_runtime::codec::{Encode, Error};
 
 fn main() {
 	generate_solution_type!(

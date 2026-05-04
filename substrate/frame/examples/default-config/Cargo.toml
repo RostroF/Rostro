@@ -22,8 +22,8 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 log = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-io = { workspace = true }
-rp-runtime = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
 
 [features]
 default = ["std"]
@@ -33,11 +33,11 @@ std = [
 	"frame-system/std",
 	"log/std",
 	"scale-info/std",
-	"rp-io/std",
-	"rp-runtime/std",
+	"sp-io/std",
+	"sp-runtime/std",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

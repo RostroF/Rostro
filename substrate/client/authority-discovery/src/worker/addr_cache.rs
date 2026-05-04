@@ -21,8 +21,8 @@ use log::{info, warn};
 use rc_network::{multiaddr::Protocol, Multiaddr};
 use rc_network_types::PeerId;
 use serde::{Deserialize, Serialize};
-use rp_authority_discovery::AuthorityId;
-use rp_runtime::DeserializeOwned;
+use sp_authority_discovery::AuthorityId;
+use sp_runtime::DeserializeOwned;
 use std::{
 	collections::{hash_map::Entry, HashMap, HashSet},
 	fs::File,
@@ -303,8 +303,8 @@ mod tests {
 	use quickcheck::{Arbitrary, Gen, QuickCheck, TestResult};
 	use rc_network_types::multihash::{Code, Multihash};
 
-	use rp_authority_discovery::{AuthorityId, AuthorityPair};
-	use rp_core::crypto::Pair;
+	use sp_authority_discovery::{AuthorityId, AuthorityPair};
+	use sp_core::crypto::Pair;
 
 	#[derive(Clone, Debug)]
 	struct TestAuthorityId(AuthorityId);

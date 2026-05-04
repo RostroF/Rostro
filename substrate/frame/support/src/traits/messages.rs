@@ -24,9 +24,9 @@ use alloc::vec::Vec;
 use codec::{Decode, DecodeWithMemTracking, Encode, FullCodec, MaxEncodedLen};
 use core::{cmp::Ordering, fmt::Debug, marker::PhantomData};
 use scale_info::TypeInfo;
-use rp_core::{ConstU32, Get, TypedGet};
-use rp_runtime::{traits::Convert, BoundedSlice};
-use rp_weights::{Weight, WeightMeter};
+use sp_core::{ConstU32, Get, TypedGet};
+use sp_runtime::{traits::Convert, BoundedSlice};
+use sp_weights::{Weight, WeightMeter};
 
 /// Errors that can happen when attempting to process a message with
 /// [`ProcessMessage::process_message()`].

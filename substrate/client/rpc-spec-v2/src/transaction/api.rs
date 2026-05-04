@@ -20,7 +20,7 @@
 
 use crate::transaction::{error::ErrorBroadcast, event::TransactionEvent};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
-use rp_core::Bytes;
+use sp_core::Bytes;
 
 #[rpc(client, server)]
 pub trait TransactionApi<Hash: Clone> {

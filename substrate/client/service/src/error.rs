@@ -19,8 +19,8 @@
 //! Errors that can occur during the service operation.
 
 use rc_keystore;
-use rp_blockchain;
-use rp_consensus;
+use sp_blockchain;
+use sp_consensus;
 
 /// Service Result typedef.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -31,13 +31,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[non_exhaustive]
 pub enum Error {
 	#[error(transparent)]
-	Client(#[from] rp_blockchain::Error),
+	Client(#[from] sp_blockchain::Error),
 
 	#[error(transparent)]
 	Io(#[from] std::io::Error),
 
 	#[error(transparent)]
-	Consensus(#[from] rp_consensus::Error),
+	Consensus(#[from] sp_consensus::Error),
 
 	#[error(transparent)]
 	Network(#[from] rc_network::error::Error),

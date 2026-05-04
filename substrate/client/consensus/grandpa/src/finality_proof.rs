@@ -41,9 +41,9 @@ use std::sync::Arc;
 
 use codec::{Decode, Encode};
 use rc_client_api::backend::Backend;
-use rp_blockchain::{Backend as BlockchainBackend, HeaderBackend};
-use rp_consensus_grandpa::GRANDPA_ENGINE_ID;
-use rp_runtime::{
+use sp_blockchain::{Backend as BlockchainBackend, HeaderBackend};
+use sp_consensus_grandpa::GRANDPA_ENGINE_ID;
+use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, Header as HeaderT, NumberFor, One},
 };
@@ -157,7 +157,7 @@ pub enum FinalityProofError {
 	BlockNotInAuthoritySetChanges,
 	/// Errors originating from the client.
 	#[error(transparent)]
-	Client(#[from] rp_blockchain::Error),
+	Client(#[from] sp_blockchain::Error),
 }
 
 /// Prove finality for the given block number by returning a justification for the last block of
@@ -263,10 +263,10 @@ mod tests {
 	use futures::executor::block_on;
 	use rc_block_builder::BlockBuilderBuilder;
 	use rc_client_api::{apply_aux, LockImportRun};
-	use rp_consensus::BlockOrigin;
-	use rp_consensus_grandpa::GRANDPA_ENGINE_ID as ID;
-	use rp_core::crypto::UncheckedFrom;
-	use rp_keyring::Ed25519Keyring;
+	use sp_consensus::BlockOrigin;
+	use sp_consensus_grandpa::GRANDPA_ENGINE_ID as ID;
+	use sp_core::crypto::UncheckedFrom;
+	use sp_keyring::Ed25519Keyring;
 	use substrate_test_runtime_client::{
 		runtime::{Block, Header, H256},
 		Backend as TestBackend, ClientBlockImportExt, ClientExt, DefaultTestClientBuilderExt,
@@ -279,9 +279,9 @@ mod tests {
 	/// AND if at least one of those headers is invalid, all other MUST be considered invalid.
 	fn check_finality_proof<Block: BlockT>(
 		current_set_id: SetId,
-		current_authorities: rp_consensus_grandpa::AuthorityList,
+		current_authorities: sp_consensus_grandpa::AuthorityList,
 		remote_proof: Vec<u8>,
-	) -> rp_blockchain::Result<super::FinalityProof<Block::Header>>
+	) -> sp_blockchain::Result<super::FinalityProof<Block::Header>>
 	where
 		NumberFor<Block>: BlockNumberOps,
 	{
@@ -409,7 +409,7 @@ mod tests {
 		};
 
 		let grandpa_just: GrandpaJustification<Block> =
-			rp_consensus_grandpa::GrandpaJustification::<Header> {
+			sp_consensus_grandpa::GrandpaJustification::<Header> {
 				round: 8,
 				votes_ancestries: Vec::new(),
 				commit,
@@ -437,8 +437,8 @@ mod tests {
 		auth: &[Ed25519Keyring],
 	) -> finality_grandpa::Commit<H256, u64, S, Id>
 	where
-		Id: From<rp_core::ed25519::Public>,
-		S: From<rp_core::ed25519::Signature>,
+		Id: From<sp_core::ed25519::Public>,
+		S: From<sp_core::ed25519::Signature>,
 	{
 		let mut precommits = Vec::new();
 
@@ -449,7 +449,7 @@ mod tests {
 			};
 
 			let msg = finality_grandpa::Message::Precommit(precommit.clone());
-			let encoded = rp_consensus_grandpa::localized_payload(round, set_id, &msg);
+			let encoded = sp_consensus_grandpa::localized_payload(round, set_id, &msg);
 			let signature = voter.sign(&encoded[..]).into();
 
 			let signed_precommit = finality_grandpa::SignedPrecommit {

@@ -30,8 +30,8 @@ use frame_support::{
 use frame_system::{pallet_prelude::*, ChainContext, LastRuntimeUpgrade, LastRuntimeUpgradeInfo};
 use pallet_balances::Call as BalancesCall;
 use pallet_transaction_payment::FungibleAdapter;
-use rp_core::H256;
-use rp_runtime::{
+use sp_core::H256;
+use sp_runtime::{
 	generic::{DigestItem, Era},
 	testing::{Block, Digest, Header},
 	traits::{Block as BlockT, Header as HeaderT, TransactionExtension},
@@ -71,7 +71,7 @@ mod custom {
 		fn on_finalize(_: BlockNumberFor<T>) {}
 
 		fn on_runtime_upgrade() -> Weight {
-			rp_io::storage::set(super::TEST_KEY, "module".as_bytes());
+			sp_io::storage::set(super::TEST_KEY, "module".as_bytes());
 			Weight::from_parts(200, 0)
 		}
 
@@ -116,8 +116,8 @@ mod custom {
 		}
 
 		pub fn calculate_storage_root(_origin: OriginFor<T>) -> DispatchResult {
-			let root = rp_io::storage::root(rp_runtime::StateVersion::V1);
-			rp_io::storage::set("storage_root".as_bytes(), &root);
+			let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+			sp_io::storage::set("storage_root".as_bytes(), &root);
 			Ok(())
 		}
 
@@ -132,7 +132,7 @@ mod custom {
 	impl<T: Config> ProvideInherent for Pallet<T> {
 		type Call = Call<T>;
 
-		type Error = rp_inherents::MakeFatalError<()>;
+		type Error = sp_inherents::MakeFatalError<()>;
 
 		const INHERENT_IDENTIFIER: [u8; 8] = *b"test1234";
 
@@ -207,7 +207,7 @@ mod custom2 {
 		}
 
 		fn on_runtime_upgrade() -> Weight {
-			rp_io::storage::set(super::TEST_KEY, "module".as_bytes());
+			sp_io::storage::set(super::TEST_KEY, "module".as_bytes());
 			Weight::from_parts(0, 0)
 		}
 	}
@@ -254,7 +254,7 @@ mod custom2 {
 	impl<T: Config> ProvideInherent for Pallet<T> {
 		type Call = Call<T>;
 
-		type Error = rp_inherents::MakeFatalError<()>;
+		type Error = sp_inherents::MakeFatalError<()>;
 
 		const INHERENT_IDENTIFIER: [u8; 8] = *b"test1235";
 
@@ -457,14 +457,14 @@ impl custom::Config for Runtime {}
 impl custom2::Config for Runtime {}
 
 pub struct RuntimeVersion;
-impl frame_support::traits::Get<rp_version::RuntimeVersion> for RuntimeVersion {
-	fn get() -> rp_version::RuntimeVersion {
+impl frame_support::traits::Get<sp_version::RuntimeVersion> for RuntimeVersion {
+	fn get() -> sp_version::RuntimeVersion {
 		RuntimeVersionTestValues::get().clone()
 	}
 }
 
 parameter_types! {
-	pub static RuntimeVersionTestValues: rp_version::RuntimeVersion =
+	pub static RuntimeVersionTestValues: sp_version::RuntimeVersion =
 		Default::default();
 }
 
@@ -476,10 +476,10 @@ type TxExtension = (
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
 	frame_system::WeightReclaim<Runtime>,
 );
-type UncheckedXt = rp_runtime::generic::UncheckedExtrinsic<
+type UncheckedXt = sp_runtime::generic::UncheckedExtrinsic<
 	u64,
 	RuntimeCall,
-	rp_runtime::testing::UintAuthorityId,
+	sp_runtime::testing::UintAuthorityId,
 	TxExtension,
 >;
 type TestBlock = Block<UncheckedXt>;
@@ -490,9 +490,9 @@ const CUSTOM_ON_RUNTIME_KEY: &[u8] = b":custom:on_runtime";
 pub struct CustomOnRuntimeUpgrade;
 impl OnRuntimeUpgrade for CustomOnRuntimeUpgrade {
 	fn on_runtime_upgrade() -> Weight {
-		rp_io::storage::set(TEST_KEY, "custom_upgrade".as_bytes());
-		rp_io::storage::set(TEST_KEY_2, "try_runtime_upgrade_works".as_bytes());
-		rp_io::storage::set(CUSTOM_ON_RUNTIME_KEY, &true.encode());
+		sp_io::storage::set(TEST_KEY, "custom_upgrade".as_bytes());
+		sp_io::storage::set(TEST_KEY_2, "try_runtime_upgrade_works".as_bytes());
+		sp_io::storage::set(CUSTOM_ON_RUNTIME_KEY, &true.encode());
 		System::deposit_event(frame_system::Event::CodeUpdated);
 
 		assert_eq!(0, System::last_runtime_upgrade_spec_version());
@@ -502,7 +502,7 @@ impl OnRuntimeUpgrade for CustomOnRuntimeUpgrade {
 
 	#[cfg(feature = "try-runtime")]
 	fn post_upgrade(_state: Vec<u8>) -> Result<(), TryRuntimeError> {
-		assert_eq!(&rp_io::storage::get(TEST_KEY_2).unwrap()[..], *b"try_runtime_upgrade_works");
+		assert_eq!(&sp_io::storage::get(TEST_KEY_2).unwrap()[..], *b"try_runtime_upgrade_works");
 		Ok(())
 	}
 }
@@ -617,7 +617,7 @@ fn balance_transfer_dispatch_works() {
 			.base_extrinsic;
 	let fee: Balance =
 		<Runtime as pallet_transaction_payment::Config>::WeightToFee::weight_to_fee(&weight);
-	let mut t = rp_io::TestExternalities::new(t);
+	let mut t = sp_io::TestExternalities::new(t);
 	t.execute_with(|| {
 		Executive::initialize_block(&Header::new_from_number(1));
 		let r = Executive::apply_extrinsic(xt);
@@ -627,7 +627,7 @@ fn balance_transfer_dispatch_works() {
 	});
 }
 
-fn new_test_ext(balance_factor: Balance) -> rp_io::TestExternalities {
+fn new_test_ext(balance_factor: Balance) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
 	pallet_balances::GenesisConfig::<Runtime> {
 		balances: vec![(1, 111 * balance_factor)],
@@ -635,14 +635,14 @@ fn new_test_ext(balance_factor: Balance) -> rp_io::TestExternalities {
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
-	let mut ext: rp_io::TestExternalities = t.into();
+	let mut ext: sp_io::TestExternalities = t.into();
 	ext.execute_with(|| {
 		SystemCallbacksCalled::set(0);
 	});
 	ext
 }
 
-fn new_test_ext_v0(balance_factor: Balance) -> rp_io::TestExternalities {
+fn new_test_ext_v0(balance_factor: Balance) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
 	pallet_balances::GenesisConfig::<Runtime> {
 		balances: vec![(1, 111 * balance_factor)],
@@ -650,7 +650,7 @@ fn new_test_ext_v0(balance_factor: Balance) -> rp_io::TestExternalities {
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
-	(t, rp_runtime::StateVersion::V0).into()
+	(t, sp_runtime::StateVersion::V0).into()
 }
 
 #[test]
@@ -668,7 +668,7 @@ fn block_import_works() {
 		),
 	);
 }
-fn block_import_works_inner(mut ext: rp_io::TestExternalities, state_root: H256) {
+fn block_import_works_inner(mut ext: sp_io::TestExternalities, state_root: H256) {
 	ext.execute_with(|| {
 		Executive::execute_block(
 			Block {
@@ -950,12 +950,12 @@ fn runtime_upgraded_should_work() {
 		assert!(!Executive::runtime_upgraded());
 
 		RuntimeVersionTestValues::mutate(|v| {
-			*v = rp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
+			*v = sp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
 		});
 		assert!(Executive::runtime_upgraded());
 
 		RuntimeVersionTestValues::mutate(|v| {
-			*v = rp_version::RuntimeVersion {
+			*v = sp_version::RuntimeVersion {
 				spec_version: 1,
 				spec_name: "test".into(),
 				..Default::default()
@@ -964,7 +964,7 @@ fn runtime_upgraded_should_work() {
 		assert!(Executive::runtime_upgraded());
 
 		RuntimeVersionTestValues::mutate(|v| {
-			*v = rp_version::RuntimeVersion {
+			*v = sp_version::RuntimeVersion {
 				spec_version: 0,
 				impl_version: 2,
 				..Default::default()
@@ -988,7 +988,7 @@ fn last_runtime_upgrade_was_upgraded_works() {
 	];
 
 	for (spec_version, spec_name, c_spec_version, c_spec_name, result) in test_data {
-		let current = rp_version::RuntimeVersion {
+		let current = sp_version::RuntimeVersion {
 			spec_version: c_spec_version,
 			spec_name: c_spec_name.into(),
 			..Default::default()
@@ -1008,13 +1008,13 @@ fn custom_runtime_upgrade_is_called_before_modules() {
 	new_test_ext(1).execute_with(|| {
 		// Make sure `on_runtime_upgrade` is called.
 		RuntimeVersionTestValues::mutate(|v| {
-			*v = rp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
+			*v = sp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
 		});
 
 		Executive::initialize_block(&Header::new_from_number(1));
 
-		assert_eq!(&rp_io::storage::get(TEST_KEY).unwrap()[..], *b"module");
-		assert_eq!(rp_io::storage::get(CUSTOM_ON_RUNTIME_KEY).unwrap(), true.encode());
+		assert_eq!(&sp_io::storage::get(TEST_KEY).unwrap()[..], *b"module");
+		assert_eq!(sp_io::storage::get(CUSTOM_ON_RUNTIME_KEY).unwrap(), true.encode());
 		assert_eq!(
 			Some(RuntimeVersionTestValues::get().into()),
 			LastRuntimeUpgrade::<Runtime>::get(),
@@ -1027,7 +1027,7 @@ fn event_from_runtime_upgrade_is_included() {
 	new_test_ext(1).execute_with(|| {
 		// Make sure `on_runtime_upgrade` is called.
 		RuntimeVersionTestValues::mutate(|v| {
-			*v = rp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
+			*v = sp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
 		});
 
 		// set block number to non zero so events are not excluded
@@ -1052,7 +1052,7 @@ fn custom_runtime_upgrade_is_called_when_using_execute_block_trait() {
 	let header = new_test_ext(1).execute_with(|| {
 		// Make sure `on_runtime_upgrade` is called.
 		RuntimeVersionTestValues::mutate(|v| {
-			*v = rp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
+			*v = sp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
 		});
 
 		// Let's build some fake block.
@@ -1065,21 +1065,21 @@ fn custom_runtime_upgrade_is_called_when_using_execute_block_trait() {
 
 	// Reset to get the correct new genesis below.
 	RuntimeVersionTestValues::mutate(|v| {
-		*v = rp_version::RuntimeVersion { spec_version: 0, ..Default::default() }
+		*v = sp_version::RuntimeVersion { spec_version: 0, ..Default::default() }
 	});
 
 	new_test_ext(1).execute_with(|| {
 		// Make sure `on_runtime_upgrade` is called.
 		RuntimeVersionTestValues::mutate(|v| {
-			*v = rp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
+			*v = sp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
 		});
 
 		<Executive as ExecuteBlock<Block<UncheckedXt>>>::execute_block(
 			Block::new(header, vec![xt]).into(),
 		);
 
-		assert_eq!(&rp_io::storage::get(TEST_KEY).unwrap()[..], *b"module");
-		assert_eq!(rp_io::storage::get(CUSTOM_ON_RUNTIME_KEY).unwrap(), true.encode());
+		assert_eq!(&sp_io::storage::get(TEST_KEY).unwrap()[..], *b"module");
+		assert_eq!(sp_io::storage::get(CUSTOM_ON_RUNTIME_KEY).unwrap(), true.encode());
 	});
 }
 
@@ -1091,7 +1091,7 @@ fn all_weights_are_recorded_correctly() {
 	new_test_ext(1).execute_with(|| {
 		// Make sure `on_runtime_upgrade` is called for maximum complexity
 		RuntimeVersionTestValues::mutate(|v| {
-			*v = rp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
+			*v = sp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
 		});
 
 		let block_number = 1;
@@ -1120,7 +1120,7 @@ fn all_weights_are_recorded_correctly() {
 #[test]
 fn offchain_worker_works_as_expected() {
 	new_test_ext(1).execute_with(|| {
-		let parent_hash = rp_core::H256::from([69u8; 32]);
+		let parent_hash = sp_core::H256::from([69u8; 32]);
 
 		// Emulate block production before running the offchain worker.
 		System::initialize(&1, &parent_hash, &Digest::default());
@@ -1340,7 +1340,7 @@ fn try_execute_block_works() {
 fn try_runtime_upgrade_works() {
 	use frame_support::traits::OnGenesis;
 
-	rp_tracing::init_for_tests();
+	sp_tracing::init_for_tests();
 
 	type ExecutiveWithoutMigrations = super::Executive<
 		Runtime,
@@ -1355,12 +1355,12 @@ fn try_runtime_upgrade_works() {
 		AllPalletsWithSystem::on_genesis();
 
 		// Make sure the test storages are un-set
-		assert!(&rp_io::storage::get(TEST_KEY_2).is_none());
+		assert!(&sp_io::storage::get(TEST_KEY_2).is_none());
 
 		ExecutiveWithoutMigrations::try_runtime_upgrade(UpgradeCheckSelect::All).unwrap();
 
 		// Make sure the test storages were set
-		assert_eq!(&rp_io::storage::get(TEST_KEY_2).unwrap()[..], *b"try_runtime_upgrade_works");
+		assert_eq!(&sp_io::storage::get(TEST_KEY_2).unwrap()[..], *b"try_runtime_upgrade_works");
 	});
 }
 
@@ -1707,8 +1707,8 @@ fn pending_code_upgrade_build_execute_consistency() {
 		Executive::apply_extrinsic(xt.clone()).unwrap().unwrap();
 		let header = Executive::finalize_block();
 
-		let pending_code = rp_io::storage::get(rp_core::storage::well_known_keys::PENDING_CODE);
-		let code = rp_io::storage::get(rp_core::storage::well_known_keys::CODE);
+		let pending_code = sp_io::storage::get(sp_core::storage::well_known_keys::PENDING_CODE);
+		let code = sp_io::storage::get(sp_core::storage::well_known_keys::CODE);
 
 		(header, pending_code, code)
 	});
@@ -1729,8 +1729,8 @@ fn pending_code_upgrade_build_execute_consistency() {
 		// Explicitly verify that execute_block produced the same :pending_code and :code
 		// state as finalize_block.
 		let exec_pending_code =
-			rp_io::storage::get(rp_core::storage::well_known_keys::PENDING_CODE);
-		let exec_code = rp_io::storage::get(rp_core::storage::well_known_keys::CODE);
+			sp_io::storage::get(sp_core::storage::well_known_keys::PENDING_CODE);
+		let exec_code = sp_io::storage::get(sp_core::storage::well_known_keys::CODE);
 
 		assert_eq!(exec_pending_code, build_pending_code, ":pending_code must match");
 		assert_eq!(exec_code, build_code, ":code must match");

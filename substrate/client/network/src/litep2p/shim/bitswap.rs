@@ -25,7 +25,7 @@ use litep2p::protocol::libp2p::bitswap::{
 };
 
 use rc_client_api::BlockBackend;
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 use std::{future::Future, pin::Pin, sync::Arc};
 

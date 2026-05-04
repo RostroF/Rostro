@@ -27,8 +27,8 @@ use frame_election_provider_support::PageIndex;
 use frame_support::{
 	assert_ok, dispatch::PostDispatchInfo, parameter_types, traits::EstimateCallFee,
 };
-use rp_npos_elections::ElectionScore;
-use rp_runtime::{traits::Zero, Perbill};
+use sp_npos_elections::ElectionScore;
+use sp_runtime::{traits::Zero, Perbill};
 
 parameter_types! {
 	pub static MockSignedNextSolution: Option<Vec<SolutionOf<Runtime>>> = None;

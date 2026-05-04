@@ -38,16 +38,16 @@ use frame_support::traits::{Get, KeyOwnerProofSystem};
 use frame_system::pallet_prelude::HeaderFor;
 use log::{error, info};
 
-use rp_consensus_babe::{AuthorityId, EquivocationProof, Slot, KEY_TYPE};
-use rp_runtime::{
+use sp_consensus_babe::{AuthorityId, EquivocationProof, Slot, KEY_TYPE};
+use sp_runtime::{
 	transaction_validity::{
 		InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
 		TransactionValidityError, ValidTransaction,
 	},
 	DispatchError, KeyTypeId, Perbill,
 };
-use rp_session::{GetSessionNumber, GetValidatorCount};
-use rp_staking::{
+use sp_session::{GetSessionNumber, GetValidatorCount};
+use sp_staking::{
 	offence::{Kind, Offence, OffenceReportSystem, ReportOffence},
 	SessionIndex,
 };
@@ -147,7 +147,7 @@ where
 		let (equivocation_proof, key_owner_proof) = evidence;
 
 		// Check the membership proof to extract the offender's id
-		let key = (rp_consensus_babe::KEY_TYPE, equivocation_proof.offender.clone());
+		let key = (sp_consensus_babe::KEY_TYPE, equivocation_proof.offender.clone());
 		let offender =
 			P::check_proof(key, key_owner_proof.clone()).ok_or(InvalidTransaction::BadProof)?;
 
@@ -162,7 +162,7 @@ where
 		// consumes full dispatch weight before failing in `process_evidence` — a free DoS
 		// vector against block authors since unsigned reports pay no fee even when
 		// dispatch fails. Mirrors the BEEFY/GRANDPA remediation.
-		if !rp_consensus_babe::check_equivocation_proof::<HeaderFor<T>>(equivocation_proof) {
+		if !sp_consensus_babe::check_equivocation_proof::<HeaderFor<T>>(equivocation_proof) {
 			return Err(InvalidTransaction::BadProof.into());
 		}
 
@@ -179,7 +179,7 @@ where
 		let slot = equivocation_proof.slot;
 
 		// Validate the equivocation proof (check votes are different and signatures are valid)
-		if !rp_consensus_babe::check_equivocation_proof(equivocation_proof) {
+		if !sp_consensus_babe::check_equivocation_proof(equivocation_proof) {
 			return Err(Error::<T>::InvalidEquivocationProof.into());
 		}
 

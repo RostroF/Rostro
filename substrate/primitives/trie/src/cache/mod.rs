@@ -835,7 +835,7 @@ impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for TrieCache<'a, H> {
 
 		tracing::trace!(
 			target: LOG_TARGET,
-			key = ?rp_core::hexdisplay::HexDisplay::from(&key),
+			key = ?sp_core::hexdisplay::HexDisplay::from(&key),
 			found = res.is_some(),
 			"Looked up value for key",
 		);
@@ -846,7 +846,7 @@ impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for TrieCache<'a, H> {
 	fn cache_value_for_key(&mut self, key: &[u8], data: CachedValue<H::Out>) {
 		tracing::trace!(
 			target: LOG_TARGET,
-			key = ?rp_core::hexdisplay::HexDisplay::from(&key),
+			key = ?sp_core::hexdisplay::HexDisplay::from(&key),
 			"Caching value for key",
 		);
 
@@ -858,13 +858,13 @@ impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for TrieCache<'a, H> {
 mod tests {
 	use super::*;
 	use rand::{thread_rng, Rng};
-	use rp_core::H256;
+	use sp_core::H256;
 	use trie_db::{Bytes, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieHash, TrieMut};
 
-	type MemoryDB = crate::MemoryDB<rp_core::Blake2Hasher>;
-	type Layout = crate::LayoutV1<rp_core::Blake2Hasher>;
-	type Cache = super::SharedTrieCache<rp_core::Blake2Hasher>;
-	type Recorder = crate::recorder::Recorder<rp_core::Blake2Hasher>;
+	type MemoryDB = crate::MemoryDB<sp_core::Blake2Hasher>;
+	type Layout = crate::LayoutV1<sp_core::Blake2Hasher>;
+	type Cache = super::SharedTrieCache<sp_core::Blake2Hasher>;
+	type Recorder = crate::recorder::Recorder<sp_core::Blake2Hasher>;
 
 	const TEST_DATA: &[(&[u8], &[u8])] =
 		&[(b"key1", b"val1"), (b"key2", &[2; 64]), (b"key3", b"val3"), (b"key4", &[4; 64])];

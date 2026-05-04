@@ -58,12 +58,12 @@ use frame_support::{
 	},
 };
 use frame_system::pallet_prelude::*;
-use rp_runtime::{traits::Saturating, BoundedSlice};
+use sp_runtime::{traits::Saturating, BoundedSlice};
 
 pub use pallet::*;
 
 #[cfg(feature = "try-runtime")]
-use rp_runtime::TryRuntimeError;
+use sp_runtime::TryRuntimeError;
 
 #[cfg(test)]
 mod mock;

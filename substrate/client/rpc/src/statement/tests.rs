@@ -22,8 +22,8 @@ use codec::Encode;
 use futures::FutureExt;
 use jsonrpsee::{RpcModule, Subscription};
 use rc_statement_store::Store;
-use rp_core::traits::SpawnNamed;
-use rp_statement_store::{statement_allowance_key, Statement, StatementAllowance, Topic};
+use sp_core::traits::SpawnNamed;
+use sp_statement_store::{statement_allowance_key, Statement, StatementAllowance, Topic};
 use std::sync::Arc;
 use substrate_test_runtime_client::{TestClientBuilder, TestClientBuilderExt};
 
@@ -48,21 +48,21 @@ fn generate_statements() -> Vec<Statement> {
 	let topic2: Topic = [2u8; 32].into();
 
 	let mut statements = Vec::new();
-	let mut statement = rp_statement_store::Statement::new();
+	let mut statement = sp_statement_store::Statement::new();
 	statement.set_topic(0, topic);
 	statement.set_topic(1, topic2);
 
 	statement
-		.set_proof(rp_statement_store::Proof::Ed25519 { signature: [0u8; 64], signer: [0u8; 32] });
+		.set_proof(sp_statement_store::Proof::Ed25519 { signature: [0u8; 64], signer: [0u8; 32] });
 	statement.set_expiry_from_parts(u32::MAX, 1);
 
 	statements.push(statement.clone());
 
-	let mut statement = rp_statement_store::Statement::new();
+	let mut statement = sp_statement_store::Statement::new();
 	statement.set_topic(0, topic);
 	statement.set_topic(1, topic1);
 	statement
-		.set_proof(rp_statement_store::Proof::Ed25519 { signature: [0u8; 64], signer: [0u8; 32] });
+		.set_proof(sp_statement_store::Proof::Ed25519 { signature: [0u8; 64], signer: [0u8; 32] });
 	statement.set_expiry_from_parts(u32::MAX, 1);
 
 	statements.push(statement.clone());
@@ -188,7 +188,7 @@ async fn subscribe_works() {
 }
 
 async fn check_submitted(
-	mut expected: Vec<rp_statement_store::Statement>,
+	mut expected: Vec<sp_statement_store::Statement>,
 	_num_existing: Option<u32>,
 	mut subscription: Subscription,
 ) {
@@ -203,7 +203,7 @@ async fn check_submitted(
 			);
 		}
 		for result in result {
-			let new_statement = rp_statement_store::Statement::decode(&mut &result.0[..])
+			let new_statement = sp_statement_store::Statement::decode(&mut &result.0[..])
 				.expect("Decode statement");
 			let position = expected
 				.iter()

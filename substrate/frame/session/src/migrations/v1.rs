@@ -20,10 +20,10 @@ use frame_support::{
 	pallet_prelude::{Get, ValueQuery, Weight},
 	traits::UncheckedOnRuntimeUpgrade,
 };
-use rp_staking::offence::OffenceSeverity;
+use sp_staking::offence::OffenceSeverity;
 
 #[cfg(feature = "try-runtime")]
-use rp_runtime::TryRuntimeError;
+use sp_runtime::TryRuntimeError;
 
 #[cfg(feature = "try-runtime")]
 use frame_support::ensure;

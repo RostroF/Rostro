@@ -41,11 +41,11 @@ pub use codec::Codec;
 pub use executor::NativeElseWasmExecutor;
 pub use executor::{with_externalities_safe, NativeExecutionDispatch, WasmExecutor};
 #[doc(hidden)]
-pub use rp_core::traits::Externalities;
-pub use rp_version::{NativeVersion, RuntimeVersion};
+pub use sp_core::traits::Externalities;
+pub use sp_version::{NativeVersion, RuntimeVersion};
 #[doc(hidden)]
-pub use rp_wasm_interface;
-pub use rp_wasm_interface::HostFunctions;
+pub use sp_wasm_interface;
+pub use sp_wasm_interface::HostFunctions;
 pub use wasm_runtime::{read_embedded_version, WasmExecutionMethod};
 
 pub use rc_executor_common::{
@@ -60,7 +60,7 @@ pub trait RuntimeVersionOf {
 	fn runtime_version(
 		&self,
 		ext: &mut dyn Externalities,
-		runtime_code: &rp_core::traits::RuntimeCode,
+		runtime_code: &sp_core::traits::RuntimeCode,
 	) -> error::Result<RuntimeVersion>;
 }
 
@@ -69,14 +69,14 @@ mod tests {
 	use super::*;
 	use rc_executor_common::runtime_blob::RuntimeBlob;
 	use rc_runtime_test::wasm_binary_unwrap;
-	use rp_io::TestExternalities;
+	use sp_io::TestExternalities;
 
 	#[test]
 	fn call_in_interpreted_wasm_works() {
 		let mut ext = TestExternalities::default();
 		let mut ext = ext.ext();
 
-		let executor = WasmExecutor::<rp_io::SubstrateHostFunctions>::builder().build();
+		let executor = WasmExecutor::<sp_io::SubstrateHostFunctions>::builder().build();
 		let res = executor
 			.uncached_call(
 				RuntimeBlob::uncompress_if_needed(wasm_binary_unwrap()).unwrap(),

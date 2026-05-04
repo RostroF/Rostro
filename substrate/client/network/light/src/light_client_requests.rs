@@ -21,7 +21,7 @@
 use rc_network::{
 	config::ProtocolId, request_responses::IncomingRequest, NetworkBackend, MAX_RESPONSE_SIZE,
 };
-use rp_runtime::traits::Block;
+use sp_runtime::traits::Block;
 
 use std::time::Duration;
 

@@ -30,7 +30,7 @@ use futures::{Future, FutureExt, Stream, StreamExt};
 use parking_lot::RwLock;
 use rc_transaction_pool_api::{TransactionStatus, TransactionStatusStream, TxIndex};
 use rc_utils::mpsc;
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 use std::{
 	collections::{hash_map::Entry, HashMap, HashSet},
 	pin::Pin,
@@ -806,7 +806,7 @@ mod tests {
 	use super::*;
 	use crate::common::tests::TestApi;
 	use futures::{stream, StreamExt};
-	use rp_core::H256;
+	use sp_core::H256;
 	use tokio::{select, task::JoinHandle};
 	use tracing::debug;
 
@@ -830,7 +830,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test01() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash = H256::repeat_byte(0x01);
@@ -859,7 +859,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test02() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash0 = H256::repeat_byte(0x01);
@@ -908,7 +908,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test03() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash0 = H256::repeat_byte(0x01);
@@ -955,7 +955,7 @@ mod tests {
 	//
 	#[tokio::test]
 	async fn test032() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash0 = H256::repeat_byte(0x01);
@@ -1028,7 +1028,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test04() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash0 = H256::repeat_byte(0x01);
@@ -1077,7 +1077,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test05() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (listener, terminate_listener, listener_task) = create_multi_view_listener();
 
 		let block_hash0 = H256::repeat_byte(0x01);

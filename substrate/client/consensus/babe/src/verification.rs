@@ -25,19 +25,19 @@ use crate::{
 use log::{debug, trace};
 use rc_consensus_epochs::Epoch as EpochT;
 use rc_consensus_slots::CheckedHeader;
-use rp_consensus_babe::{
+use sp_consensus_babe::{
 	digests::{
 		CompatibleDigestItem, PreDigest, PrimaryPreDigest, SecondaryPlainPreDigest,
 		SecondaryVRFPreDigest,
 	},
 	make_vrf_sign_data, AuthorityPair, AuthoritySignature,
 };
-use rp_consensus_slots::Slot;
-use rp_core::{
+use sp_consensus_slots::Slot;
+use sp_core::{
 	crypto::{VrfPublic, Wraps},
 	Pair,
 };
-use rp_runtime::{traits::Header, DigestItem};
+use sp_runtime::{traits::Header, DigestItem};
 
 /// BABE verification parameters
 pub(super) struct VerificationParams<'a, B: 'a + BlockT> {

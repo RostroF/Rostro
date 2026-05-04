@@ -35,11 +35,11 @@ use pallet_staking::{
 	Config as StakingConfig, Exposure, IndividualExposure, MaxNominationsOf, Pallet as Staking,
 	RewardDestination, ValidatorPrefs,
 };
-use rp_runtime::{
+use sp_runtime::{
 	traits::{Convert, Saturating, StaticLookup},
 	Perbill,
 };
-use rp_staking::offence::ReportOffence;
+use sp_staking::offence::ReportOffence;
 
 const SEED: u32 = 0;
 

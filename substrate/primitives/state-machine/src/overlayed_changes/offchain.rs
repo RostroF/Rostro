@@ -19,7 +19,7 @@
 
 use super::changeset::OverlayedMap;
 use alloc::vec::Vec;
-use rp_core::offchain::OffchainOverlayedChange;
+use sp_core::offchain::OffchainOverlayedChange;
 
 /// In-memory storage for offchain workers recoding changes for the actual offchain storage
 /// implementation.
@@ -91,7 +91,7 @@ impl OffchainOverlayedChanges {
 #[cfg(test)]
 mod test {
 	use super::*;
-	use rp_core::offchain::STORAGE_PREFIX;
+	use sp_core::offchain::STORAGE_PREFIX;
 
 	#[test]
 	fn test_drain() {

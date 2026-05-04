@@ -24,8 +24,8 @@ use crate::{
 use alloc::{collections::BTreeMap, vec::Vec};
 use codec::Codec;
 use hash_db::Hasher;
-use rp_core::storage::{ChildInfo, StateVersion, Storage};
-use rp_trie::{empty_trie_root, LayoutV1, PrefixedMemoryDB, RandomState};
+use sp_core::storage::{ChildInfo, StateVersion, Storage};
+use sp_trie::{empty_trie_root, LayoutV1, PrefixedMemoryDB, RandomState};
 
 #[cfg(feature = "std")]
 use std::collections::HashMap as MapType;
@@ -196,8 +196,8 @@ where
 mod tests {
 	use super::*;
 	use crate::backend::{AsTrieBackend, Backend};
-	use rp_core::storage::StateVersion;
-	use rp_runtime::traits::BlakeTwo256;
+	use sp_core::storage::StateVersion;
+	use sp_runtime::traits::BlakeTwo256;
 
 	/// Assert in memory backend with only child trie keys works as trie backend.
 	#[test]

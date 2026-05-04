@@ -28,7 +28,7 @@ use std::time::Duration;
 use codec::{Decode, Encode, Error as CodecError};
 use rc_network::NetworkBackend;
 use rc_network_types::PeerId;
-use rp_runtime::traits::{Block, NumberFor};
+use sp_runtime::traits::{Block, NumberFor};
 
 use crate::communication::{beefy_protocol_name::justifications_protocol_name, peers::PeerReport};
 use incoming_requests_handler::IncomingRequestReceiver;
@@ -82,10 +82,10 @@ pub struct JustificationRequest<B: Block> {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
 	#[error(transparent)]
-	Client(#[from] rp_blockchain::Error),
+	Client(#[from] sp_blockchain::Error),
 
 	#[error(transparent)]
-	RuntimeApi(#[from] rp_api::ApiError),
+	RuntimeApi(#[from] sp_api::ApiError),
 
 	/// Decoding failed, we were able to change the peer's reputation accordingly.
 	#[error("Decoding request failed for peer {0}.")]

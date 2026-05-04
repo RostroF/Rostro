@@ -61,11 +61,11 @@ use frame_support::{
 	traits::{Defensive, DefensiveSaturating, Imbalance, OnUnbalanced},
 };
 use scale_info::TypeInfo;
-use rp_runtime::{
+use sp_runtime::{
 	traits::{Saturating, Zero},
 	Debug, DispatchResult,
 };
-use rp_staking::{EraIndex, StakingInterface};
+use sp_staking::{EraIndex, StakingInterface};
 
 /// The proportion of the slashing reward to be paid out on the first slashing detection.
 /// This is f_1 in the paper.
@@ -559,7 +559,7 @@ pub fn do_slash<T: Config>(
 	slash_era: EraIndex,
 ) {
 	let mut ledger =
-		match Pallet::<T>::ledger(rp_staking::StakingAccount::Stash(stash.clone())).defensive() {
+		match Pallet::<T>::ledger(sp_staking::StakingAccount::Stash(stash.clone())).defensive() {
 			Ok(ledger) => ledger,
 			Err(_) => return, // nothing to do.
 		};

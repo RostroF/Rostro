@@ -22,7 +22,7 @@ use jsonrpsee::core::async_trait;
 use rc_mixnet::Api;
 use rc_rpc_api::mixnet::error::Error;
 pub use rc_rpc_api::mixnet::MixnetApiServer;
-use rp_core::Bytes;
+use sp_core::Bytes;
 
 /// Mixnet API.
 pub struct Mixnet(futures::lock::Mutex<Api>);

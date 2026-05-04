@@ -163,7 +163,7 @@ fn noop_is_free() {
 
 mod mock {
 	use frame_support::derive_impl;
-	use rp_runtime::testing::H256;
+	use sp_runtime::testing::H256;
 
 	type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -185,9 +185,9 @@ mod mock {
 		type Nonce = u32;
 		type RuntimeCall = RuntimeCall;
 		type Hash = H256;
-		type Hashing = ::rp_runtime::traits::BlakeTwo256;
+		type Hashing = ::sp_runtime::traits::BlakeTwo256;
 		type AccountId = u32;
-		type Lookup = rp_runtime::traits::IdentityLookup<Self::AccountId>;
+		type Lookup = sp_runtime::traits::IdentityLookup<Self::AccountId>;
 		type Block = Block;
 		type RuntimeEvent = RuntimeEvent;
 		type BlockHashCount = ();

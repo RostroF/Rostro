@@ -49,8 +49,8 @@ use finality_grandpa::{
 use rc_network::{NetworkBlock, NetworkSyncForkRequest, NotificationService, ReputationChange};
 use rc_network_gossip::{GossipEngine, Network as GossipNetwork};
 use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_INFO};
-use rp_keystore::KeystorePtr;
-use rp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT, NumberFor};
+use sp_keystore::KeystorePtr;
+use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT, NumberFor};
 
 use crate::{
 	environment::HasVoted, CatchUp, Commit, CommunicationIn, CommunicationOutH, CompactCommit,
@@ -61,7 +61,7 @@ use gossip::{
 };
 use rc_network_sync::SyncEventStream;
 use rc_utils::mpsc::TracingUnboundedReceiver;
-use rp_consensus_grandpa::{AuthorityId, AuthoritySignature, RoundNumber, SetId as SetIdNumber};
+use sp_consensus_grandpa::{AuthorityId, AuthoritySignature, RoundNumber, SetId as SetIdNumber};
 
 pub mod gossip;
 mod periodic;
@@ -782,7 +782,7 @@ impl<Block: BlockT> Sink<Message<Block::Header>> for OutgoingMessages<Block> {
 		// when locals exist, sign messages on import
 		if let Some(ref keystore) = self.keystore {
 			let target_hash = *(msg.target().0);
-			let signed = rp_consensus_grandpa::sign_message(
+			let signed = sp_consensus_grandpa::sign_message(
 				keystore.keystore(),
 				msg,
 				keystore.local_id().clone(),
@@ -883,7 +883,7 @@ fn check_compact_commit<Block: BlockT>(
 		use crate::communication::gossip::Misbehavior;
 		use finality_grandpa::Message as GrandpaMessage;
 
-		if !rp_consensus_grandpa::check_message_signature_with_buffer(
+		if !sp_consensus_grandpa::check_message_signature_with_buffer(
 			&GrandpaMessage::Precommit(precommit.clone()),
 			id,
 			sig,
@@ -977,7 +977,7 @@ fn check_catch_up<Block: BlockT>(
 		for (msg, id, sig) in messages {
 			signatures_checked += 1;
 
-			if !rp_consensus_grandpa::check_message_signature_with_buffer(
+			if !sp_consensus_grandpa::check_message_signature_with_buffer(
 				&msg, id, sig, round, set_id, buf,
 			)
 			.is_valid()

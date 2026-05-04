@@ -1,5 +1,5 @@
 [package]
-name = "rp-authority-discovery"
+name = "sp-authority-discovery"
 version = "41.0.0"
 authors.workspace = true
 description = "Authority discovery primitives"
@@ -18,21 +18,21 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 codec = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-api = { workspace = true }
-rp-application-crypto = { workspace = true }
-rp-runtime = { workspace = true }
+sp-api = { workspace = true }
+sp-application-crypto = { workspace = true }
+sp-runtime = { workspace = true }
 
 [features]
 default = ["std"]
 std = [
 	"codec/std",
 	"scale-info/std",
-	"rp-api/std",
-	"rp-application-crypto/std",
-	"rp-runtime/std",
+	"sp-api/std",
+	"sp-application-crypto/std",
+	"sp-runtime/std",
 ]
 serde = [
 	"scale-info/serde",
-	"rp-application-crypto/serde",
-	"rp-runtime/serde",
+	"sp-application-crypto/serde",
+	"sp-runtime/serde",
 ]

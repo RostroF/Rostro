@@ -47,7 +47,7 @@ use clap::Parser;
 mod common;
 use common::{generate_random_npos_inputs, to_range};
 use rand::{self, SeedableRng};
-use rp_npos_elections::{pjr_check_core, seq_phragmen_core, setup_inputs, standard_threshold};
+use sp_npos_elections::{pjr_check_core, seq_phragmen_core, setup_inputs, standard_threshold};
 
 type AccountId = u64;
 

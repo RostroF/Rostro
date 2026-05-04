@@ -43,12 +43,12 @@ rustc-hash = { workspace = true }
 rc-client-api = { default-features = true, workspace = true }
 rc-tracing-proc-macro = { default-features = true, workspace = true }
 serde = { workspace = true, default-features = true }
-rp-api = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-rpc = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-rpc = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+sp-tracing = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true, default-features = true }
 tracing-log = { workspace = true, features = ["interest-cache"] }

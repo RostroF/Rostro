@@ -1,5 +1,5 @@
 [package]
-name = "rp-crypto-hashing-proc-macro"
+name = "sp-crypto-hashing-proc-macro"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Procedural macros for calculating static hashes."
-documentation = "https://docs.rs/rp-crypto-hashing-proc-macro"
+documentation = "https://docs.rs/sp-crypto-hashing-proc-macro"
 
 [lints]
 workspace = true
@@ -20,5 +20,5 @@ proc-macro = true
 
 [dependencies]
 quote = { workspace = true }
-rp-crypto-hashing = { workspace = true }
+sp-crypto-hashing = { workspace = true }
 syn = { features = ["full", "parsing"], workspace = true }

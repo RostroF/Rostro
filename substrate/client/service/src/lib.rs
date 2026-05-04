@@ -50,9 +50,9 @@ use rc_network_sync::SyncingService;
 use rc_network_types::PeerId;
 use rc_rpc_server::Server;
 use rc_utils::mpsc::TracingUnboundedReceiver;
-use rp_blockchain::HeaderMetadata;
-use rp_consensus::SyncOracle;
-use rp_runtime::traits::{Block as BlockT, Header as HeaderT};
+use sp_blockchain::HeaderMetadata;
+use sp_consensus::SyncOracle;
+use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 
 pub use self::{
 	builder::{
@@ -182,7 +182,7 @@ async fn build_network_future<
 	C: BlockchainEvents<B>
 		+ HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = rp_blockchain::Error>
+		+ HeaderMetadata<B, Error = sp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync
@@ -249,7 +249,7 @@ pub async fn build_system_rpc_future<
 	C: BlockchainEvents<B>
 		+ HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = rp_blockchain::Error>
+		+ HeaderMetadata<B, Error = sp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync
@@ -480,7 +480,7 @@ fn transactions_to_propagate<Pool, B, H, E>(pool: &Pool) -> Vec<(H, Arc<B::Extri
 where
 	Pool: TransactionPool<Block = B, Hash = H, Error = E>,
 	B: BlockT,
-	H: std::hash::Hash + Eq + rp_runtime::traits::Member + rp_runtime::traits::MaybeSerialize,
+	H: std::hash::Hash + Eq + sp_runtime::traits::Member + sp_runtime::traits::MaybeSerialize,
 	E: IntoPoolError + From<rc_transaction_pool_api::error::Error>,
 {
 	pool.ready()
@@ -498,14 +498,14 @@ impl<B, H, C, Pool, E> rc_network_transactions::config::TransactionPool<H, B>
 where
 	C: HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = rp_blockchain::Error>
+		+ HeaderMetadata<B, Error = sp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync
 		+ 'static,
 	Pool: 'static + TransactionPool<Block = B, Hash = H, Error = E>,
 	B: BlockT,
-	H: std::hash::Hash + Eq + rp_runtime::traits::Member + rp_runtime::traits::MaybeSerialize,
+	H: std::hash::Hash + Eq + sp_runtime::traits::Member + sp_runtime::traits::MaybeSerialize,
 	E: 'static + IntoPoolError + From<rc_transaction_pool_api::error::Error>,
 {
 	fn transactions(&self) -> Vec<(H, Arc<B::Extrinsic>)> {
@@ -575,7 +575,7 @@ mod tests {
 	use super::*;
 	use futures::executor::block_on;
 	use rc_transaction_pool::BasicPool;
-	use rp_consensus::SelectChain;
+	use sp_consensus::SelectChain;
 	use substrate_test_runtime_client::{
 		prelude::*,
 		runtime::{ExtrinsicBuilder, Transfer, TransferData},
@@ -586,7 +586,7 @@ mod tests {
 		// given
 		let (client, longest_chain) = TestClientBuilder::new().build_with_longest_chain();
 		let client = Arc::new(client);
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let pool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -594,7 +594,7 @@ mod tests {
 			spawner,
 			client.clone(),
 		));
-		let source = rp_runtime::transaction_validity::TransactionSource::External;
+		let source = sp_runtime::transaction_validity::TransactionSource::External;
 		let best = block_on(longest_chain.best_chain()).unwrap();
 		let transaction = Transfer {
 			amount: 5,

@@ -19,7 +19,7 @@
 
 use crate::BlockStatus;
 use futures::FutureExt as _;
-use rp_runtime::traits::Block;
+use sp_runtime::traits::Block;
 use std::{error::Error, future::Future, pin::Pin, sync::Arc};
 
 /// A type which provides access to chain information.

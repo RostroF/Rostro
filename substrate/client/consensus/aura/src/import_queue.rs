@@ -32,15 +32,15 @@ use rc_consensus::{
 };
 use rc_consensus_slots::{check_equivocation, CheckedHeader, InherentDataProviderExt};
 use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_TRACE};
-use rp_api::{ApiExt, ProvideRuntimeApi};
-use rp_block_builder::BlockBuilder as BlockBuilderApi;
-use rp_blockchain::{HeaderBackend, HeaderMetadata};
-use rp_consensus::Error as ConsensusError;
-use rp_consensus_aura::{inherents::AuraInherentData, AuraApi};
-use rp_consensus_slots::Slot;
-use rp_core::crypto::Pair;
-use rp_inherents::{CreateInherentDataProviders, InherentDataProvider as _};
-use rp_runtime::{
+use sp_api::{ApiExt, ProvideRuntimeApi};
+use sp_block_builder::BlockBuilder as BlockBuilderApi;
+use sp_blockchain::{HeaderBackend, HeaderMetadata};
+use sp_consensus::Error as ConsensusError;
+use sp_consensus_aura::{inherents::AuraInherentData, AuraApi};
+use sp_consensus_slots::Slot;
+use sp_core::crypto::Pair;
+use sp_inherents::{CreateInherentDataProviders, InherentDataProvider as _};
+use sp_runtime::{
 	traits::{Block as BlockT, Header, NumberFor},
 	DigestItem,
 };
@@ -133,7 +133,7 @@ impl<B, C, P, CIDP> Verifier<B> for AuraVerifier<C, P, CIDP, B>
 where
 	B: BlockT,
 	C: HeaderBackend<B>
-		+ HeaderMetadata<B, Error = rp_blockchain::Error>
+		+ HeaderMetadata<B, Error = sp_blockchain::Error>
 		+ ProvideRuntimeApi<B>
 		+ Send
 		+ Sync
@@ -175,7 +175,7 @@ where
 			.create_inherent_data_providers
 			.create_inherent_data_providers(parent_hash, ())
 			.await
-			.map_err(|e| Error::<B>::Client(rp_blockchain::Error::Application(e)))?;
+			.map_err(|e| Error::<B>::Client(sp_blockchain::Error::Application(e)))?;
 
 		let mut inherent_data = create_inherent_data_providers
 			.create_inherent_data()
@@ -214,7 +214,7 @@ where
 						.has_api_with::<dyn BlockBuilderApi<B>, _>(parent_hash, |v| v >= 2)
 						.map_err(|e| e.to_string())?
 					{
-						rp_block_builder::check_inherents_with_data(
+						sp_block_builder::check_inherents_with_data(
 							self.client.clone(),
 							parent_hash,
 							new_block.clone(),
@@ -321,7 +321,7 @@ pub fn import_queue<P, Block, I, C, S, CIDP>(
 		telemetry,
 		compatibility_mode,
 	}: ImportQueueParams<Block, I, C, S, CIDP>,
-) -> Result<DefaultImportQueue<Block>, rp_consensus::Error>
+) -> Result<DefaultImportQueue<Block>, sp_consensus::Error>
 where
 	Block: BlockT,
 	C::Api: BlockBuilderApi<Block> + AuraApi<Block, AuthorityId<P>> + ApiExt<Block>,
@@ -333,12 +333,12 @@ where
 		+ AuxStore
 		+ UsageProvider<Block>
 		+ HeaderBackend<Block>
-		+ HeaderMetadata<Block, Error = rp_blockchain::Error>,
+		+ HeaderMetadata<Block, Error = sp_blockchain::Error>,
 	I: BlockImport<Block, Error = ConsensusError> + Send + Sync + 'static,
 	P: Pair + 'static,
 	P::Public: Codec + Debug,
 	P::Signature: Codec,
-	S: rp_core::traits::SpawnEssentialNamed,
+	S: sp_core::traits::SpawnEssentialNamed,
 	CIDP: CreateInherentDataProviders<Block, ()> + Sync + Send + 'static,
 	CIDP::InherentDataProviders: InherentDataProviderExt + Send + Sync,
 {

@@ -22,13 +22,13 @@ use super::{
 };
 use codec::Encode;
 use rc_service::construct_genesis_block;
-use rp_core::{
+use sp_core::{
 	sr25519,
 	storage::{well_known_keys, StateVersion, Storage},
 	Pair,
 };
-use rp_keyring::Sr25519Keyring;
-use rp_runtime::{
+use sp_keyring::Sr25519Keyring;
+use sp_runtime::{
 	traits::{Block as BlockT, Hash as HashT, Header as HeaderT},
 	BuildStorage,
 };
@@ -167,12 +167,12 @@ impl GenesisStorageBuilder {
 	}
 }
 
-pub fn insert_genesis_block(storage: &mut Storage) -> rp_core::hash::H256 {
+pub fn insert_genesis_block(storage: &mut Storage) -> sp_core::hash::H256 {
 	let child_roots = storage.children_default.iter().map(|(sk, child_content)| {
 		let state_root =
 			<<<crate::Block as BlockT>::Header as HeaderT>::Hashing as HashT>::trie_root(
 				child_content.data.clone().into_iter().collect(),
-				rp_runtime::StateVersion::V1,
+				sp_runtime::StateVersion::V1,
 			);
 		(sk.clone(), state_root.encode())
 	});
@@ -180,7 +180,7 @@ pub fn insert_genesis_block(storage: &mut Storage) -> rp_core::hash::H256 {
 	storage.top.extend(child_roots);
 	let state_root = <<<crate::Block as BlockT>::Header as HeaderT>::Hashing as HashT>::trie_root(
 		storage.top.clone().into_iter().collect(),
-		rp_runtime::StateVersion::V1,
+		sp_runtime::StateVersion::V1,
 	);
 	let block: crate::Block = construct_genesis_block(state_root, StateVersion::V1);
 	let genesis_hash = block.header.hash();

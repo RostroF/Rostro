@@ -56,7 +56,7 @@
 //! `Executive` type declaration from the node template.
 //!
 //! ```
-//! # use rp_runtime::generic;
+//! # use sp_runtime::generic;
 //! # use frame_executive as executive;
 //! # pub struct UncheckedExtrinsic {};
 //! # pub struct Header {};
@@ -65,10 +65,10 @@
 //! # pub type Balances = u64;
 //! # pub type AllPalletsWithSystem = u64;
 //! # pub enum Runtime {};
-//! # use rp_runtime::transaction_validity::{
+//! # use sp_runtime::transaction_validity::{
 //! #    TransactionValidity, UnknownTransaction, TransactionSource,
 //! # };
-//! # use rp_runtime::traits::ValidateUnsigned;
+//! # use sp_runtime::traits::ValidateUnsigned;
 //! # impl ValidateUnsigned for Runtime {
 //! #     type Call = ();
 //! #
@@ -131,7 +131,7 @@ use frame_support::{
 	MAX_EXTRINSIC_DEPTH,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
-use rp_runtime::{
+use sp_runtime::{
 	generic::Digest,
 	traits::{
 		self, Applyable, CheckEqual, Checkable, Dispatchable, Header, LazyBlock, NumberFor, One,
@@ -149,7 +149,7 @@ use ::{
 	},
 	frame_try_runtime::{TryStateSelect, UpgradeCheckSelect},
 	log,
-	rp_runtime::TryRuntimeError,
+	sp_runtime::TryRuntimeError,
 };
 
 #[allow(dead_code)]
@@ -601,8 +601,8 @@ where
 	pub fn initialize_block(
 		header: &frame_system::pallet_prelude::HeaderFor<System>,
 	) -> ExtrinsicInclusionMode {
-		rp_io::init_tracing();
-		rp_tracing::enter_span!(rp_tracing::Level::TRACE, "init_block");
+		sp_io::init_tracing();
+		sp_tracing::enter_span!(sp_tracing::Level::TRACE, "init_block");
 		let digests = Self::extract_pre_digest(header);
 		Self::initialize_block_impl(header.number(), header.parent_hash(), &digests);
 
@@ -679,7 +679,7 @@ where
 	}
 
 	fn initial_checks(header: &Block::Header) {
-		rp_tracing::enter_span!(rp_tracing::Level::TRACE, "initial_checks");
+		sp_tracing::enter_span!(sp_tracing::Level::TRACE, "initial_checks");
 
 		// Check that `parent_hash` is correct.
 		let n = *header.number();
@@ -693,9 +693,9 @@ where
 
 	/// Actually execute all transitions for `block`.
 	pub fn execute_block(block: Block::LazyBlock) {
-		rp_io::init_tracing();
-		rp_tracing::within_span! {
-			rp_tracing::info_span!("execute_block", ?block);
+		sp_io::init_tracing();
+		sp_tracing::within_span! {
+			sp_tracing::info_span!("execute_block", ?block);
 			// Execute `on_runtime_upgrade` and `on_initialize`.
 			let mode = Self::initialize_block(block.header());
 			Self::initial_checks(block.header());
@@ -787,8 +787,8 @@ where
 	/// except state-root.
 	// Note: Only used by the block builder - not Executive itself.
 	pub fn finalize_block() -> frame_system::pallet_prelude::HeaderFor<System> {
-		rp_io::init_tracing();
-		rp_tracing::enter_span!(rp_tracing::Level::TRACE, "finalize_block");
+		sp_io::init_tracing();
+		sp_tracing::enter_span!(sp_tracing::Level::TRACE, "finalize_block");
 
 		// In this case there were no transactions to trigger this state transition:
 		if !<frame_system::Pallet<System>>::inherents_applied() {
@@ -867,11 +867,11 @@ where
 			&Context,
 		) -> Result<CheckedOf<Block::Extrinsic, Context>, TransactionValidityError>,
 	) -> ApplyExtrinsicResult {
-		rp_io::init_tracing();
+		sp_io::init_tracing();
 		let encoded = uxt.encode();
 		let encoded_len = encoded.len();
-		rp_tracing::enter_span!(rp_tracing::info_span!("apply_extrinsic",
-			ext=?rp_core::hexdisplay::HexDisplay::from(&encoded)));
+		sp_tracing::enter_span!(sp_tracing::info_span!("apply_extrinsic",
+			ext=?sp_core::hexdisplay::HexDisplay::from(&encoded)));
 
 		let uxt = <Block::Extrinsic as codec::DecodeLimit>::decode_all_with_depth_limit(
 			MAX_EXTRINSIC_DEPTH,
@@ -920,7 +920,7 @@ where
 	}
 
 	fn final_checks(header: &frame_system::pallet_prelude::HeaderFor<System>) {
-		rp_tracing::enter_span!(rp_tracing::Level::TRACE, "final_checks");
+		sp_tracing::enter_span!(sp_tracing::Level::TRACE, "final_checks");
 		// remove temporaries
 		let new_header = <frame_system::Pallet<System>>::finalize();
 
@@ -957,8 +957,8 @@ where
 		uxt: Block::Extrinsic,
 		block_hash: Block::Hash,
 	) -> TransactionValidity {
-		rp_io::init_tracing();
-		use rp_tracing::{enter_span, within_span};
+		sp_io::init_tracing();
+		use sp_tracing::{enter_span, within_span};
 
 		<frame_system::Pallet<System>>::initialize(
 			&(frame_system::Pallet::<System>::block_number() + One::one()),
@@ -966,9 +966,9 @@ where
 			&Default::default(),
 		);
 
-		enter_span! { rp_tracing::Level::TRACE, "validate_transaction" };
+		enter_span! { sp_tracing::Level::TRACE, "validate_transaction" };
 
-		let encoded = within_span! { rp_tracing::Level::TRACE, "using_encoded";
+		let encoded = within_span! { sp_tracing::Level::TRACE, "using_encoded";
 			uxt.encode()
 		};
 
@@ -978,11 +978,11 @@ where
 		)
 		.map_err(|_| InvalidTransaction::Call)?;
 
-		let xt = within_span! { rp_tracing::Level::TRACE, "check";
+		let xt = within_span! { sp_tracing::Level::TRACE, "check";
 			uxt.check(&Default::default())
 		}?;
 
-		let dispatch_info = within_span! { rp_tracing::Level::TRACE, "dispatch_info";
+		let dispatch_info = within_span! { sp_tracing::Level::TRACE, "dispatch_info";
 			xt.get_dispatch_info()
 		};
 
@@ -991,14 +991,14 @@ where
 		}
 
 		within_span! {
-			rp_tracing::Level::TRACE, "validate";
+			sp_tracing::Level::TRACE, "validate";
 			xt.validate::<UnsignedValidator>(source, &dispatch_info, encoded.len())
 		}
 	}
 
 	/// Start an offchain worker and generate extrinsics.
 	pub fn offchain_worker(header: &frame_system::pallet_prelude::HeaderFor<System>) {
-		rp_io::init_tracing();
+		sp_io::init_tracing();
 		// We need to keep events available for offchain workers,
 		// hence we initialize the block manually.
 		// OffchainWorker RuntimeApi should skip initialization.

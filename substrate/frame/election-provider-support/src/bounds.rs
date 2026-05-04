@@ -56,7 +56,7 @@
 
 use codec::Encode;
 use core::ops::Add;
-use rp_runtime::traits::Zero;
+use sp_runtime::traits::Zero;
 
 /// Count type for data provider bounds.
 ///

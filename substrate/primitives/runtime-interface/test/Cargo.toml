@@ -1,5 +1,5 @@
 [package]
-name = "rp-runtime-interface-test"
+name = "sp-runtime-interface-test"
 version = "2.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -17,11 +17,11 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 rc-executor = { default-features = true, workspace = true }
 rc-executor-common = { default-features = true, workspace = true }
-rp-io = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
-rp-runtime-interface = { default-features = true, workspace = true }
-rp-runtime-interface-test-wasm = { workspace = true }
-rp-runtime-interface-test-wasm-deprecated = { workspace = true }
-rp-state-machine = { default-features = true, workspace = true }
+sp-io = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+sp-runtime-interface = { default-features = true, workspace = true }
+sp-runtime-interface-test-wasm = { workspace = true }
+sp-runtime-interface-test-wasm-deprecated = { workspace = true }
+sp-state-machine = { default-features = true, workspace = true }
 tracing = { workspace = true, default-features = true }
 tracing-core = { workspace = true, default-features = true }

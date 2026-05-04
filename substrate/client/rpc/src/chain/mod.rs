@@ -29,8 +29,8 @@ use crate::SubscriptionTaskExecutor;
 
 use jsonrpsee::{core::async_trait, PendingSubscriptionSink};
 use rc_client_api::BlockchainEvents;
-use rp_rpc::{list::ListOrValue, number::NumberOrHex};
-use rp_runtime::{
+use sp_rpc::{list::ListOrValue, number::NumberOrHex};
+use sp_runtime::{
 	generic::SignedBlock,
 	traits::{Block as BlockT, NumberFor},
 };
@@ -39,7 +39,7 @@ use self::error::Error;
 
 use rc_client_api::BlockBackend;
 pub use rc_rpc_api::chain::*;
-use rp_blockchain::HeaderBackend;
+use sp_blockchain::HeaderBackend;
 
 /// Blockchain backend API
 #[async_trait]
@@ -171,6 +171,6 @@ where
 	}
 }
 
-fn client_err(err: rp_blockchain::Error) -> Error {
+fn client_err(err: sp_blockchain::Error) -> Error {
 	Error::Client(Box::new(err))
 }

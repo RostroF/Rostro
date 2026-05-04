@@ -25,14 +25,14 @@ use log::trace;
 use codec::Codec;
 
 use rc_client_api::UsageProvider;
-use rp_api::{ApiExt, Core, ProvideRuntimeApi};
-use rp_application_crypto::{AppCrypto, AppPublic};
-use rp_blockchain::Result as CResult;
-use rp_consensus::Error as ConsensusError;
-use rp_consensus_slots::Slot;
-use rp_core::crypto::{ByteArray, Pair};
-use rp_keystore::KeystorePtr;
-use rp_runtime::{
+use sp_api::{ApiExt, Core, ProvideRuntimeApi};
+use sp_application_crypto::{AppCrypto, AppPublic};
+use sp_blockchain::Result as CResult;
+use sp_consensus::Error as ConsensusError;
+use sp_consensus_slots::Slot;
+use sp_core::crypto::{ByteArray, Pair};
+use sp_keystore::KeystorePtr;
+use sp_runtime::{
 	traits::{Block as BlockT, Header, NumberFor, Zero},
 	DigestItem,
 };
@@ -63,7 +63,7 @@ where
 	C::Api: AuraApi<B, A>,
 {
 	let mut runtime_api = client.runtime_api();
-	runtime_api.set_call_context(rp_core::traits::CallContext::Onchain);
+	runtime_api.set_call_context(sp_core::traits::CallContext::Onchain);
 	runtime_api.slot_duration(block_hash).map_err(|err| err.into())
 }
 
@@ -97,7 +97,7 @@ pub async fn claim_slot<P: Pair>(
 ) -> Option<P::Public> {
 	let expected_author = slot_author::<P>(slot, authorities);
 	expected_author.and_then(|p| {
-		if keystore.has_keys(&[(p.to_raw_vec(), rp_application_crypto::key_types::AURA)]) {
+		if keystore.has_keys(&[(p.to_raw_vec(), sp_application_crypto::key_types::AURA)]) {
 			Some(p.clone())
 		} else {
 			None
@@ -109,7 +109,7 @@ pub async fn claim_slot<P: Pair>(
 ///
 /// This is intended to be put into the block header prior to runtime execution,
 /// so the runtime can read the slot in this way.
-pub fn pre_digest<P: Pair>(slot: Slot) -> rp_runtime::DigestItem
+pub fn pre_digest<P: Pair>(slot: Slot) -> sp_runtime::DigestItem
 where
 	P::Signature: Codec,
 {
@@ -123,7 +123,7 @@ pub fn seal<Hash, P>(
 	header_hash: &Hash,
 	public: &P::Public,
 	keystore: &KeystorePtr,
-) -> Result<rp_runtime::DigestItem, ConsensusError>
+) -> Result<sp_runtime::DigestItem, ConsensusError>
 where
 	Hash: AsRef<[u8]>,
 	P: Pair,
@@ -228,7 +228,7 @@ where
 		},
 	}
 
-	runtime_api.set_call_context(rp_core::traits::CallContext::Onchain);
+	runtime_api.set_call_context(sp_core::traits::CallContext::Onchain);
 	runtime_api
 		.authorities(parent_hash)
 		.ok()
@@ -247,7 +247,7 @@ where
 	C::Api: AuraApi<B, A>,
 {
 	let mut runtime_api = client.runtime_api();
-	runtime_api.set_call_context(rp_core::traits::CallContext::Onchain);
+	runtime_api.set_call_context(sp_core::traits::CallContext::Onchain);
 	runtime_api
 		.authorities(parent_hash)
 		.ok()
@@ -328,7 +328,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_keyring::sr25519::Keyring;
+	use sp_keyring::sr25519::Keyring;
 
 	#[test]
 	fn authorities_call_works() {

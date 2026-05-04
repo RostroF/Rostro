@@ -33,25 +33,25 @@ rc-consensus-epochs = { default-features = true, workspace = true }
 rc-consensus-slots = { default-features = true, workspace = true }
 rc-telemetry = { default-features = true, workspace = true }
 rc-transaction-pool-api = { default-features = true, workspace = true }
-rp-api = { default-features = true, workspace = true }
-rp-application-crypto = { default-features = true, workspace = true }
-rp-block-builder = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-consensus-babe = { default-features = true, workspace = true }
-rp-consensus-slots = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-crypto-hashing = { default-features = true, workspace = true }
-rp-inherents = { default-features = true, workspace = true }
-rp-keystore = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
-rp-timestamp = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-application-crypto = { default-features = true, workspace = true }
+sp-block-builder = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-consensus-babe = { default-features = true, workspace = true }
+sp-consensus-slots = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-crypto-hashing = { default-features = true, workspace = true }
+sp-inherents = { default-features = true, workspace = true }
+sp-keystore = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+sp-timestamp = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 rc-block-builder = { default-features = true, workspace = true }
 rc-network-test = { workspace = true }
-rp-keyring = { default-features = true, workspace = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-keyring = { default-features = true, workspace = true }
+sp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tokio = { workspace = true, default-features = true }

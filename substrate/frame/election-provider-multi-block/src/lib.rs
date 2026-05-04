@@ -213,16 +213,16 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::*;
 use scale_info::TypeInfo;
-use rp_arithmetic::{
+use sp_arithmetic::{
 	traits::{CheckedAdd, Zero},
 	PerThing, UpperOf,
 };
-use rp_npos_elections::{EvaluateSupport, VoteWeight};
-use rp_runtime::{
+use sp_npos_elections::{EvaluateSupport, VoteWeight};
+use sp_runtime::{
 	traits::{Hash, Saturating},
 	SaturatedConversion,
 };
-use rp_std::{borrow::ToOwned, boxed::Box, prelude::*};
+use sp_std::{borrow::ToOwned, boxed::Box, prelude::*};
 
 #[cfg(test)]
 mod mock;
@@ -257,7 +257,7 @@ pub use types::*;
 pub use weights::traits::pallet_election_provider_multi_block::WeightInfo;
 
 /// A fallback implementation that transitions the pallet to the emergency phase.
-pub struct InitiateEmergencyPhase<T>(rp_std::marker::PhantomData<T>);
+pub struct InitiateEmergencyPhase<T>(sp_std::marker::PhantomData<T>);
 impl<T: Config> ElectionProvider for InitiateEmergencyPhase<T> {
 	type AccountId = T::AccountId;
 	type BlockNumber = BlockNumberFor<T>;
@@ -303,7 +303,7 @@ impl<T: Config> InstantElectionProvider for InitiateEmergencyPhase<T> {
 /// A fallback implementation that silently continues into the next page.
 ///
 /// This is suitable for onchain usage.
-pub struct Continue<T>(rp_std::marker::PhantomData<T>);
+pub struct Continue<T>(sp_std::marker::PhantomData<T>);
 impl<T: Config> ElectionProvider for Continue<T> {
 	type AccountId = T::AccountId;
 	type BlockNumber = BlockNumberFor<T>;
@@ -353,11 +353,11 @@ impl<T: Config> InstantElectionProvider for Continue<T> {
 /// * [`ProceedRegardlessOf`]
 /// * [`RevertToSignedIfNotQueuedOf`]
 pub struct IfSolutionQueuedElse<T, Queued, NotQueued>(
-	rp_std::marker::PhantomData<(T, Queued, NotQueued)>,
+	sp_std::marker::PhantomData<(T, Queued, NotQueued)>,
 );
 
 /// A `Get` impl for `Phase::Done`
-pub struct GetDone<T>(rp_std::marker::PhantomData<T>);
+pub struct GetDone<T>(sp_std::marker::PhantomData<T>);
 impl<T: Config> Get<Phase<T>> for GetDone<T> {
 	fn get() -> Phase<T> {
 		Phase::Done
@@ -365,7 +365,7 @@ impl<T: Config> Get<Phase<T>> for GetDone<T> {
 }
 
 /// A `Get` impl for `Phase::Signed(T::SignedPhase::get())`
-pub struct GetSigned<T>(rp_std::marker::PhantomData<T>);
+pub struct GetSigned<T>(sp_std::marker::PhantomData<T>);
 impl<T: Config> Get<Phase<T>> for GetSigned<T> {
 	fn get() -> Phase<T> {
 		Phase::Signed(T::SignedPhase::get().saturating_sub(1u32.into()))
@@ -779,7 +779,7 @@ pub mod pallet {
 		}
 
 		fn integrity_test() {
-			use rp_std::mem::size_of;
+			use sp_std::mem::size_of;
 			// The index type of both voters and targets need to be smaller than that of usize (very
 			// unlikely to be the case, but anyhow).
 			assert!(size_of::<SolutionVoterIndexOf<T::MinerConfig>>() <= size_of::<usize>());
@@ -793,7 +793,7 @@ pub mod pallet {
 			// pages must be at least 1.
 			assert!(T::Pages::get() > 0);
 
-			// Based on the requirements of [`rp_npos_elections::Assignment::try_normalize`].
+			// Based on the requirements of [`sp_npos_elections::Assignment::try_normalize`].
 			let max_vote: usize = <SolutionOf<T::MinerConfig> as NposSolution>::LIMIT;
 
 			// 2. Maximum sum of [SolutionAccuracy; 16] must fit into `UpperOf<OffchainAccuracy>`.
@@ -838,7 +838,7 @@ pub mod pallet {
 		}
 
 		#[cfg(feature = "try-runtime")]
-		fn try_state(now: BlockNumberFor<T>) -> Result<(), rp_runtime::TryRuntimeError> {
+		fn try_state(now: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 			Self::do_try_state(now).map_err(Into::into)
 		}
 	}
@@ -950,7 +950,7 @@ pub mod pallet {
 	///     `lsp` based on the inner value.
 	///   - If `Phase` IS `Off`, then, no snapshot must exist.
 	///   - In all other phases, the snapshot must FULLY exist.
-	pub(crate) struct Snapshot<T>(rp_std::marker::PhantomData<T>);
+	pub(crate) struct Snapshot<T>(sp_std::marker::PhantomData<T>);
 	impl<T: Config> Snapshot<T> {
 		// ----------- mutable methods
 		pub(crate) fn set_desired_targets(d: u32) {
@@ -1026,7 +1026,7 @@ pub mod pallet {
 			debug_assert_eq!(buffer, data.encode());
 			// buffer should have not re-allocated since.
 			debug_assert!(buffer.len() == size && size == buffer.capacity());
-			rp_io::storage::set(key, &buffer);
+			sp_io::storage::set(key, &buffer);
 
 			hash
 		}
@@ -1173,12 +1173,12 @@ pub mod pallet {
 	#[cfg(test)]
 	impl<T: Config> Snapshot<T> {
 		pub(crate) fn voter_pages() -> PageIndex {
-			use rp_runtime::SaturatedConversion;
+			use sp_runtime::SaturatedConversion;
 			PagedVoterSnapshot::<T>::iter().count().saturated_into::<PageIndex>()
 		}
 
 		pub(crate) fn target_pages() -> PageIndex {
-			use rp_runtime::SaturatedConversion;
+			use sp_runtime::SaturatedConversion;
 			PagedTargetSnapshot::<T>::iter().count().saturated_into::<PageIndex>()
 		}
 
@@ -1419,7 +1419,7 @@ impl<T: Config> Pallet<T> {
 		if from == to {
 			return;
 		}
-		use rp_std::mem::discriminant;
+		use sp_std::mem::discriminant;
 		if discriminant(&from) != discriminant(&to) {
 			log!(debug, "transitioning phase from {:?} to {:?}", from, to);
 			Self::deposit_event(Event::PhaseTransitioned { from, to });
@@ -1604,8 +1604,8 @@ impl<T: Config> Pallet<T> {
 		op_name: &str,
 		op_weight: Weight,
 		limit_weight: Weight,
-		maybe_max_ratio: Option<rp_runtime::Percent>,
-		maybe_max_warn_ratio: Option<rp_runtime::Percent>,
+		maybe_max_ratio: Option<sp_runtime::Percent>,
+		maybe_max_warn_ratio: Option<sp_runtime::Percent>,
 	) {
 		use frame_support::weights::constants::{
 			WEIGHT_PROOF_SIZE_PER_KB, WEIGHT_REF_TIME_PER_MILLIS,
@@ -1613,10 +1613,10 @@ impl<T: Config> Pallet<T> {
 
 		let ref_time_ms = op_weight.ref_time() / WEIGHT_REF_TIME_PER_MILLIS;
 		let ref_time_ratio =
-			rp_runtime::Percent::from_rational(op_weight.ref_time(), limit_weight.ref_time());
+			sp_runtime::Percent::from_rational(op_weight.ref_time(), limit_weight.ref_time());
 		let proof_size_kb = op_weight.proof_size() / WEIGHT_PROOF_SIZE_PER_KB;
 		let proof_size_ratio =
-			rp_runtime::Percent::from_rational(op_weight.proof_size(), limit_weight.proof_size());
+			sp_runtime::Percent::from_rational(op_weight.proof_size(), limit_weight.proof_size());
 		let limit_ms = limit_weight.ref_time() / WEIGHT_REF_TIME_PER_MILLIS;
 		let limit_kb = limit_weight.proof_size() / WEIGHT_PROOF_SIZE_PER_KB;
 		log::info!(
@@ -1658,8 +1658,8 @@ impl<T: Config> Pallet<T> {
 	/// A reasonable value for `maybe_max_weight` would be 75%, and 50% for `maybe_max_warn_ratio`.
 	pub fn check_all_weights(
 		limit_weight: Weight,
-		maybe_max_ratio: Option<rp_runtime::Percent>,
-		maybe_max_warn_ratio: Option<rp_runtime::Percent>,
+		maybe_max_ratio: Option<sp_runtime::Percent>,
+		maybe_max_warn_ratio: Option<sp_runtime::Percent>,
 	) where
 		T: crate::verifier::Config + crate::signed::Config + crate::unsigned::Config,
 	{
@@ -1823,7 +1823,7 @@ where
 		PagedRawSolution { score, solution_pages, .. }: PagedRawSolution<T::MinerConfig>,
 	) -> DispatchResultWithPostInfo {
 		use frame_system::RawOrigin;
-		use rp_std::boxed::Box;
+		use sp_std::boxed::Box;
 		use types::Pagify;
 
 		// register alice

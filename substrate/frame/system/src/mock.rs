@@ -17,7 +17,7 @@
 
 use crate::{self as frame_system, *};
 use frame_support::{derive_impl, parameter_types};
-use rp_runtime::{type_with_default::TypeWithDefault, BuildStorage, Perbill};
+use sp_runtime::{type_with_default::TypeWithDefault, BuildStorage, Perbill};
 
 type Block = mocking::MockBlock<Test>;
 
@@ -39,7 +39,7 @@ parameter_types! {
 		authoring_version: 1,
 		spec_version: 1,
 		impl_version: 1,
-		apis: rp_version::create_apis_vec!([]),
+		apis: sp_version::create_apis_vec!([]),
 		transaction_version: 1,
 		system_version: 1,
 	};
@@ -125,11 +125,11 @@ pub const CALL: &<Test as Config>::RuntimeCall =
 	&RuntimeCall::System(frame_system::Call::set_heap_pages { pages: 0u64 });
 
 /// Create new externalities for `System` module tests.
-pub fn new_test_ext() -> rp_io::TestExternalities {
+pub fn new_test_ext() -> sp_io::TestExternalities {
 	// Initialize logging
-	rp_tracing::try_init_simple();
+	sp_tracing::try_init_simple();
 
-	let mut ext: rp_io::TestExternalities =
+	let mut ext: sp_io::TestExternalities =
 		RuntimeGenesisConfig::default().build_storage().unwrap().into();
 	// Add to each test the initial weight of a block
 	ext.execute_with(|| {

@@ -37,12 +37,12 @@ use frame_election_provider_support::{ExtendedBalance, NposSolver, Support, Vote
 use frame_support::{traits::Get, BoundedVec};
 use frame_system::pallet_prelude::*;
 use scale_info::TypeInfo;
-use rp_npos_elections::EvaluateSupport;
-use rp_runtime::{
+use sp_npos_elections::EvaluateSupport;
+use sp_runtime::{
 	offchain::storage::{MutateStorageError, StorageValueRef},
 	traits::{SaturatedConversion, Saturating, Zero},
 };
-use rp_std::{collections::btree_map::BTreeMap, prelude::*};
+use sp_std::{collections::btree_map::BTreeMap, prelude::*};
 
 // TODO: we should have a fuzzer for miner that ensures no matter the parameters, it generates a
 // valid solution. Esp. for the trimming.
@@ -70,7 +70,7 @@ pub(crate) type MinerSolverErrorOf<T> = <<T as MinerConfig>::Solver as NposSolve
 )]
 pub enum MinerError<T: MinerConfig> {
 	/// An internal error in the NPoS elections crate.
-	NposElections(rp_npos_elections::Error),
+	NposElections(sp_npos_elections::Error),
 	/// An internal error in the generic solver.
 	Solver(MinerSolverErrorOf<T>),
 	/// Snapshot data was unavailable unexpectedly.
@@ -87,8 +87,8 @@ pub enum MinerError<T: MinerConfig> {
 	Defensive(&'static str),
 }
 
-impl<T: MinerConfig> From<rp_npos_elections::Error> for MinerError<T> {
-	fn from(e: rp_npos_elections::Error) -> Self {
+impl<T: MinerConfig> From<sp_npos_elections::Error> for MinerError<T> {
+	fn from(e: sp_npos_elections::Error) -> Self {
 		MinerError::NposElections(e)
 	}
 }
@@ -154,7 +154,7 @@ pub trait MinerConfig {
 		+ PartialEq
 		+ Eq
 		+ Clone
-		+ rp_std::fmt::Debug
+		+ sp_std::fmt::Debug
 		+ Ord
 		+ NposSolution
 		+ TypeInfo
@@ -209,7 +209,7 @@ pub trait MinerConfig {
 
 /// A base miner that is only capable of mining a new solution and checking it against the state of
 /// this pallet for feasibility, and trimming its length/weight.
-pub struct BaseMiner<T: MinerConfig>(rp_std::marker::PhantomData<T>);
+pub struct BaseMiner<T: MinerConfig>(sp_std::marker::PhantomData<T>);
 
 /// Parameterized `BoundedSupports` for the miner.
 ///
@@ -314,7 +314,7 @@ impl<T: MinerConfig> BaseMiner<T> {
 			// assignments -> staked assignments -> reduce -> supports -> trim supports -> staked
 			// assignments -> final assignments
 			// This is by no means the most performant, but is the clear and correct.
-			use rp_npos_elections::{
+			use sp_npos_elections::{
 				assignment_ratio_to_staked_normalized, assignment_staked_to_ratio_normalized,
 				reduce, supports_to_staked_assignment, to_supports, EvaluateSupport,
 			};
@@ -514,7 +514,7 @@ impl<T: MinerConfig> BaseMiner<T> {
 		page_voters: &VoterPageOf<T>,
 		page: PageIndex,
 	) -> Result<Vec<AssignmentOf<T>>, MinerError<T>> {
-		use rp_npos_elections::{
+		use sp_npos_elections::{
 			assignment_ratio_to_staked_normalized, assignment_staked_to_ratio_normalized,
 			supports_to_staked_assignment, to_supports,
 		};
@@ -667,7 +667,7 @@ impl<T: MinerConfig> BaseMiner<T> {
 /// A miner that is suited to work inside offchain worker environment.
 ///
 /// This is parameterized by [`Config`], rather than [`MinerConfig`].
-pub struct OffchainWorkerMiner<T: Config>(rp_std::marker::PhantomData<T>);
+pub struct OffchainWorkerMiner<T: Config>(sp_std::marker::PhantomData<T>);
 
 impl<T: Config> OffchainWorkerMiner<T> {
 	/// Storage key used to store the offchain worker running status.
@@ -1005,7 +1005,7 @@ mod trimming {
 	use super::*;
 	use crate::{mock::*, verifier::Verifier};
 	use frame_election_provider_support::TryFromUnboundedPagedSupports;
-	use rp_npos_elections::Support;
+	use sp_npos_elections::Support;
 
 	#[test]
 	fn solution_without_any_trimming() {
@@ -1400,8 +1400,8 @@ mod base_miner {
 	use super::*;
 	use crate::{mock::*, Snapshot};
 	use frame_election_provider_support::TryFromUnboundedPagedSupports;
-	use rp_npos_elections::Support;
-	use rp_runtime::PerU16;
+	use sp_npos_elections::Support;
+	use sp_runtime::PerU16;
 
 	#[test]
 	fn pagination_does_not_affect_score() {
@@ -1857,7 +1857,7 @@ mod base_miner {
 mod offchain_worker_miner {
 	use crate::{verifier::Verifier, CommonError};
 	use frame_support::traits::Hooks;
-	use rp_runtime::offchain::storage_lock::{BlockAndTime, StorageLock};
+	use sp_runtime::offchain::storage_lock::{BlockAndTime, StorageLock};
 
 	use super::*;
 	use crate::mock::*;

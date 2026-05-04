@@ -18,7 +18,7 @@
 
 use super::*;
 
-use rp_core::hexdisplay::HexDisplay;
+use sp_core::hexdisplay::HexDisplay;
 
 use fnv::{FnvHashMap, FnvHashSet};
 use prometheus_endpoint::{register, CounterVec, Opts, U64};

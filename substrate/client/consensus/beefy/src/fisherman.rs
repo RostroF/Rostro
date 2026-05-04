@@ -19,14 +19,14 @@
 use crate::{error::Error, keystore::BeefyKeystore, round::Rounds, LOG_TARGET};
 use log::{debug, error, warn};
 use rc_client_api::Backend;
-use rp_api::ProvideRuntimeApi;
-use rp_application_crypto::RuntimeAppPublic;
-use rp_blockchain::HeaderBackend;
-use rp_consensus_beefy::{
+use sp_api::ProvideRuntimeApi;
+use sp_application_crypto::RuntimeAppPublic;
+use sp_blockchain::HeaderBackend;
+use sp_consensus_beefy::{
 	check_double_voting_proof, AuthorityIdBound, BeefyApi, DoubleVotingProof,
 	OpaqueKeyOwnershipProof, ValidatorSetId,
 };
-use rp_runtime::{
+use sp_runtime::{
 	generic::BlockId,
 	traits::{Block, NumberFor},
 };

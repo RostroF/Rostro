@@ -29,7 +29,7 @@ fn main() {
 }
 
 fn inner_main() -> Result<(), String> {
-	rp_tracing::try_init_simple();
+	sp_tracing::try_init_simple();
 
 	let builder = ChainSpecBuilder::parse();
 	builder.run()

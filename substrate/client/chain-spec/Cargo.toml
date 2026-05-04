@@ -28,19 +28,19 @@ rc-network = { default-features = true, workspace = true }
 rc-telemetry = { default-features = true, workspace = true }
 serde = { features = ["derive"], workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-crypto-hashing = { default-features = true, workspace = true }
-rp-genesis-builder = { default-features = true, workspace = true }
-rp-io = { workspace = true }
-rp-runtime = { default-features = true, workspace = true }
-rp-state-machine = { default-features = true, workspace = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-crypto-hashing = { default-features = true, workspace = true }
+sp-genesis-builder = { default-features = true, workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+sp-state-machine = { default-features = true, workspace = true }
+sp-tracing = { default-features = true, workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
 regex = { workspace = true }
-rp-application-crypto = { features = ["serde"], workspace = true, default-features = false }
-rp-consensus-babe = { features = ["serde"], workspace = true, default-features = false }
-rp-keyring = { default-features = true, workspace = true }
+sp-application-crypto = { features = ["serde"], workspace = true, default-features = false }
+sp-consensus-babe = { features = ["serde"], workspace = true, default-features = false }
+sp-keyring = { default-features = true, workspace = true }
 substrate-test-runtime = { workspace = true }

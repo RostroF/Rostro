@@ -33,7 +33,7 @@ use frame_support::{
 		},
 	},
 };
-use rp_runtime::{traits::ConvertToValue, Either};
+use sp_runtime::{traits::ConvertToValue, Either};
 
 const FIRST_ASSET: u32 = 0;
 const UNKNOWN_ASSET: u32 = 10;

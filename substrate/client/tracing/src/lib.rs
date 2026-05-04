@@ -33,7 +33,7 @@ pub mod logging;
 
 use rustc_hash::FxHashMap;
 use serde::ser::{Serialize, SerializeMap, Serializer};
-use rp_tracing::{WASM_NAME_KEY, WASM_TARGET_KEY, WASM_TRACE_IDENTIFIER};
+use sp_tracing::{WASM_NAME_KEY, WASM_TARGET_KEY, WASM_TRACE_IDENTIFIER};
 use std::{
 	fmt,
 	time::{Duration, Instant},
@@ -439,10 +439,10 @@ impl TraceHandler for LogTraceHandler {
 	}
 }
 
-impl From<TraceEvent> for rp_rpc::tracing::Event {
+impl From<TraceEvent> for sp_rpc::tracing::Event {
 	fn from(trace_event: TraceEvent) -> Self {
-		let data = rp_rpc::tracing::Data { string_values: trace_event.values.string_values };
-		rp_rpc::tracing::Event {
+		let data = sp_rpc::tracing::Data { string_values: trace_event.values.string_values };
+		sp_rpc::tracing::Event {
 			target: trace_event.target,
 			data,
 			parent_id: trace_event.parent_id.map(|id| id.into_u64()),
@@ -450,10 +450,10 @@ impl From<TraceEvent> for rp_rpc::tracing::Event {
 	}
 }
 
-impl From<SpanDatum> for rp_rpc::tracing::Span {
+impl From<SpanDatum> for sp_rpc::tracing::Span {
 	fn from(span_datum: SpanDatum) -> Self {
 		let wasm = span_datum.values.bool_values.get("wasm").is_some();
-		rp_rpc::tracing::Span {
+		sp_rpc::tracing::Span {
 			id: span_datum.id.into_u64(),
 			parent_id: span_datum.parent_id.map(|id| id.into_u64()),
 			name: span_datum.name,

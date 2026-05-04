@@ -208,7 +208,7 @@ impl SpawnTaskHandle {
 	}
 }
 
-impl rp_core::traits::SpawnNamed for SpawnTaskHandle {
+impl sp_core::traits::SpawnNamed for SpawnTaskHandle {
 	fn spawn_blocking(
 		&self,
 		name: &'static str,
@@ -288,7 +288,7 @@ impl SpawnEssentialTaskHandle {
 	}
 }
 
-impl rp_core::traits::SpawnEssentialNamed for SpawnEssentialTaskHandle {
+impl sp_core::traits::SpawnEssentialNamed for SpawnEssentialTaskHandle {
 	fn spawn_essential_blocking(
 		&self,
 		name: &'static str,

@@ -36,7 +36,7 @@ use rc_network::{
 	request_responses::{IncomingRequest, OutgoingResponse},
 	NetworkBackend, MAX_RESPONSE_SIZE,
 };
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 use std::{
 	hash::{Hash, Hasher},
@@ -249,11 +249,11 @@ where
 				response.entries.get(0).and_then(|top| top
 					.entries
 					.first()
-					.map(|e| rp_core::hexdisplay::HexDisplay::from(&e.key))),
+					.map(|e| sp_core::hexdisplay::HexDisplay::from(&e.key))),
 				response.entries.get(0).and_then(|top| top
 					.entries
 					.last()
-					.map(|e| rp_core::hexdisplay::HexDisplay::from(&e.key))),
+					.map(|e| sp_core::hexdisplay::HexDisplay::from(&e.key))),
 			);
 			if let Some(value) = self.seen_requests.get(&key) {
 				// If this is the first time we have processed this request, we need to change
@@ -288,7 +288,7 @@ enum HandleRequestError {
 	InvalidHash(#[from] codec::Error),
 
 	#[error(transparent)]
-	Client(#[from] rp_blockchain::Error),
+	Client(#[from] sp_blockchain::Error),
 
 	#[error("Failed to send response.")]
 	SendResponse,

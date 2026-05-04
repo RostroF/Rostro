@@ -20,7 +20,7 @@
 use super::*;
 use crate::mock::{RuntimeCall, *};
 use frame_support::{assert_err, assert_noop, assert_ok};
-use rp_runtime::{traits::Dispatchable, DispatchError};
+use sp_runtime::{traits::Dispatchable, DispatchError};
 // GENERAL SUCCESS/POSITIVE TESTS ---------------------
 
 #[docify::export]

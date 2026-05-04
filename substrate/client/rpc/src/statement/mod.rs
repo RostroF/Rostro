@@ -26,8 +26,8 @@ use jsonrpsee::{
 };
 /// Re-export the API for backward compatibility.
 pub use rc_rpc_api::statement::{error::Error, StatementApiServer};
-use rp_core::Bytes;
-use rp_statement_store::{
+use sp_core::Bytes;
+use sp_statement_store::{
 	OptimizedTopicFilter, StatementEvent, StatementSource, SubmitResult, TopicFilter,
 };
 use std::sync::Arc;
@@ -99,11 +99,11 @@ async fn send_in_chunks(
 
 /// Trait alias for statement store API required by the RPC.
 pub trait StatementStoreApi:
-	rp_statement_store::StatementStore + rc_statement_store::StatementStoreSubscriptionApi
+	sp_statement_store::StatementStore + rc_statement_store::StatementStoreSubscriptionApi
 {
 }
 impl<T> StatementStoreApi for T where
-	T: rp_statement_store::StatementStore + rc_statement_store::StatementStoreSubscriptionApi
+	T: sp_statement_store::StatementStore + rc_statement_store::StatementStoreSubscriptionApi
 {
 }
 /// Statement store API

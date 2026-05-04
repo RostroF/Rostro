@@ -153,7 +153,7 @@ use frame_support::{
 	weights::WeightMeter,
 };
 use scale_info::TypeInfo;
-use rp_runtime::{
+use sp_runtime::{
 	traits::{BadOrigin, Dispatchable},
 	ArithmeticError, Debug, SaturatedConversion, Saturating,
 };

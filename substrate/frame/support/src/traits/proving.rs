@@ -19,11 +19,11 @@
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
-use rp_core::Hasher;
-use rp_runtime::DispatchError;
+use sp_core::Hasher;
+use sp_runtime::DispatchError;
 
 // Re-export the `proving_trie` types and traits.
-pub use rp_runtime::proving_trie::*;
+pub use sp_runtime::proving_trie::*;
 
 /// Something that can verify the existence of some data in a given proof.
 pub trait VerifyExistenceProof {
@@ -98,7 +98,7 @@ impl<H: Hasher> VerifyExistenceProof for SixteenPatriciaMerkleTreeProver<H> {
 	type Hash = H::Out;
 
 	fn verify_proof(proof: Self::Proof, root: &Self::Hash) -> Result<Vec<u8>, DispatchError> {
-		rp_trie::verify_trie_proof::<rp_trie::LayoutV1<H>, _, _, _>(
+		sp_trie::verify_trie_proof::<sp_trie::LayoutV1<H>, _, _, _>(
 			&root,
 			&proof.proof,
 			[&(&proof.key, Some(&proof.value))],
@@ -122,7 +122,7 @@ impl<H: Hasher> ProofToHashes for SixteenPatriciaMerkleTreeProver<H> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_runtime::{
+	use sp_runtime::{
 		proving_trie::{base16::BasicProvingTrie, ProvingTrie},
 		traits::BlakeTwo256,
 	};

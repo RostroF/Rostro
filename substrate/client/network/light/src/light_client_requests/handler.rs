@@ -34,11 +34,11 @@ use rc_network::{
 	NetworkBackend, ReputationChange,
 };
 use rc_network_types::PeerId;
-use rp_core::{
+use sp_core::{
 	hexdisplay::HexDisplay,
 	storage::{ChildInfo, ChildType, PrefixedStorageKey},
 };
-use rp_runtime::traits::Block;
+use sp_runtime::traits::Block;
 use std::{marker::PhantomData, sync::Arc};
 
 const LOG_TARGET: &str = "light-client-request-handler";
@@ -259,7 +259,7 @@ where
 		let prefixed_key = PrefixedStorageKey::new_ref(&request.storage_key);
 		let child_info = match ChildType::from_prefixed_key(prefixed_key) {
 			Some((ChildType::ParentKeyId, storage_key)) => Ok(ChildInfo::new_default(storage_key)),
-			None => Err(rp_blockchain::Error::InvalidChildStorageKey),
+			None => Err(sp_blockchain::Error::InvalidChildStorageKey),
 		};
 		let response = match child_info.and_then(|child_info| {
 			self.client.read_child_proof(

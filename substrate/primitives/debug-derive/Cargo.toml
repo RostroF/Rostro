@@ -1,5 +1,5 @@
 [package]
-name = "rp-debug-derive"
+name = "sp-debug-derive"
 version = "15.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Macros to derive runtime debug implementation."
-documentation = "https://docs.rs/rp-debug-derive"
+documentation = "https://docs.rs/sp-debug-derive"
 
 [lints]
 workspace = true

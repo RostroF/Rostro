@@ -638,7 +638,7 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 	where
 		F: FnOnce(&mut LoggerBuilder),
 	{
-		rp_panic_handler::set(support_url, impl_version);
+		sp_panic_handler::set(support_url, impl_version);
 
 		let mut logger = LoggerBuilder::new(self.log_filters()?);
 		logger

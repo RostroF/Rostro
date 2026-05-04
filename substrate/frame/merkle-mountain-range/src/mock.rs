@@ -22,8 +22,8 @@ use crate::primitives::{Compact, LeafDataProvider};
 use codec::{Decode, Encode};
 use frame_support::{construct_runtime, derive_impl, parameter_types, traits::Get};
 use frame_system::{self, config_preludes::TestDefaultConfig, mocking::MockBlock, DefaultConfig};
-use rp_io::TestExternalities;
-use rp_runtime::{traits::Keccak256, BuildStorage};
+use sp_io::TestExternalities;
+use sp_runtime::{traits::Keccak256, BuildStorage};
 
 type Block = MockBlock<Test>;
 

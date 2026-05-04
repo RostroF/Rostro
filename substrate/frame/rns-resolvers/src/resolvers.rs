@@ -141,7 +141,7 @@ pub mod pallet {
         ///
         /// - `"sub.domain"` → namehash of subdomain `sub` under `domain.<tld>`.
         /// - `"domain"` (no dot) → namehash of the top-level `domain.<tld>`.
-        fn name_to_node(name: &[u8]) -> Result<rns_types::DomainHash, rp_runtime::DispatchError> {
+        fn name_to_node(name: &[u8]) -> Result<rns_types::DomainHash, sp_runtime::DispatchError> {
             rns_types::parse_name_to_node(name, &T::RegistryChecker::base_node())
                 .ok_or(Error::<T>::InvalidName.into())
         }
@@ -268,9 +268,9 @@ pub mod pallet {
 }
 
 use frame_support::dispatch::DispatchResult;
-use rp_weights::Weight;
+use sp_weights::Weight;
 use rns_types::{ddns::codec_type::RecordType, DomainHash};
-use rp_std::vec::Vec;
+use sp_std::vec::Vec;
 
 pub trait WeightInfo {
     fn set_text(content_len: u32) -> Weight;
@@ -299,8 +299,8 @@ mod benchmarks {
     use frame_benchmarking::v2::*;
     use frame_support::{traits::Currency, BoundedVec};
     use frame_system::RawOrigin;
-    use rp_runtime::SaturatedConversion;
-    use rp_std::vec;
+    use sp_runtime::SaturatedConversion;
+    use sp_std::vec;
     use super::pallet::TextKind;
 
     const BENCH_NAME: &[u8] = b"benchresolver";

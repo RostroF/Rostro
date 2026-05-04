@@ -21,8 +21,8 @@ use crate::traits::{
 };
 use core::fmt::Debug;
 use frame_support::traits::tokens::fungible::imbalance::{Credit, Debt};
-use rp_arithmetic::{traits::AtLeast8BitUnsigned, ArithmeticError};
-use rp_runtime::{traits::Bounded, TokenError};
+use sp_arithmetic::{traits::AtLeast8BitUnsigned, ArithmeticError};
+use sp_runtime::{traits::Bounded, TokenError};
 
 /// Tests issuing and resolving [`Credit`] imbalances with [`Balanced::issue`] and
 /// [`Balanced::resolve`].

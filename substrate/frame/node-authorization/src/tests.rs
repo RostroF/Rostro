@@ -20,8 +20,8 @@
 use super::*;
 use crate::mock::*;
 use frame_support::{assert_noop, assert_ok};
-use rp_io::TestExternalities as TestState;
-use rp_runtime::{traits::BadOrigin, BuildStorage, DispatchError};
+use sp_io::TestExternalities as TestState;
+use sp_runtime::{traits::BadOrigin, BuildStorage, DispatchError};
 
 #[test]
 fn add_well_known_node_works() {

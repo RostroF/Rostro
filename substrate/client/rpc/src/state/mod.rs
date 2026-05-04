@@ -31,14 +31,14 @@ use rc_client_api::{
 };
 use rc_rpc_api::{check_if_safe, DenyUnsafe};
 use rc_tracing::block::TracingExecuteBlock;
-use rp_api::{CallApiAt, Metadata, ProvideRuntimeApi};
-use rp_blockchain::{HeaderBackend, HeaderMetadata};
-use rp_core::{
+use sp_api::{CallApiAt, Metadata, ProvideRuntimeApi};
+use sp_blockchain::{HeaderBackend, HeaderMetadata};
+use sp_core::{
 	storage::{PrefixedStorageKey, StorageChangeSet, StorageData, StorageKey},
 	Bytes,
 };
-use rp_runtime::traits::Block as BlockT;
-use rp_version::RuntimeVersion;
+use sp_runtime::traits::Block as BlockT;
+use sp_version::RuntimeVersion;
 use std::sync::Arc;
 
 pub use rc_rpc_api::{child_state::*, state::*};
@@ -147,7 +147,7 @@ where
 		targets: Option<String>,
 		storage_keys: Option<String>,
 		methods: Option<String>,
-	) -> Result<rp_rpc::tracing::TraceBlockResponse, Error>;
+	) -> Result<sp_rpc::tracing::TraceBlockResponse, Error>;
 
 	/// New runtime version subscription
 	fn subscribe_runtime_version(&self, pending: PendingSubscriptionSink);
@@ -174,7 +174,7 @@ where
 	Client: ExecutorProvider<Block>
 		+ StorageProvider<Block, BE>
 		+ ProofProvider<Block>
-		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ BlockchainEvents<Block>
 		+ CallApiAt<Block>
 		+ HeaderBackend<Block>
@@ -324,7 +324,7 @@ where
 		targets: Option<String>,
 		storage_keys: Option<String>,
 		methods: Option<String>,
-	) -> Result<rp_rpc::tracing::TraceBlockResponse, Error> {
+	) -> Result<sp_rpc::tracing::TraceBlockResponse, Error> {
 		check_if_safe(ext)?;
 		self.backend
 			.trace_block(block, targets, storage_keys, methods)
@@ -497,6 +497,6 @@ where
 	}
 }
 
-fn client_err(err: rp_blockchain::Error) -> Error {
+fn client_err(err: sp_blockchain::Error) -> Error {
 	Error::Client(Box::new(err))
 }

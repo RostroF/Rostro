@@ -24,7 +24,7 @@ use frame_support::{
 	PalletId,
 };
 
-use rp_runtime::{traits::IdentityLookup, BuildStorage, Perbill};
+use sp_runtime::{traits::IdentityLookup, BuildStorage, Perbill};
 
 use frame_election_provider_support::{
 	bounds::{ElectionBounds, ElectionBoundsBuilder},
@@ -32,9 +32,9 @@ use frame_election_provider_support::{
 };
 use frame_support::dispatch::RawOrigin;
 use pallet_staking::{ActiveEra, ActiveEraInfo, CurrentEra};
-use rp_core::{ConstBool, U256};
-use rp_runtime::traits::Convert;
-use rp_staking::{Agent, Stake, StakingInterface};
+use sp_core::{ConstBool, U256};
+use sp_runtime::traits::Convert;
+use sp_staking::{Agent, Stake, StakingInterface};
 
 pub type T = Runtime;
 type Block = frame_system::mocking::MockBlock<Runtime>;
@@ -76,7 +76,7 @@ impl pallet_balances::Config for Runtime {
 }
 
 pallet_staking_reward_curve::build! {
-	const I_NPOS: rp_runtime::curve::PiecewiseLinear<'static> = curve!(
+	const I_NPOS: sp_runtime::curve::PiecewiseLinear<'static> = curve!(
 		min_inflation: 0_025_000,
 		max_inflation: 0_100_000,
 		ideal_stake: 0_500_000,
@@ -87,13 +87,13 @@ pallet_staking_reward_curve::build! {
 }
 
 parameter_types! {
-	pub const RewardCurve: &'static rp_runtime::curve::PiecewiseLinear<'static> = &I_NPOS;
+	pub const RewardCurve: &'static sp_runtime::curve::PiecewiseLinear<'static> = &I_NPOS;
 	pub static ElectionsBoundsOnChain: ElectionBounds = ElectionBoundsBuilder::default().build();
 }
 pub struct OnChainSeqPhragmen;
 impl onchain::Config for OnChainSeqPhragmen {
 	type System = Runtime;
-	type Solver = SequentialPhragmen<Balance, rp_runtime::Perbill>;
+	type Solver = SequentialPhragmen<Balance, sp_runtime::Perbill>;
 	type DataProvider = Staking;
 	type WeightInfo = ();
 	type MaxWinnersPerPage = ConstU32<100>;
@@ -153,7 +153,7 @@ impl pallet_nomination_pools::Config for Runtime {
 	type WeightInfo = ();
 	type Currency = Balances;
 	type RuntimeFreezeReason = RuntimeFreezeReason;
-	type RewardCounter = rp_runtime::FixedU128;
+	type RewardCounter = sp_runtime::FixedU128;
 	type BalanceToU256 = BalanceToU256;
 	type U256ToBalance = U256ToBalance;
 	type PostUnbondingPoolsWindow = ConstU32<2>;
@@ -183,8 +183,8 @@ frame_support::construct_runtime!(
 pub struct ExtBuilder {}
 
 impl ExtBuilder {
-	fn build(self) -> rp_io::TestExternalities {
-		rp_tracing::try_init_simple();
+	fn build(self) -> sp_io::TestExternalities {
+		sp_tracing::try_init_simple();
 		let mut storage =
 			frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
 
@@ -203,19 +203,19 @@ impl ExtBuilder {
 				GENESIS_VALIDATOR,
 				GENESIS_VALIDATOR,
 				1000,
-				rp_staking::StakerStatus::<AccountId>::Validator,
+				sp_staking::StakerStatus::<AccountId>::Validator,
 			),
 			(
 				GENESIS_NOMINATOR_ONE,
 				GENESIS_NOMINATOR_ONE,
 				100,
-				rp_staking::StakerStatus::<AccountId>::Nominator(vec![1]),
+				sp_staking::StakerStatus::<AccountId>::Nominator(vec![1]),
 			),
 			(
 				GENESIS_NOMINATOR_TWO,
 				GENESIS_NOMINATOR_TWO,
 				200,
-				rp_staking::StakerStatus::<AccountId>::Nominator(vec![1]),
+				sp_staking::StakerStatus::<AccountId>::Nominator(vec![1]),
 			),
 		];
 
@@ -232,7 +232,7 @@ impl ExtBuilder {
 		}
 		.assimilate_storage(&mut storage);
 
-		let mut ext = rp_io::TestExternalities::from(storage);
+		let mut ext = sp_io::TestExternalities::from(storage);
 
 		ext.execute_with(|| {
 			// for events to be deposited.
@@ -244,7 +244,7 @@ impl ExtBuilder {
 		ext
 	}
 	pub fn build_and_execute(self, test: impl FnOnce()) {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut ext = self.build();
 		ext.execute_with(test);
 		ext.execute_with(|| {
@@ -298,7 +298,7 @@ pub(crate) fn setup_delegation_stake(
 	delegated_amount
 }
 
-pub(crate) fn start_era(era: rp_staking::EraIndex) {
+pub(crate) fn start_era(era: sp_staking::EraIndex) {
 	CurrentEra::<T>::set(Some(era));
 	ActiveEra::<T>::set(Some(ActiveEraInfo { index: era, start: None }));
 }

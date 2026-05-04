@@ -26,15 +26,15 @@ use jsonrpsee::{
 use rc_client_api::TrieCacheContext;
 use rc_rpc_api::check_if_safe;
 use serde::{Deserialize, Serialize};
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 use std::sync::Arc;
 
-use rp_core::{
+use sp_core::{
 	storage::{ChildInfo, ChildType, PrefixedStorageKey},
 	Hasher,
 };
-use rp_state_machine::backend::AsTrieBackend;
-use rp_trie::{
+use sp_state_machine::backend::AsTrieBackend;
+use sp_trie::{
 	trie_types::{TrieDB, TrieDBBuilder},
 	KeySpacedDB, Trie,
 };
@@ -59,7 +59,7 @@ fn count_migrate<'a, H: Hasher>(
 				total_nb += 1;
 				if let ValuePlan::Inline(range) = value {
 					if (range.end - range.start) as u32 >=
-						rp_core::storage::TRIE_VALUE_NODE_THRESHOLD
+						sp_core::storage::TRIE_VALUE_NODE_THRESHOLD
 					{
 						nb += 1;
 					}
@@ -88,7 +88,7 @@ where
 	// get all child trie roots
 	for key_value in trie.iter().map_err(|e| format!("TrieDB node iterator error: {}", e))? {
 		let (key, value) = key_value.map_err(|e| format!("TrieDB node iterator error: {}", e))?;
-		if key[..].starts_with(rp_core::storage::well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX)
+		if key[..].starts_with(sp_core::storage::well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX)
 		{
 			let prefixed_key = PrefixedStorageKey::new(key);
 			let (_type, unprefixed) = ChildType::from_prefixed_key(&prefixed_key).unwrap();

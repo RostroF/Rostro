@@ -37,7 +37,7 @@ use schema::bitswap::{
 	message::{wantlist::WantType, Block as MessageBlock, BlockPresence, BlockPresenceType},
 	Message as BitswapMessage,
 };
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 use std::{io, sync::Arc, time::Duration};
 use unsigned_varint::encode as varint_encode;
 
@@ -268,7 +268,7 @@ pub enum BitswapError {
 
 	/// Client backend error.
 	#[error(transparent)]
-	Client(#[from] rp_blockchain::Error),
+	Client(#[from] sp_blockchain::Error),
 
 	/// Error parsing CID
 	#[error(transparent)]
@@ -301,8 +301,8 @@ mod tests {
 		message::{wantlist::Entry, Wantlist},
 		Message as BitswapMessage,
 	};
-	use rp_consensus::BlockOrigin;
-	use rp_runtime::codec::Encode;
+	use sp_consensus::BlockOrigin;
+	use sp_runtime::codec::Encode;
 	use substrate_test_runtime::ExtrinsicBuilder;
 	use substrate_test_runtime_client::{self, prelude::*, TestClientBuilder};
 
@@ -506,7 +506,7 @@ mod tests {
 								0x70,
 								cid::multihash::Multihash::wrap(
 									u64::from(Code::Blake2b256),
-									&rp_crypto_hashing::blake2_256(&ext.encode()[pattern_index..]),
+									&sp_crypto_hashing::blake2_256(&ext.encode()[pattern_index..]),
 								)
 								.unwrap(),
 							)

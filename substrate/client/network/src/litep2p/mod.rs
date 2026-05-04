@@ -78,7 +78,7 @@ use rc_client_api::BlockBackend;
 use rc_network_common::{role::Roles, ExHashT};
 use rc_network_types::PeerId;
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver};
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 use std::{
 	cmp,

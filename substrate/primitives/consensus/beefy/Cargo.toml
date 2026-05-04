@@ -1,5 +1,5 @@
 [package]
-name = "rp-consensus-beefy"
+name = "sp-consensus-beefy"
 version = "29.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -18,15 +18,15 @@ targets = ["x86_64-unknown-linux-gnu"]
 codec = { features = ["derive"], workspace = true }
 scale-info = { features = ["derive"], workspace = true }
 serde = { optional = true, features = ["alloc", "derive"], workspace = true }
-rp-api = { workspace = true }
-rp-application-crypto = { workspace = true }
-rp-core = { workspace = true }
-rp-crypto-hashing = { workspace = true }
-rp-io = { workspace = true }
-rp-keystore = { workspace = true }
-rp-mmr-primitives = { workspace = true }
-rp-runtime = { workspace = true }
-rp-weights = { workspace = true }
+sp-api = { workspace = true }
+sp-application-crypto = { workspace = true }
+sp-core = { workspace = true }
+sp-crypto-hashing = { workspace = true }
+sp-io = { workspace = true }
+sp-keystore = { workspace = true }
+sp-mmr-primitives = { workspace = true }
+sp-runtime = { workspace = true }
+sp-weights = { workspace = true }
 strum = { features = ["derive"], workspace = true }
 
 [dev-dependencies]
@@ -39,15 +39,15 @@ std = [
 	"codec/std",
 	"scale-info/std",
 	"serde/std",
-	"rp-api/std",
-	"rp-application-crypto/std",
-	"rp-core/std",
-	"rp-crypto-hashing/std",
-	"rp-io/std",
-	"rp-keystore/std",
-	"rp-mmr-primitives/std",
-	"rp-runtime/std",
-	"rp-weights/std",
+	"sp-api/std",
+	"sp-application-crypto/std",
+	"sp-core/std",
+	"sp-crypto-hashing/std",
+	"sp-io/std",
+	"sp-keystore/std",
+	"sp-mmr-primitives/std",
+	"sp-runtime/std",
+	"sp-weights/std",
 	"strum/std",
 ]
 
@@ -55,14 +55,14 @@ std = [
 serde = [
 	"dep:serde",
 	"scale-info/serde",
-	"rp-application-crypto/serde",
-	"rp-core/serde",
-	"rp-runtime/serde",
+	"sp-application-crypto/serde",
+	"sp-core/serde",
+	"sp-runtime/serde",
 ]
 
 # This feature adds BLS crypto primitives. It should not be used in production since
 # the BLS implementation and interface may still be subject to significant change.
 bls-experimental = [
-	"rp-application-crypto/bls-experimental",
-	"rp-core/bls-experimental",
+	"sp-application-crypto/bls-experimental",
+	"sp-core/bls-experimental",
 ]

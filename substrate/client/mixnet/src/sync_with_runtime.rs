@@ -29,15 +29,15 @@ use rc_network_types::{
 	multiaddr::{multiaddr, Multiaddr, Protocol},
 	PeerId,
 };
-use rp_api::{ApiError, ApiRef};
-use rp_mixnet::{
+use sp_api::{ApiError, ApiRef};
+use sp_mixnet::{
 	runtime_api::MixnetApi,
 	types::{
 		Mixnode as RuntimeMixnode, MixnodesErr as RuntimeMixnodesErr,
 		SessionPhase as RuntimeSessionPhase, SessionStatus as RuntimeSessionStatus,
 	},
 };
-use rp_runtime::traits::Block;
+use sp_runtime::traits::Block;
 
 const LOG_TARGET: &str = "mixnet";
 

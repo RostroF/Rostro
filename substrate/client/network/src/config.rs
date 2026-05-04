@@ -52,7 +52,7 @@ pub use rc_network_common::{
 	ExHashT,
 };
 
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 use std::{
 	error::Error,

@@ -23,10 +23,10 @@ serde = { features = ["derive"], workspace = true, default-features = false }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 
-rp-core = { workspace = true }
-rp-runtime = { workspace = true }
-rp-std = { workspace = true }
-rp-weights = { workspace = true }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+sp-weights = { workspace = true }
 
 pallet-timestamp = { workspace = true }
 
@@ -42,10 +42,10 @@ std = [
 	"pallet-rns-registrar/std",
 	"pallet-timestamp/std",
 	"rns-types/std",
-	"rp-core/std",
-	"rp-runtime/std",
-	"rp-std/std",
-	"rp-weights/std",
+	"sp-core/std",
+	"sp-runtime/std",
+	"sp-std/std",
+	"sp-weights/std",
 	"scale-info/std",
 	"serde/std",
 ]
@@ -55,7 +55,7 @@ runtime-benchmarks = [
 	"pallet-rns-registrar/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"rns-types/runtime-benchmarks",
-	"rp-runtime/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
@@ -63,5 +63,5 @@ try-runtime = [
 	"pallet-rns-registrar/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"rns-types/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

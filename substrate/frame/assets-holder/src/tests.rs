@@ -286,7 +286,7 @@ mod impl_hold_unbalanced {
 mod impl_hold_mutate {
 	use super::*;
 	use frame_support::traits::tokens::{Fortitude, Precision, Preservation};
-	use rp_runtime::TokenError;
+	use sp_runtime::TokenError;
 
 	#[test]
 	fn hold_works() {
@@ -353,7 +353,7 @@ mod impl_hold_mutate {
 		});
 	}
 
-	fn new_test_ext() -> rp_io::TestExternalities {
+	fn new_test_ext() -> sp_io::TestExternalities {
 		super::new_test_ext(|| {
 			assert_ok!(AssetsHolder::hold(ASSET_ID, &DummyHoldReason::Governance, &WHO, 30));
 			assert_ok!(AssetsHolder::hold(ASSET_ID, &DummyHoldReason::Staking, &WHO, 20));

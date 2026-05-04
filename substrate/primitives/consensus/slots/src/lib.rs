@@ -21,7 +21,7 @@
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
-use rp_timestamp::Timestamp;
+use sp_timestamp::Timestamp;
 
 /// Unit type wrapper that represents a slot.
 #[derive(

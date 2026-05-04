@@ -30,7 +30,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 use codec::Codec;
 use frame_support::traits::{BalanceStatus::Reserved, Currency, ReservableCurrency};
-use rp_runtime::{
+use sp_runtime::{
 	traits::{AtLeast32Bit, LookupError, Saturating, StaticLookup, Zero},
 	MultiAddress,
 };

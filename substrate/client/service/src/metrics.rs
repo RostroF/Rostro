@@ -24,8 +24,8 @@ use rc_network_sync::{SyncStatus, SyncStatusProvider};
 use rc_telemetry::{telemetry, TelemetryHandle, SUBSTRATE_INFO};
 use rc_transaction_pool_api::{MaintainedTransactionPool, PoolStatus};
 use rc_utils::metrics::register_globals;
-use rp_api::ProvideRuntimeApi;
-use rp_runtime::traits::{Block, NumberFor, SaturatedConversion, UniqueSaturatedInto};
+use sp_api::ProvideRuntimeApi;
+use sp_runtime::traits::{Block, NumberFor, SaturatedConversion, UniqueSaturatedInto};
 use std::{
 	sync::Arc,
 	time::{Duration, Instant, SystemTime},

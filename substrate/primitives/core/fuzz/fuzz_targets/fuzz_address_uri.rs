@@ -19,11 +19,11 @@
 
 extern crate libfuzzer_sys;
 extern crate regex;
-extern crate rp_core;
+extern crate sp_core;
 
 use libfuzzer_sys::fuzz_target;
 use regex::Regex;
-use rp_core::crypto::AddressUri;
+use sp_core::crypto::AddressUri;
 use std::sync::LazyLock;
 
 static SECRET_PHRASE_REGEX: LazyLock<Regex> = LazyLock::new(|| {

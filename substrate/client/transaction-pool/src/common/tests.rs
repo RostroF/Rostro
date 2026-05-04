@@ -26,8 +26,8 @@ use async_trait::async_trait;
 use codec::Encode;
 use parking_lot::Mutex;
 use rc_transaction_pool_api::error;
-use rp_blockchain::{HashAndNumber, TreeRoute};
-use rp_runtime::{
+use sp_blockchain::{HashAndNumber, TreeRoute};
+use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, Hash},
 	transaction_validity::{

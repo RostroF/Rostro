@@ -27,15 +27,15 @@ rc-network-gossip = { default-features = true, workspace = true }
 rc-network-sync = { default-features = true, workspace = true }
 rc-network-types = { default-features = true, workspace = true }
 rc-utils = { default-features = true, workspace = true }
-rp-api = { default-features = true, workspace = true }
-rp-application-crypto = { default-features = true, workspace = true }
-rp-arithmetic = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-consensus-beefy = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-keystore = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-application-crypto = { default-features = true, workspace = true }
+sp-arithmetic = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-consensus-beefy = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-keystore = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, default-features = true }
 wasm-timer = { workspace = true }
@@ -44,15 +44,15 @@ wasm-timer = { workspace = true }
 rc-block-builder = { default-features = true, workspace = true }
 rc-network-test = { workspace = true }
 serde = { workspace = true, default-features = true }
-rp-mmr-primitives = { default-features = true, workspace = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-mmr-primitives = { default-features = true, workspace = true }
+sp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 
 [features]
 # This feature adds BLS crypto primitives. It should not be used in production since
 # the BLS implementation and interface may still be subject to significant change.
 bls-experimental = [
-	"rp-application-crypto/bls-experimental",
-	"rp-consensus-beefy/bls-experimental",
-	"rp-core/bls-experimental",
+	"sp-application-crypto/bls-experimental",
+	"sp-consensus-beefy/bls-experimental",
+	"sp-core/bls-experimental",
 ]

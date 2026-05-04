@@ -5,7 +5,7 @@ pub mod ddns;
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 
 use scale_info::TypeInfo;
-use rp_core::{self, ConstU32};
+use sp_core::{self, ConstU32};
 
 use serde::{Deserialize, Serialize};
 
@@ -121,7 +121,7 @@ pub struct OfferedNameRecord<AccountId, Moment> {
     pub offered_at: Moment,
 }
 
-pub type DomainHash = rp_core::H256;
+pub type DomainHash = sp_core::H256;
 
 // Per-network basenode constants. Each Rostro runtime selects one via its
 // `BaseNode: Get<DomainHash>` config type — there is no implicit default,
@@ -129,19 +129,19 @@ pub type DomainHash = rp_core::H256;
 // wiring time. Values are `keccak_256(label)` precomputed at build time.
 
 /// Namehash of "rst" — basenode for **Rostro mainnet**.
-pub const RST_BASENODE: DomainHash = rp_core::H256([
+pub const RST_BASENODE: DomainHash = sp_core::H256([
     161, 35, 83, 185, 48, 192, 248, 170, 91, 171, 154, 39, 99, 61, 120, 167, 226, 225, 102, 211,
     121, 182, 144, 34, 106, 234, 186, 142, 117, 132, 223, 126,
 ]);
 
 /// Namehash of "canaria" — basenode for **Canaria** (the canary network).
-pub const CANARIA_BASENODE: DomainHash = rp_core::H256([
+pub const CANARIA_BASENODE: DomainHash = sp_core::H256([
     252, 36, 102, 254, 93, 83, 25, 35, 152, 34, 171, 202, 98, 175, 139, 142, 124, 212, 211, 158,
     196, 113, 245, 241, 83, 138, 71, 42, 65, 49, 7, 170,
 ]);
 
 /// Namehash of "camino" — basenode for **Camino** (the public testnet).
-pub const CAMINO_BASENODE: DomainHash = rp_core::H256([
+pub const CAMINO_BASENODE: DomainHash = sp_core::H256([
     219, 28, 127, 166, 210, 130, 98, 51, 53, 15, 21, 190, 190, 54, 187, 114, 16, 187, 79, 12, 73,
     84, 64, 156, 4, 173, 35, 143, 148, 45, 217, 93,
 ]);
@@ -157,7 +157,7 @@ pub const CAMINO_BASENODE: DomainHash = rp_core::H256([
 /// length, etc.).  The caller is responsible for mapping `None` to the
 /// appropriate [`DispatchError`].
 pub fn parse_name_to_node(name: &[u8], base_node: &DomainHash) -> Option<DomainHash> {
-    use rp_io::hashing::keccak_256;
+    use sp_io::hashing::keccak_256;
 
     /// Validate and hash a single DNS label.
     fn hash_label(label: &[u8]) -> Option<DomainHash> {

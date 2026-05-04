@@ -21,7 +21,7 @@ use super::*;
 use crate::Pallet as Collective;
 
 use core::mem::size_of;
-use rp_runtime::traits::Bounded;
+use sp_runtime::traits::Bounded;
 
 use frame_benchmarking::{
 	v1::{account, whitelisted_caller},

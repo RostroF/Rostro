@@ -18,7 +18,7 @@ use crate::mock::{
 	pallet_dummy::Call, DummyExtension, PrepareCount, Runtime, RuntimeCall, ValidateCount,
 };
 use frame_support::dispatch::DispatchInfo;
-use rp_runtime::{traits::DispatchTransaction, transaction_validity::TransactionSource};
+use sp_runtime::{traits::DispatchTransaction, transaction_validity::TransactionSource};
 
 #[test]
 fn skip_feeless_payment_works() {

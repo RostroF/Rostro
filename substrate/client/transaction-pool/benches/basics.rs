@@ -21,9 +21,9 @@ use codec::Encode;
 use criterion::{criterion_group, criterion_main, Criterion};
 use futures::executor::block_on;
 use rc_transaction_pool::*;
-use rp_blockchain::HashAndNumber;
-use rp_crypto_hashing::blake2_256;
-use rp_runtime::{
+use sp_blockchain::HashAndNumber;
+use sp_crypto_hashing::blake2_256;
+use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, NumberFor},
 	transaction_validity::{
@@ -143,7 +143,7 @@ impl ChainApi for TestApi {
 		&self,
 		_from: <Self::Block as BlockT>::Hash,
 		_to: <Self::Block as BlockT>::Hash,
-	) -> Result<rp_blockchain::TreeRoute<Self::Block>, Self::Error> {
+	) -> Result<sp_blockchain::TreeRoute<Self::Block>, Self::Error> {
 		unimplemented!()
 	}
 }

@@ -1,5 +1,5 @@
 [package]
-name = "rp-application-crypto-test"
+name = "sp-application-crypto-test"
 version = "2.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -16,11 +16,11 @@ workspace = true
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-rp-api = { default-features = true, workspace = true }
-rp-application-crypto = { default-features = true, workspace = true }
-rp-core = { workspace = true }
-rp-keystore = { workspace = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-application-crypto = { default-features = true, workspace = true }
+sp-core = { workspace = true }
+sp-keystore = { workspace = true }
+sp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 
 [features]

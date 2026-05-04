@@ -19,12 +19,12 @@ use super::*;
 use crate::{mock::*, Event};
 use frame_support::{assert_err, assert_noop, assert_ok, hypothetically};
 use pallet_balances::Event as BEvent;
-use rp_runtime::{
+use sp_runtime::{
 	bounded_btree_map,
 	traits::{BadOrigin, Dispatchable},
 	FixedU128,
 };
-use rp_staking::{Agent, DelegationInterface};
+use sp_staking::{Agent, DelegationInterface};
 
 macro_rules! unbonding_pools_with_era {
 	($($k:expr => $v:expr),* $(,)?) => {{
@@ -3700,7 +3700,7 @@ mod pool_withdraw_unbonded {
 
 mod withdraw_unbonded {
 	use super::*;
-	use rp_runtime::bounded_btree_map;
+	use sp_runtime::bounded_btree_map;
 
 	#[test]
 	fn withdraw_unbonded_works_against_slashed_no_era_sub_pool() {
@@ -7744,7 +7744,7 @@ mod filter {
 
 mod claim_trapped_balance_migration {
 	use super::*;
-	use rp_staking::Delegator;
+	use sp_staking::Delegator;
 
 	/// Test that do_claim_trapped_balance successfully recovers trapped funds.
 	#[test]

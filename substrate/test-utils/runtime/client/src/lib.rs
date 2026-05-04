@@ -30,7 +30,7 @@ pub use substrate_test_runtime as runtime;
 
 pub use self::block_builder_ext::BlockBuilderExt;
 
-use rp_core::storage::ChildInfo;
+use sp_core::storage::ChildInfo;
 use substrate_test_runtime::genesismap::GenesisStorageBuilder;
 
 /// A prelude to import in tests.
@@ -48,7 +48,7 @@ pub mod prelude {
 	pub use super::Sr25519Keyring;
 	pub use futures::executor::block_on;
 	pub use rc_block_builder::BlockBuilderBuilder;
-	pub use rp_blockchain::HeaderBackend;
+	pub use sp_blockchain::HeaderBackend;
 }
 
 /// Test client database backend.

@@ -27,7 +27,7 @@ use futures::{
 
 use rc_network::Multiaddr;
 use rc_network_types::PeerId;
-use rp_authority_discovery::AuthorityId;
+use sp_authority_discovery::AuthorityId;
 
 /// Service to interact with the [`crate::Worker`].
 #[derive(Clone)]

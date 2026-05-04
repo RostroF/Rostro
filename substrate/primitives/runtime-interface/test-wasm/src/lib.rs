@@ -21,7 +21,7 @@
 
 extern crate alloc;
 
-use rp_runtime_interface::{
+use sp_runtime_interface::{
 	pass_by::{
 		AllocateAndReturnByCodec, AllocateAndReturnFatPointer, AllocateAndReturnPointer, PassAs,
 		PassFatPointerAndDecode, PassFatPointerAndDecodeSlice, PassFatPointerAndRead,
@@ -35,7 +35,7 @@ use rp_runtime_interface::{
 use core::mem;
 
 use alloc::{vec, vec::Vec};
-use rp_core::{sr25519::Public, wasm_export_functions};
+use sp_core::{sr25519::Public, wasm_export_functions};
 
 // Include the WASM binary
 #[cfg(feature = "std")]
@@ -238,7 +238,7 @@ impl TryFrom<u32> for Opaque {
 /// `rp-io` is required for its panic and oom handler.
 #[no_mangle]
 pub fn import_sp_io() {
-	rp_io::misc::print_utf8(&[]);
+	sp_io::misc::print_utf8(&[]);
 }
 
 wasm_export_functions! {

@@ -21,7 +21,7 @@ use rc_executor_common::{
 	error::{Error, Result},
 	util::checked_range,
 };
-use rp_wasm_interface::Pointer;
+use sp_wasm_interface::Pointer;
 use wasmtime::{AsContext, AsContextMut};
 
 /// Read data from the instance memory into a slice.

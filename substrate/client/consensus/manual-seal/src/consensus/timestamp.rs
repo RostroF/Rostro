@@ -21,17 +21,17 @@
 
 use crate::Error;
 use rc_client_api::{AuxStore, UsageProvider};
-use rp_api::ProvideRuntimeApi;
-use rp_blockchain::HeaderBackend;
-use rp_consensus_aura::{
+use sp_api::ProvideRuntimeApi;
+use sp_blockchain::HeaderBackend;
+use sp_consensus_aura::{
 	sr25519::{AuthorityId, AuthoritySignature},
 	AuraApi,
 };
-use rp_consensus_babe::BabeApi;
-use rp_consensus_slots::{Slot, SlotDuration};
-use rp_inherents::{InherentData, InherentDataProvider, InherentIdentifier};
-use rp_runtime::traits::{Block as BlockT, Zero};
-use rp_timestamp::{InherentType, INHERENT_IDENTIFIER};
+use sp_consensus_babe::BabeApi;
+use sp_consensus_slots::{Slot, SlotDuration};
+use sp_inherents::{InherentData, InherentDataProvider, InherentIdentifier};
+use sp_runtime::traits::{Block as BlockT, Zero};
+use sp_timestamp::{InherentType, INHERENT_IDENTIFIER};
 use std::{
 	sync::{atomic, Arc},
 	time::SystemTime,
@@ -131,8 +131,8 @@ impl SlotTimestampProvider {
 	}
 
 	/// Gets the current time stamp.
-	pub fn timestamp(&self) -> rp_timestamp::Timestamp {
-		rp_timestamp::Timestamp::new(self.unix_millis.load(atomic::Ordering::SeqCst))
+	pub fn timestamp(&self) -> sp_timestamp::Timestamp {
+		sp_timestamp::Timestamp::new(self.unix_millis.load(atomic::Ordering::SeqCst))
 	}
 }
 
@@ -141,7 +141,7 @@ impl InherentDataProvider for SlotTimestampProvider {
 	async fn provide_inherent_data(
 		&self,
 		inherent_data: &mut InherentData,
-	) -> Result<(), rp_inherents::Error> {
+	) -> Result<(), sp_inherents::Error> {
 		// we update the time here.
 		let new_time: InherentType = self
 			.unix_millis
@@ -155,7 +155,7 @@ impl InherentDataProvider for SlotTimestampProvider {
 		&self,
 		_: &InherentIdentifier,
 		_: &[u8],
-	) -> Option<Result<(), rp_inherents::Error>> {
+	) -> Option<Result<(), sp_inherents::Error>> {
 		None
 	}
 }

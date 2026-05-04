@@ -353,7 +353,7 @@ fn ensure_runtime_version_wasm_section_exists(blob_path: &Path) {
 	if !module.custom_sections().any(|cs| cs.name() == "runtime_version") {
 		println!(
 			"Couldn't find the `runtime_version` section. \
-				  Please ensure that you are using the `rp_version::runtime_version` attribute macro!"
+				  Please ensure that you are using the `sp_version::runtime_version` attribute macro!"
 		);
 		process::exit(1);
 	}
@@ -1110,14 +1110,14 @@ fn compact_wasm(blob_paths: &BlobPaths, bloaty_binary: &WasmBinaryBloaty) -> Opt
 }
 
 fn try_compress_blob(blob_paths: &BlobPaths, compact_blob: &WasmBinary) -> Option<WasmBinary> {
-	use rp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT;
+	use sp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT;
 
 	let compact_compressed_blob_path = blob_paths.compact_compressed();
 
 	let start = std::time::Instant::now();
 	let data = fs::read(compact_blob.wasm_binary_path()).expect("Failed to read WASM binary");
 	if let Some(compressed) =
-		rp_maybe_compressed_blob::compress_strongly(&data, CODE_BLOB_BOMB_LIMIT)
+		sp_maybe_compressed_blob::compress_strongly(&data, CODE_BLOB_BOMB_LIMIT)
 	{
 		fs::write(&compact_compressed_blob_path, &compressed[..])
 			.expect("Failed to write WASM binary");

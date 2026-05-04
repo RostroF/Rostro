@@ -28,7 +28,7 @@ use codec::{Decode, DecodeAll};
 use futures::channel::oneshot;
 use log::debug;
 use mixnet::core::{Delay, MessageId, PostErr, Scattered};
-use rp_core::Bytes;
+use sp_core::Bytes;
 use std::time::Duration;
 
 const LOG_TARGET: &str = "mixnet";

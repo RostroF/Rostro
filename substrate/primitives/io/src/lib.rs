@@ -21,7 +21,7 @@
 //! In other context, such interfaces are referred to as "**host functions**".
 //!
 //! Each set of host functions are defined with an instance of the
-//! [`rp_runtime_interface::runtime_interface`] macro.
+//! [`sp_runtime_interface::runtime_interface`] macro.
 //!
 //! Most notably, this crate contains host functions for:
 //!
@@ -45,7 +45,7 @@
 //! A typical error for substrate developers is the following:
 //!
 //! ```should_panic
-//! use rp_io::storage::get;
+//! use sp_io::storage::get;
 //! # fn main() {
 //! let data = get(b"hello world");
 //! # }
@@ -60,12 +60,12 @@
 //! Such error messages should always be interpreted as "code accessing host functions accessed
 //! outside of externalities".
 //!
-//! An externality is any type that implements [`rp_externalities::Externalities`]. A simple example
+//! An externality is any type that implements [`sp_externalities::Externalities`]. A simple example
 //! of which is [`TestExternalities`], which is commonly used in tests and is exported from this
 //! crate.
 //!
 //! ```
-//! use rp_io::{storage::get, TestExternalities};
+//! use sp_io::{storage::get, TestExternalities};
 //! # fn main() {
 //! TestExternalities::default().execute_with(|| {
 //! 	let data = get(b"hello world");
@@ -85,18 +85,18 @@ use alloc::vec::Vec;
 use tracing;
 
 #[cfg(not(substrate_runtime))]
-use rp_core::{
+use sp_core::{
 	crypto::Pair,
 	hexdisplay::HexDisplay,
 	offchain::{OffchainDbExt, OffchainWorkerExt, TransactionPoolExt},
 	storage::ChildInfo,
 };
 #[cfg(not(substrate_runtime))]
-use rp_keystore::KeystoreExt;
+use sp_keystore::KeystoreExt;
 
 #[cfg(feature = "bandersnatch-experimental")]
-use rp_core::bandersnatch;
-use rp_core::{
+use sp_core::bandersnatch;
+use sp_core::{
 	crypto::KeyTypeId,
 	ecdsa, ed25519,
 	offchain::{
@@ -108,12 +108,12 @@ use rp_core::{
 };
 
 #[cfg(feature = "bls-experimental")]
-use rp_core::{bls381, ecdsa_bls381};
+use sp_core::{bls381, ecdsa_bls381};
 
 #[cfg(not(substrate_runtime))]
-use rp_trie::{LayoutV0, LayoutV1, TrieConfiguration};
+use sp_trie::{LayoutV0, LayoutV1, TrieConfiguration};
 
-use rp_runtime_interface::{
+use sp_runtime_interface::{
 	pass_by::{
 		AllocateAndReturnByCodec, AllocateAndReturnFatPointer, AllocateAndReturnPointer, PassAs,
 		PassFatPointerAndDecode, PassFatPointerAndDecodeSlice, PassFatPointerAndRead,
@@ -131,9 +131,9 @@ use secp256k1::{
 };
 
 #[cfg(not(substrate_runtime))]
-use rp_externalities::{Externalities, ExternalitiesExt};
+use sp_externalities::{Externalities, ExternalitiesExt};
 
-pub use rp_externalities::MultiRemovalResults;
+pub use sp_externalities::MultiRemovalResults;
 
 #[cfg(all(not(feature = "disable_allocator"), substrate_runtime))]
 mod global_alloc;
@@ -281,7 +281,7 @@ pub trait Storage {
 	/// operating on the same prefix should always pass `Some`, and this should be equal to the
 	/// previous call result's `maybe_cursor` field.
 	///
-	/// Returns [`MultiRemovalResults`](rp_io::MultiRemovalResults) to inform about the result. Once
+	/// Returns [`MultiRemovalResults`](sp_io::MultiRemovalResults) to inform about the result. Once
 	/// the resultant `maybe_cursor` field is `None`, then no further items remain to be deleted.
 	///
 	/// NOTE: After the initial call for any given prefix, it is important that no keys further
@@ -623,7 +623,7 @@ pub trait Trie {
 	fn blake2_256_root(
 		input: PassFatPointerAndDecode<Vec<(Vec<u8>, Vec<u8>)>>,
 	) -> AllocateAndReturnPointer<H256, 32> {
-		LayoutV0::<rp_core::Blake2Hasher>::trie_root(input)
+		LayoutV0::<sp_core::Blake2Hasher>::trie_root(input)
 	}
 
 	/// A trie root formed from the iterated items.
@@ -633,8 +633,8 @@ pub trait Trie {
 		version: PassAs<StateVersion, u8>,
 	) -> AllocateAndReturnPointer<H256, 32> {
 		match version {
-			StateVersion::V0 => LayoutV0::<rp_core::Blake2Hasher>::trie_root(input),
-			StateVersion::V1 => LayoutV1::<rp_core::Blake2Hasher>::trie_root(input),
+			StateVersion::V0 => LayoutV0::<sp_core::Blake2Hasher>::trie_root(input),
+			StateVersion::V1 => LayoutV1::<sp_core::Blake2Hasher>::trie_root(input),
 		}
 	}
 
@@ -642,7 +642,7 @@ pub trait Trie {
 	fn blake2_256_ordered_root(
 		input: PassFatPointerAndDecode<Vec<Vec<u8>>>,
 	) -> AllocateAndReturnPointer<H256, 32> {
-		LayoutV0::<rp_core::Blake2Hasher>::ordered_trie_root(input)
+		LayoutV0::<sp_core::Blake2Hasher>::ordered_trie_root(input)
 	}
 
 	/// A trie root formed from the enumerated items.
@@ -652,8 +652,8 @@ pub trait Trie {
 		version: PassAs<StateVersion, u8>,
 	) -> AllocateAndReturnPointer<H256, 32> {
 		match version {
-			StateVersion::V0 => LayoutV0::<rp_core::Blake2Hasher>::ordered_trie_root(input),
-			StateVersion::V1 => LayoutV1::<rp_core::Blake2Hasher>::ordered_trie_root(input),
+			StateVersion::V0 => LayoutV0::<sp_core::Blake2Hasher>::ordered_trie_root(input),
+			StateVersion::V1 => LayoutV1::<sp_core::Blake2Hasher>::ordered_trie_root(input),
 		}
 	}
 
@@ -661,7 +661,7 @@ pub trait Trie {
 	fn keccak_256_root(
 		input: PassFatPointerAndDecode<Vec<(Vec<u8>, Vec<u8>)>>,
 	) -> AllocateAndReturnPointer<H256, 32> {
-		LayoutV0::<rp_core::KeccakHasher>::trie_root(input)
+		LayoutV0::<sp_core::KeccakHasher>::trie_root(input)
 	}
 
 	/// A trie root formed from the iterated items.
@@ -671,8 +671,8 @@ pub trait Trie {
 		version: PassAs<StateVersion, u8>,
 	) -> AllocateAndReturnPointer<H256, 32> {
 		match version {
-			StateVersion::V0 => LayoutV0::<rp_core::KeccakHasher>::trie_root(input),
-			StateVersion::V1 => LayoutV1::<rp_core::KeccakHasher>::trie_root(input),
+			StateVersion::V0 => LayoutV0::<sp_core::KeccakHasher>::trie_root(input),
+			StateVersion::V1 => LayoutV1::<sp_core::KeccakHasher>::trie_root(input),
 		}
 	}
 
@@ -680,7 +680,7 @@ pub trait Trie {
 	fn keccak_256_ordered_root(
 		input: PassFatPointerAndDecode<Vec<Vec<u8>>>,
 	) -> AllocateAndReturnPointer<H256, 32> {
-		LayoutV0::<rp_core::KeccakHasher>::ordered_trie_root(input)
+		LayoutV0::<sp_core::KeccakHasher>::ordered_trie_root(input)
 	}
 
 	/// A trie root formed from the enumerated items.
@@ -690,8 +690,8 @@ pub trait Trie {
 		version: PassAs<StateVersion, u8>,
 	) -> AllocateAndReturnPointer<H256, 32> {
 		match version {
-			StateVersion::V0 => LayoutV0::<rp_core::KeccakHasher>::ordered_trie_root(input),
-			StateVersion::V1 => LayoutV1::<rp_core::KeccakHasher>::ordered_trie_root(input),
+			StateVersion::V0 => LayoutV0::<sp_core::KeccakHasher>::ordered_trie_root(input),
+			StateVersion::V1 => LayoutV1::<sp_core::KeccakHasher>::ordered_trie_root(input),
 		}
 	}
 
@@ -702,7 +702,7 @@ pub trait Trie {
 		key: PassFatPointerAndRead<&[u8]>,
 		value: PassFatPointerAndRead<&[u8]>,
 	) -> bool {
-		rp_trie::verify_trie_proof::<LayoutV0<rp_core::Blake2Hasher>, _, _, _>(
+		sp_trie::verify_trie_proof::<LayoutV0<sp_core::Blake2Hasher>, _, _, _>(
 			&root,
 			proof,
 			&[(key, Some(value))],
@@ -720,15 +720,15 @@ pub trait Trie {
 		version: PassAs<StateVersion, u8>,
 	) -> bool {
 		match version {
-			StateVersion::V0 => rp_trie::verify_trie_proof::<
-				LayoutV0<rp_core::Blake2Hasher>,
+			StateVersion::V0 => sp_trie::verify_trie_proof::<
+				LayoutV0<sp_core::Blake2Hasher>,
 				_,
 				_,
 				_,
 			>(&root, proof, &[(key, Some(value))])
 			.is_ok(),
-			StateVersion::V1 => rp_trie::verify_trie_proof::<
-				LayoutV1<rp_core::Blake2Hasher>,
+			StateVersion::V1 => sp_trie::verify_trie_proof::<
+				LayoutV1<sp_core::Blake2Hasher>,
 				_,
 				_,
 				_,
@@ -744,7 +744,7 @@ pub trait Trie {
 		key: PassFatPointerAndRead<&[u8]>,
 		value: PassFatPointerAndRead<&[u8]>,
 	) -> bool {
-		rp_trie::verify_trie_proof::<LayoutV0<rp_core::KeccakHasher>, _, _, _>(
+		sp_trie::verify_trie_proof::<LayoutV0<sp_core::KeccakHasher>, _, _, _>(
 			&root,
 			proof,
 			&[(key, Some(value))],
@@ -762,15 +762,15 @@ pub trait Trie {
 		version: PassAs<StateVersion, u8>,
 	) -> bool {
 		match version {
-			StateVersion::V0 => rp_trie::verify_trie_proof::<
-				LayoutV0<rp_core::KeccakHasher>,
+			StateVersion::V0 => sp_trie::verify_trie_proof::<
+				LayoutV0<sp_core::KeccakHasher>,
 				_,
 				_,
 				_,
 			>(&root, proof, &[(key, Some(value))])
 			.is_ok(),
-			StateVersion::V1 => rp_trie::verify_trie_proof::<
-				LayoutV1<rp_core::KeccakHasher>,
+			StateVersion::V1 => sp_trie::verify_trie_proof::<
+				LayoutV1<sp_core::KeccakHasher>,
 				_,
 				_,
 				_,
@@ -823,9 +823,9 @@ pub trait Misc {
 		&mut self,
 		wasm: PassFatPointerAndRead<&[u8]>,
 	) -> AllocateAndReturnByCodec<Option<Vec<u8>>> {
-		use rp_core::traits::ReadRuntimeVersionExt;
+		use sp_core::traits::ReadRuntimeVersionExt;
 
-		let mut ext = rp_state_machine::BasicExternalities::default();
+		let mut ext = sp_state_machine::BasicExternalities::default();
 
 		match self
 			.extension::<ReadRuntimeVersionExt>()
@@ -846,7 +846,7 @@ pub trait Misc {
 }
 
 #[cfg(not(substrate_runtime))]
-rp_externalities::decl_extension! {
+sp_externalities::decl_extension! {
 	/// Extension to signal to [`crypt::ed25519_verify`] to use the dalek crate.
 	///
 	/// The switch from `ed25519-dalek` to `ed25519-zebra` was a breaking change.
@@ -932,7 +932,7 @@ pub trait Crypto {
 		// We don't want to force everyone needing to call the function in an externalities context.
 		// So, we assume that we should not use dalek when we are not in externalities context.
 		// Otherwise, we check if the extension is present.
-		if rp_externalities::with_externalities(|mut e| e.extension::<UseDalekExt>().is_some())
+		if sp_externalities::with_externalities(|mut e| e.extension::<UseDalekExt>().is_some())
 			.unwrap_or_default()
 		{
 			use ed25519_dalek::Verifier;
@@ -1437,42 +1437,42 @@ pub trait Crypto {
 pub trait Hashing {
 	/// Conduct a 256-bit Keccak hash.
 	fn keccak_256(data: PassFatPointerAndRead<&[u8]>) -> AllocateAndReturnPointer<[u8; 32], 32> {
-		rp_crypto_hashing::keccak_256(data)
+		sp_crypto_hashing::keccak_256(data)
 	}
 
 	/// Conduct a 512-bit Keccak hash.
 	fn keccak_512(data: PassFatPointerAndRead<&[u8]>) -> AllocateAndReturnPointer<[u8; 64], 64> {
-		rp_crypto_hashing::keccak_512(data)
+		sp_crypto_hashing::keccak_512(data)
 	}
 
 	/// Conduct a 256-bit Sha2 hash.
 	fn sha2_256(data: PassFatPointerAndRead<&[u8]>) -> AllocateAndReturnPointer<[u8; 32], 32> {
-		rp_crypto_hashing::sha2_256(data)
+		sp_crypto_hashing::sha2_256(data)
 	}
 
 	/// Conduct a 128-bit Blake2 hash.
 	fn blake2_128(data: PassFatPointerAndRead<&[u8]>) -> AllocateAndReturnPointer<[u8; 16], 16> {
-		rp_crypto_hashing::blake2_128(data)
+		sp_crypto_hashing::blake2_128(data)
 	}
 
 	/// Conduct a 256-bit Blake2 hash.
 	fn blake2_256(data: PassFatPointerAndRead<&[u8]>) -> AllocateAndReturnPointer<[u8; 32], 32> {
-		rp_crypto_hashing::blake2_256(data)
+		sp_crypto_hashing::blake2_256(data)
 	}
 
 	/// Conduct four XX hashes to give a 256-bit result.
 	fn twox_256(data: PassFatPointerAndRead<&[u8]>) -> AllocateAndReturnPointer<[u8; 32], 32> {
-		rp_crypto_hashing::twox_256(data)
+		sp_crypto_hashing::twox_256(data)
 	}
 
 	/// Conduct two XX hashes to give a 128-bit result.
 	fn twox_128(data: PassFatPointerAndRead<&[u8]>) -> AllocateAndReturnPointer<[u8; 16], 16> {
-		rp_crypto_hashing::twox_128(data)
+		sp_crypto_hashing::twox_128(data)
 	}
 
 	/// Conduct two XX hashes to give a 64-bit result.
 	fn twox_64(data: PassFatPointerAndRead<&[u8]>) -> AllocateAndReturnPointer<[u8; 8], 8> {
-		rp_crypto_hashing::twox_64(data)
+		sp_crypto_hashing::twox_64(data)
 	}
 }
 
@@ -1511,7 +1511,7 @@ pub trait OffchainIndex {
 }
 
 #[cfg(not(substrate_runtime))]
-rp_externalities::decl_extension! {
+sp_externalities::decl_extension! {
 	/// Deprecated verification context.
 	///
 	/// Stores the combined result of all verifications that are done in the same context.
@@ -1825,7 +1825,7 @@ pub trait WasmTracing {
 	/// checked more than once per metadata. This exists for optimisation purposes but is still not
 	/// cheap as it will jump the wasm-native-barrier every time it is called. So an implementation
 	/// might chose to cache the result for the execution of the entire block.
-	fn enabled(&mut self, metadata: PassFatPointerAndDecode<rp_tracing::WasmMetadata>) -> bool {
+	fn enabled(&mut self, metadata: PassFatPointerAndDecode<sp_tracing::WasmMetadata>) -> bool {
 		let metadata: &tracing_core::metadata::Metadata<'static> = (&metadata).into();
 		tracing::dispatcher::get_default(|d| d.enabled(metadata))
 	}
@@ -1838,7 +1838,7 @@ pub trait WasmTracing {
 	/// side.
 	fn enter_span(
 		&mut self,
-		span: PassFatPointerAndDecode<rp_tracing::WasmEntryAttributes>,
+		span: PassFatPointerAndDecode<sp_tracing::WasmEntryAttributes>,
 	) -> u64 {
 		let span: tracing::Span = span.into();
 		match span.id() {
@@ -1854,7 +1854,7 @@ pub trait WasmTracing {
 	}
 
 	/// Emit the given event to the global tracer on the native side
-	fn event(&mut self, event: PassFatPointerAndDecode<rp_tracing::WasmEntryAttributes>) {
+	fn event(&mut self, event: PassFatPointerAndDecode<sp_tracing::WasmEntryAttributes>) {
 		event.emit();
 	}
 
@@ -1912,7 +1912,7 @@ mod tracing_setup {
 		}
 	}
 
-	/// Initialize tracing of rp_tracing on wasm with `with-tracing` enabled.
+	/// Initialize tracing of sp_tracing on wasm with `with-tracing` enabled.
 	/// Can be called multiple times from within the same process and will only
 	/// set the global bridging subscriber once.
 	pub fn init_tracing() {
@@ -1926,7 +1926,7 @@ mod tracing_setup {
 
 #[cfg(not(all(substrate_runtime, feature = "with-tracing")))]
 mod tracing_setup {
-	/// Initialize tracing of rp_tracing not necessary – noop. To enable build
+	/// Initialize tracing of sp_tracing not necessary – noop. To enable build
 	/// when not both `substrate_runtime` and `with-tracing`-feature.
 	pub fn init_tracing() {}
 }
@@ -1989,7 +1989,7 @@ pub fn oom(_: core::alloc::Layout) -> ! {
 
 /// Type alias for Externalities implementation used in tests.
 #[cfg(feature = "std")] // NOTE: Deliberately isn't `not(substrate_runtime)`.
-pub type TestExternalities = rp_state_machine::TestExternalities<rp_core::Blake2Hasher>;
+pub type TestExternalities = sp_state_machine::TestExternalities<sp_core::Blake2Hasher>;
 
 /// The host functions Substrate provides for the Wasm runtime environment.
 ///
@@ -2015,8 +2015,8 @@ pub type SubstrateHostFunctions = (
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_core::{crypto::UncheckedInto, map, storage::Storage};
-	use rp_state_machine::BasicExternalities;
+	use sp_core::{crypto::UncheckedInto, map, storage::Storage};
+	use sp_state_machine::BasicExternalities;
 
 	#[test]
 	fn storage_works() {

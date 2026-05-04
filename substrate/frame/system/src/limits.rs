@@ -30,7 +30,7 @@ use frame_support::{
 	weights::{constants, Weight},
 };
 use scale_info::TypeInfo;
-use rp_runtime::{traits::Bounded, Perbill};
+use sp_runtime::{traits::Bounded, Perbill};
 
 /// Block length limit configuration.
 #[derive(Debug, Clone, codec::Encode, codec::Decode, TypeInfo)]

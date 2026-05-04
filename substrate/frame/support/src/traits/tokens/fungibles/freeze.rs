@@ -21,11 +21,11 @@
 
 use crate::{ensure, traits::tokens::Fortitude};
 use scale_info::TypeInfo;
-use rp_arithmetic::{
+use sp_arithmetic::{
 	traits::{CheckedAdd, CheckedSub},
 	ArithmeticError,
 };
-use rp_runtime::{DispatchResult, TokenError};
+use sp_runtime::{DispatchResult, TokenError};
 
 /// Trait for inspecting a fungible asset which can be frozen. Freezing is essentially setting a
 /// minimum balance below which the total balance (inclusive of any funds placed on hold) may not

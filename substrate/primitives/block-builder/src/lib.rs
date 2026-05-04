@@ -27,10 +27,10 @@ mod client_side;
 #[cfg(feature = "std")]
 pub use client_side::*;
 
-use rp_inherents::{CheckInherentsResult, InherentData};
-use rp_runtime::{traits::Block as BlockT, ApplyExtrinsicResult};
+use sp_inherents::{CheckInherentsResult, InherentData};
+use sp_runtime::{traits::Block as BlockT, ApplyExtrinsicResult};
 
-rp_api::decl_runtime_apis! {
+sp_api::decl_runtime_apis! {
 	/// The `BlockBuilder` api trait that provides the required functionality for building a block.
 	#[api_version(6)]
 	pub trait BlockBuilder {
@@ -43,7 +43,7 @@ rp_api::decl_runtime_apis! {
 		#[changed_in(6)]
 		fn apply_extrinsic(
 			extrinsic: <Block as BlockT>::Extrinsic,
-		) -> rp_runtime::legacy::byte_sized_error::ApplyExtrinsicResult;
+		) -> sp_runtime::legacy::byte_sized_error::ApplyExtrinsicResult;
 
 		/// Finish the current block.
 		#[renamed("finalise_block", 3)]

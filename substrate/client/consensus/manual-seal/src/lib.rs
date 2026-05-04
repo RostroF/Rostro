@@ -30,11 +30,11 @@ use rc_consensus::{
 	block_import::{BlockImport, BlockImportParams, ForkChoiceStrategy},
 	import_queue::{BasicQueue, BoxBlockImport, Verifier},
 };
-use rp_blockchain::HeaderBackend;
-use rp_consensus::{Environment, Proposer, SelectChain};
-use rp_core::traits::SpawnNamed;
-use rp_inherents::CreateInherentDataProviders;
-use rp_runtime::{traits::Block as BlockT, ConsensusEngineId};
+use sp_blockchain::HeaderBackend;
+use sp_consensus::{Environment, Proposer, SelectChain};
+use sp_core::traits::SpawnNamed;
+use sp_inherents::CreateInherentDataProviders;
+use sp_runtime::{traits::Block as BlockT, ConsensusEngineId};
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
 mod error;
@@ -52,7 +52,7 @@ pub use self::{
 	seal_block::{seal_block, SealBlockParams, MAX_PROPOSAL_DURATION},
 };
 use rc_transaction_pool_api::TransactionPool;
-use rp_api::ProvideRuntimeApi;
+use sp_api::ProvideRuntimeApi;
 
 const LOG_TARGET: &str = "manual-seal";
 
@@ -77,7 +77,7 @@ impl<B: BlockT> Verifier<B> for ManualSealVerifier {
 /// Instantiate the import queue for the manual seal consensus engine.
 pub fn import_queue<Block>(
 	block_import: BoxBlockImport<Block>,
-	spawner: &impl rp_core::traits::SpawnEssentialNamed,
+	spawner: &impl sp_core::traits::SpawnEssentialNamed,
 	registry: Option<&Registry>,
 ) -> BasicQueue<Block>
 where
@@ -164,7 +164,7 @@ pub async fn run_manual_seal<B, BI, CB, E, C, TP, SC, CS, CIDP>(
 	}: ManualSealParams<B, BI, E, C, TP, SC, CS, CIDP>,
 ) where
 	B: BlockT + 'static,
-	BI: BlockImport<B, Error = rp_consensus::Error> + Send + Sync + 'static,
+	BI: BlockImport<B, Error = sp_consensus::Error> + Send + Sync + 'static,
 	C: HeaderBackend<B> + Finalizer<B, CB> + ProvideRuntimeApi<B> + 'static,
 	CB: ClientBackend<B> + 'static,
 	E: Environment<B> + 'static,
@@ -222,7 +222,7 @@ pub async fn run_instant_seal<B, BI, CB, E, C, TP, SC, CIDP>(
 	}: InstantSealParams<B, BI, E, C, TP, SC, CIDP>,
 ) where
 	B: BlockT + 'static,
-	BI: BlockImport<B, Error = rp_consensus::Error> + Send + Sync + 'static,
+	BI: BlockImport<B, Error = sp_consensus::Error> + Send + Sync + 'static,
 	C: HeaderBackend<B> + Finalizer<B, CB> + ProvideRuntimeApi<B> + 'static,
 	CB: ClientBackend<B> + 'static,
 	E: Environment<B> + 'static,
@@ -271,7 +271,7 @@ pub async fn run_instant_seal_and_finalize<B, BI, CB, E, C, TP, SC, CIDP>(
 	}: InstantSealParams<B, BI, E, C, TP, SC, CIDP>,
 ) where
 	B: BlockT + 'static,
-	BI: BlockImport<B, Error = rp_consensus::Error> + Send + Sync + 'static,
+	BI: BlockImport<B, Error = sp_consensus::Error> + Send + Sync + 'static,
 	C: HeaderBackend<B> + Finalizer<B, CB> + ProvideRuntimeApi<B> + 'static,
 	CB: ClientBackend<B> + 'static,
 	E: Environment<B> + 'static,
@@ -348,9 +348,9 @@ mod tests {
 	use rc_consensus::ImportedAux;
 	use rc_transaction_pool::{BasicPool, FullChainApi, Options, RevalidationType};
 	use rc_transaction_pool_api::{MaintainedTransactionPool, TransactionPool, TransactionSource};
-	use rp_api::StorageProof;
-	use rp_inherents::InherentData;
-	use rp_runtime::generic::{Digest, DigestItem};
+	use sp_api::StorageProof;
+	use sp_inherents::InherentData;
+	use sp_runtime::generic::{Digest, DigestItem};
 	use substrate_test_runtime_client::{
 		DefaultTestClientBuilderExt, Sr25519Keyring::*, TestClientBuilder, TestClientBuilderExt,
 	};
@@ -395,7 +395,7 @@ mod tests {
 		let builder = TestClientBuilder::new();
 		let (client, select_chain) = builder.build_with_longest_chain();
 		let client = Arc::new(client);
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let genesis_hash = client.info().genesis_hash;
 		let pool_api = Arc::new(FullChainApi::new(client.clone(), None, &spawner.clone()));
 		let pool = Arc::new(BasicPool::with_revalidation_type(
@@ -472,7 +472,7 @@ mod tests {
 		let builder = TestClientBuilder::new();
 		let (client, select_chain) = builder.build_with_longest_chain();
 		let client = Arc::new(client);
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let genesis_hash = client.info().genesis_hash;
 		let pool_api = Arc::new(FullChainApi::new(client.clone(), None, &spawner.clone()));
 		let pool = Arc::new(BasicPool::with_revalidation_type(
@@ -562,7 +562,7 @@ mod tests {
 		let builder = TestClientBuilder::new();
 		let (client, select_chain) = builder.build_with_longest_chain();
 		let client = Arc::new(client);
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let genesis_hash = client.info().genesis_hash;
 		let pool_api = Arc::new(FullChainApi::new(client.clone(), None, &spawner.clone()));
 		let pool = Arc::new(BasicPool::with_revalidation_type(
@@ -645,9 +645,9 @@ mod tests {
 		let pool_api = Arc::new(FullChainApi::new(
 			client.clone(),
 			None,
-			&rp_core::testing::TaskExecutor::new(),
+			&sp_core::testing::TaskExecutor::new(),
 		));
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let genesis_hash = client.info().genesis_hash;
 		let pool = Arc::new(BasicPool::with_revalidation_type(
 			Options::default(),
@@ -752,7 +752,7 @@ mod tests {
 		let builder = TestClientBuilder::new();
 		let (client, select_chain) = builder.build_with_longest_chain();
 		let client = Arc::new(client);
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let genesis_hash = client.header(client.info().genesis_hash).unwrap().unwrap().hash();
 		let pool = Arc::new(BasicPool::with_revalidation_type(
 			Options::default(),

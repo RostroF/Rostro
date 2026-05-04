@@ -33,8 +33,8 @@ use rc_network_statement::{
 use rc_network_sync::{SyncEvent, SyncEventStream};
 use rc_network_types::PeerId;
 use rc_statement_store::Store;
-use rp_core::Pair;
-use rp_statement_store::{Statement, StatementSource, StatementStore};
+use sp_core::Pair;
+use sp_statement_store::{Statement, StatementSource, StatementStore};
 use std::{
 	collections::HashMap,
 	num::{NonZeroU32, NonZeroUsize},
@@ -116,7 +116,7 @@ impl SyncEventStream for TestSync {
 	}
 }
 
-impl rp_consensus::SyncOracle for TestSync {
+impl sp_consensus::SyncOracle for TestSync {
 	fn is_major_syncing(&self) -> bool {
 		unimplemented!()
 	}
@@ -176,7 +176,7 @@ impl NotificationService for TestNotificationService {
 	}
 }
 
-fn create_signed_statement(id: usize, keypair: &rp_core::ed25519::Pair) -> Statement {
+fn create_signed_statement(id: usize, keypair: &sp_core::ed25519::Pair) -> Statement {
 	let mut statement = Statement::new();
 	let mut data = vec![0u8; STATEMENT_DATA_SIZE];
 	data[0..8].copy_from_slice(&id.to_le_bytes());
@@ -212,14 +212,14 @@ fn build_handler(
 		client,
 		keystore,
 		None,
-		Box::new(rp_core::testing::TaskExecutor::new()),
+		Box::new(sp_core::testing::TaskExecutor::new()),
 	)
 	.unwrap();
 	let statement_store = Arc::new(statement_store);
 
 	let (queue_sender, queue_receiver) = async_channel::bounded::<(
 		Statement,
-		futures::channel::oneshot::Sender<rp_statement_store::SubmitResult>,
+		futures::channel::oneshot::Sender<sp_statement_store::SubmitResult>,
 	)>(MAX_PENDING_STATEMENTS);
 
 	let network = TestNetwork::new();
@@ -307,7 +307,7 @@ fn bench_on_statements(c: &mut Criterion) {
 	let max_runtime_instances = 8;
 	let executor_types = [("blocking", true), ("non_blocking", false)];
 
-	let keypair = rp_core::ed25519::Pair::from_string("//Bench", None).unwrap();
+	let keypair = sp_core::ed25519::Pair::from_string("//Bench", None).unwrap();
 	let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 	let handle = runtime.handle();
 

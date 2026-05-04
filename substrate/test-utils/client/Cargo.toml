@@ -27,10 +27,10 @@ rc-executor = { default-features = true, workspace = true }
 rc-service = { default-features = false, workspace = true }
 serde = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-keyring = { default-features = true, workspace = true }
-rp-keystore = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-keyring = { default-features = true, workspace = true }
+sp-keystore = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
 tokio = { features = ["sync"], workspace = true, default-features = true }

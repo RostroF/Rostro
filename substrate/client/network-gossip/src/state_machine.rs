@@ -25,7 +25,7 @@ use schnellru::{ByLength, LruMap};
 use prometheus_endpoint::{register, Counter, PrometheusError, Registry, U64};
 use rc_network::{types::ProtocolName, NotificationService};
 use rc_network_common::role::ObservedRole;
-use rp_runtime::traits::{Block as BlockT, Hash, HashingFor};
+use sp_runtime::traits::{Block as BlockT, Hash, HashingFor};
 use std::{collections::HashMap, iter, sync::Arc, time, time::Instant};
 
 // FIXME: Add additional spam/DoS attack protection: https://github.com/paritytech/substrate/issues/1115
@@ -549,7 +549,7 @@ mod tests {
 		NetworkBlock, NetworkEventStream, NetworkPeers, ReputationChange,
 	};
 	use rc_network_types::multiaddr::Multiaddr;
-	use rp_runtime::{
+	use sp_runtime::{
 		testing::{Block as RawBlock, MockCallU64, TestXt, H256},
 		traits::NumberFor,
 	};

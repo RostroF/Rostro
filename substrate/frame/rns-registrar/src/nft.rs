@@ -40,13 +40,13 @@ use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{ensure, pallet_prelude::*, traits::Get, BoundedVec, Parameter};
 use frame_system::pallet_prelude::BlockNumberFor;
 use scale_info::TypeInfo;
-use rp_runtime::{
+use sp_runtime::{
     traits::{
         AtLeast32BitUnsigned, CheckedAdd, CheckedSub, MaybeSerializeDeserialize, Member, One,
     },
     ArithmeticError, DispatchError, DispatchResult,
 };
-use rp_std::vec::Vec;
+use sp_std::vec::Vec;
 
 /// Class info
 #[derive(Encode, Decode, Clone, Eq, PartialEq, MaxEncodedLen, Debug, TypeInfo)]

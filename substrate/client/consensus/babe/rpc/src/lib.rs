@@ -32,14 +32,14 @@ use serde::{Deserialize, Serialize};
 use rc_consensus_babe::{authorship, BabeWorkerHandle};
 use rc_consensus_epochs::Epoch as EpochT;
 use rc_rpc_api::{check_if_safe, UnsafeRpcError};
-use rp_api::ProvideRuntimeApi;
-use rp_application_crypto::AppCrypto;
-use rp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
-use rp_consensus::{Error as ConsensusError, SelectChain};
-use rp_consensus_babe::{digests::PreDigest, AuthorityId, BabeApi as BabeRuntimeApi};
-use rp_core::crypto::ByteArray;
-use rp_keystore::KeystorePtr;
-use rp_runtime::traits::{Block as BlockT, Header as _};
+use sp_api::ProvideRuntimeApi;
+use sp_application_crypto::AppCrypto;
+use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
+use sp_consensus::{Error as ConsensusError, SelectChain};
+use sp_consensus_babe::{digests::PreDigest, AuthorityId, BabeApi as BabeRuntimeApi};
+use sp_core::crypto::ByteArray;
+use sp_keystore::KeystorePtr;
+use sp_runtime::traits::{Block as BlockT, Header as _};
 
 const BABE_ERROR: i32 = 9000;
 
@@ -196,10 +196,10 @@ mod tests {
 	use rc_consensus_babe::ImportQueueParams;
 	use rc_rpc_api::DenyUnsafe;
 	use rc_transaction_pool_api::{OffchainTransactionPoolFactory, RejectAllTxPool};
-	use rp_consensus_babe::inherents::InherentDataProvider;
-	use rp_core::{crypto::key_types::BABE, testing::TaskExecutor};
-	use rp_keyring::Sr25519Keyring;
-	use rp_keystore::{testing::MemoryKeystore, Keystore};
+	use sp_consensus_babe::inherents::InherentDataProvider;
+	use sp_core::{crypto::key_types::BABE, testing::TaskExecutor};
+	use sp_keyring::Sr25519Keyring;
+	use sp_keystore::{testing::MemoryKeystore, Keystore};
 	use substrate_test_runtime_client::{
 		runtime::Block, Backend, DefaultTestClientBuilderExt, TestClient, TestClientBuilder,
 		TestClientBuilderExt,

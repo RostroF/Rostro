@@ -25,9 +25,9 @@ frame-benchmarking = { optional = true, workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 
-rp-core = { workspace = true }
-rp-runtime = { workspace = true }
-rp-std = { workspace = true }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
 
 # Plonky3 — FRI-based STARK verification. All no_std.
 p3-air = { workspace = true }
@@ -46,7 +46,7 @@ p3-util = { workspace = true }
 
 [dev-dependencies]
 frame-support = { features = ["experimental"], default-features = true, workspace = true }
-rp-io = { default-features = true, workspace = true }
+sp-io = { default-features = true, workspace = true }
 p3-dft = { workspace = true, default-features = true }
 p3-maybe-rayon = { workspace = true, default-features = true }
 
@@ -59,9 +59,9 @@ std = [
 	"frame-system/std",
 	"log/std",
 	"scale-info/std",
-	"rp-core/std",
-	"rp-runtime/std",
-	"rp-std/std",
+	"sp-core/std",
+	"sp-runtime/std",
+	"sp-std/std",
 	# Plonky3 crates are no_std-only (no std feature toggle).
 	# They work transparently in both contexts.
 ]
@@ -69,10 +69,10 @@ runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"rp-runtime/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

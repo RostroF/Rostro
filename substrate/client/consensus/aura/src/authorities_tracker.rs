@@ -23,11 +23,11 @@ use std::{fmt::Debug, sync::Arc};
 use codec::Codec;
 use fork_tree::ForkTree;
 use parking_lot::RwLock;
-use rp_api::ProvideRuntimeApi;
-use rp_blockchain::{HeaderBackend, HeaderMetadata};
-use rp_consensus_aura::{AuraApi, ConsensusLog, AURA_ENGINE_ID};
-use rp_core::Pair;
-use rp_runtime::{
+use sp_api::ProvideRuntimeApi;
+use sp_blockchain::{HeaderBackend, HeaderMetadata};
+use sp_consensus_aura::{AuraApi, ConsensusLog, AURA_ENGINE_ID};
+use sp_core::Pair;
+use sp_runtime::{
 	generic::OpaqueDigestItemId,
 	traits::{Block, Header, NumberFor},
 };
@@ -54,7 +54,7 @@ impl<P, B, C> AuthoritiesTracker<P, B, C>
 where
 	P: Pair,
 	B: Block,
-	C: HeaderBackend<B> + HeaderMetadata<B, Error = rp_blockchain::Error> + ProvideRuntimeApi<B>,
+	C: HeaderBackend<B> + HeaderMetadata<B, Error = sp_blockchain::Error> + ProvideRuntimeApi<B>,
 	P::Public: Codec + Debug,
 	C::Api: AuraApi<B, AuthorityId<P>>,
 {

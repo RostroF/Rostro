@@ -42,19 +42,19 @@ rc-transaction-pool = { default-features = true, workspace = true }
 rc-utils = { default-features = true, workspace = true }
 serde = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-keyring = { default-features = true, workspace = true }
-rp-keystore = { default-features = true, workspace = true }
-rp-panic-handler = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
-rp-version = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-keyring = { default-features = true, workspace = true }
+sp-keystore = { default-features = true, workspace = true }
+sp-panic-handler = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+sp-version = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 tokio = { features = ["parking_lot", "rt-multi-thread", "signal"], workspace = true, default-features = true }
 
 [dev-dependencies]
 futures-timer = { workspace = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-tracing = { default-features = true, workspace = true }
 tempfile = { workspace = true }
 
 [features]

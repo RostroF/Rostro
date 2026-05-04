@@ -24,7 +24,7 @@ use rc_consensus::{
 	import_single_block, BasicQueue, BlockImportError, BlockImportStatus, ImportedAux,
 	IncomingBlock,
 };
-use rp_consensus::BlockOrigin;
+use sp_consensus::BlockOrigin;
 use substrate_test_runtime_client::{
 	self,
 	prelude::*,
@@ -117,7 +117,7 @@ fn import_single_good_block_without_header_fails() {
 
 #[test]
 fn async_import_queue_drops() {
-	let executor = rp_core::testing::TaskExecutor::new();
+	let executor = sp_core::testing::TaskExecutor::new();
 	// Perform this test multiple times since it exhibits non-deterministic behavior.
 	for _ in 0..100 {
 		let verifier = PassThroughVerifier::new(true);

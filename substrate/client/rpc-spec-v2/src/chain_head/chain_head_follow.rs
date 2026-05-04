@@ -37,11 +37,11 @@ use rc_client_api::{
 };
 use rc_rpc::utils::Subscription;
 use schnellru::{ByLength, LruMap};
-use rp_api::CallApiAt;
-use rp_blockchain::{
+use sp_api::CallApiAt;
+use sp_blockchain::{
 	Backend as BlockChainBackend, Error as BlockChainError, HeaderBackend, HeaderMetadata, Info,
 };
-use rp_runtime::{
+use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT, NumberFor},
 	SaturatedConversion, Saturating,
 };
@@ -249,7 +249,7 @@ where
 			return None;
 		}
 
-		let block_rt = match self.client.runtime_version_at(block, rp_api::CallContext::Offchain) {
+		let block_rt = match self.client.runtime_version_at(block, sp_api::CallContext::Offchain) {
 			Ok(rt) => rt,
 			Err(err) => return Some(err.into()),
 		};
@@ -262,7 +262,7 @@ where
 			},
 		};
 
-		let parent_rt = match self.client.runtime_version_at(parent, rp_api::CallContext::Offchain)
+		let parent_rt = match self.client.runtime_version_at(parent, sp_api::CallContext::Offchain)
 		{
 			Ok(rt) => rt,
 			Err(err) => return Some(err.into()),
@@ -325,7 +325,7 @@ where
 		}
 
 		for leaf in leaves {
-			let tree_route = rp_blockchain::tree_route(blockchain, finalized, leaf)?;
+			let tree_route = sp_blockchain::tree_route(blockchain, finalized, leaf)?;
 
 			let blocks = tree_route.enacted().iter().map(|block| block.hash);
 			if !tree_route.retracted().is_empty() {
@@ -583,7 +583,7 @@ where
 
 			if let Some(best_block_hash) = self.current_best_block {
 				let ancestor =
-					rp_blockchain::lowest_common_ancestor(&*self.client, *hash, best_block_hash)?;
+					sp_blockchain::lowest_common_ancestor(&*self.client, *hash, best_block_hash)?;
 
 				// If we end up here and the `best_block` is a descendent of the finalized block
 				// (last block in the list), it means that there were skipped notifications.
@@ -679,7 +679,7 @@ where
 				//
 				// However, we double check if the best block is a descendant of the last finalized
 				// block to ensure we don't miss any events.
-				let ancestor = rp_blockchain::lowest_common_ancestor(
+				let ancestor = sp_blockchain::lowest_common_ancestor(
 					&*self.client,
 					last_finalized,
 					current_best_block,

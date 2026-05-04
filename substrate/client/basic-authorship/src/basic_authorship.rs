@@ -32,12 +32,12 @@ use rc_block_builder::{BlockBuilderApi, BlockBuilderBuilder};
 use rc_proposer_metrics::{EndProposingReason, MetricsLink as PrometheusMetrics};
 use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_INFO};
 use rc_transaction_pool_api::{InPoolTransaction, TransactionPool, TxInvalidityReportMap};
-use rp_api::{ApiExt, CallApiAt, ProvideRuntimeApi};
-use rp_blockchain::{ApplyExtrinsicFailed::Validity, Error::ApplyExtrinsicFailed, HeaderBackend};
-use rp_consensus::{Proposal, ProposeArgs};
-use rp_core::traits::SpawnNamed;
-use rp_inherents::InherentData;
-use rp_runtime::{
+use sp_api::{ApiExt, CallApiAt, ProvideRuntimeApi};
+use sp_blockchain::{ApplyExtrinsicFailed::Validity, Error::ApplyExtrinsicFailed, HeaderBackend};
+use sp_consensus::{Proposal, ProposeArgs};
+use sp_core::traits::SpawnNamed;
+use sp_inherents::InherentData;
+use sp_runtime::{
 	traits::{BlakeTwo256, Block as BlockT, Hash as HashT, Header as HeaderT},
 	ExtrinsicInclusionMode, Percent, SaturatedConversion,
 };
@@ -67,7 +67,7 @@ pub struct ProposerFactory<A, C> {
 	metrics: PrometheusMetrics,
 	/// The default block size limit.
 	///
-	/// If no `block_size_limit` is passed to [`rp_consensus::Proposer::propose`], this block size
+	/// If no `block_size_limit` is passed to [`sp_consensus::Proposer::propose`], this block size
 	/// limit will be used.
 	default_block_size_limit: usize,
 	/// Soft deadline percentage of hard deadline.
@@ -132,7 +132,7 @@ impl<A, C> ProposerFactory<A, C> {
 	/// The default value for the block size limit is:
 	/// [`DEFAULT_BLOCK_SIZE_LIMIT`].
 	///
-	/// If there is no block size limit passed to [`rp_consensus::Proposer::propose`], this value
+	/// If there is no block size limit passed to [`sp_consensus::Proposer::propose`], this value
 	/// will be used.
 	pub fn set_default_block_size_limit(&mut self, limit: usize) {
 		self.default_block_size_limit = limit;
@@ -192,7 +192,7 @@ where
 	}
 }
 
-impl<A, Block, C> rp_consensus::Environment<Block> for ProposerFactory<A, C>
+impl<A, Block, C> sp_consensus::Environment<Block> for ProposerFactory<A, C>
 where
 	A: TransactionPool<Block = Block> + 'static,
 	Block: BlockT,
@@ -201,7 +201,7 @@ where
 {
 	type CreateProposer = future::Ready<Result<Self::Proposer, Self::Error>>;
 	type Proposer = Proposer<Block, C, A>;
-	type Error = rp_blockchain::Error;
+	type Error = sp_blockchain::Error;
 
 	fn init(&mut self, parent_header: &<Block as BlockT>::Header) -> Self::CreateProposer {
 		future::ready(Ok(self.init_with_now(parent_header, Box::new(time::Instant::now))))
@@ -222,7 +222,7 @@ pub struct Proposer<Block: BlockT, C, A: TransactionPool> {
 	telemetry: Option<TelemetryHandle>,
 }
 
-impl<A, Block, C> rp_consensus::Proposer<Block> for Proposer<Block, C, A>
+impl<A, Block, C> sp_consensus::Proposer<Block> for Proposer<Block, C, A>
 where
 	A: TransactionPool<Block = Block> + 'static,
 	Block: BlockT,
@@ -230,7 +230,7 @@ where
 	C::Api: ApiExt<Block> + BlockBuilderApi<Block>,
 {
 	type Proposal = Pin<Box<dyn Future<Output = Result<Proposal<Block>, Self::Error>> + Send>>;
-	type Error = rp_blockchain::Error;
+	type Error = sp_blockchain::Error;
 
 	fn propose(self, args: ProposeArgs<Block>) -> Self::Proposal {
 		Self::propose_block(self, args).boxed()
@@ -253,7 +253,7 @@ where
 	pub async fn propose_block(
 		self,
 		args: ProposeArgs<Block>,
-	) -> Result<Proposal<Block>, rp_blockchain::Error> {
+	) -> Result<Proposal<Block>, sp_blockchain::Error> {
 		let (tx, rx) = oneshot::channel();
 		let spawn_handle = self.spawn_handle.clone();
 
@@ -279,7 +279,7 @@ where
 	async fn propose_with(
 		self,
 		args: ProposeArgs<Block>,
-	) -> Result<Proposal<Block>, rp_blockchain::Error> {
+	) -> Result<Proposal<Block>, sp_blockchain::Error> {
 		let ProposeArgs {
 			inherent_data,
 			inherent_digests,
@@ -321,7 +321,7 @@ where
 		&self,
 		block_builder: &mut rc_block_builder::BlockBuilder<'_, Block, C>,
 		inherent_data: InherentData,
-	) -> Result<(), rp_blockchain::Error> {
+	) -> Result<(), sp_blockchain::Error> {
 		let create_inherents_start = time::Instant::now();
 
 		let inherent_identifiers = log_enabled!(target: LOG_TARGET, Level::Debug).then(|| {
@@ -376,7 +376,7 @@ where
 		block_builder: &mut rc_block_builder::BlockBuilder<'_, Block, C>,
 		deadline: time::Instant,
 		block_size_limit: Option<usize>,
-	) -> Result<EndProposingReason, rp_blockchain::Error> {
+	) -> Result<EndProposingReason, sp_blockchain::Error> {
 		// proceed with transactions
 		// We calculate soft deadline used only in case we start skipping transactions.
 		let now = (self.now)();
@@ -585,10 +585,10 @@ mod tests {
 	use rc_client_api::{Backend, TrieCacheContext};
 	use rc_transaction_pool::BasicPool;
 	use rc_transaction_pool_api::{ChainEvent, MaintainedTransactionPool, TransactionSource};
-	use rp_api::Core;
-	use rp_blockchain::HeaderBackend;
-	use rp_consensus::{BlockOrigin, Environment};
-	use rp_runtime::{generic::BlockId, traits::NumberFor, Perbill};
+	use sp_api::Core;
+	use sp_blockchain::HeaderBackend;
+	use sp_consensus::{BlockOrigin, Environment};
+	use sp_runtime::{generic::BlockId, traits::NumberFor, Perbill};
 	use substrate_test_runtime_client::{
 		prelude::*,
 		runtime::{Block as TestBlock, Extrinsic, ExtrinsicBuilder, Transfer},
@@ -624,7 +624,7 @@ mod tests {
 	fn should_cease_building_block_when_deadline_is_reached() {
 		// given
 		let client = Arc::new(substrate_test_runtime_client::new());
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let txpool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -678,7 +678,7 @@ mod tests {
 	#[test]
 	fn should_not_panic_when_deadline_is_reached() {
 		let client = Arc::new(substrate_test_runtime_client::new());
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let txpool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -717,7 +717,7 @@ mod tests {
 	fn proposed_storage_changes_should_match_execute_block_storage_changes() {
 		let (client, backend) = TestClientBuilder::new().build_with_backend();
 		let client = Arc::new(client);
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let txpool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -774,7 +774,7 @@ mod tests {
 	fn should_not_remove_invalid_transactions_from_the_same_sender_after_one_was_invalid() {
 		// given
 		let client = Arc::new(substrate_test_runtime_client::new());
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let txpool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -884,7 +884,7 @@ mod tests {
 	#[test]
 	fn should_cease_building_block_when_block_limit_is_reached() {
 		let client = Arc::new(substrate_test_runtime_client::new());
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let txpool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -984,7 +984,7 @@ mod tests {
 	fn should_keep_adding_transactions_after_exhausts_resources_before_soft_deadline() {
 		// given
 		let client = Arc::new(substrate_test_runtime_client::new());
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let txpool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),
@@ -1054,7 +1054,7 @@ mod tests {
 	fn should_only_skip_up_to_some_limit_after_soft_deadline() {
 		// given
 		let client = Arc::new(substrate_test_runtime_client::new());
-		let spawner = rp_core::testing::TaskExecutor::new();
+		let spawner = sp_core::testing::TaskExecutor::new();
 		let txpool = Arc::from(BasicPool::new_full(
 			Default::default(),
 			true.into(),

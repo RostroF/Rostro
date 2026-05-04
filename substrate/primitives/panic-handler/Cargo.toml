@@ -1,5 +1,5 @@
 [package]
-name = "rp-panic-handler"
+name = "sp-panic-handler"
 version = "13.0.2"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Custom panic hook with bug report link"
-documentation = "https://docs.rs/rp-panic-handler"
+documentation = "https://docs.rs/sp-panic-handler"
 readme = "README.md"
 
 [lints]

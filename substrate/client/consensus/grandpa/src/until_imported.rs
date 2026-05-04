@@ -38,8 +38,8 @@ use parking_lot::Mutex;
 use prometheus_endpoint::{register, Gauge, PrometheusError, Registry, U64};
 use rc_client_api::{BlockImportNotification, ImportNotifications};
 use rc_utils::mpsc::TracingUnboundedReceiver;
-use rp_consensus_grandpa::AuthorityId;
-use rp_runtime::traits::{Block as BlockT, Header as HeaderT, NumberFor};
+use sp_consensus_grandpa::AuthorityId;
+use sp_runtime::traits::{Block as BlockT, Header as HeaderT, NumberFor};
 
 use std::{
 	collections::{HashMap, VecDeque},
@@ -567,8 +567,8 @@ mod tests {
 	use futures_timer::Delay;
 	use rc_client_api::BlockImportNotification;
 	use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
-	use rp_consensus::BlockOrigin;
-	use rp_core::crypto::UncheckedFrom;
+	use sp_consensus::BlockOrigin;
+	use sp_core::crypto::UncheckedFrom;
 	use substrate_test_runtime_client::runtime::{Block, Hash, Header};
 
 	#[derive(Clone)]

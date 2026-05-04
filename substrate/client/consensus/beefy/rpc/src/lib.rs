@@ -21,15 +21,15 @@
 #![warn(missing_docs)]
 
 use parking_lot::RwLock;
-use rp_consensus_beefy::AuthorityIdBound;
+use sp_consensus_beefy::AuthorityIdBound;
 use std::sync::Arc;
 
 use rc_rpc::{
 	utils::{BoundedVecDeque, PendingSubscription},
 	SubscriptionTaskExecutor,
 };
-use rp_application_crypto::RuntimeAppPublic;
-use rp_runtime::traits::Block as BlockT;
+use sp_application_crypto::RuntimeAppPublic;
+use sp_runtime::traits::Block as BlockT;
 
 use futures::{task::SpawnError, FutureExt, StreamExt};
 use jsonrpsee::{
@@ -169,8 +169,8 @@ mod tests {
 		communication::notification::BeefyVersionedFinalityProofSender,
 		justification::BeefyVersionedFinalityProof,
 	};
-	use rp_consensus_beefy::{ecdsa_crypto, known_payloads, Payload, SignedCommitment};
-	use rp_runtime::traits::{BlakeTwo256, Hash};
+	use sp_consensus_beefy::{ecdsa_crypto, known_payloads, Payload, SignedCommitment};
+	use sp_runtime::traits::{BlakeTwo256, Hash};
 	use substrate_test_runtime_client::runtime::Block;
 
 	fn setup_io_handler() -> (
@@ -271,7 +271,7 @@ mod tests {
 		let payload =
 			Payload::from_single_entry(known_payloads::MMR_ROOT_ID, "Hello World!".encode());
 		BeefyVersionedFinalityProof::<Block, ecdsa_crypto::AuthorityId>::V1(SignedCommitment {
-			commitment: rp_consensus_beefy::Commitment {
+			commitment: sp_consensus_beefy::Commitment {
 				payload,
 				block_number: 5,
 				validator_set_id: 0,
@@ -296,7 +296,7 @@ mod tests {
 		r.unwrap();
 
 		// Inspect what we received
-		let (bytes, recv_sub_id) = sub.next::<rp_core::Bytes>().await.unwrap().unwrap();
+		let (bytes, recv_sub_id) = sub.next::<sp_core::Bytes>().await.unwrap().unwrap();
 		let recv_finality_proof: BeefyVersionedFinalityProof<Block, ecdsa_crypto::AuthorityId> =
 			Decode::decode(&mut &bytes[..]).unwrap();
 		assert_eq!(&recv_sub_id, sub.subscription_id());

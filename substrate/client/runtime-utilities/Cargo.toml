@@ -19,14 +19,14 @@ targets = ["x86_64-unknown-linux-gnu"]
 codec = { workspace = true, default-features = true }
 rc-executor = { default-features = true, workspace = true }
 rc-executor-common = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-crypto-hashing = { default-features = true, workspace = true }
-rp-state-machine = { default-features = true, workspace = true }
-rp-wasm-interface = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-crypto-hashing = { default-features = true, workspace = true }
+sp-state-machine = { default-features = true, workspace = true }
+sp-wasm-interface = { default-features = true, workspace = true }
 
 thiserror = { workspace = true }
 
 [dev-dependencies]
-rp-io = { default-features = true, workspace = true }
-rp-version = { default-features = true, workspace = true }
+sp-io = { default-features = true, workspace = true }
+sp-version = { default-features = true, workspace = true }
 subxt = { workspace = true, features = ["native"] }

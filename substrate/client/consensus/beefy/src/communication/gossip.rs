@@ -21,7 +21,7 @@ use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use rc_network::{NetworkPeers, ReputationChange};
 use rc_network_gossip::{MessageIntent, ValidationResult, Validator, ValidatorContext};
 use rc_network_types::PeerId;
-use rp_runtime::traits::{Block, Hash, Header, NumberFor};
+use sp_runtime::traits::{Block, Hash, Header, NumberFor};
 
 use codec::{Decode, DecodeAll, Encode};
 use log::{debug, trace};
@@ -36,8 +36,8 @@ use crate::{
 	keystore::BeefyKeystore,
 	LOG_TARGET,
 };
-use rp_application_crypto::RuntimeAppPublic;
-use rp_consensus_beefy::{AuthorityIdBound, ValidatorSet, ValidatorSetId, VoteMessage};
+use sp_application_crypto::RuntimeAppPublic;
+use sp_consensus_beefy::{AuthorityIdBound, ValidatorSet, ValidatorSetId, VoteMessage};
 
 // Timeout for rebroadcasting messages.
 #[cfg(not(test))]
@@ -495,12 +495,12 @@ pub(crate) mod tests {
 	use super::*;
 	use crate::{communication::peers::PeerReport, keystore::BeefyKeystore};
 	use rc_network_test::Block;
-	use rp_application_crypto::key_types::BEEFY as BEEFY_KEY_TYPE;
-	use rp_consensus_beefy::{
+	use sp_application_crypto::key_types::BEEFY as BEEFY_KEY_TYPE;
+	use sp_consensus_beefy::{
 		ecdsa_crypto, known_payloads, test_utils::Keyring, Commitment, MmrRootHash, Payload,
 		SignedCommitment, VoteMessage,
 	};
-	use rp_keystore::{testing::MemoryKeystore, Keystore};
+	use sp_keystore::{testing::MemoryKeystore, Keystore};
 
 	pub(crate) struct TestNetwork {
 		report_sender: futures::channel::mpsc::UnboundedSender<PeerReport>,
@@ -597,7 +597,7 @@ pub(crate) mod tests {
 	}
 
 	struct TestContext;
-	impl<B: rp_runtime::traits::Block> ValidatorContext<B> for TestContext {
+	impl<B: sp_runtime::traits::Block> ValidatorContext<B> for TestContext {
 		fn broadcast_topic(&mut self, _topic: B::Hash, _force: bool) {
 			unimplemented!()
 		}

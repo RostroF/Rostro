@@ -37,11 +37,11 @@ use futures_timer::Delay;
 use log::{debug, info, warn};
 use rc_consensus::{BlockImport, JustificationSyncLink};
 use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_INFO, CONSENSUS_WARN};
-use rp_arithmetic::traits::BaseArithmetic;
-use rp_consensus::{Proposal, ProposeArgs, Proposer, SelectChain, SyncOracle};
-use rp_consensus_slots::{Slot, SlotDuration};
-use rp_inherents::CreateInherentDataProviders;
-use rp_runtime::traits::{Block as BlockT, HashingFor, Header as HeaderT};
+use sp_arithmetic::traits::BaseArithmetic;
+use sp_consensus::{Proposal, ProposeArgs, Proposer, SelectChain, SyncOracle};
+use sp_consensus_slots::{Slot, SlotDuration};
+use sp_inherents::CreateInherentDataProviders;
+use sp_runtime::traits::{Block as BlockT, HashingFor, Header as HeaderT};
 use std::{
 	ops::Deref,
 	time::{Duration, Instant},
@@ -51,8 +51,8 @@ const LOG_TARGET: &str = "slots";
 
 /// The changes that need to applied to the storage to create the state for a block.
 ///
-/// See [`rp_state_machine::StorageChanges`] for more information.
-pub type StorageChanges<Block> = rp_state_machine::StorageChanges<HashingFor<Block>>;
+/// See [`sp_state_machine::StorageChanges`] for more information.
+pub type StorageChanges<Block> = sp_state_machine::StorageChanges<HashingFor<Block>>;
 
 /// A worker that should be invoked at every new slot.
 ///
@@ -84,7 +84,7 @@ pub trait SimpleSlotWorker<B: BlockT> {
 	type JustificationSyncLink: JustificationSyncLink<B>;
 
 	/// The type of future resolving to the proposer.
-	type CreateProposer: Future<Output = Result<Self::Proposer, rp_consensus::Error>>
+	type CreateProposer: Future<Output = Result<Self::Proposer, sp_consensus::Error>>
 		+ Send
 		+ Unpin
 		+ 'static;
@@ -109,7 +109,7 @@ pub trait SimpleSlotWorker<B: BlockT> {
 		&self,
 		header: &B::Header,
 		slot: Slot,
-	) -> Result<Self::AuxData, rp_consensus::Error>;
+	) -> Result<Self::AuxData, sp_consensus::Error>;
 
 	/// Returns the number of authorities.
 	/// None indicate that the authorities information is incomplete.
@@ -128,7 +128,7 @@ pub trait SimpleSlotWorker<B: BlockT> {
 	fn notify_slot(&self, _header: &B::Header, _slot: Slot, _aux_data: &Self::AuxData) {}
 
 	/// Return the pre digest data to include in a block authored with the given claim.
-	fn pre_digest_data(&self, slot: Slot, claim: &Self::Claim) -> Vec<rp_runtime::DigestItem>;
+	fn pre_digest_data(&self, slot: Slot, claim: &Self::Claim) -> Vec<sp_runtime::DigestItem>;
 
 	/// Returns a function which produces a `BlockImportParams`.
 	async fn block_import_params(
@@ -139,7 +139,7 @@ pub trait SimpleSlotWorker<B: BlockT> {
 		storage_changes: StorageChanges<B>,
 		public: Self::Claim,
 		aux_data: Self::AuxData,
-	) -> Result<rc_consensus::BlockImportParams<B>, rp_consensus::Error>;
+	) -> Result<rc_consensus::BlockImportParams<B>, sp_consensus::Error>;
 
 	/// Whether to force authoring if offline.
 	fn force_authoring(&self) -> bool;
@@ -193,7 +193,7 @@ pub trait SimpleSlotWorker<B: BlockT> {
 		// the result to be returned.
 		let propose_args = ProposeArgs {
 			inherent_data,
-			inherent_digests: rp_runtime::generic::Digest { logs },
+			inherent_digests: sp_runtime::generic::Digest { logs },
 			max_duration: proposing_remaining_duration.mul_f32(0.98),
 			block_size_limit: slot_info.block_size_limit,
 			storage_proof_recorder: slot_info.storage_proof_recorder,
@@ -202,7 +202,7 @@ pub trait SimpleSlotWorker<B: BlockT> {
 
 		let proposing = proposer
 			.propose(propose_args)
-			.map_err(|e| rp_consensus::Error::ClientImport(e.to_string()));
+			.map_err(|e| sp_consensus::Error::ClientImport(e.to_string()));
 
 		let proposal = match futures::future::select(
 			proposing,
@@ -246,7 +246,7 @@ pub trait SimpleSlotWorker<B: BlockT> {
 		slot_info: &SlotInfo<B>,
 		logging_target: &str,
 		end_proposing_at: Instant,
-	) -> Option<rp_inherents::InherentData> {
+	) -> Option<sp_inherents::InherentData> {
 		let remaining_duration = end_proposing_at.saturating_duration_since(Instant::now());
 		let delay = Delay::new(remaining_duration);
 		let cid = slot_info.create_inherent_data.create_inherent_data();
@@ -458,7 +458,7 @@ impl<T: SimpleSlotWorker<B> + Send + Sync, B: BlockT> SlotWorker<B>
 
 /// Slot specific extension that the inherent data provider needs to implement.
 pub trait InherentDataProviderExt {
-	/// The current slot that will be found in the [`InherentData`](`rp_inherents::InherentData`).
+	/// The current slot that will be found in the [`InherentData`](`sp_inherents::InherentData`).
 	fn slot(&self) -> Slot;
 }
 
@@ -579,7 +579,7 @@ pub fn proposing_remaining_duration<Block: BlockT>(
 	slot_lenience_type: SlotLenienceType,
 	log_target: &str,
 ) -> Duration {
-	use rp_runtime::traits::Zero;
+	use sp_runtime::traits::Zero;
 
 	let proposing_duration = slot_info.duration.mul_f32(block_proposal_slot_portion.get());
 
@@ -798,7 +798,7 @@ impl<N> BackoffAuthoringBlocksStrategy<N> for () {
 #[cfg(test)]
 mod test {
 	use super::*;
-	use rp_runtime::traits::NumberFor;
+	use sp_runtime::traits::NumberFor;
 	use std::time::{Duration, Instant};
 	use substrate_test_runtime_client::runtime::{Block, Header};
 

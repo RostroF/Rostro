@@ -26,15 +26,15 @@ use log::{debug, info};
 use crate::{Database, DatabaseSource, DbHash};
 use codec::Decode;
 use rc_client_api::blockchain::{BlockGap, BlockGapType};
-use rp_database::Transaction;
-use rp_runtime::{
+use sp_database::Transaction;
+use sp_runtime::{
 	generic::BlockId,
 	traits::{
 		Block as BlockT, Header as HeaderT, NumberFor, UniqueSaturatedFrom, UniqueSaturatedInto,
 		Zero,
 	},
 };
-use rp_trie::DBValue;
+use sp_trie::DBValue;
 
 /// Number of columns in the db. Must be the same for both full && light dbs.
 /// Otherwise RocksDb will fail to open database && check its type.
@@ -101,9 +101,9 @@ pub enum DatabaseType {
 ///
 /// In the current database schema, this kind of key is only used for
 /// lookups into an index, NOT for storing header data or others.
-pub fn number_index_key<N: TryInto<u32>>(n: N) -> rp_blockchain::Result<NumberIndexKey> {
+pub fn number_index_key<N: TryInto<u32>>(n: N) -> sp_blockchain::Result<NumberIndexKey> {
 	let n = n.try_into().map_err(|_| {
-		rp_blockchain::Error::Backend("Block number cannot be converted to u32".into())
+		sp_blockchain::Error::Backend("Block number cannot be converted to u32".into())
 	})?;
 
 	Ok([(n >> 24) as u8, ((n >> 16) & 0xff) as u8, ((n >> 8) & 0xff) as u8, (n & 0xff) as u8])
@@ -111,7 +111,7 @@ pub fn number_index_key<N: TryInto<u32>>(n: N) -> rp_blockchain::Result<NumberIn
 
 /// Convert number and hash into long lookup key for blocks that are
 /// not in the canonical chain.
-pub fn number_and_hash_to_lookup_key<N, H>(number: N, hash: H) -> rp_blockchain::Result<Vec<u8>>
+pub fn number_and_hash_to_lookup_key<N, H>(number: N, hash: H) -> sp_blockchain::Result<Vec<u8>>
 where
 	N: TryInto<u32>,
 	H: AsRef<[u8]>,
@@ -126,7 +126,7 @@ pub fn remove_number_to_key_mapping<N: TryInto<u32>>(
 	transaction: &mut Transaction<DbHash>,
 	key_lookup_col: u32,
 	number: N,
-) -> rp_blockchain::Result<()> {
+) -> sp_blockchain::Result<()> {
 	transaction.remove(key_lookup_col, number_index_key(number)?.as_ref());
 	Ok(())
 }
@@ -138,7 +138,7 @@ pub fn insert_number_to_key_mapping<N: TryInto<u32> + Clone, H: AsRef<[u8]>>(
 	key_lookup_col: u32,
 	number: N,
 	hash: H,
-) -> rp_blockchain::Result<()> {
+) -> sp_blockchain::Result<()> {
 	transaction.set_from_vec(
 		key_lookup_col,
 		number_index_key(number.clone())?.as_ref(),
@@ -153,7 +153,7 @@ pub fn insert_hash_to_key_mapping<N: TryInto<u32>, H: AsRef<[u8]> + Clone>(
 	key_lookup_col: u32,
 	number: N,
 	hash: H,
-) -> rp_blockchain::Result<()> {
+) -> sp_blockchain::Result<()> {
 	transaction.set_from_vec(
 		key_lookup_col,
 		hash.as_ref(),
@@ -169,10 +169,10 @@ pub fn block_id_to_lookup_key<Block>(
 	db: &dyn Database<DbHash>,
 	key_lookup_col: u32,
 	id: BlockId<Block>,
-) -> Result<Option<Vec<u8>>, rp_blockchain::Error>
+) -> Result<Option<Vec<u8>>, sp_blockchain::Error>
 where
 	Block: BlockT,
-	::rp_runtime::traits::NumberFor<Block>: UniqueSaturatedFrom<u64> + UniqueSaturatedInto<u64>,
+	::sp_runtime::traits::NumberFor<Block>: UniqueSaturatedFrom<u64> + UniqueSaturatedInto<u64>,
 {
 	Ok(match id {
 		BlockId::Number(n) => db.get(key_lookup_col, number_index_key(n)?.as_ref()),
@@ -234,7 +234,7 @@ pub enum OpenDbError {
 	NotEnabled(&'static str),
 	DoesNotExist,
 	Internal(String),
-	DatabaseError(rp_database::error::DatabaseError),
+	DatabaseError(sp_database::error::DatabaseError),
 	UnexpectedDbType {
 		expected: DatabaseType,
 		found: Vec<u8>,
@@ -266,9 +266,9 @@ impl fmt::Display for OpenDbError {
 	}
 }
 
-impl From<OpenDbError> for rp_blockchain::Error {
+impl From<OpenDbError> for sp_blockchain::Error {
 	fn from(err: OpenDbError) -> Self {
-		rp_blockchain::Error::Backend(err.to_string())
+		sp_blockchain::Error::Backend(err.to_string())
 	}
 }
 
@@ -351,7 +351,7 @@ fn open_kvdb_rocksdb<Block: BlockT>(
 	let db = kvdb_rocksdb::Database::open(&db_config, path)?;
 	// write database version only after the database is successfully opened
 	crate::upgrade::update_version(path)?;
-	Ok(rp_database::as_rocksdb_database(db))
+	Ok(sp_database::as_rocksdb_database(db))
 }
 
 #[cfg(not(any(feature = "rocksdb", test)))]
@@ -433,7 +433,7 @@ pub fn read_db<Block>(
 	col_index: u32,
 	col: u32,
 	id: BlockId<Block>,
-) -> rp_blockchain::Result<Option<DBValue>>
+) -> sp_blockchain::Result<Option<DBValue>>
 where
 	Block: BlockT,
 {
@@ -450,7 +450,7 @@ pub fn remove_from_db<Block>(
 	col_index: u32,
 	col: u32,
 	id: BlockId<Block>,
-) -> rp_blockchain::Result<()>
+) -> sp_blockchain::Result<()>
 where
 	Block: BlockT,
 {
@@ -467,11 +467,11 @@ pub fn read_header<Block: BlockT>(
 	col_index: u32,
 	col: u32,
 	id: BlockId<Block>,
-) -> rp_blockchain::Result<Option<Block::Header>> {
+) -> sp_blockchain::Result<Option<Block::Header>> {
 	match read_db(db, col_index, col, id)? {
 		Some(header) => match Block::Header::decode(&mut &header[..]) {
 			Ok(header) => Ok(Some(header)),
-			Err(_) => Err(rp_blockchain::Error::Backend("Error decoding header".into())),
+			Err(_) => Err(sp_blockchain::Error::Backend("Error decoding header".into())),
 		},
 		None => Ok(None),
 	}
@@ -481,7 +481,7 @@ pub fn read_header<Block: BlockT>(
 pub fn read_meta<Block>(
 	db: &dyn Database<DbHash>,
 	col_header: u32,
-) -> Result<Meta<<<Block as BlockT>::Header as HeaderT>::Number, Block::Hash>, rp_blockchain::Error>
+) -> Result<Meta<<<Block as BlockT>::Header as HeaderT>::Number, Block::Hash>, sp_blockchain::Error>
 where
 	Block: BlockT,
 {
@@ -500,7 +500,7 @@ where
 		},
 	};
 
-	let load_meta_block = |desc, key| -> Result<_, rp_blockchain::Error> {
+	let load_meta_block = |desc, key| -> Result<_, sp_blockchain::Error> {
 		if let Some(Some(header)) = db
 			.get(COLUMN_META, key)
 			.and_then(|id| db.get(col_header, &id).map(|b| Block::Header::decode(&mut &b[..]).ok()))
@@ -548,7 +548,7 @@ where
 				.get(COLUMN_META, meta_keys::BLOCK_GAP)
 				.and_then(|d| Decode::decode(&mut d.as_slice()).ok()),
 			v => {
-				return Err(rp_blockchain::Error::Backend(format!(
+				return Err(sp_blockchain::Error::Backend(format!(
 					"Unsupported block gap DB version: {v}"
 				)))
 			},
@@ -570,12 +570,12 @@ where
 /// Read genesis hash from database.
 pub fn read_genesis_hash<Hash: Decode>(
 	db: &dyn Database<DbHash>,
-) -> rp_blockchain::Result<Option<Hash>> {
+) -> sp_blockchain::Result<Option<Hash>> {
 	match db.get(COLUMN_META, meta_keys::GENESIS_HASH) {
 		Some(h) => match Decode::decode(&mut &h[..]) {
 			Ok(h) => Ok(Some(h)),
 			Err(err) => {
-				Err(rp_blockchain::Error::Backend(format!("Error decoding genesis hash: {}", err)))
+				Err(sp_blockchain::Error::Backend(format!("Error decoding genesis hash: {}", err)))
 			},
 		},
 		None => Ok(None),
@@ -619,7 +619,7 @@ impl<'a, 'b> codec::Input for JoinInput<'a, 'b> {
 mod tests {
 	use super::*;
 	use codec::Input;
-	use rp_runtime::testing::{Block as RawBlock, MockCallU64, TestXt};
+	use sp_runtime::testing::{Block as RawBlock, MockCallU64, TestXt};
 
 	pub type UncheckedXt = TestXt<MockCallU64, ()>;
 	type Block = RawBlock<UncheckedXt>;

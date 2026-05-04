@@ -25,8 +25,8 @@ use frame_support::{
 	weights::Weight,
 };
 use pallet_session::historical as pallet_session_historical;
-use rp_runtime::{testing::UintAuthorityId, traits::ConvertInto, BuildStorage, Permill};
-use rp_staking::{
+use sp_runtime::{testing::UintAuthorityId, traits::ConvertInto, BuildStorage, Permill};
+use sp_staking::{
 	offence::{OffenceError, ReportOffence},
 	SessionIndex,
 };
@@ -74,7 +74,7 @@ impl pallet_session::historical::SessionManager<u64, u64> for TestSessionManager
 }
 
 /// An extrinsic type used for tests.
-pub type Extrinsic = rp_runtime::testing::TestXt<RuntimeCall, ()>;
+pub type Extrinsic = sp_runtime::testing::TestXt<RuntimeCall, ()>;
 type IdentificationTuple = (u64, u64);
 type Offence = crate::UnresponsivenessOffence<IdentificationTuple>;
 
@@ -95,9 +95,9 @@ impl ReportOffence<u64, IdentificationTuple, Offence> for OffenceHandler {
 	}
 }
 
-pub fn new_test_ext() -> rp_io::TestExternalities {
+pub fn new_test_ext() -> sp_io::TestExternalities {
 	let t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
-	let mut result: rp_io::TestExternalities = t.into();
+	let mut result: sp_io::TestExternalities = t.into();
 	// Set the default keys, otherwise session will discard the validator.
 	result.execute_with(|| {
 		for i in 1..=6 {

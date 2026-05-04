@@ -20,13 +20,13 @@ docify = { workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-runtime = { workspace = true }
+sp-runtime = { workspace = true }
 
 [dev-dependencies]
 pallet-balances = { default-features = true, workspace = true }
 pallet-proxy = { default-features = true, workspace = true }
 pallet-utility = { default-features = true, workspace = true }
-rp-io = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
 
 [features]
 default = ["std"]
@@ -35,7 +35,7 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"scale-info/std",
-	"rp-runtime/std",
+	"sp-runtime/std",
 ]
 runtime-benchmarks = [
 	"frame-support/runtime-benchmarks",
@@ -43,7 +43,7 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 	"pallet-proxy/runtime-benchmarks",
 	"pallet-utility/runtime-benchmarks",
-	"rp-runtime/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
@@ -51,5 +51,5 @@ try-runtime = [
 	"pallet-balances/try-runtime",
 	"pallet-proxy/try-runtime",
 	"pallet-utility/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

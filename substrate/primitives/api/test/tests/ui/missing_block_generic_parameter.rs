@@ -19,13 +19,13 @@
 /// runtime.
 struct Runtime {}
 
-rp_api::decl_runtime_apis! {
+sp_api::decl_runtime_apis! {
 	pub trait Api {
 		fn test(data: u64);
 	}
 }
 
-rp_api::impl_runtime_apis! {
+sp_api::impl_runtime_apis! {
 	impl self::Api for Runtime {
 		fn test(data: u64) {
 			unimplemented!()

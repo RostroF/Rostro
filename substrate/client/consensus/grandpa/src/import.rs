@@ -29,11 +29,11 @@ use rc_consensus::{
 };
 use rc_telemetry::TelemetryHandle;
 use rc_utils::mpsc::TracingUnboundedSender;
-use rp_api::{Core, RuntimeApiInfo};
-use rp_blockchain::BlockStatus;
-use rp_consensus::{BlockOrigin, Error as ConsensusError, SelectChain};
-use rp_consensus_grandpa::{ConsensusLog, GrandpaApi, ScheduledChange, SetId, GRANDPA_ENGINE_ID};
-use rp_runtime::{
+use sp_api::{Core, RuntimeApiInfo};
+use sp_blockchain::BlockStatus;
+use sp_consensus::{BlockOrigin, Error as ConsensusError, SelectChain};
+use sp_consensus_grandpa::{ConsensusLog, GrandpaApi, ScheduledChange, SetId, GRANDPA_ENGINE_ID};
+use sp_runtime::{
 	generic::OpaqueDigestItemId,
 	traits::{Block as BlockT, Header as HeaderT, NumberFor, Zero},
 	Justification,
@@ -451,8 +451,8 @@ where
 			// This code may be removed once warp sync to an old runtime is no longer needed.
 			for prefix in ["GrandpaFinality", "Grandpa"] {
 				let k = [
-					rp_crypto_hashing::twox_128(prefix.as_bytes()),
-					rp_crypto_hashing::twox_128(b"CurrentSetId"),
+					sp_crypto_hashing::twox_128(prefix.as_bytes()),
+					sp_crypto_hashing::twox_128(b"CurrentSetId"),
 				]
 				.concat();
 				if let Ok(Some(id)) =
@@ -809,7 +809,7 @@ where
 		let justification = match justification {
 			Err(e) => {
 				return match e {
-					rp_blockchain::Error::OutdatedJustification => {
+					sp_blockchain::Error::OutdatedJustification => {
 						Err(ConsensusError::OutdatedJustification)
 					},
 					_ => Err(ConsensusError::ClientImport(e.to_string())),

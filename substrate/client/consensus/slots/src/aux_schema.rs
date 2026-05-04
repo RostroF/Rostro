@@ -20,9 +20,9 @@
 
 use codec::{Decode, Encode};
 use rc_client_api::backend::AuxStore;
-use rp_blockchain::{Error as ClientError, Result as ClientResult};
-use rp_consensus_slots::{EquivocationProof, Slot};
-use rp_runtime::traits::Header;
+use sp_blockchain::{Error as ClientError, Result as ClientResult};
+use sp_consensus_slots::{EquivocationProof, Slot};
+use sp_runtime::traits::Header;
 
 const SLOT_HEADER_MAP_KEY: &[u8] = b"slot_header_map";
 const SLOT_HEADER_START: &[u8] = b"slot_header_start";
@@ -134,8 +134,8 @@ where
 
 #[cfg(test)]
 mod test {
-	use rp_core::{hash::H256, sr25519, Pair};
-	use rp_runtime::testing::{Digest as DigestTest, Header as HeaderTest};
+	use sp_core::{hash::H256, sr25519, Pair};
+	use sp_runtime::testing::{Digest as DigestTest, Header as HeaderTest};
 	use substrate_test_runtime_client;
 
 	use super::{check_equivocation, MAX_SLOT_CAPACITY, PRUNING_BOUND};

@@ -26,15 +26,15 @@ use core::{
 };
 use hash_db::Hasher;
 use log::warn;
-use rp_core::{
+use sp_core::{
 	storage::{
 		well_known_keys::is_child_storage_key, ChildInfo, StateVersion, Storage, TrackedStorageKey,
 	},
 	traits::Externalities,
 	Blake2Hasher,
 };
-use rp_externalities::{Extension, Extensions, MultiRemovalResults};
-use rp_trie::{empty_child_trie_root, LayoutV0, LayoutV1, TrieConfiguration};
+use sp_externalities::{Extension, Extensions, MultiRemovalResults};
+use sp_trie::{empty_child_trie_root, LayoutV0, LayoutV1, TrieConfiguration};
 
 /// Simple Map-based Externalities impl.
 #[derive(Debug)]
@@ -74,7 +74,7 @@ impl BasicExternalities {
 				.map(|(iter, i)| {
 					(
 						i.storage_key().to_vec(),
-						rp_core::storage::StorageChild {
+						sp_core::storage::StorageChild {
 							data: iter
 								.filter_map(|(k, v)| v.value().map(|v| (k.to_vec(), v.to_vec())))
 								.collect(),
@@ -91,7 +91,7 @@ impl BasicExternalities {
 	/// Returns the result of the closure and updates `storage` with all changes.
 	#[cfg(feature = "std")]
 	pub fn execute_with_storage<R>(
-		storage: &mut rp_core::storage::Storage,
+		storage: &mut sp_core::storage::Storage,
 		f: impl FnOnce() -> R,
 	) -> R {
 		let mut ext = Self::new(core::mem::take(storage));
@@ -107,7 +107,7 @@ impl BasicExternalities {
 	///
 	/// Returns the result of the given closure.
 	pub fn execute_with<R>(&mut self, f: impl FnOnce() -> R) -> R {
-		rp_externalities::set_and_run_with_externalities(self, f)
+		sp_externalities::set_and_run_with_externalities(self, f)
 	}
 
 	/// List of active extensions.
@@ -347,7 +347,7 @@ impl Externalities for BasicExternalities {
 	}
 }
 
-impl rp_externalities::ExtensionStore for BasicExternalities {
+impl sp_externalities::ExtensionStore for BasicExternalities {
 	fn extension_by_type_id(&mut self, type_id: TypeId) -> Option<&mut dyn Any> {
 		self.extensions.get_mut(type_id)
 	}
@@ -355,19 +355,19 @@ impl rp_externalities::ExtensionStore for BasicExternalities {
 	fn register_extension_with_type_id(
 		&mut self,
 		type_id: TypeId,
-		extension: Box<dyn rp_externalities::Extension>,
-	) -> Result<(), rp_externalities::Error> {
+		extension: Box<dyn sp_externalities::Extension>,
+	) -> Result<(), sp_externalities::Error> {
 		self.extensions.register_with_type_id(type_id, extension)
 	}
 
 	fn deregister_extension_by_type_id(
 		&mut self,
 		type_id: TypeId,
-	) -> Result<(), rp_externalities::Error> {
+	) -> Result<(), sp_externalities::Error> {
 		if self.extensions.deregister(type_id) {
 			Ok(())
 		} else {
-			Err(rp_externalities::Error::ExtensionIsNotRegistered(type_id))
+			Err(sp_externalities::Error::ExtensionIsNotRegistered(type_id))
 		}
 	}
 }
@@ -375,7 +375,7 @@ impl rp_externalities::ExtensionStore for BasicExternalities {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_core::{
+	use sp_core::{
 		map,
 		storage::{well_known_keys::CODE, Storage, StorageChild},
 	};

@@ -22,11 +22,11 @@ mod common;
 use common::*;
 use honggfuzz::fuzz;
 use rand::{self, SeedableRng};
-use rp_npos_elections::{
+use sp_npos_elections::{
 	assignment_ratio_to_staked_normalized, phragmms, to_supports, BalancingConfig, ElectionResult,
 	EvaluateSupport, VoteWeight,
 };
-use rp_runtime::Perbill;
+use sp_runtime::Perbill;
 
 fn main() {
 	loop {

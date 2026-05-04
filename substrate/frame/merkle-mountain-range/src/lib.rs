@@ -63,10 +63,10 @@ use log;
 
 use frame_support::pallet_prelude::*;
 use frame_system::pallet_prelude::*;
-use rp_arithmetic::traits::One;
-use rp_runtime::traits::{Hash, SaturatedConversion, Saturating};
+use sp_arithmetic::traits::One;
+use sp_runtime::traits::{Hash, SaturatedConversion, Saturating};
 
-pub use rp_mmr_primitives::{
+pub use sp_mmr_primitives::{
 	self as primitives, utils, utils::NodesUtils, AncestryProof, Error, FullLeaf, LeafDataProvider,
 	LeafIndex, LeafProof, NodeIndex, OnNewRoot,
 };

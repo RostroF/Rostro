@@ -20,10 +20,10 @@ use std::sync::Arc;
 
 use log::debug;
 
-use rp_api::ProvideRuntimeApi;
-use rp_consensus::Error as ConsensusError;
-use rp_consensus_beefy::{AuthorityIdBound, BeefyApi, BEEFY_ENGINE_ID};
-use rp_runtime::{
+use sp_api::ProvideRuntimeApi;
+use sp_consensus::Error as ConsensusError;
+use sp_consensus_beefy::{AuthorityIdBound, BeefyApi, BEEFY_ENGINE_ID};
+use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT, NumberFor},
 	EncodedJustification,
 };

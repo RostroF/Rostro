@@ -47,7 +47,7 @@ pub mod pallet {
 		BoundedVec,
 	};
 	use frame_system::pallet_prelude::*;
-	use rp_runtime::traits::Hash as HashT;
+	use sp_runtime::traits::Hash as HashT;
 	use scale_info::TypeInfo;
 
 	/// Identifier for a registered verifying key. Computed as the Blake2b-256

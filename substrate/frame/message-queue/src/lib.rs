@@ -88,7 +88,7 @@
 //!
 //! **Weight Metering**
 //!
-//! The pallet utilizes the [`rp_weights::WeightMeter`] to manually track its consumption to always
+//! The pallet utilizes the [`sp_weights::WeightMeter`] to manually track its consumption to always
 //! stay within the required limit. This implies that the message processor hook can calculate the
 //! weight of a message without executing it. This restricts the possible use-cases but is necessary
 //! since the pallet runs in `on_initialize` which has a hard weight limit. The weight meter is used
@@ -221,13 +221,13 @@ use frame_support::{
 use frame_system::pallet_prelude::*;
 pub use pallet::*;
 use scale_info::TypeInfo;
-use rp_arithmetic::traits::{BaseArithmetic, Unsigned};
-use rp_core::{defer, H256};
-use rp_runtime::{
+use sp_arithmetic::traits::{BaseArithmetic, Unsigned};
+use sp_core::{defer, H256};
+use sp_runtime::{
 	traits::{One, Zero},
 	SaturatedConversion, Saturating, TransactionOutcome,
 };
-use rp_weights::WeightMeter;
+use sp_weights::WeightMeter;
 pub use weights::WeightInfo;
 
 /// Type for identifying a page.
@@ -700,7 +700,7 @@ pub mod pallet {
 		}
 
 		#[cfg(feature = "try-runtime")]
-		fn try_state(_: BlockNumberFor<T>) -> Result<(), rp_runtime::TryRuntimeError> {
+		fn try_state(_: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 			Self::do_try_state()
 		}
 
@@ -1410,7 +1410,7 @@ impl<T: Config> Pallet<T> {
 	/// * `first` <= `last`
 	/// * Every page can be decoded into peek_* functions
 	#[cfg(any(test, feature = "try-runtime", feature = "std"))]
-	pub fn do_try_state() -> Result<(), rp_runtime::TryRuntimeError> {
+	pub fn do_try_state() -> Result<(), sp_runtime::TryRuntimeError> {
 		// Checking memory corruption for BookStateFor
 		ensure!(
 			BookStateFor::<T>::iter_keys().count() == BookStateFor::<T>::iter_values().count(),
@@ -1562,7 +1562,7 @@ impl<T: Config> Pallet<T> {
 		meter: &mut WeightMeter,
 		overweight_limit: Weight,
 	) -> MessageExecutionStatus {
-		let mut id = rp_io::hashing::blake2_256(message);
+		let mut id = sp_io::hashing::blake2_256(message);
 		use ProcessMessageError::*;
 		let prev_consumed = meter.consumed();
 
@@ -1705,7 +1705,7 @@ pub(crate) fn with_service_mutex<F: FnOnce() -> R, R>(f: F) -> Result<R, ()> {
 	})
 }
 
-/// Provides a [`rp_core::Get`] to access the `MEL` of a [`codec::MaxEncodedLen`] type.
+/// Provides a [`sp_core::Get`] to access the `MEL` of a [`codec::MaxEncodedLen`] type.
 pub struct MaxEncodedLenOf<T>(core::marker::PhantomData<T>);
 impl<T: MaxEncodedLen> Get<u32> for MaxEncodedLenOf<T> {
 	fn get() -> u32 {
@@ -1739,7 +1739,7 @@ pub type PageOf<T> = Page<<T as Config>::Size, <T as Config>::HeapSize>;
 /// The [`BookState`] of this pallet.
 pub type BookStateOf<T> = BookState<MessageOriginOf<T>>;
 
-/// Converts a [`rp_core::Get`] with returns a type that can be cast into an `u32` into a `Get`
+/// Converts a [`sp_core::Get`] with returns a type that can be cast into an `u32` into a `Get`
 /// which returns an `u32`.
 pub struct IntoU32<T, O>(core::marker::PhantomData<(T, O)>);
 impl<T: Get<O>, O: Into<u32>> Get<u32> for IntoU32<T, O> {

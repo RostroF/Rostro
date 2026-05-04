@@ -28,10 +28,10 @@ use core::result::Result;
 
 use alloc::vec::Vec;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-use rp_inherents::{InherentData, InherentIdentifier, IsFatalError};
-use rp_runtime::traits::{Block as BlockT, NumberFor};
+use sp_inherents::{InherentData, InherentIdentifier, IsFatalError};
+use sp_runtime::traits::{Block as BlockT, NumberFor};
 
-pub use rp_inherents::Error;
+pub use sp_inherents::Error;
 
 /// The identifier for the proof inherent.
 pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"tx_proof";
@@ -92,7 +92,7 @@ impl InherentDataProvider {
 
 #[cfg(feature = "std")]
 #[async_trait::async_trait]
-impl rp_inherents::InherentDataProvider for InherentDataProvider {
+impl sp_inherents::InherentDataProvider for InherentDataProvider {
 	async fn provide_inherent_data(&self, inherent_data: &mut InherentData) -> Result<(), Error> {
 		if let Some(proof) = &self.proof {
 			inherent_data.put_data(INHERENT_IDENTIFIER, proof)
@@ -158,11 +158,11 @@ pub trait IndexedBody<B: BlockT> {
 #[cfg(feature = "std")]
 pub mod registration {
 	use super::*;
-	use rp_runtime::traits::{Block as BlockT, One, Saturating, Zero};
-	use rp_trie::TrieMut;
+	use sp_runtime::traits::{Block as BlockT, One, Saturating, Zero};
+	use sp_trie::TrieMut;
 
-	type Hasher = rp_core::Blake2Hasher;
-	type TrieLayout = rp_trie::LayoutV1<Hasher>;
+	type Hasher = sp_core::Blake2Hasher;
+	type TrieLayout = sp_trie::LayoutV1<Hasher>;
 
 	/// Create a new inherent data provider instance for a given parent block hash.
 	pub fn new_data_provider<B, C>(
@@ -208,11 +208,11 @@ pub mod registration {
 		let mut chunk_index = 0;
 		for transaction in transactions {
 			let mut selected_chunk_and_key = None;
-			let mut db = rp_trie::MemoryDB::<Hasher>::default();
-			let mut transaction_root = rp_trie::empty_trie_root::<TrieLayout>();
+			let mut db = sp_trie::MemoryDB::<Hasher>::default();
+			let mut transaction_root = sp_trie::empty_trie_root::<TrieLayout>();
 			{
 				let mut trie =
-					rp_trie::TrieDBMutBuilder::<TrieLayout>::new(&mut db, &mut transaction_root)
+					sp_trie::TrieDBMutBuilder::<TrieLayout>::new(&mut db, &mut transaction_root)
 						.build();
 				let chunks = transaction.chunks(CHUNK_SIZE).map(|c| c.to_vec());
 				for (index, chunk) in chunks.enumerate() {
@@ -226,7 +226,7 @@ pub mod registration {
 				trie.commit();
 			}
 			if let Some((target_chunk, target_chunk_key)) = selected_chunk_and_key {
-				let chunk_proof = rp_trie::generate_trie_proof::<TrieLayout, _, _, _>(
+				let chunk_proof = sp_trie::generate_trie_proof::<TrieLayout, _, _, _>(
 					&db,
 					transaction_root,
 					&[target_chunk_key],
@@ -250,11 +250,11 @@ pub mod registration {
 		use std::str::FromStr;
 		let random = [0u8; 32];
 		let proof = build_proof(&random, vec![vec![42]]).unwrap().unwrap();
-		let root = rp_core::H256::from_str(
+		let root = sp_core::H256::from_str(
 			"0xff8611a4d212fc161dae19dd57f0f1ba9309f45d6207da13f2d3eab4c6839e91",
 		)
 		.unwrap();
-		rp_trie::verify_trie_proof::<TrieLayout, _, _, _>(
+		sp_trie::verify_trie_proof::<TrieLayout, _, _, _>(
 			&root,
 			&proof.proof,
 			&[(encode_index(0), Some(proof.chunk))],

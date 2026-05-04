@@ -22,11 +22,11 @@ frame-system = { workspace = true }
 log = { workspace = true }
 pallet-balances = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-io = { workspace = true }
-rp-runtime = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
 
 [dev-dependencies]
-rp-core = { workspace = true, default-features = false }
+sp-core = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -37,13 +37,13 @@ std = [
 	"log/std",
 	"pallet-balances/std",
 	"scale-info/std",
-	"rp-core/std",
-	"rp-io/std",
-	"rp-runtime/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"pallet-balances/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

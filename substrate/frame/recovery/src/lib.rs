@@ -161,7 +161,7 @@ use frame_support::{
 	traits::{tokens::BalanceStatus, Currency, ReservableCurrency},
 };
 use frame_system::pallet_prelude::*;
-use rp_runtime::{
+use sp_runtime::{
 	traits::{BlockNumberProvider, Dispatchable, SaturatedConversion, Saturating, StaticLookup},
 	ArithmeticError,
 };

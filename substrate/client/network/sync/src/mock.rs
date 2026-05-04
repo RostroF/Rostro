@@ -24,7 +24,7 @@ use futures::channel::oneshot;
 use rc_network::{ProtocolName, RequestFailure};
 use rc_network_common::sync::message::{BlockData, BlockRequest};
 use rc_network_types::PeerId;
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 mockall::mock! {
 	#[derive(Debug)]

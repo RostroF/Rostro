@@ -21,7 +21,7 @@ use futures::channel::oneshot;
 use rc_network::{request_responses::RequestFailure, NetworkBackend, ProtocolName};
 use rc_network_common::sync::message::{BlockData, BlockRequest};
 use rc_network_types::PeerId;
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 use std::{fmt, sync::Arc};
 
 /// The serving side of the block relay protocol. It runs a single instance

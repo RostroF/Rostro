@@ -33,8 +33,8 @@ use std::{
 	time::{Duration, Instant},
 };
 
-use rp_consensus::{error::Error as ConsensusError, BlockOrigin};
-use rp_runtime::{
+use sp_consensus::{error::Error as ConsensusError, BlockOrigin};
+use sp_runtime::{
 	traits::{Block as BlockT, Header as _, NumberFor},
 	Justifications,
 };

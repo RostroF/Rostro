@@ -27,8 +27,8 @@ use crate::{
 };
 use prometheus_endpoint::Registry as PrometheusRegistry;
 use rc_transaction_pool_api::{LocalTransactionPool, MaintainedTransactionPool};
-use rp_core::traits::SpawnEssentialNamed;
-use rp_runtime::traits::Block as BlockT;
+use sp_core::traits::SpawnEssentialNamed;
+use sp_runtime::traits::Block as BlockT;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
 /// The type of transaction pool.
@@ -125,26 +125,26 @@ pub trait FullClientTransactionPool<Block, Client>:
 	>
 where
 	Block: BlockT,
-	Client: rp_api::ProvideRuntimeApi<Block>
+	Client: sp_api::ProvideRuntimeApi<Block>
 		+ rc_client_api::BlockBackend<Block>
 		+ rc_client_api::blockchain::HeaderBackend<Block>
-		+ rp_runtime::traits::BlockIdTo<Block>
-		+ rp_blockchain::HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ sp_runtime::traits::BlockIdTo<Block>
+		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ 'static,
-	Client::Api: rp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
+	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
 {
 }
 
 impl<Block, Client, P> FullClientTransactionPool<Block, Client> for P
 where
 	Block: BlockT,
-	Client: rp_api::ProvideRuntimeApi<Block>
+	Client: sp_api::ProvideRuntimeApi<Block>
 		+ rc_client_api::BlockBackend<Block>
 		+ rc_client_api::blockchain::HeaderBackend<Block>
-		+ rp_runtime::traits::BlockIdTo<Block>
-		+ rp_blockchain::HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ sp_runtime::traits::BlockIdTo<Block>
+		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ 'static,
-	Client::Api: rp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
+	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
 	P: MaintainedTransactionPool<
 			Block = Block,
 			Hash = ExtrinsicHash<FullChainApi<Client, Block>>,
@@ -181,18 +181,18 @@ pub struct Builder<'a, Block, Client> {
 impl<'a, Client, Block> Builder<'a, Block, Client>
 where
 	Block: BlockT,
-	Client: rp_api::ProvideRuntimeApi<Block>
+	Client: sp_api::ProvideRuntimeApi<Block>
 		+ rc_client_api::BlockBackend<Block>
 		+ rc_client_api::blockchain::HeaderBackend<Block>
-		+ rp_runtime::traits::BlockIdTo<Block>
+		+ sp_runtime::traits::BlockIdTo<Block>
 		+ rc_client_api::ExecutorProvider<Block>
 		+ rc_client_api::UsageProvider<Block>
-		+ rp_blockchain::HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ Send
 		+ Sync
 		+ 'static,
 	<Block as BlockT>::Hash: std::marker::Unpin,
-	Client::Api: rp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
+	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
 {
 	/// Creates new instance of `Builder`
 	pub fn new(

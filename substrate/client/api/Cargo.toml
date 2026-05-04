@@ -26,16 +26,16 @@ prometheus-endpoint = { default-features = true, workspace = true }
 rc-executor = { default-features = true, workspace = true }
 rc-transaction-pool-api = { default-features = true, workspace = true }
 rc-utils = { default-features = true, workspace = true }
-rp-api = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-core = { workspace = true }
-rp-database = { default-features = true, workspace = true }
-rp-externalities = { default-features = true, workspace = true }
-rp-runtime = { workspace = true }
-rp-state-machine = { default-features = true, workspace = true }
-rp-storage = { default-features = true, workspace = true }
-rp-trie = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-core = { workspace = true }
+sp-database = { default-features = true, workspace = true }
+sp-externalities = { default-features = true, workspace = true }
+sp-runtime = { workspace = true }
+sp-state-machine = { default-features = true, workspace = true }
+sp-storage = { default-features = true, workspace = true }
+sp-trie = { default-features = true, workspace = true }
 
 [dev-dependencies]
 substrate-test-runtime = { workspace = true }

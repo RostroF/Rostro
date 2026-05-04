@@ -1,5 +1,5 @@
 [package]
-name = "rp-arithmetic"
+name = "sp-arithmetic"
 version = "28.0.1"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Minimal fixed point arithmetic primitives and types for runtime."
-documentation = "https://docs.rs/rp-arithmetic"
+documentation = "https://docs.rs/sp-arithmetic"
 readme = "README.md"
 
 [lints]
@@ -33,7 +33,7 @@ static_assertions = { workspace = true, default-features = true }
 criterion = { workspace = true, default-features = true }
 primitive-types = { workspace = true, default-features = true }
 rand = { workspace = true, default-features = true }
-rp-crypto-hashing = { default-features = true, workspace = true }
+sp-crypto-hashing = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -45,3 +45,5 @@ std = [
 ]
 # Serde support without relying on std features.
 serde = ["dep:serde", "scale-info/serde"]
+
+[lib]

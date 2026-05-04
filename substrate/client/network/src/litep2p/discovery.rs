@@ -813,8 +813,8 @@ mod tests {
 		peer_store::{PeerStore, PeerStoreProvider},
 	};
 	use futures::{stream::FuturesUnordered, StreamExt};
-	use rp_core::H256;
-	use rp_tracing::tracing_subscriber;
+	use sp_core::H256;
+	use sp_tracing::tracing_subscriber;
 
 	use litep2p::{
 		config::ConfigBuilder as Litep2pConfigBuilder, transport::tcp::config::Config as TcpConfig,

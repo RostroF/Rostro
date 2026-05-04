@@ -29,15 +29,15 @@ codec = { workspace = true, default-features = true }
 rc-executor-common = { default-features = true, workspace = true }
 rc-executor-polkavm = { default-features = true, workspace = true }
 rc-executor-wasmtime = { default-features = true, workspace = true }
-rp-api = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-externalities = { default-features = true, workspace = true }
-rp-io = { default-features = true, workspace = true }
-rp-panic-handler = { default-features = true, workspace = true }
-rp-runtime-interface = { default-features = true, workspace = true }
-rp-trie = { default-features = true, workspace = true }
-rp-version = { default-features = true, workspace = true }
-rp-wasm-interface = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-externalities = { default-features = true, workspace = true }
+sp-io = { default-features = true, workspace = true }
+sp-panic-handler = { default-features = true, workspace = true }
+sp-runtime-interface = { default-features = true, workspace = true }
+sp-trie = { default-features = true, workspace = true }
+sp-version = { default-features = true, workspace = true }
+sp-wasm-interface = { default-features = true, workspace = true }
 
 [dev-dependencies]
 array-bytes = { workspace = true, default-features = true }
@@ -47,11 +47,11 @@ num_cpus = { workspace = true }
 paste = { workspace = true, default-features = true }
 rc-runtime-test = { workspace = true }
 rc-tracing = { default-features = true, workspace = true }
-rp-crypto-hashing = { default-features = true, workspace = true }
-rp-maybe-compressed-blob = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
-rp-state-machine = { default-features = true, workspace = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-crypto-hashing = { default-features = true, workspace = true }
+sp-maybe-compressed-blob = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+sp-state-machine = { default-features = true, workspace = true }
+sp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime = { workspace = true }
 tempfile = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -61,13 +61,13 @@ wat = { workspace = true }
 default = ["std"]
 # This crate does not have `no_std` support, we just require this for tests
 std = [
-	"rp-api/std",
-	"rp-core/std",
-	"rp-externalities/std",
-	"rp-io/std",
-	"rp-runtime-interface/std",
-	"rp-trie/std",
-	"rp-version/std",
-	"rp-wasm-interface/std",
+	"sp-api/std",
+	"sp-core/std",
+	"sp-externalities/std",
+	"sp-io/std",
+	"sp-runtime-interface/std",
+	"sp-trie/std",
+	"sp-version/std",
+	"sp-wasm-interface/std",
 ]
 wasm-extern-trace = []

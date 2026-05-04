@@ -72,8 +72,8 @@ construct_runtime! {
 	}
 }
 
-pub fn new_test_ext() -> rp_io::TestExternalities {
-	rp_io::TestExternalities::new(Default::default())
+pub fn new_test_ext() -> sp_io::TestExternalities {
+	sp_io::TestExternalities::new(Default::default())
 }
 
 #[allow(dead_code)]

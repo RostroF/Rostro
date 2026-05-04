@@ -22,15 +22,15 @@
 use crate::{ConsensusDataProvider, Error};
 use rc_client_api::{AuxStore, UsageProvider};
 use rc_consensus::BlockImportParams;
-use rp_api::{ProvideRuntimeApi, StorageProof};
-use rp_consensus_aura::{
+use sp_api::{ProvideRuntimeApi, StorageProof};
+use sp_consensus_aura::{
 	digests::CompatibleDigestItem,
 	sr25519::{AuthorityId, AuthoritySignature},
 	AuraApi, Slot, SlotDuration,
 };
-use rp_inherents::InherentData;
-use rp_runtime::{traits::Block as BlockT, Digest, DigestItem};
-use rp_timestamp::TimestampInherentData;
+use sp_inherents::InherentData;
+use sp_runtime::{traits::Block as BlockT, Digest, DigestItem};
+use sp_timestamp::TimestampInherentData;
 use std::{marker::PhantomData, sync::Arc};
 
 /// Consensus data provider for Aura. This allows to use manual-seal driven nodes to author valid
@@ -48,7 +48,7 @@ where
 	B: BlockT,
 {
 	/// Creates a new instance of the [`AuraConsensusDataProvider`], requires that `client`
-	/// implements [`rp_consensus_aura::AuraApi`]
+	/// implements [`sp_consensus_aura::AuraApi`]
 	pub fn new<C>(client: Arc<C>) -> Self
 	where
 		C: AuxStore + ProvideRuntimeApi<B> + UsageProvider<B>,

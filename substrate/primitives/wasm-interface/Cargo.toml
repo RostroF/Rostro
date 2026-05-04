@@ -1,5 +1,5 @@
 [package]
-name = "rp-wasm-interface"
+name = "sp-wasm-interface"
 version = "24.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Types and traits for interfacing between the host and the wasm runtime."
-documentation = "https://docs.rs/rp-wasm-interface"
+documentation = "https://docs.rs/sp-wasm-interface"
 readme = "README.md"
 
 [lints]

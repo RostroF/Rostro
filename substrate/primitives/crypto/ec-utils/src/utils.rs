@@ -34,7 +34,7 @@ use ark_scale::{
 	scale::{Decode, Encode, Output},
 	ArkScaleMaxEncodedLen, MaxEncodedLen,
 };
-use rp_runtime_interface::RIType;
+use sp_runtime_interface::RIType;
 
 /// Unexpected failure message.
 pub const FAIL_MSG: &str = "Unexpected failure, bad arguments, broken host/runtime contract; qed";
@@ -97,11 +97,11 @@ impl RIType for HostcallResult {
 }
 
 #[cfg(not(substrate_runtime))]
-impl rp_runtime_interface::host::IntoFFIValue for HostcallResult {
+impl sp_runtime_interface::host::IntoFFIValue for HostcallResult {
 	fn into_ffi_value(
 		value: Self::Inner,
-		_context: &mut dyn rp_runtime_interface::rp_wasm_interface::FunctionContext,
-	) -> rp_runtime_interface::rp_wasm_interface::Result<Self::FFIType> {
+		_context: &mut dyn sp_runtime_interface::sp_wasm_interface::FunctionContext,
+	) -> sp_runtime_interface::sp_wasm_interface::Result<Self::FFIType> {
 		Ok(match value {
 			Ok(()) => 0,
 			Err(e) => e as u32,
@@ -110,7 +110,7 @@ impl rp_runtime_interface::host::IntoFFIValue for HostcallResult {
 }
 
 #[cfg(substrate_runtime)]
-impl rp_runtime_interface::wasm::FromFFIValue for HostcallResult {
+impl sp_runtime_interface::wasm::FromFFIValue for HostcallResult {
 	fn from_ffi_value(arg: Self::FFIType) -> Self::Inner {
 		match arg {
 			0 => Ok(()),

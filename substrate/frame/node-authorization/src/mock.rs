@@ -22,8 +22,8 @@ use crate as pallet_node_authorization;
 
 use frame_support::{construct_runtime, derive_impl, ord_parameter_types, traits::ConstU32};
 use frame_system::EnsureSignedBy;
-use rp_io::TestExternalities as TestState;
-use rp_runtime::BuildStorage;
+use sp_io::TestExternalities as TestState;
+use sp_runtime::BuildStorage;
 
 type Block = frame_system::mocking::MockBlock<Test>;
 

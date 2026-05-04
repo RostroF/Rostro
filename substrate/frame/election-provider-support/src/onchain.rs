@@ -28,7 +28,7 @@ use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 use core::marker::PhantomData;
 use frame_support::{dispatch::DispatchClass, traits::Get};
 use frame_system::pallet_prelude::BlockNumberFor;
-use rp_npos_elections::{
+use sp_npos_elections::{
 	assignment_ratio_to_staked_normalized, to_supports, ElectionResult, VoteWeight,
 };
 
@@ -36,15 +36,15 @@ use rp_npos_elections::{
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum Error {
 	/// An internal error in the NPoS elections crate.
-	NposElections(rp_npos_elections::Error),
+	NposElections(sp_npos_elections::Error),
 	/// Errors from the data provider.
 	DataProvider(&'static str),
 	/// Results failed to meet the bounds.
 	FailedToBound,
 }
 
-impl From<rp_npos_elections::Error> for Error {
-	fn from(e: rp_npos_elections::Error) -> Self {
+impl From<sp_npos_elections::Error> for Error {
+	fn from(e: sp_npos_elections::Error) -> Self {
 		Error::NposElections(e)
 	}
 }
@@ -74,7 +74,7 @@ pub trait Config {
 	/// `NposSolver` that should be used, an example would be `PhragMMS`.
 	type Solver: NposSolver<
 		AccountId = <Self::System as frame_system::Config>::AccountId,
-		Error = rp_npos_elections::Error,
+		Error = sp_npos_elections::Error,
 	>;
 
 	/// Maximum number of backers allowed per target.
@@ -189,7 +189,7 @@ impl<T: Config> ElectionProvider for OnChainExecution<T> {
 	type MaxBackersPerWinner = T::MaxBackersPerWinner;
 	// can support any number of pages, as this is meant to be called "instantly". We don't care
 	// about this value here.
-	type Pages = rp_core::ConstU32<1>;
+	type Pages = sp_core::ConstU32<1>;
 	type DataProvider = T::DataProvider;
 
 	fn elect(page: PageIndex) -> Result<BoundedSupportsOf<Self>, Self::Error> {
@@ -203,10 +203,10 @@ impl<T: Config> ElectionProvider for OnChainExecution<T> {
 	}
 
 	fn duration() -> Self::BlockNumber {
-		rp_runtime::traits::Zero::zero()
+		sp_runtime::traits::Zero::zero()
 	}
 
-	fn status() -> Result<Option<rp_runtime::Weight>, ()> {
+	fn status() -> Result<Option<sp_runtime::Weight>, ()> {
 		Ok(Some(Default::default()))
 	}
 }
@@ -216,16 +216,16 @@ mod tests {
 	use super::*;
 	use crate::{ElectionProvider, PhragMMS, SequentialPhragmen};
 	use frame_support::{assert_noop, derive_impl, parameter_types};
-	use rp_io::TestExternalities;
-	use rp_npos_elections::Support;
-	use rp_runtime::Perbill;
+	use sp_io::TestExternalities;
+	use sp_npos_elections::Support;
+	use sp_runtime::Perbill;
 	type AccountId = u64;
 	type Nonce = u64;
 	type BlockNumber = u64;
 
-	pub type Header = rp_runtime::generic::Header<BlockNumber, rp_runtime::traits::BlakeTwo256>;
-	pub type UncheckedExtrinsic = rp_runtime::generic::UncheckedExtrinsic<AccountId, (), (), ()>;
-	pub type Block = rp_runtime::generic::Block<Header, UncheckedExtrinsic>;
+	pub type Header = sp_runtime::generic::Header<BlockNumber, sp_runtime::traits::BlakeTwo256>;
+	pub type UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic<AccountId, (), (), ()>;
+	pub type Block = sp_runtime::generic::Block<Header, UncheckedExtrinsic>;
 
 	frame_support::construct_runtime!(
 		pub enum Runtime {
@@ -240,10 +240,10 @@ mod tests {
 		type RuntimeOrigin = RuntimeOrigin;
 		type Nonce = Nonce;
 		type RuntimeCall = RuntimeCall;
-		type Hash = rp_core::H256;
-		type Hashing = rp_runtime::traits::BlakeTwo256;
+		type Hash = sp_core::H256;
+		type Hashing = sp_runtime::traits::BlakeTwo256;
 		type AccountId = AccountId;
-		type Lookup = rp_runtime::traits::IdentityLookup<Self::AccountId>;
+		type Lookup = sp_runtime::traits::IdentityLookup<Self::AccountId>;
 		type Block = Block;
 		type RuntimeEvent = ();
 		type BlockHashCount = ();
@@ -297,7 +297,7 @@ mod tests {
 		use super::*;
 		use crate::{data_provider, DataProviderBounds, PageIndex, VoterOf};
 		use frame_support::traits::ConstU32;
-		use rp_runtime::bounded_vec;
+		use sp_runtime::bounded_vec;
 
 		pub struct DataProvider;
 		impl ElectionDataProvider for DataProvider {

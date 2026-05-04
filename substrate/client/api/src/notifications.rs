@@ -30,8 +30,8 @@ use futures::Stream;
 use prometheus_endpoint::Registry as PrometheusRegistry;
 
 use rc_utils::pubsub::{Hub, Receiver};
-use rp_core::storage::{StorageData, StorageKey};
-use rp_runtime::traits::Block as BlockT;
+use sp_core::storage::{StorageData, StorageKey};
+use sp_runtime::traits::Block as BlockT;
 
 mod registry;
 

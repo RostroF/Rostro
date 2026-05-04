@@ -84,11 +84,11 @@ fn initialize(
 				std::fs::write(&path, &precompiled_blob).unwrap();
 				unsafe {
 					rc_executor_wasmtime::create_runtime_from_artifact::<
-						rp_io::SubstrateHostFunctions,
+						sp_io::SubstrateHostFunctions,
 					>(&path, config)
 				}
 			} else {
-				rc_executor_wasmtime::create_runtime::<rp_io::SubstrateHostFunctions>(blob, config)
+				rc_executor_wasmtime::create_runtime::<sp_io::SubstrateHostFunctions>(blob, config)
 			}
 			.map(|runtime| -> Box<dyn WasmModule> { Box::new(runtime) })
 		},
@@ -148,7 +148,7 @@ fn run_benchmark(
 }
 
 fn bench_call_instance(c: &mut Criterion) {
-	rp_tracing::try_init_simple();
+	sp_tracing::try_init_simple();
 
 	let strategies = [
 		(

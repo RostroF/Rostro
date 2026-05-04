@@ -42,7 +42,7 @@ use rc_rpc::{
 	utils::{BoundedVecDeque, PendingSubscription},
 	SubscriptionTaskExecutor,
 };
-use rp_runtime::traits::{Block as BlockT, NumberFor};
+use sp_runtime::traits::{Block as BlockT, NumberFor};
 
 /// Provides RPC methods for interacting with GRANDPA.
 #[rpc(client, server)]
@@ -140,10 +140,10 @@ mod tests {
 		report, AuthorityId, FinalityProof, GrandpaJustification, GrandpaJustificationSender,
 	};
 	use rc_rpc::testing::test_executor;
-	use rp_blockchain::HeaderBackend;
-	use rp_core::crypto::ByteArray;
-	use rp_keyring::Ed25519Keyring;
-	use rp_runtime::traits::{Block as BlockT, Header as HeaderT};
+	use sp_blockchain::HeaderBackend;
+	use sp_core::crypto::ByteArray;
+	use sp_keyring::Ed25519Keyring;
+	use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 	use substrate_test_runtime_client::{
 		runtime::{Block, Header, H256},
 		DefaultTestClientBuilderExt, TestClientBuilder, TestClientBuilderExt,
@@ -354,7 +354,7 @@ mod tests {
 			};
 
 			let msg = finality_grandpa::Message::Precommit(precommit.clone());
-			let encoded = rp_consensus_grandpa::localized_payload(round, set_id, &msg);
+			let encoded = sp_consensus_grandpa::localized_payload(round, set_id, &msg);
 			let signature = peers[0].sign(&encoded[..]).into();
 
 			let precommit = finality_grandpa::SignedPrecommit {
@@ -389,7 +389,7 @@ mod tests {
 		justification_sender.notify(|| Ok::<_, ()>(justification.clone())).unwrap();
 
 		// Inspect what we received
-		let (recv_justification, recv_sub_id): (rp_core::Bytes, SubscriptionId) =
+		let (recv_justification, recv_sub_id): (sp_core::Bytes, SubscriptionId) =
 			sub.next().await.unwrap().unwrap();
 		let recv_justification: GrandpaJustification<Block> =
 			Decode::decode(&mut &recv_justification[..]).unwrap();
@@ -408,7 +408,7 @@ mod tests {
 		let (rpc, _) =
 			setup_io_handler_with_finality_proofs(TestVoterState, Some(finality_proof.clone()));
 
-		let bytes: rp_core::Bytes = rpc.call("grandpa_proveFinality", [42]).await.unwrap();
+		let bytes: sp_core::Bytes = rpc.call("grandpa_proveFinality", [42]).await.unwrap();
 		let finality_proof_rpc: FinalityProof<Header> = Decode::decode(&mut &bytes[..]).unwrap();
 		assert_eq!(finality_proof_rpc, finality_proof);
 	}

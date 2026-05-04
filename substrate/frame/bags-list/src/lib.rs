@@ -127,10 +127,10 @@ use frame_support::{
 	weights::{Weight, WeightMeter},
 };
 use frame_system::ensure_signed;
-use rp_runtime::traits::{AtLeast32BitUnsigned, Bounded, StaticLookup};
+use sp_runtime::traits::{AtLeast32BitUnsigned, Bounded, StaticLookup};
 
 #[cfg(any(test, feature = "try-runtime", feature = "fuzz"))]
-use rp_runtime::TryRuntimeError;
+use sp_runtime::TryRuntimeError;
 
 #[cfg(any(feature = "runtime-benchmarks", test))]
 mod benchmarks;

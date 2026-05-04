@@ -22,7 +22,7 @@ use frame_support::{
 	pallet_prelude::*,
 	traits::{fungible, tokens::ConversionToAssetBalance},
 };
-use rp_runtime::{traits::Convert, FixedPointNumber, FixedU128};
+use sp_runtime::{traits::Convert, FixedPointNumber, FixedU128};
 
 pub type DepositBalanceOf<T, I = ()> =
 	<<T as Config<I>>::Currency as Currency<<T as SystemConfig>::AccountId>>::Balance;

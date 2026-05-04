@@ -19,8 +19,8 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use rp_core::wasm_export_functions;
-use rp_runtime_interface::runtime_interface;
+use sp_core::wasm_export_functions;
+use sp_runtime_interface::runtime_interface;
 
 // Include the WASM binary
 #[cfg(feature = "std")]
@@ -40,7 +40,7 @@ pub fn wasm_binary_unwrap() -> &'static [u8] {
 #[cfg(not(feature = "std"))]
 #[no_mangle]
 pub fn import_sp_io() {
-	rp_io::misc::print_utf8(&[]);
+	sp_io::misc::print_utf8(&[]);
 }
 
 #[runtime_interface]

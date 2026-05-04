@@ -30,8 +30,8 @@ use rc_network::{
 	NotificationMetrics, NotificationService, PeerId, Roles,
 };
 use rc_network_common::{sync::message::BlockAnnouncesHandshake, ExHashT};
-use rp_core::H256;
-use rp_runtime::traits::{Block as BlockT, Zero};
+use sp_core::H256;
+use sp_runtime::traits::{Block as BlockT, Zero};
 use std::{sync::Arc, time::Duration};
 use substrate_test_runtime_client::runtime;
 use tokio::{sync::Mutex, task::JoinHandle};

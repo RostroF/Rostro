@@ -26,8 +26,8 @@ use rc_network::{
 	NetworkBackend, ReputationChange,
 };
 use rc_network_types::PeerId;
-use rp_consensus_beefy::BEEFY_ENGINE_ID;
-use rp_runtime::traits::Block;
+use sp_consensus_beefy::BEEFY_ENGINE_ID;
+use sp_runtime::traits::Block;
 use std::{marker::PhantomData, sync::Arc};
 
 use crate::{

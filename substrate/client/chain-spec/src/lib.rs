@@ -191,12 +191,12 @@
 //! the node needs to interact with the runtime.
 //!
 //! This interaction involves passing the runtime genesis config JSON blob to the runtime using the
-//! [`rp_genesis_builder::GenesisBuilder::build_state`] function. During this operation, the
-//! runtime converts the JSON representation of the genesis config into [`rp_io::storage`] items. It
+//! [`sp_genesis_builder::GenesisBuilder::build_state`] function. During this operation, the
+//! runtime converts the JSON representation of the genesis config into [`sp_io::storage`] items. It
 //! is a crucial step for computing the storage root hash, which is a key component in determining
 //! the genesis hash.
 //!
-//! Consequently, the runtime must support the [`rp_genesis_builder::GenesisBuilder`] API to
+//! Consequently, the runtime must support the [`sp_genesis_builder::GenesisBuilder`] API to
 //! utilize either `patch` or `full` formats.
 //!
 //! This entire process is encapsulated within the implementation of the [`BuildStorage`] trait,
@@ -356,8 +356,8 @@ pub use rc_chain_spec_derive::{ChainSpecExtension, ChainSpecGroup};
 
 use rc_network::config::MultiaddrWithPeerId;
 use rc_telemetry::TelemetryEndpoints;
-use rp_core::storage::Storage;
-use rp_runtime::BuildStorage;
+use sp_core::storage::Storage;
+use sp_runtime::BuildStorage;
 
 /// The type of chain.
 ///

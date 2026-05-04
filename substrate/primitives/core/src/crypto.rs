@@ -142,7 +142,7 @@ impl DeriveJunction {
 		let mut cc: [u8; JUNCTION_ID_LEN] = Default::default();
 		index.using_encoded(|data| {
 			if data.len() > JUNCTION_ID_LEN {
-				cc.copy_from_slice(&rp_crypto_hashing::blake2_256(data));
+				cc.copy_from_slice(&sp_crypto_hashing::blake2_256(data));
 			} else {
 				cc[0..data.len()].copy_from_slice(data);
 			}
@@ -763,7 +763,7 @@ mod dummy {
 /// Parse [`DEV_PHRASE`] secret uri with junction:
 ///
 /// ```
-/// # use rp_core::crypto::{SecretUri, DeriveJunction, DEV_PHRASE, ExposeSecret};
+/// # use sp_core::crypto::{SecretUri, DeriveJunction, DEV_PHRASE, ExposeSecret};
 /// # use std::str::FromStr;
 /// let suri = SecretUri::from_str("//Alice").expect("Parse SURI");
 ///
@@ -775,7 +775,7 @@ mod dummy {
 /// Parse [`DEV_PHRASE`] secret ui with junction and password:
 ///
 /// ```
-/// # use rp_core::crypto::{SecretUri, DeriveJunction, DEV_PHRASE, ExposeSecret};
+/// # use sp_core::crypto::{SecretUri, DeriveJunction, DEV_PHRASE, ExposeSecret};
 /// # use std::str::FromStr;
 /// let suri = SecretUri::from_str("//Alice///SECRET_PASSWORD").expect("Parse SURI");
 ///
@@ -787,7 +787,7 @@ mod dummy {
 /// Parse [`DEV_PHRASE`] secret ui with hex phrase and junction:
 ///
 /// ```
-/// # use rp_core::crypto::{SecretUri, DeriveJunction, DEV_PHRASE, ExposeSecret};
+/// # use sp_core::crypto::{SecretUri, DeriveJunction, DEV_PHRASE, ExposeSecret};
 /// # use std::str::FromStr;
 /// let suri = SecretUri::from_str("0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a//Alice").expect("Parse SURI");
 ///

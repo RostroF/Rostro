@@ -26,16 +26,16 @@ use rc_client_api::{
 	StorageEventStream, StorageKey,
 };
 use rc_offchain::OffchainDb;
-use rp_api::{ApiRef, ProvideRuntimeApi};
-use rp_blockchain::{BlockStatus, CachedHeaderMetadata, HeaderBackend, HeaderMetadata, Info};
-use rp_consensus::BlockOrigin;
-use rp_core::{
+use sp_api::{ApiRef, ProvideRuntimeApi};
+use sp_blockchain::{BlockStatus, CachedHeaderMetadata, HeaderBackend, HeaderMetadata, Info};
+use sp_consensus::BlockOrigin;
+use sp_core::{
 	offchain::{DbExternalities, StorageKind},
 	H256,
 };
-use rp_mmr_primitives as mmr;
-use rp_mmr_primitives::{utils::NodesUtils, LeafIndex, NodeIndex};
-use rp_runtime::{
+use sp_mmr_primitives as mmr;
+use sp_mmr_primitives::{utils::NodesUtils, LeafIndex, NodeIndex};
+use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, Header as HeaderT},
 };
@@ -301,7 +301,7 @@ impl ProvideRuntimeApi<Block> for MockClient {
 	}
 }
 
-rp_api::mock_impl_runtime_apis! {
+sp_api::mock_impl_runtime_apis! {
 	impl mmr::MmrApi<Block, MmrHash, BlockNumber> for MockRuntimeApi {
 		fn mmr_root() -> Result<MmrHash, mmr::Error> {
 			Err(mmr::Error::PalletNotIncluded)

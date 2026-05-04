@@ -18,14 +18,14 @@
 //! The reservable currency trait.
 
 use scale_info::TypeInfo;
-use rp_core::Get;
+use sp_core::Get;
 
 use super::{super::misc::BalanceStatus, Currency};
 use crate::{
 	dispatch::DispatchResult,
 	traits::{ExistenceRequirement, SignedImbalance, WithdrawReasons},
 };
-use rp_runtime::DispatchError;
+use sp_runtime::DispatchError;
 
 /// A currency where funds can be reserved from the user.
 pub trait ReservableCurrency<AccountId>: Currency<AccountId> {

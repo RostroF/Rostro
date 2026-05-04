@@ -36,9 +36,9 @@ use rc_executor_common::{
 		AllocationStats, HeapAllocStrategy, WasmInstance, WasmModule, DEFAULT_HEAP_ALLOC_STRATEGY,
 	},
 };
-use rp_core::traits::{CallContext, CodeExecutor, Externalities, RuntimeCode};
-use rp_version::{GetNativeVersion, NativeVersion, RuntimeVersion};
-use rp_wasm_interface::{ExtendedHostFunctions, HostFunctions};
+use sp_core::traits::{CallContext, CodeExecutor, Externalities, RuntimeCode};
+use sp_version::{GetNativeVersion, NativeVersion, RuntimeVersion};
+use sp_wasm_interface::{ExtendedHostFunctions, HostFunctions};
 
 /// Set up the externalities and safe calling environment to execute runtime calls.
 ///
@@ -47,10 +47,10 @@ pub fn with_externalities_safe<F, U>(ext: &mut dyn Externalities, f: F) -> Resul
 where
 	F: UnwindSafe + FnOnce() -> U,
 {
-	rp_externalities::set_and_run_with_externalities(ext, move || {
+	sp_externalities::set_and_run_with_externalities(ext, move || {
 		// Substrate uses custom panic hook that terminates process on panic. Disable
 		// termination for the native call.
-		let _guard = rp_panic_handler::AbortGuard::force_unwind();
+		let _guard = sp_panic_handler::AbortGuard::force_unwind();
 		std::panic::catch_unwind(f).map_err(|e| {
 			if let Some(err) = e.downcast_ref::<String>() {
 				Error::RuntimePanicked(err.clone())
@@ -83,7 +83,7 @@ fn unwrap_heap_pages(pages: Option<HeapAllocStrategy>) -> HeapAllocStrategy {
 }
 
 /// Builder for creating a [`WasmExecutor`] instance.
-pub struct WasmExecutorBuilder<H = rp_io::SubstrateHostFunctions> {
+pub struct WasmExecutorBuilder<H = sp_io::SubstrateHostFunctions> {
 	_phantom: PhantomData<H>,
 	method: WasmExecutionMethod,
 	onchain_heap_alloc_strategy: Option<HeapAllocStrategy>,
@@ -218,7 +218,7 @@ impl<H> WasmExecutorBuilder<H> {
 
 /// An abstraction over Wasm code executor. Supports selecting execution backend and
 /// manages runtime cache.
-pub struct WasmExecutor<H = rp_io::SubstrateHostFunctions> {
+pub struct WasmExecutor<H = sp_io::SubstrateHostFunctions> {
 	/// Method used to execute fallback Wasm code.
 	method: WasmExecutionMethod,
 	/// The heap allocation strategy for onchain Wasm calls.
@@ -252,7 +252,7 @@ impl<H> Clone for WasmExecutor<H> {
 	}
 }
 
-impl Default for WasmExecutor<rp_io::SubstrateHostFunctions> {
+impl Default for WasmExecutor<sp_io::SubstrateHostFunctions> {
 	fn default() -> Self {
 		WasmExecutorBuilder::new().build()
 	}
@@ -450,7 +450,7 @@ where
 	}
 }
 
-impl<H> rp_core::traits::ReadRuntimeVersion for WasmExecutor<H>
+impl<H> sp_core::traits::ReadRuntimeVersion for WasmExecutor<H>
 where
 	H: HostFunctions,
 {
@@ -574,7 +574,7 @@ pub struct NativeElseWasmExecutor<D: NativeExecutionDispatch> {
 	native_version: NativeVersion,
 	/// Fallback wasm executor.
 	wasm:
-		WasmExecutor<ExtendedHostFunctions<rp_io::SubstrateHostFunctions, D::ExtendHostFunctions>>,
+		WasmExecutor<ExtendedHostFunctions<sp_io::SubstrateHostFunctions, D::ExtendHostFunctions>>,
 
 	use_native: bool,
 }
@@ -619,7 +619,7 @@ impl<D: NativeExecutionDispatch> NativeElseWasmExecutor<D> {
 	/// Create a new instance using the given [`WasmExecutor`].
 	pub fn new_with_wasm_executor(
 		executor: WasmExecutor<
-			ExtendedHostFunctions<rp_io::SubstrateHostFunctions, D::ExtendHostFunctions>,
+			ExtendedHostFunctions<sp_io::SubstrateHostFunctions, D::ExtendHostFunctions>,
 		>,
 	) -> Self {
 		Self { native_version: D::native_version(), wasm: executor, use_native: true }
@@ -744,7 +744,7 @@ impl<D: NativeExecutionDispatch> Clone for NativeElseWasmExecutor<D> {
 }
 
 #[allow(deprecated)]
-impl<D: NativeExecutionDispatch> rp_core::traits::ReadRuntimeVersion for NativeElseWasmExecutor<D> {
+impl<D: NativeExecutionDispatch> sp_core::traits::ReadRuntimeVersion for NativeElseWasmExecutor<D> {
 	fn read_runtime_version(
 		&self,
 		wasm_code: &[u8],
@@ -757,7 +757,7 @@ impl<D: NativeExecutionDispatch> rp_core::traits::ReadRuntimeVersion for NativeE
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_runtime_interface::{pass_by::PassFatPointerAndRead, runtime_interface};
+	use sp_runtime_interface::{pass_by::PassFatPointerAndRead, runtime_interface};
 
 	#[runtime_interface]
 	trait MyInterface {
@@ -789,7 +789,7 @@ mod tests {
 
 		fn extract_host_functions<H>(
 			_: &WasmExecutor<H>,
-		) -> Vec<&'static dyn rp_wasm_interface::Function>
+		) -> Vec<&'static dyn sp_wasm_interface::Function>
 		where
 			H: HostFunctions,
 		{

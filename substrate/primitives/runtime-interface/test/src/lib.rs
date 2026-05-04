@@ -18,20 +18,20 @@
 //! Integration tests for runtime interface primitives
 #![cfg(test)]
 
-use rp_runtime_interface::*;
+use sp_runtime_interface::*;
 
-use rp_runtime_interface_test_wasm::{test_api::HostFunctions, wasm_binary_unwrap};
-use rp_runtime_interface_test_wasm_deprecated::wasm_binary_unwrap as wasm_binary_deprecated_unwrap;
+use sp_runtime_interface_test_wasm::{test_api::HostFunctions, wasm_binary_unwrap};
+use sp_runtime_interface_test_wasm_deprecated::wasm_binary_unwrap as wasm_binary_deprecated_unwrap;
 
 use rc_executor_common::{runtime_blob::RuntimeBlob, wasm_runtime::AllocationStats};
-use rp_wasm_interface::{ExtendedHostFunctions, HostFunctions as HostFunctionsT};
+use sp_wasm_interface::{ExtendedHostFunctions, HostFunctions as HostFunctionsT};
 
 use std::{
 	collections::HashSet,
 	sync::{Arc, Mutex},
 };
 
-type TestExternalities = rp_state_machine::TestExternalities<rp_runtime::traits::BlakeTwo256>;
+type TestExternalities = sp_state_machine::TestExternalities<sp_runtime::traits::BlakeTwo256>;
 
 fn call_wasm_method_with_result<HF: HostFunctionsT>(
 	binary: &[u8],
@@ -41,7 +41,7 @@ fn call_wasm_method_with_result<HF: HostFunctionsT>(
 	let mut ext_ext = ext.ext();
 
 	let executor = rc_executor::WasmExecutor::<
-		ExtendedHostFunctions<rp_io::SubstrateHostFunctions, HF>,
+		ExtendedHostFunctions<sp_io::SubstrateHostFunctions, HF>,
 	>::builder()
 	.build();
 

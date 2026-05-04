@@ -27,8 +27,8 @@ use frame_support::{
 	traits::{ConstU32, ConstU64, Contains, Everything, InsideBoth, InstanceFilter},
 };
 use frame_system::{mocking::MockBlock, EnsureSignedBy};
-use rp_io::TestExternalities;
-use rp_runtime::{traits::BlakeTwo256, BuildStorage};
+use sp_io::TestExternalities;
+use sp_runtime::{traits::BlakeTwo256, BuildStorage};
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {

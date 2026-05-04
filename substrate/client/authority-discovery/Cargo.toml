@@ -33,19 +33,19 @@ rc-network-types = { default-features = true, workspace = true }
 rc-service = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-rp-api = { default-features = true, workspace = true }
-rp-authority-discovery = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-keystore = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-authority-discovery = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-keystore = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }
 quickcheck = { workspace = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tempfile = { workspace = true }
 

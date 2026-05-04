@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use crate::{Error, InherentData, InherentIdentifier};
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 /// Something that can create inherent data providers.
 ///

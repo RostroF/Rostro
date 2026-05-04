@@ -20,11 +20,11 @@ use frame_support::traits::OnRuntimeUpgrade;
 use log;
 
 #[cfg(feature = "try-runtime")]
-use rp_runtime::TryRuntimeError;
+use sp_runtime::TryRuntimeError;
 
 pub mod next_asset_id {
 	use super::*;
-	use rp_core::Get;
+	use sp_core::Get;
 
 	/// Set [`NextAssetId`] to the value of `ID` if [`NextAssetId`] does not exist yet.
 	pub struct SetNextAssetId<ID, T: Config<I>, I: 'static = ()>(

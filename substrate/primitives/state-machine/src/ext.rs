@@ -25,13 +25,13 @@ use crate::{
 use codec::{Compact, CompactLen, Decode, Encode};
 use hash_db::Hasher;
 #[cfg(feature = "std")]
-use rp_core::hexdisplay::HexDisplay;
-use rp_core::storage::{
+use sp_core::hexdisplay::HexDisplay;
+use sp_core::storage::{
 	well_known_keys::is_child_storage_key, ChildInfo, StateVersion, TrackedStorageKey,
 };
 #[cfg(feature = "std")]
-use rp_externalities::TransactionType;
-use rp_externalities::{Extension, ExtensionStore, Externalities, MultiRemovalResults};
+use sp_externalities::TransactionType;
+use sp_externalities::{Extension, ExtensionStore, Externalities, MultiRemovalResults};
 
 use crate::{trace, warn};
 use alloc::{boxed::Box, vec::Vec};
@@ -47,8 +47,8 @@ const BENCHMARKING_FN: &str = "\
 	Without client transactions the loop condition guarantees the success of the tx close.";
 
 #[cfg(feature = "std")]
-fn guard() -> rp_panic_handler::AbortGuard {
-	rp_panic_handler::AbortGuard::force_abort()
+fn guard() -> sp_panic_handler::AbortGuard {
+	sp_panic_handler::AbortGuard::force_abort()
 }
 
 #[cfg(not(feature = "std"))]
@@ -89,7 +89,7 @@ where
 	pub fn new(
 		overlay: &'a mut OverlayedChanges<H>,
 		backend: &'a B,
-		extensions: Option<&'a mut rp_externalities::Extensions>,
+		extensions: Option<&'a mut sp_externalities::Extensions>,
 	) -> Self {
 		Self {
 			overlay,
@@ -418,7 +418,7 @@ where
 		);
 		let _guard = guard();
 
-		if rp_core::storage::well_known_keys::starts_with_child_storage_key(prefix) {
+		if sp_core::storage::well_known_keys::starts_with_child_storage_key(prefix) {
 			warn!(
 				target: "trie",
 				"Refuse to directly clear prefix that is part or contains of child storage key",
@@ -779,15 +779,15 @@ where
 		&mut self,
 		_type_id: TypeId,
 		_extension: Box<dyn Extension>,
-	) -> Result<(), rp_externalities::Error> {
-		Err(rp_externalities::Error::ExtensionsAreNotSupported)
+	) -> Result<(), sp_externalities::Error> {
+		Err(sp_externalities::Error::ExtensionsAreNotSupported)
 	}
 
 	fn deregister_extension_by_type_id(
 		&mut self,
 		_type_id: TypeId,
-	) -> Result<(), rp_externalities::Error> {
-		Err(rp_externalities::Error::ExtensionsAreNotSupported)
+	) -> Result<(), sp_externalities::Error> {
+		Err(sp_externalities::Error::ExtensionsAreNotSupported)
 	}
 }
 
@@ -805,26 +805,26 @@ where
 		&mut self,
 		type_id: TypeId,
 		extension: Box<dyn Extension>,
-	) -> Result<(), rp_externalities::Error> {
+	) -> Result<(), sp_externalities::Error> {
 		if let Some(ref mut extensions) = self.extensions {
 			extensions.register(type_id, extension)
 		} else {
-			Err(rp_externalities::Error::ExtensionsAreNotSupported)
+			Err(sp_externalities::Error::ExtensionsAreNotSupported)
 		}
 	}
 
 	fn deregister_extension_by_type_id(
 		&mut self,
 		type_id: TypeId,
-	) -> Result<(), rp_externalities::Error> {
+	) -> Result<(), sp_externalities::Error> {
 		if let Some(ref mut extensions) = self.extensions {
 			if extensions.deregister(type_id) {
 				Ok(())
 			} else {
-				Err(rp_externalities::Error::ExtensionIsNotRegistered(type_id))
+				Err(sp_externalities::Error::ExtensionIsNotRegistered(type_id))
 			}
 		} else {
-			Err(rp_externalities::Error::ExtensionsAreNotSupported)
+			Err(sp_externalities::Error::ExtensionsAreNotSupported)
 		}
 	}
 }
@@ -834,7 +834,7 @@ mod tests {
 	use super::*;
 	use crate::InMemoryBackend;
 	use codec::{Decode, Encode};
-	use rp_core::{
+	use sp_core::{
 		map,
 		storage::{Storage, StorageChild},
 		Blake2Hasher,
@@ -1028,7 +1028,7 @@ mod tests {
 
 		let ext = TestExt::new(&mut overlay, &backend, None);
 
-		use rp_core::storage::well_known_keys;
+		use sp_core::storage::well_known_keys;
 		let mut ext = ext;
 		let mut not_under_prefix = well_known_keys::CHILD_STORAGE_KEY_PREFIX.to_vec();
 		not_under_prefix[4] = 88;

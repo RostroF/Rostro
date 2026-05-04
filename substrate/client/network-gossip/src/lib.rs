@@ -73,7 +73,7 @@ use rc_network_types::{
 	multiaddr::{Multiaddr, Protocol},
 	PeerId,
 };
-use rp_runtime::traits::{Block as BlockT, NumberFor};
+use sp_runtime::traits::{Block as BlockT, NumberFor};
 use std::iter;
 
 mod bridge;

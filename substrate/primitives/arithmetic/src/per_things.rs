@@ -240,7 +240,7 @@ pub trait PerThing:
 	/// nearest whole number.
 	///
 	/// ```rust
-	/// # use rp_arithmetic::{Percent, PerThing};
+	/// # use sp_arithmetic::{Percent, PerThing};
 	/// # fn main () {
 	/// // round to nearest
 	/// assert_eq!(Percent::from_percent(34) * 10u64, 3);
@@ -264,7 +264,7 @@ pub trait PerThing:
 	/// rounds to the nearest whole number.
 	///
 	/// ```rust
-	/// # use rp_arithmetic::{Percent, PerThing};
+	/// # use sp_arithmetic::{Percent, PerThing};
 	/// # fn main () {
 	/// // round to nearest
 	/// assert_eq!(Percent::from_percent(34) * 10u64, 3);
@@ -288,7 +288,7 @@ pub trait PerThing:
 	/// nearest whole number and saturates at the numeric bounds instead of overflowing.
 	///
 	/// ```rust
-	/// # use rp_arithmetic::{Percent, PerThing};
+	/// # use sp_arithmetic::{Percent, PerThing};
 	/// # fn main () {
 	/// assert_eq!(Percent::from_percent(50).saturating_reciprocal_mul(10u64), 20);
 	/// # }
@@ -306,7 +306,7 @@ pub trait PerThing:
 	/// nearest whole number and saturates at the numeric bounds instead of overflowing.
 	///
 	/// ```rust
-	/// # use rp_arithmetic::{Percent, PerThing};
+	/// # use sp_arithmetic::{Percent, PerThing};
 	/// # fn main () {
 	/// // round to nearest
 	/// assert_eq!(Percent::from_percent(60).saturating_reciprocal_mul(10u64), 17);
@@ -327,7 +327,7 @@ pub trait PerThing:
 	/// nearest whole number and saturates at the numeric bounds instead of overflowing.
 	///
 	/// ```rust
-	/// # use rp_arithmetic::{Percent, PerThing};
+	/// # use sp_arithmetic::{Percent, PerThing};
 	/// # fn main () {
 	/// // round to nearest
 	/// assert_eq!(Percent::from_percent(61).saturating_reciprocal_mul(10u64), 16);
@@ -372,7 +372,7 @@ pub trait PerThing:
 	/// Note that this always rounds _down_, i.e.
 	///
 	/// ```rust
-	/// # use rp_arithmetic::{Percent, PerThing};
+	/// # use sp_arithmetic::{Percent, PerThing};
 	/// # fn main () {
 	/// // 989/1000 is technically closer to 99%.
 	/// assert_eq!(
@@ -401,7 +401,7 @@ pub trait PerThing:
 	/// Rounding is determined by the parameter `rounding`, i.e.
 	///
 	/// ```rust
-	/// # use rp_arithmetic::{Percent, PerThing, Rounding::*};
+	/// # use sp_arithmetic::{Percent, PerThing, Rounding::*};
 	/// # fn main () {
 	/// // 989/100 is technically closer to 99%.
 	/// assert_eq!(
@@ -436,7 +436,7 @@ pub trait PerThing:
 	/// ```
 	///
 	/// ```rust
-	/// # use rp_arithmetic::{Percent, PerThing, Rounding::*};
+	/// # use sp_arithmetic::{Percent, PerThing, Rounding::*};
 	/// # fn main () {
 	/// assert_eq!(
 	/// 	Percent::from_rational_with_rounding(981u64, 1000, Up).unwrap(),
@@ -856,7 +856,7 @@ macro_rules! implement_per_thing {
 			/// The `rounding` method must be specified. e.g.:
 			///
 			/// ```rust
-			/// # use rp_arithmetic::{Percent, PerThing, Rounding::*};
+			/// # use sp_arithmetic::{Percent, PerThing, Rounding::*};
 			/// # fn main () {
 			/// let pc = |x| Percent::from_percent(x);
 			/// assert_eq!(

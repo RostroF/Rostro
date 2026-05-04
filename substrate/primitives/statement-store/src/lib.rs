@@ -26,13 +26,13 @@ use alloc::vec::Vec;
 use codec::{Compact, Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use core::ops::Deref;
 use scale_info::{build::Fields, Path, Type, TypeInfo};
-use rp_application_crypto::RuntimeAppPublic;
+use sp_application_crypto::RuntimeAppPublic;
 #[cfg(feature = "std")]
-use rp_core::Pair;
+use sp_core::Pair;
 
 /// Statement topic.
 ///
-/// A 32-byte topic identifier that serializes as a hex string (like `rp_core::Bytes`).
+/// A 32-byte topic identifier that serializes as a hex string (like `sp_core::Bytes`).
 #[derive(
 	Clone,
 	Copy,
@@ -57,7 +57,7 @@ impl serde::Serialize for Topic {
 	where
 		S: serde::Serializer,
 	{
-		rp_core::bytes::serialize(&self.0, serializer)
+		sp_core::bytes::serialize(&self.0, serializer)
 	}
 }
 
@@ -68,9 +68,9 @@ impl<'de> serde::Deserialize<'de> for Topic {
 		D: serde::Deserializer<'de>,
 	{
 		let mut arr = [0u8; 32];
-		rp_core::bytes::deserialize_check_len(
+		sp_core::bytes::deserialize_check_len(
 			deserializer,
-			rp_core::bytes::ExpectedLen::Exact(&mut arr[..]),
+			sp_core::bytes::ExpectedLen::Exact(&mut arr[..]),
 		)?;
 		Ok(Topic(arr))
 	}
@@ -218,7 +218,7 @@ mod store_api;
 
 mod sr25519 {
 	mod app_sr25519 {
-		use rp_application_crypto::{app_crypto, key_types::STATEMENT, sr25519};
+		use sp_application_crypto::{app_crypto, key_types::STATEMENT, sr25519};
 		app_crypto!(sr25519, STATEMENT);
 	}
 	pub type Public = app_sr25519::Public;
@@ -227,7 +227,7 @@ mod sr25519 {
 /// Statement-store specific ed25519 crypto primitives.
 pub mod ed25519 {
 	mod app_ed25519 {
-		use rp_application_crypto::{app_crypto, ed25519, key_types::STATEMENT};
+		use sp_application_crypto::{app_crypto, ed25519, key_types::STATEMENT};
 		app_crypto!(ed25519, STATEMENT);
 	}
 	/// Statement-store specific ed25519 public key.
@@ -239,7 +239,7 @@ pub mod ed25519 {
 
 mod ecdsa {
 	mod app_ecdsa {
-		use rp_application_crypto::{app_crypto, ecdsa, key_types::STATEMENT};
+		use sp_application_crypto::{app_crypto, ecdsa, key_types::STATEMENT};
 		app_crypto!(ecdsa, STATEMENT);
 	}
 	pub type Public = app_ecdsa::Public;
@@ -248,7 +248,7 @@ mod ecdsa {
 /// Returns blake2-256 hash for the encoded statement.
 #[cfg(feature = "std")]
 pub fn hash_encoded(data: &[u8]) -> [u8; 32] {
-	rp_crypto_hashing::blake2_256(data)
+	sp_crypto_hashing::blake2_256(data)
 }
 
 /// Statement proof.
@@ -295,7 +295,7 @@ impl Proof {
 			Proof::Sr25519 { signer, .. } => *signer,
 			Proof::Ed25519 { signer, .. } => *signer,
 			Proof::Secp256k1Ecdsa { signer, .. } => {
-				<rp_runtime::traits::BlakeTwo256 as rp_core::Hasher>::hash(signer).into()
+				<sp_runtime::traits::BlakeTwo256 as sp_core::Hasher>::hash(signer).into()
 			},
 			Proof::OnChain { who, .. } => *who,
 		}
@@ -476,7 +476,7 @@ impl Statement {
 
 	/// Sign with a given private key and add the signature proof field.
 	#[cfg(feature = "std")]
-	pub fn sign_sr25519_private(&mut self, key: &rp_core::sr25519::Pair) {
+	pub fn sign_sr25519_private(&mut self, key: &sp_core::sr25519::Pair) {
 		let to_sign = self.signature_material();
 		let proof =
 			Proof::Sr25519 { signature: key.sign(&to_sign).into(), signer: key.public().into() };
@@ -504,7 +504,7 @@ impl Statement {
 
 	/// Sign with a given private key and add the signature proof field.
 	#[cfg(feature = "std")]
-	pub fn sign_ed25519_private(&mut self, key: &rp_core::ed25519::Pair) {
+	pub fn sign_ed25519_private(&mut self, key: &sp_core::ed25519::Pair) {
 		let to_sign = self.signature_material();
 		let proof =
 			Proof::Ed25519 { signature: key.sign(&to_sign).into(), signer: key.public().into() };
@@ -536,7 +536,7 @@ impl Statement {
 
 	/// Sign with a given private key and add the signature proof field.
 	#[cfg(feature = "std")]
-	pub fn sign_ecdsa_private(&mut self, key: &rp_core::ecdsa::Pair) {
+	pub fn sign_ecdsa_private(&mut self, key: &sp_core::ecdsa::Pair) {
 		let to_sign = self.signature_material();
 		let proof =
 			Proof::Secp256k1Ecdsa { signature: key.sign(&to_sign).into(), signer: key.public().0 };
@@ -545,14 +545,14 @@ impl Statement {
 
 	/// Check proof signature, if any.
 	pub fn verify_signature(&self) -> SignatureVerificationResult {
-		use rp_runtime::traits::Verify;
+		use sp_runtime::traits::Verify;
 
 		match self.proof() {
 			Some(Proof::OnChain { .. }) | None => SignatureVerificationResult::NoSignature,
 			Some(Proof::Sr25519 { signature, signer }) => {
 				let to_sign = self.signature_material();
-				let signature = rp_core::sr25519::Signature::from(*signature);
-				let public = rp_core::sr25519::Public::from(*signer);
+				let signature = sp_core::sr25519::Signature::from(*signature);
+				let public = sp_core::sr25519::Public::from(*signer);
 				if signature.verify(to_sign.as_slice(), &public) {
 					SignatureVerificationResult::Valid(*signer)
 				} else {
@@ -561,8 +561,8 @@ impl Statement {
 			},
 			Some(Proof::Ed25519 { signature, signer }) => {
 				let to_sign = self.signature_material();
-				let signature = rp_core::ed25519::Signature::from(*signature);
-				let public = rp_core::ed25519::Public::from(*signer);
+				let signature = sp_core::ed25519::Signature::from(*signature);
+				let public = sp_core::ed25519::Public::from(*signer);
 				if signature.verify(to_sign.as_slice(), &public) {
 					SignatureVerificationResult::Valid(*signer)
 				} else {
@@ -571,11 +571,11 @@ impl Statement {
 			},
 			Some(Proof::Secp256k1Ecdsa { signature, signer }) => {
 				let to_sign = self.signature_material();
-				let signature = rp_core::ecdsa::Signature::from(*signature);
-				let public = rp_core::ecdsa::Public::from(*signer);
+				let signature = sp_core::ecdsa::Signature::from(*signature);
+				let public = sp_core::ecdsa::Public::from(*signer);
 				if signature.verify(to_sign.as_slice(), &public) {
 					let sender_hash =
-						<rp_runtime::traits::BlakeTwo256 as rp_core::Hasher>::hash(signer);
+						<sp_runtime::traits::BlakeTwo256 as sp_core::Hasher>::hash(signer);
 					SignatureVerificationResult::Valid(sender_hash.into())
 				} else {
 					SignatureVerificationResult::Invalid
@@ -785,7 +785,7 @@ impl Statement {
 	pub fn encrypt(
 		&mut self,
 		data: &[u8],
-		key: &rp_core::ed25519::Public,
+		key: &sp_core::ed25519::Public,
 	) -> core::result::Result<(), ecies::Error> {
 		let encrypted = ecies::encrypt_ed25519(key, data)?;
 		self.data = Some(encrypted);
@@ -797,7 +797,7 @@ impl Statement {
 	#[cfg(feature = "std")]
 	pub fn decrypt_private(
 		&self,
-		key: &rp_core::ed25519::Pair,
+		key: &sp_core::ed25519::Pair,
 	) -> core::result::Result<Option<Vec<u8>>, ecies::Error> {
 		self.data.as_ref().map(|d| ecies::decrypt_ed25519(key, d)).transpose()
 	}
@@ -810,8 +810,8 @@ mod test {
 	};
 	use codec::{Decode, Encode};
 	use scale_info::{MetaType, TypeInfo};
-	use rp_application_crypto::Pair;
-	use rp_core::sr25519;
+	use sp_application_crypto::Pair;
+	use sp_core::sr25519;
 
 	#[test]
 	fn statement_encoding_matches_vec() {
@@ -882,9 +882,9 @@ mod test {
 		let mut statement = Statement::new();
 		statement.set_plain_data(vec![42]);
 
-		let sr25519_kp = rp_core::sr25519::Pair::from_string("//Alice", None).unwrap();
-		let ed25519_kp = rp_core::ed25519::Pair::from_string("//Alice", None).unwrap();
-		let secp256k1_kp = rp_core::ecdsa::Pair::from_string("//Alice", None).unwrap();
+		let sr25519_kp = sp_core::sr25519::Pair::from_string("//Alice", None).unwrap();
+		let ed25519_kp = sp_core::ed25519::Pair::from_string("//Alice", None).unwrap();
+		let secp256k1_kp = sp_core::ecdsa::Pair::from_string("//Alice", None).unwrap();
 
 		statement.sign_sr25519_private(&sr25519_kp);
 		assert_eq!(
@@ -901,7 +901,7 @@ mod test {
 		statement.sign_ecdsa_private(&secp256k1_kp);
 		assert_eq!(
 			statement.verify_signature(),
-			SignatureVerificationResult::Valid(rp_crypto_hashing::blake2_256(
+			SignatureVerificationResult::Valid(sp_crypto_hashing::blake2_256(
 				&secp256k1_kp.public().0
 			))
 		);
@@ -917,10 +917,10 @@ mod test {
 	#[test]
 	fn encrypt_decrypt() {
 		let mut statement = Statement::new();
-		let (pair, _) = rp_core::ed25519::Pair::generate();
+		let (pair, _) = sp_core::ed25519::Pair::generate();
 		let plain = b"test data".to_vec();
 
-		// let sr25519_kp = rp_core::sr25519::Pair::from_string("//Alice", None).unwrap();
+		// let sr25519_kp = sp_core::sr25519::Pair::from_string("//Alice", None).unwrap();
 		statement.encrypt(&plain, &pair.public()).unwrap();
 		assert_ne!(plain.as_slice(), statement.data().unwrap().as_slice());
 

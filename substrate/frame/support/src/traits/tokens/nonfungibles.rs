@@ -30,7 +30,7 @@
 use crate::dispatch::DispatchResult;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
-use rp_runtime::{DispatchError, TokenError};
+use sp_runtime::{DispatchError, TokenError};
 
 /// Trait for providing an interface to many read-only NFT-like sets of items.
 pub trait Inspect<AccountId> {

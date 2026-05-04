@@ -1,5 +1,5 @@
 [package]
-name = "rp-runtime-interface-test-wasm"
+name = "sp-runtime-interface-test-wasm"
 version = "2.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -17,9 +17,9 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 bytes = { workspace = true }
-rp-core = { workspace = true }
-rp-io = { workspace = true }
-rp-runtime-interface = { workspace = true }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime-interface = { workspace = true }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
@@ -28,8 +28,8 @@ substrate-wasm-builder = { optional = true, workspace = true, default-features =
 default = ["std"]
 std = [
 	"bytes/std",
-	"rp-core/std",
-	"rp-io/std",
-	"rp-runtime-interface/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime-interface/std",
 	"substrate-wasm-builder",
 ]

@@ -29,25 +29,25 @@ use rc_consensus_babe::{
 use rc_consensus_epochs::{
 	descendent_query, EpochHeader, SharedEpochChanges, ViableEpochDescriptor,
 };
-use rp_keystore::KeystorePtr;
+use sp_keystore::KeystorePtr;
 use std::sync::Arc;
 
 use rc_consensus::{BlockImportParams, ForkChoiceStrategy, Verifier};
-use rp_api::{ProvideRuntimeApi, StorageProof};
-use rp_blockchain::{HeaderBackend, HeaderMetadata};
-use rp_consensus_babe::{
+use sp_api::{ProvideRuntimeApi, StorageProof};
+use sp_blockchain::{HeaderBackend, HeaderMetadata};
+use sp_consensus_babe::{
 	digests::{NextEpochDescriptor, PreDigest, SecondaryPlainPreDigest},
 	inherents::BabeInherentData,
 	AuthorityId, BabeApi, BabeAuthorityWeight, BabeConfiguration, ConsensusLog, BABE_ENGINE_ID,
 };
-use rp_consensus_slots::Slot;
-use rp_inherents::InherentData;
-use rp_runtime::{
+use sp_consensus_slots::Slot;
+use sp_inherents::InherentData;
+use sp_runtime::{
 	generic::Digest,
 	traits::{Block as BlockT, Header},
 	DigestItem,
 };
-use rp_timestamp::TimestampInherentData;
+use sp_timestamp::TimestampInherentData;
 
 /// Provides BABE-compatible predigests and BlockImportParams.
 /// Intended for use with BABE runtimes.
@@ -92,7 +92,7 @@ impl<B: BlockT, C> BabeVerifier<B, C> {
 impl<B, C> Verifier<B> for BabeVerifier<B, C>
 where
 	B: BlockT,
-	C: HeaderBackend<B> + HeaderMetadata<B, Error = rp_blockchain::Error>,
+	C: HeaderBackend<B> + HeaderMetadata<B, Error = sp_blockchain::Error>,
 {
 	async fn verify(
 		&self,
@@ -119,7 +119,7 @@ where
 				pre_digest.slot(),
 			)
 			.map_err(|e| format!("failed to fetch epoch_descriptor: {}", e))?
-			.ok_or_else(|| format!("{}", rp_consensus::Error::InvalidAuthoritiesSet))?;
+			.ok_or_else(|| format!("{}", sp_consensus::Error::InvalidAuthoritiesSet))?;
 		// drop the lock
 		drop(epoch_changes);
 
@@ -136,7 +136,7 @@ where
 	C: AuxStore
 		+ HeaderBackend<B>
 		+ ProvideRuntimeApi<B>
-		+ HeaderMetadata<B, Error = rp_blockchain::Error>
+		+ HeaderMetadata<B, Error = sp_blockchain::Error>
 		+ UsageProvider<B>,
 	C::Api: BabeApi<B>,
 {
@@ -165,13 +165,13 @@ where
 				slot,
 			)
 			.map_err(|e| Error::StringError(format!("failed to fetch epoch_descriptor: {}", e)))?
-			.ok_or(rp_consensus::Error::InvalidAuthoritiesSet)?;
+			.ok_or(sp_consensus::Error::InvalidAuthoritiesSet)?;
 
 		let epoch = epoch_changes
 			.viable_epoch(&epoch_descriptor, |slot| Epoch::genesis(&self.config, slot))
 			.ok_or_else(|| {
 				log::info!(target: LOG_TARGET, "create_digest: no viable_epoch :(");
-				rp_consensus::Error::InvalidAuthoritiesSet
+				sp_consensus::Error::InvalidAuthoritiesSet
 			})?;
 
 		Ok(epoch.as_ref().clone())
@@ -183,7 +183,7 @@ where
 	B: BlockT,
 	C: AuxStore
 		+ HeaderBackend<B>
-		+ HeaderMetadata<B, Error = rp_blockchain::Error>
+		+ HeaderMetadata<B, Error = sp_blockchain::Error>
 		+ UsageProvider<B>
 		+ ProvideRuntimeApi<B>,
 	C::Api: BabeApi<B>,
@@ -217,13 +217,13 @@ where
 				.map_err(|e| {
 					Error::StringError(format!("failed to fetch epoch_descriptor: {}", e))
 				})?
-				.ok_or(rp_consensus::Error::InvalidAuthoritiesSet)?;
+				.ok_or(sp_consensus::Error::InvalidAuthoritiesSet)?;
 
 			match epoch_descriptor {
 				ViableEpochDescriptor::Signaled(identifier, _epoch_header) => {
 					let epoch_mut = epoch_changes
 						.epoch_mut(&identifier)
-						.ok_or(rp_consensus::Error::InvalidAuthoritiesSet)?;
+						.ok_or(sp_consensus::Error::InvalidAuthoritiesSet)?;
 
 					// mutate the current epoch
 					epoch_mut.authorities = self.authorities.clone();
@@ -268,7 +268,7 @@ where
 				slot,
 			)
 			.map_err(|e| Error::StringError(format!("failed to fetch epoch_descriptor: {}", e)))?
-			.ok_or(rp_consensus::Error::InvalidAuthoritiesSet)?;
+			.ok_or(sp_consensus::Error::InvalidAuthoritiesSet)?;
 		// drop the lock
 		drop(epoch_changes);
 		// a quick check to see if we're in the authorities

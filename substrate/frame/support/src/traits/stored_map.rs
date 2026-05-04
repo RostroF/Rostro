@@ -19,7 +19,7 @@
 
 use crate::storage::StorageMap;
 use codec::FullCodec;
-use rp_runtime::DispatchError;
+use sp_runtime::DispatchError;
 
 /// An abstraction of a value stored within storage, but possibly as part of a larger composite
 /// item.

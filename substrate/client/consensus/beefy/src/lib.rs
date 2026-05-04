@@ -40,14 +40,14 @@ use rc_consensus::BlockImport;
 use rc_network::{NetworkRequest, NotificationService, ProtocolName};
 use rc_network_gossip::{GossipEngine, Network as GossipNetwork, Syncing as GossipSyncing};
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver};
-use rp_api::ProvideRuntimeApi;
-use rp_blockchain::{Backend as BlockchainBackend, HeaderBackend};
-use rp_consensus::{Error as ConsensusError, SyncOracle};
-use rp_consensus_beefy::{
+use sp_api::ProvideRuntimeApi;
+use sp_blockchain::{Backend as BlockchainBackend, HeaderBackend};
+use sp_consensus::{Error as ConsensusError, SyncOracle};
+use sp_consensus_beefy::{
 	AuthorityIdBound, BeefyApi, ConsensusLog, PayloadProvider, ValidatorSet, BEEFY_ENGINE_ID,
 };
-use rp_keystore::KeystorePtr;
-use rp_runtime::traits::{Block, Header as HeaderT, NumberFor, Zero};
+use sp_keystore::KeystorePtr;
+use sp_runtime::traits::{Block, Header as HeaderT, NumberFor, Zero};
 use std::{
 	collections::{BTreeMap, VecDeque},
 	future::Future,
@@ -80,7 +80,7 @@ use crate::{
 pub use communication::beefy_protocol_name::{
 	gossip_protocol_name, justifications_protocol_name as justifs_protocol_name,
 };
-use rp_runtime::generic::OpaqueDigestItemId;
+use sp_runtime::generic::OpaqueDigestItemId;
 
 mod fisherman;
 #[cfg(test)]

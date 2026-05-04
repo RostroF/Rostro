@@ -1,5 +1,5 @@
 [package]
-name = "rp-block-builder"
+name = "sp-block-builder"
 version = "41.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -16,10 +16,10 @@ workspace = true
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-rp-api = { workspace = true }
-rp-inherents = { workspace = true }
-rp-runtime = { workspace = true }
+sp-api = { workspace = true }
+sp-inherents = { workspace = true }
+sp-runtime = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["rp-api/std", "rp-inherents/std", "rp-runtime/std"]
+std = ["sp-api/std", "sp-inherents/std", "sp-runtime/std"]

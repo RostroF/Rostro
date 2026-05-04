@@ -28,8 +28,8 @@ use frame_support::{
 	},
 };
 use frame_system::{Pallet as System, RawOrigin};
-use rp_runtime::{traits::One, Saturating};
-use rp_std::prelude::*;
+use sp_runtime::{traits::One, Saturating};
+use sp_std::prelude::*;
 
 /// Benchmark Helper
 pub trait BenchmarkHelper<AssetId> {

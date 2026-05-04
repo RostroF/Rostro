@@ -21,14 +21,14 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 pallet-session = { features = ["historical"], workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-application-crypto = { workspace = true }
-rp-authority-discovery = { workspace = true }
-rp-runtime = { workspace = true }
+sp-application-crypto = { workspace = true }
+sp-authority-discovery = { workspace = true }
+sp-runtime = { workspace = true }
 
 [dev-dependencies]
 pallet-balances = { workspace = true, default-features = false }
-rp-core = { default-features = true, workspace = true }
-rp-io = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-io = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -39,14 +39,14 @@ std = [
 	"pallet-balances/std",
 	"pallet-session/std",
 	"scale-info/std",
-	"rp-application-crypto/std",
-	"rp-authority-discovery/std",
-	"rp-runtime/std",
+	"sp-application-crypto/std",
+	"sp-authority-discovery/std",
+	"sp-runtime/std",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"pallet-balances/try-runtime",
 	"pallet-session/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

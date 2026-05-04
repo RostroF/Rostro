@@ -30,7 +30,7 @@ use crate::{
 use futures::stream::StreamExt;
 use rc_transaction_pool_api::TransactionStatus;
 use rc_utils::mpsc;
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 use std::{
 	collections::{
 		hash_map::{Entry, OccupiedEntry},
@@ -442,13 +442,13 @@ mod dropped_watcher_tests {
 	use super::*;
 	use crate::common::tests::TestApi;
 	use futures::{stream::pending, FutureExt, StreamExt};
-	use rp_core::H256;
+	use sp_core::H256;
 
 	type MultiViewDroppedWatcher = super::MultiViewDroppedWatcherController<TestApi>;
 
 	#[tokio::test]
 	async fn test01() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (watcher, output_stream) = MultiViewDroppedWatcher::new();
 
 		let block_hash = H256::repeat_byte(0x01);
@@ -467,7 +467,7 @@ mod dropped_watcher_tests {
 
 	#[tokio::test]
 	async fn test02() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (watcher, mut output_stream) = MultiViewDroppedWatcher::new();
 
 		let block_hash0 = H256::repeat_byte(0x01);
@@ -492,7 +492,7 @@ mod dropped_watcher_tests {
 
 	#[tokio::test]
 	async fn test03() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (watcher, output_stream) = MultiViewDroppedWatcher::new();
 
 		let block_hash0 = H256::repeat_byte(0x01);
@@ -520,7 +520,7 @@ mod dropped_watcher_tests {
 
 	#[tokio::test]
 	async fn test04() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (watcher, mut output_stream) = MultiViewDroppedWatcher::new();
 
 		let block_hash0 = H256::repeat_byte(0x01);
@@ -549,7 +549,7 @@ mod dropped_watcher_tests {
 
 	#[tokio::test]
 	async fn test05() {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let (watcher, mut output_stream) = MultiViewDroppedWatcher::new();
 		assert!(output_stream.next().now_or_never().is_none());
 

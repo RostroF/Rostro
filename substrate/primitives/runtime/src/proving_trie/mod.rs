@@ -24,7 +24,7 @@ use crate::{Decode, DecodeWithMemTracking, DispatchError, Encode, MaxEncodedLen,
 #[cfg(feature = "serde")]
 use crate::{Deserialize, Serialize};
 use alloc::vec::Vec;
-use rp_trie::{trie_types::TrieError as SpTrieError, VerifyError};
+use sp_trie::{trie_types::TrieError as SpTrieError, VerifyError};
 
 /// A runtime friendly error type for tries.
 #[derive(
@@ -129,7 +129,7 @@ impl From<TrieError> for &'static str {
 pub trait ProvingTrie<Hashing, Key, Value>
 where
 	Self: Sized,
-	Hashing: rp_core::Hasher,
+	Hashing: sp_core::Hasher,
 {
 	/// Create a new instance of a `ProvingTrie` using an iterator of key/value pairs.
 	fn generate_for<I>(items: I) -> Result<Self, DispatchError>

@@ -17,16 +17,16 @@
 
 //! Integration tests for bls12-381
 
-use rp_api::{ApiExt, ProvideRuntimeApi};
-use rp_application_crypto::{bls381::AppPair, RuntimePublic};
-use rp_core::{
+use sp_api::{ApiExt, ProvideRuntimeApi};
+use sp_application_crypto::{bls381::AppPair, RuntimePublic};
+use sp_core::{
 	bls381::Pair as Bls381Pair,
 	crypto::ByteArray,
 	proof_of_possession::{ProofOfPossessionGenerator, ProofOfPossessionVerifier},
 	testing::BLS381,
 	Pair,
 };
-use rp_keystore::{testing::MemoryKeystore, Keystore, KeystoreExt};
+use sp_keystore::{testing::MemoryKeystore, Keystore, KeystoreExt};
 use std::sync::Arc;
 use substrate_test_runtime_client::{
 	runtime::{TestAPI, TEST_OWNER},
@@ -35,7 +35,7 @@ use substrate_test_runtime_client::{
 
 #[test]
 fn bls381_works_in_runtime() {
-	rp_tracing::try_init_simple();
+	sp_tracing::try_init_simple();
 	let keystore = Arc::new(MemoryKeystore::new());
 	let test_client = TestClientBuilder::new().build();
 

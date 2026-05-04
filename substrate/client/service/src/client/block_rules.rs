@@ -20,7 +20,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use rp_runtime::traits::{Block as BlockT, NumberFor};
+use sp_runtime::traits::{Block as BlockT, NumberFor};
 
 use rc_client_api::{BadBlocks, ForkBlocks};
 

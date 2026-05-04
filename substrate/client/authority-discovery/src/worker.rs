@@ -49,17 +49,17 @@ use rc_network::{
 };
 use rc_network_types::{multihash::Code, PeerId};
 use schema::PeerSignature;
-use rp_api::{ApiError, ProvideRuntimeApi};
-use rp_authority_discovery::{
+use sp_api::{ApiError, ProvideRuntimeApi};
+use sp_authority_discovery::{
 	AuthorityDiscoveryApi, AuthorityId, AuthorityPair, AuthoritySignature,
 };
-use rp_blockchain::HeaderBackend;
-use rp_core::{
+use sp_blockchain::HeaderBackend;
+use sp_core::{
 	crypto::{key_types, ByteArray, Pair},
 	traits::SpawnNamed,
 };
-use rp_keystore::{Keystore, KeystorePtr};
-use rp_runtime::traits::Block as BlockT;
+use sp_keystore::{Keystore, KeystorePtr};
+use sp_runtime::traits::Block as BlockT;
 
 mod addr_cache;
 /// Dht payload schemas generated from Protobuf definitions via Prost crate in build.rs.
@@ -213,7 +213,7 @@ struct RecordInfo {
 	record: Record,
 }
 
-/// Wrapper for [`AuthorityDiscoveryApi`](rp_authority_discovery::AuthorityDiscoveryApi). Can be
+/// Wrapper for [`AuthorityDiscoveryApi`](sp_authority_discovery::AuthorityDiscoveryApi). Can be
 /// be implemented by any struct without dependency on the runtime.
 #[async_trait::async_trait]
 pub trait AuthorityDiscovery<Block: BlockT> {

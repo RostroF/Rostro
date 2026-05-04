@@ -22,8 +22,8 @@
 //!
 //! ```
 //! # use rc_basic_authorship::ProposerFactory;
-//! # use rp_consensus::{Environment, Proposer, ProposeArgs};
-//! # use rp_runtime::generic::BlockId;
+//! # use sp_consensus::{Environment, Proposer, ProposeArgs};
+//! # use sp_runtime::generic::BlockId;
 //! # use std::{sync::Arc, time::Duration};
 //! # use substrate_test_runtime_client::{
 //! #     runtime::Transfer, Sr25519Keyring,
@@ -31,7 +31,7 @@
 //! # };
 //! # use rc_transaction_pool::{BasicPool, FullChainApi};
 //! # let client = Arc::new(substrate_test_runtime_client::new());
-//! # let spawner = rp_core::testing::TaskExecutor::new();
+//! # let spawner = sp_core::testing::TaskExecutor::new();
 //! # let txpool = Arc::from(BasicPool::new_full(
 //! #     Default::default(),
 //! #     true.into(),
@@ -74,4 +74,4 @@
 mod basic_authorship;
 
 pub use crate::basic_authorship::{Proposer, ProposerFactory, DEFAULT_BLOCK_SIZE_LIMIT};
-pub use rp_consensus::ProposeArgs;
+pub use sp_consensus::ProposeArgs;

@@ -17,7 +17,7 @@
 
 //! # Delegated Staking Pallet
 //!
-//! This pallet implements [`rp_staking::DelegationInterface`] that provides delegation
+//! This pallet implements [`sp_staking::DelegationInterface`] that provides delegation
 //! functionality to `delegators` and `agents`. It is designed to be used in conjunction with
 //! [`StakingInterface`] and relies on [`Config::CoreStaking`] to provide primitive staking
 //! functions.
@@ -86,7 +86,7 @@
 //! slashes are cleared.
 //!
 //! The user of this pallet can apply slash using
-//! [DelegationInterface::delegator_slash](rp_staking::DelegationInterface::delegator_slash).
+//! [DelegationInterface::delegator_slash](sp_staking::DelegationInterface::delegator_slash).
 //!
 //! ## Migration from Nominator to Agent
 //! More details [here](https://hackmd.io/@ak0n/454-np-governance).
@@ -153,12 +153,12 @@ use frame_support::{
 		Defensive, DefensiveOption, Imbalance, OnUnbalanced,
 	},
 };
-use rp_io::hashing::blake2_256;
-use rp_runtime::{
+use sp_io::hashing::blake2_256;
+use sp_runtime::{
 	traits::{CheckedAdd, CheckedSub, TrailingZeroInput, Zero},
 	ArithmeticError, Debug, DispatchResult, Perbill, Saturating,
 };
-use rp_staking::{Agent, Delegator, EraIndex, StakingInterface, StakingUnchecked};
+use sp_staking::{Agent, Delegator, EraIndex, StakingInterface, StakingUnchecked};
 
 /// The log target of this pallet.
 pub const LOG_TARGET: &str = "runtime::delegated-staking";
@@ -453,7 +453,7 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		#[cfg(feature = "try-runtime")]
-		fn try_state(_n: BlockNumberFor<T>) -> Result<(), rp_runtime::TryRuntimeError> {
+		fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 			Self::do_try_state()
 		}
 	}
@@ -766,7 +766,7 @@ use alloc::collections::btree_map::BTreeMap;
 
 #[cfg(any(test, feature = "try-runtime"))]
 impl<T: Config> Pallet<T> {
-	pub(crate) fn do_try_state() -> Result<(), rp_runtime::TryRuntimeError> {
+	pub(crate) fn do_try_state() -> Result<(), sp_runtime::TryRuntimeError> {
 		// build map to avoid reading storage multiple times.
 		let delegation_map = Delegators::<T>::iter().collect::<BTreeMap<_, _>>();
 		let ledger_map = Agents::<T>::iter().collect::<BTreeMap<_, _>>();
@@ -779,7 +779,7 @@ impl<T: Config> Pallet<T> {
 
 	fn check_delegates(
 		ledgers: BTreeMap<T::AccountId, AgentLedger<T>>,
-	) -> Result<(), rp_runtime::TryRuntimeError> {
+	) -> Result<(), sp_runtime::TryRuntimeError> {
 		for (agent, ledger) in ledgers {
 			let staked_value = ledger.stakeable_balance();
 
@@ -787,7 +787,7 @@ impl<T: Config> Pallet<T> {
 				ensure!(
 					matches!(
 						T::CoreStaking::status(&agent).expect("agent should be bonded"),
-						rp_staking::StakerStatus::Nominator(_) | rp_staking::StakerStatus::Idle
+						sp_staking::StakerStatus::Nominator(_) | sp_staking::StakerStatus::Idle
 					),
 					"agent should be bonded and not validator"
 				);
@@ -806,7 +806,7 @@ impl<T: Config> Pallet<T> {
 	fn check_delegators(
 		delegations: BTreeMap<T::AccountId, Delegation<T>>,
 		ledger: BTreeMap<T::AccountId, AgentLedger<T>>,
-	) -> Result<(), rp_runtime::TryRuntimeError> {
+	) -> Result<(), sp_runtime::TryRuntimeError> {
 		let mut delegation_aggregation = BTreeMap::<T::AccountId, BalanceOf<T>>::new();
 		for (delegator, delegation) in delegations.iter() {
 			ensure!(!Self::is_agent(delegator), "delegator cannot be an agent");

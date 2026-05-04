@@ -18,8 +18,8 @@
 
 use crate::error::Error;
 use rc_client_api::{StorageProvider, UsageProvider};
-use rp_core::storage::{well_known_keys, ChildInfo, Storage, StorageChild, StorageKey, StorageMap};
-use rp_runtime::traits::Block as BlockT;
+use sp_core::storage::{well_known_keys, ChildInfo, Storage, StorageChild, StorageKey, StorageMap};
+use sp_runtime::traits::Block as BlockT;
 
 use std::{
 	collections::{BTreeMap, HashMap},

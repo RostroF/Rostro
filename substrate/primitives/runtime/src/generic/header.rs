@@ -25,7 +25,7 @@ use crate::{
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use rp_core::U256;
+use sp_core::U256;
 
 /// Abstraction over a block header for a substrate chain.
 #[derive(Encode, Decode, DecodeWithMemTracking, PartialEq, Eq, Clone, Debug, TypeInfo)]

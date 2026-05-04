@@ -27,8 +27,8 @@ use rc_consensus::import_queue::{
 	BlockImportError, BlockImportStatus, ImportQueue, IncomingBlock, Link,
 };
 use serde_json::{de::IoRead as JsonIoRead, Deserializer, StreamDeserializer};
-use rp_consensus::BlockOrigin;
-use rp_runtime::{
+use sp_consensus::BlockOrigin;
+use sp_runtime::{
 	generic::SignedBlock,
 	traits::{
 		Block as BlockT, CheckedDiv, Header, MaybeSerializeDeserialize, NumberFor, Saturating, Zero,

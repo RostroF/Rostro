@@ -20,9 +20,9 @@
 use super::Error;
 
 use rc_consensus::BlockImportParams;
-use rp_api::StorageProof;
-use rp_inherents::InherentData;
-use rp_runtime::{traits::Block as BlockT, Digest};
+use sp_api::StorageProof;
+use sp_inherents::InherentData;
+use sp_runtime::{traits::Block as BlockT, Digest};
 
 pub mod aura;
 pub mod babe;

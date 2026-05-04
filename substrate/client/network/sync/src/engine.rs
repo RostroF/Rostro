@@ -62,9 +62,9 @@ use rc_network_common::{
 };
 use rc_network_types::PeerId;
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use rp_blockchain::{Error as ClientError, HeaderMetadata};
-use rp_consensus::{block_validation::BlockAnnounceValidator, BlockOrigin};
-use rp_runtime::{
+use sp_blockchain::{Error as ClientError, HeaderMetadata};
+use sp_consensus::{block_validation::BlockAnnounceValidator, BlockOrigin};
+use sp_runtime::{
 	traits::{Block as BlockT, Header, NumberFor, Zero},
 	Justifications,
 };
@@ -267,7 +267,7 @@ where
 	B: BlockT,
 	Client: HeaderBackend<B>
 		+ BlockBackend<B>
-		+ HeaderMetadata<B, Error = rp_blockchain::Error>
+		+ HeaderMetadata<B, Error = sp_blockchain::Error>
 		+ ProofProvider<B>
 		+ Send
 		+ Sync

@@ -53,20 +53,20 @@ rc-utils = { default-features = true, workspace = true }
 schnellru = { workspace = true }
 serde = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
-rp-api = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-externalities = { default-features = true, workspace = true }
-rp-keystore = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
-rp-session = { default-features = true, workspace = true }
-rp-state-machine = { default-features = true, workspace = true }
-rp-storage = { default-features = true, workspace = true }
-rp-transaction-pool = { default-features = true, workspace = true }
-rp-transaction-storage-proof = { default-features = true, workspace = true }
-rp-trie = { default-features = true, workspace = true }
-rp-version = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-externalities = { default-features = true, workspace = true }
+sp-keystore = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+sp-session = { default-features = true, workspace = true }
+sp-state-machine = { default-features = true, workspace = true }
+sp-storage = { default-features = true, workspace = true }
+sp-transaction-pool = { default-features = true, workspace = true }
+sp-transaction-storage-proof = { default-features = true, workspace = true }
+sp-trie = { default-features = true, workspace = true }
+sp-version = { default-features = true, workspace = true }
 static_init = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
@@ -85,6 +85,6 @@ default = ["rocksdb"]
 rocksdb = ["rc-client-db/rocksdb"]
 runtime-benchmarks = [
 	"rc-client-db/runtime-benchmarks",
-	"rp-runtime/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 jemalloc-allocator = ["rc-client-db/jemalloc-allocator"]

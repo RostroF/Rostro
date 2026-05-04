@@ -26,7 +26,7 @@
 //!
 //! Example:
 //! ```rust,no_run
-//! use rp_runtime::offchain::http::Request;
+//! use sp_runtime::offchain::http::Request;
 //!
 //! // initiate a GET request to localhost:1234
 //! let request: Request = Request::get("http://localhost:1234");
@@ -49,7 +49,7 @@
 //! ```
 
 use alloc::{str, vec, vec::Vec};
-use rp_core::offchain::{
+use sp_core::offchain::{
 	HttpError, HttpRequestId as RequestId, HttpRequestStatus as RequestStatus, Timestamp,
 };
 
@@ -206,22 +206,22 @@ impl<'a, I: AsRef<[u8]>, T: IntoIterator<Item = I>> Request<'a, T> {
 		let meta = &[];
 
 		// start an http request.
-		let id = rp_io::offchain::http_request_start(self.method.as_ref(), self.url, meta)
+		let id = sp_io::offchain::http_request_start(self.method.as_ref(), self.url, meta)
 			.map_err(|_| HttpError::IoError)?;
 
 		// add custom headers
 		for header in &self.headers {
-			rp_io::offchain::http_request_add_header(id, header.name(), header.value())
+			sp_io::offchain::http_request_add_header(id, header.name(), header.value())
 				.map_err(|_| HttpError::IoError)?
 		}
 
 		// write body
 		for chunk in self.body {
-			rp_io::offchain::http_request_write_body(id, chunk.as_ref(), self.deadline)?;
+			sp_io::offchain::http_request_write_body(id, chunk.as_ref(), self.deadline)?;
 		}
 
 		// finalize the request
-		rp_io::offchain::http_request_write_body(id, &[], self.deadline)?;
+		sp_io::offchain::http_request_write_body(id, &[], self.deadline)?;
 
 		Ok(PendingRequest { id })
 	}
@@ -290,7 +290,7 @@ impl PendingRequest {
 		deadline: impl Into<Option<Timestamp>>,
 	) -> Vec<Result<HttpResult, PendingRequest>> {
 		let ids = requests.iter().map(|r| r.id).collect::<Vec<_>>();
-		let statuses = rp_io::offchain::http_response_wait(&ids, deadline.into());
+		let statuses = sp_io::offchain::http_response_wait(&ids, deadline.into());
 
 		statuses
 			.into_iter()
@@ -324,7 +324,7 @@ impl Response {
 	/// Retrieve the headers for this response.
 	pub fn headers(&mut self) -> &Headers {
 		if self.headers.is_none() {
-			self.headers = Some(Headers { raw: rp_io::offchain::http_response_headers(self.id) });
+			self.headers = Some(Headers { raw: sp_io::offchain::http_response_headers(self.id) });
 		}
 		self.headers.as_ref().expect("Headers were just set; qed")
 	}
@@ -404,7 +404,7 @@ impl Iterator for ResponseBody {
 
 		if self.filled_up_to.is_none() {
 			let result =
-				rp_io::offchain::http_response_read_body(self.id, &mut self.buffer, self.deadline);
+				sp_io::offchain::http_response_read_body(self.id, &mut self.buffer, self.deadline);
 			match result {
 				Err(e) => {
 					self.error = Some(e);
@@ -489,8 +489,8 @@ impl<'a> HeadersIterator<'a> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_core::offchain::{testing, OffchainWorkerExt};
-	use rp_io::TestExternalities;
+	use sp_core::offchain::{testing, OffchainWorkerExt};
+	use sp_io::TestExternalities;
 
 	#[test]
 	fn should_send_a_basic_request_and_get_response() {

@@ -31,7 +31,7 @@
 
 use fraction::prelude::BigFraction as Fraction;
 use honggfuzz::fuzz;
-use rp_arithmetic::{MultiplyRational, Rounding, Rounding::*};
+use sp_arithmetic::{MultiplyRational, Rounding, Rounding::*};
 
 /// Tries to demonstrate that `multiply_by_rational_with_rounding` is incorrect.
 fn main() {

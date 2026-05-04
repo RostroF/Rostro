@@ -29,7 +29,7 @@ use frame_support::{
 	traits::{Currency, EnsureOrigin, EnsureOriginWithArg, UnfilteredDispatchable},
 };
 use frame_system::RawOrigin;
-use rp_runtime::traits::Bounded as ArithBounded;
+use sp_runtime::traits::Bounded as ArithBounded;
 
 const SEED: u32 = 0;
 

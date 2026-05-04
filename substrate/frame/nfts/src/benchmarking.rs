@@ -30,7 +30,7 @@ use frame_support::{
 	BoundedVec,
 };
 use frame_system::RawOrigin as SystemOrigin;
-use rp_runtime::traits::{Bounded, One};
+use sp_runtime::traits::{Bounded, One};
 
 use crate::Pallet as Nfts;
 

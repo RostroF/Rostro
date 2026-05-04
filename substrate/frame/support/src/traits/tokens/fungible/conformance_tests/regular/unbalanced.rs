@@ -20,8 +20,8 @@ use crate::traits::{
 	tokens::{Fortitude, Precision, Preservation},
 };
 use core::fmt::Debug;
-use rp_arithmetic::{traits::AtLeast8BitUnsigned, ArithmeticError};
-use rp_runtime::{traits::Bounded, TokenError};
+use sp_arithmetic::{traits::AtLeast8BitUnsigned, ArithmeticError};
+use sp_runtime::{traits::Bounded, TokenError};
 
 /// Tests [`Unbalanced::write_balance`].
 ///

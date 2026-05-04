@@ -13,10 +13,10 @@ pub mod pallet {
                  tokens::fungible::hold::Mutate as HoldMutate},
     };
     use frame_system::{ensure_signed, pallet_prelude::*};
-    use rp_runtime::traits::{AtLeast32Bit, MaybeSerializeDeserialize, Zero};
+    use sp_runtime::traits::{AtLeast32Bit, MaybeSerializeDeserialize, Zero};
     use rns_types::DomainHash;
     use pallet_rns_registrar::traits::{Label, NameRegistry, OriginRecorder, RecordCleaner, Ss58Updater};
-    use rp_std::vec::Vec;
+    use sp_std::vec::Vec;
     use crate::WeightInfo;
     use scale_info::TypeInfo;
 
@@ -372,7 +372,7 @@ pub mod pallet {
             let now = T::NowProvider::now();
 
             // Must be past listing expiry + grace period.
-            use rp_runtime::traits::CheckedAdd;
+            use sp_runtime::traits::CheckedAdd;
             let deadline = listing.expires_at
                 .checked_add(&T::ListingGracePeriod::get())
                 .unwrap_or(listing.expires_at);
@@ -410,7 +410,7 @@ pub mod pallet {
     }
 }
 
-use rp_weights::Weight;
+use sp_weights::Weight;
 use rns_types::DomainHash;
 
 pub trait WeightInfo {
@@ -443,7 +443,7 @@ mod benchmarks {
     use frame_benchmarking::v2::*;
     use frame_support::traits::{Currency, Get};
     use frame_system::RawOrigin;
-    use rp_runtime::{traits::SaturatedConversion, traits::One};
+    use sp_runtime::{traits::SaturatedConversion, traits::One};
 
     /// Fund + register a canonical name for the caller.
     fn setup_owner<T>(caller: &T::AccountId, name: &[u8])

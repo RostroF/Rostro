@@ -26,9 +26,9 @@ use log::{info, warn};
 
 use fork_tree::ForkTree;
 use rc_client_api::backend::AuxStore;
-use rp_blockchain::{Error as ClientError, Result as ClientResult};
-use rp_consensus_grandpa::{AuthorityList, RoundNumber, SetId};
-use rp_runtime::traits::{Block as BlockT, NumberFor};
+use sp_blockchain::{Error as ClientError, Result as ClientResult};
+use sp_consensus_grandpa::{AuthorityList, RoundNumber, SetId};
+use sp_runtime::traits::{Block as BlockT, NumberFor};
 
 use crate::{
 	authorities::{
@@ -508,8 +508,8 @@ pub(crate) fn load_authorities<B: AuxStore, H: Decode, N: Decode + Clone + Ord>(
 #[cfg(test)]
 mod test {
 	use super::*;
-	use rp_consensus_grandpa::AuthorityId;
-	use rp_core::{crypto::UncheckedFrom, H256};
+	use sp_consensus_grandpa::AuthorityId;
+	use sp_core::{crypto::UncheckedFrom, H256};
 	use substrate_test_runtime_client::{self, runtime::Block};
 
 	fn dummy_id() -> AuthorityId {

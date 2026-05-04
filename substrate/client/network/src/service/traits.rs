@@ -41,7 +41,7 @@ pub use rc_network_types::{
 	multiaddr::Multiaddr,
 	PeerId,
 };
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 use std::{
 	collections::HashSet,

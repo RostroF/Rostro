@@ -22,7 +22,7 @@
 use super::*;
 use frame_benchmarking::v2::*;
 
-type Header = rp_runtime::generic::Header<u64, rp_runtime::traits::BlakeTwo256>;
+type Header = sp_runtime::generic::Header<u64, sp_runtime::traits::BlakeTwo256>;
 
 #[benchmarks]
 mod benchmarks {
@@ -58,17 +58,17 @@ mod benchmarks {
 			175, 145, 255, 7, 121, 133,
 		];
 
-		let equivocation_proof1: rp_consensus_babe::EquivocationProof<Header> =
+		let equivocation_proof1: sp_consensus_babe::EquivocationProof<Header> =
 			Decode::decode(&mut &EQUIVOCATION_PROOF_BLOB[..]).unwrap();
 
 		let equivocation_proof2 = equivocation_proof1.clone();
 
 		#[block]
 		{
-			rp_consensus_babe::check_equivocation_proof::<Header>(equivocation_proof1);
+			sp_consensus_babe::check_equivocation_proof::<Header>(equivocation_proof1);
 		}
 
-		assert!(rp_consensus_babe::check_equivocation_proof::<Header>(equivocation_proof2));
+		assert!(sp_consensus_babe::check_equivocation_proof::<Header>(equivocation_proof2));
 	}
 
 	impl_benchmark_test_suite!(Pallet, crate::mock::new_test_ext(3), crate::mock::Test,);

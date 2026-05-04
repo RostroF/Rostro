@@ -44,7 +44,7 @@ macro_rules! map {
 /// # Example
 ///
 /// ```
-/// use rp_std::if_std;
+/// use sp_std::if_std;
 ///
 /// if_std! {
 ///     // This code is only being compiled and executed when the `std` feature is enabled.

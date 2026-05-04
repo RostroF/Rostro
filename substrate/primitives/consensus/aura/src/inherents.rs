@@ -16,13 +16,13 @@
 // limitations under the License.
 
 /// Contains the inherents for the AURA module
-use rp_inherents::{Error, InherentData, InherentIdentifier};
+use sp_inherents::{Error, InherentData, InherentIdentifier};
 
 /// The Aura inherent identifier.
 pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"auraslot";
 
 /// The type of the Aura inherent.
-pub type InherentType = rp_consensus_slots::Slot;
+pub type InherentType = sp_consensus_slots::Slot;
 
 /// Auxiliary trait to extract Aura inherent data.
 pub trait AuraInherentData {
@@ -59,8 +59,8 @@ impl InherentDataProvider {
 	/// Creates the inherent data provider by calculating the slot from the given
 	/// `timestamp` and `duration`.
 	pub fn from_timestamp_and_slot_duration(
-		timestamp: rp_timestamp::Timestamp,
-		slot_duration: rp_consensus_slots::SlotDuration,
+		timestamp: sp_timestamp::Timestamp,
+		slot_duration: sp_consensus_slots::SlotDuration,
 	) -> Self {
 		let slot = InherentType::from_timestamp(timestamp, slot_duration);
 
@@ -79,7 +79,7 @@ impl core::ops::Deref for InherentDataProvider {
 
 #[cfg(feature = "std")]
 #[async_trait::async_trait]
-impl rp_inherents::InherentDataProvider for InherentDataProvider {
+impl sp_inherents::InherentDataProvider for InherentDataProvider {
 	async fn provide_inherent_data(&self, inherent_data: &mut InherentData) -> Result<(), Error> {
 		inherent_data.put_data(INHERENT_IDENTIFIER, &self.slot)
 	}

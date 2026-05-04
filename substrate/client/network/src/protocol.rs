@@ -38,7 +38,7 @@ use log::{debug, warn};
 use codec::DecodeAll;
 use rc_network_common::{role::Roles, types::ReputationChange};
 use rc_utils::mpsc::TracingUnboundedReceiver;
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 use std::{collections::HashSet, iter, sync::Arc, task::Poll};
 

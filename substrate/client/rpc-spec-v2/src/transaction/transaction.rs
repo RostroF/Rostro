@@ -38,9 +38,9 @@ use rc_transaction_pool_api::{
 	error::IntoPoolError, BlockHash, TransactionFor, TransactionPool, TransactionSource,
 	TransactionStatus,
 };
-use rp_blockchain::HeaderBackend;
-use rp_core::Bytes;
-use rp_runtime::traits::Block as BlockT;
+use sp_blockchain::HeaderBackend;
+use sp_core::Bytes;
+use sp_runtime::traits::Block as BlockT;
 use std::sync::Arc;
 
 pub(crate) const LOG_TARGET: &str = "rpc-spec-v2";

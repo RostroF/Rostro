@@ -72,10 +72,10 @@ use frame_support::{
 };
 use frame_system::{ensure_signed, pallet_prelude::*};
 use scale_info::TypeInfo;
-use rp_io::MultiRemovalResults;
-use rp_npos_elections::ElectionScore;
-use rp_runtime::{traits::Saturating, Perbill};
-use rp_std::prelude::*;
+use sp_io::MultiRemovalResults;
+use sp_npos_elections::ElectionScore;
+use sp_runtime::{traits::Saturating, Perbill};
+use sp_std::prelude::*;
 
 /// Explore all weights
 pub use crate::weights::traits::pallet_election_provider_multi_block_signed::*;
@@ -331,7 +331,7 @@ pub mod pallet {
 	///
 	/// No particular invariant exists between data that related to different rounds. They are
 	/// purely independent.
-	pub(crate) struct Submissions<T: Config>(rp_std::marker::PhantomData<T>);
+	pub(crate) struct Submissions<T: Config>(sp_std::marker::PhantomData<T>);
 
 	#[pallet::storage]
 	pub type SortedScores<T: Config> = StorageMap<
@@ -482,7 +482,7 @@ pub mod pallet {
 						.ok_or(Error::<T>::QueueFull)?;
 					if insert_idx > remove_idx {
 						// we have a better solution
-						rp_std::mem::swap(&mut sorted_scores[remove_idx], &mut record);
+						sp_std::mem::swap(&mut sorted_scores[remove_idx], &mut record);
 						// slicing safety note:
 						// - `insert_idx` is at most `sorted_scores.len()`, obtained from
 						//   `binary_search_by_key`, valid for the upper bound of slicing.
@@ -701,7 +701,7 @@ pub mod pallet {
 
 		/// Perform all the sanity checks of this storage item group at the given round.
 		pub(crate) fn sanity_check_round(round: u32) -> DispatchResult {
-			use rp_std::collections::btree_set::BTreeSet;
+			use sp_std::collections::btree_set::BTreeSet;
 			let sorted_scores = SortedScores::<T>::get(round);
 			assert_eq!(
 				sorted_scores.clone().into_iter().map(|(x, _)| x).collect::<BTreeSet<_>>().len(),
@@ -957,7 +957,7 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		#[cfg(feature = "try-runtime")]
-		fn try_state(n: BlockNumberFor<T>) -> Result<(), rp_runtime::TryRuntimeError> {
+		fn try_state(n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 			Self::do_try_state(n)
 		}
 	}
@@ -965,7 +965,7 @@ pub mod pallet {
 
 impl<T: Config> Pallet<T> {
 	#[cfg(any(feature = "try-runtime", test, feature = "runtime-benchmarks"))]
-	pub(crate) fn do_try_state(_n: BlockNumberFor<T>) -> Result<(), rp_runtime::TryRuntimeError> {
+	pub(crate) fn do_try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 		Submissions::<T>::sanity_check_round(Self::current_round())
 	}
 

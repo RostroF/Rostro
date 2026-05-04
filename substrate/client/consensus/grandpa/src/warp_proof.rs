@@ -27,9 +27,9 @@ use rc_client_api::Backend as ClientBackend;
 use rc_network_sync::strategy::warp::{
 	EncodedProof, VerificationResult, Verifier, WarpSyncProvider,
 };
-use rp_blockchain::{Backend as BlockchainBackend, HeaderBackend};
-use rp_consensus_grandpa::{AuthorityList, SetId, GRANDPA_ENGINE_ID};
-use rp_runtime::{
+use sp_blockchain::{Backend as BlockchainBackend, HeaderBackend};
+use sp_consensus_grandpa::{AuthorityList, SetId, GRANDPA_ENGINE_ID};
+use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, Header as HeaderT, NumberFor, One},
 	Justifications,
@@ -45,7 +45,7 @@ pub enum Error {
 	DecodeScale(#[from] codec::Error),
 	/// Client backend error.
 	#[error("{0}")]
-	Client(#[from] rp_blockchain::Error),
+	Client(#[from] sp_blockchain::Error),
 	/// Invalid request data.
 	#[error("{0}")]
 	InvalidRequest(String),
@@ -393,10 +393,10 @@ mod tests {
 	use codec::Encode;
 	use rand::prelude::*;
 	use rc_block_builder::BlockBuilderBuilder;
-	use rp_blockchain::HeaderBackend;
-	use rp_consensus::BlockOrigin;
-	use rp_consensus_grandpa::GRANDPA_ENGINE_ID;
-	use rp_keyring::Ed25519Keyring;
+	use sp_blockchain::HeaderBackend;
+	use sp_consensus::BlockOrigin;
+	use sp_consensus_grandpa::GRANDPA_ENGINE_ID;
+	use sp_keyring::Ed25519Keyring;
 	use std::sync::Arc;
 	use substrate_test_runtime_client::{
 		BlockBuilderExt, ClientBlockImportExt, ClientExt, DefaultTestClientBuilderExt,
@@ -441,10 +441,10 @@ mod tests {
 					.map(|keyring| (keyring.public().into(), 1))
 					.collect::<Vec<_>>();
 
-				let digest = rp_runtime::generic::DigestItem::Consensus(
-					rp_consensus_grandpa::GRANDPA_ENGINE_ID,
-					rp_consensus_grandpa::ConsensusLog::ScheduledChange(
-						rp_consensus_grandpa::ScheduledChange { delay: 0u64, next_authorities },
+				let digest = sp_runtime::generic::DigestItem::Consensus(
+					sp_consensus_grandpa::GRANDPA_ENGINE_ID,
+					sp_consensus_grandpa::ConsensusLog::ScheduledChange(
+						sp_consensus_grandpa::ScheduledChange { delay: 0u64, next_authorities },
 					)
 					.encode(),
 				);
@@ -469,7 +469,7 @@ mod tests {
 					let precommit = finality_grandpa::Precommit { target_hash, target_number };
 
 					let msg = finality_grandpa::Message::Precommit(precommit.clone());
-					let encoded = rp_consensus_grandpa::localized_payload(42, current_set_id, &msg);
+					let encoded = sp_consensus_grandpa::localized_payload(42, current_set_id, &msg);
 					let signature = keyring.sign(&encoded[..]).into();
 
 					let precommit = finality_grandpa::SignedPrecommit {

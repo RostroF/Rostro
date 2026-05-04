@@ -20,7 +20,7 @@ use crate::LOG_TARGET;
 use log::trace;
 use rc_network_common::sync::message;
 use rc_network_types::PeerId;
-use rp_runtime::traits::{Block as BlockT, NumberFor, One};
+use sp_runtime::traits::{Block as BlockT, NumberFor, One};
 use std::{
 	cmp,
 	collections::{BTreeMap, HashMap},
@@ -270,8 +270,8 @@ mod test {
 	use super::{BlockCollection, BlockData, BlockRangeState};
 	use rc_network_common::sync::message;
 	use rc_network_types::PeerId;
-	use rp_core::H256;
-	use rp_runtime::testing::{Block as RawBlock, MockCallU64, TestXt};
+	use sp_core::H256;
+	use sp_runtime::testing::{Block as RawBlock, MockCallU64, TestXt};
 
 	type Block = RawBlock<TestXt<MockCallU64, ()>>;
 

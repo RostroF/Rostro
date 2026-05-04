@@ -27,7 +27,7 @@ use rc_network::{
 };
 use rc_network_common::role::ObservedRole;
 use rc_network_types::{multiaddr::Multiaddr, PeerId};
-use rp_runtime::traits::{Block as BlockT, NumberFor};
+use sp_runtime::traits::{Block as BlockT, NumberFor};
 
 use std::collections::HashSet;
 

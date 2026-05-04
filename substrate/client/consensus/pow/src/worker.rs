@@ -25,8 +25,8 @@ use log::*;
 use parking_lot::Mutex;
 use rc_client_api::ImportNotifications;
 use rc_consensus::{BlockImportParams, BoxBlockImport, StateAction, StorageChanges};
-use rp_consensus::{BlockOrigin, Proposal};
-use rp_runtime::{
+use sp_consensus::{BlockOrigin, Proposal};
+use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, Header as HeaderT},
 	DigestItem,

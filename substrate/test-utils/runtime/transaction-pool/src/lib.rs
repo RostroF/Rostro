@@ -24,8 +24,8 @@ use codec::Encode;
 use parking_lot::RwLock;
 use rc_transaction_pool::{ChainApi, ValidateTransactionPriority};
 use rc_transaction_pool_api::error::IntoMetricsLabel;
-use rp_blockchain::{CachedHeaderMetadata, HashAndNumber, TreeRoute};
-use rp_runtime::{
+use sp_blockchain::{CachedHeaderMetadata, HashAndNumber, TreeRoute};
+use sp_runtime::{
 	generic::{self, BlockId},
 	traits::{
 		BlakeTwo256, Block as BlockT, Hash as HashT, Header as _, NumberFor, TrailingZeroInput,
@@ -329,8 +329,8 @@ impl TestApi {
 		&self,
 		from: Hash,
 		to: Hash,
-	) -> Result<rp_blockchain::TreeRoute<Block>, Error> {
-		rp_blockchain::tree_route(self, from, to)
+	) -> Result<sp_blockchain::TreeRoute<Block>, Error> {
+		sp_blockchain::tree_route(self, from, to)
 	}
 
 	/// Helper function for mapping block number to hash. Use if mapping shall not fail.
@@ -536,11 +536,11 @@ impl ChainApi for TestApi {
 		from: <Self::Block as BlockT>::Hash,
 		to: <Self::Block as BlockT>::Hash,
 	) -> Result<TreeRoute<Self::Block>, Self::Error> {
-		rp_blockchain::tree_route::<Block, TestApi>(self, from, to).map_err(Into::into)
+		sp_blockchain::tree_route::<Block, TestApi>(self, from, to).map_err(Into::into)
 	}
 }
 
-impl rp_blockchain::HeaderMetadata<Block> for TestApi {
+impl sp_blockchain::HeaderMetadata<Block> for TestApi {
 	type Error = Error;
 
 	fn header_metadata(&self, hash: Hash) -> Result<CachedHeaderMetadata<Block>, Self::Error> {

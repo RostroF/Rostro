@@ -82,7 +82,7 @@ use frame_support::{
 	DefaultNoBound,
 };
 use frame_system::pallet_prelude::*;
-use rp_runtime::traits::Dispatchable;
+use sp_runtime::traits::Dispatchable;
 pub use pallet::*;
 pub use weights::*;
 

@@ -25,7 +25,7 @@ use std::{
 
 use itertools::Itertools;
 use rc_client_api::{Backend, ChildInfo, StorageKey, StorageProvider};
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 use super::error::Error as ArchiveError;
 use crate::{

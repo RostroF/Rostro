@@ -21,16 +21,16 @@
 use super::{Epoch, AUTHORING_SCORE_LENGTH, AUTHORING_SCORE_VRF_CONTEXT};
 use codec::Encode;
 use rc_consensus_epochs::Epoch as EpochT;
-use rp_application_crypto::AppCrypto;
-use rp_consensus_babe::{
+use sp_application_crypto::AppCrypto;
+use sp_consensus_babe::{
 	digests::{PreDigest, PrimaryPreDigest, SecondaryPlainPreDigest, SecondaryVRFPreDigest},
 	make_vrf_sign_data, AuthorityId, BabeAuthorityWeight, Randomness, Slot,
 };
-use rp_core::{
+use sp_core::{
 	crypto::{ByteArray, Wraps},
 	U256,
 };
-use rp_keystore::KeystorePtr;
+use sp_keystore::KeystorePtr;
 
 /// Calculates the primary selection threshold for a given authority, taking
 /// into account `c` (`1 - c` represents the probability of a slot being empty).
@@ -109,7 +109,7 @@ pub(super) fn secondary_slot_author(
 	}
 
 	let rand =
-		U256::from_big_endian(&(randomness, slot).using_encoded(rp_crypto_hashing::blake2_256));
+		U256::from_big_endian(&(randomness, slot).using_encoded(sp_crypto_hashing::blake2_256));
 
 	let authorities_len = U256::from(authorities.len());
 	let idx = rand % authorities_len;
@@ -272,17 +272,17 @@ fn claim_primary_slot(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_consensus_babe::{
+	use sp_consensus_babe::{
 		AllowedSlots, AuthorityId, BabeEpochConfiguration, Epoch, RANDOMNESS_LENGTH,
 	};
-	use rp_core::{crypto::Pair as _, sr25519::Pair};
-	use rp_keystore::testing::MemoryKeystore;
+	use sp_core::{crypto::Pair as _, sr25519::Pair};
+	use sp_keystore::testing::MemoryKeystore;
 
 	#[test]
 	fn claim_secondary_plain_slot_works() {
 		let keystore: KeystorePtr = MemoryKeystore::new().into();
 		let valid_public_key = keystore
-			.sr25519_generate_new(AuthorityId::ID, Some(rp_core::crypto::DEV_PHRASE))
+			.sr25519_generate_new(AuthorityId::ID, Some(sp_core::crypto::DEV_PHRASE))
 			.unwrap();
 
 		let authorities = vec![

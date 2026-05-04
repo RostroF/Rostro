@@ -19,7 +19,7 @@
 /// runtime.
 struct Runtime {}
 
-rp_api::decl_runtime_apis! {
+sp_api::decl_runtime_apis! {
 	pub trait Api {
 		fn test(data: u64);
 	}
@@ -27,14 +27,14 @@ rp_api::decl_runtime_apis! {
 
 #[allow(unused_imports)]
 mod second {
-	rp_api::decl_runtime_apis! {
+	sp_api::decl_runtime_apis! {
 		pub trait Api {
 			fn test2(data: u64);
 		}
 	}
 }
 
-rp_api::impl_runtime_apis! {
+sp_api::impl_runtime_apis! {
 	impl self::Api<Block> for Runtime {
 		fn test(data: u64) {}
 	}

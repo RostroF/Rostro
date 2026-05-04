@@ -27,9 +27,9 @@ use rc_consensus_epochs::{
 	migration::{EpochChangesV0For, EpochChangesV1For},
 	EpochChangesFor, SharedEpochChanges,
 };
-use rp_blockchain::{Error as ClientError, Result as ClientResult};
-use rp_consensus_babe::{BabeBlockWeight, BabeConfiguration};
-use rp_runtime::traits::Block as BlockT;
+use sp_blockchain::{Error as ClientError, Result as ClientResult};
+use sp_consensus_babe::{BabeBlockWeight, BabeConfiguration};
+use sp_runtime::traits::Block as BlockT;
 
 const BABE_EPOCH_CHANGES_VERSION: &[u8] = b"babe_epoch_changes_version";
 const BABE_EPOCH_CHANGES_KEY: &[u8] = b"babe_epoch_changes";
@@ -146,10 +146,10 @@ mod test {
 	use fork_tree::ForkTree;
 	use rc_consensus_epochs::{EpochHeader, PersistedEpoch, PersistedEpochHeader};
 	use rc_network_test::Block as TestBlock;
-	use rp_consensus::Error as ConsensusError;
-	use rp_consensus_babe::AllowedSlots;
-	use rp_core::H256;
-	use rp_runtime::traits::NumberFor;
+	use sp_consensus::Error as ConsensusError;
+	use sp_consensus_babe::AllowedSlots;
+	use sp_core::H256;
+	use sp_runtime::traits::NumberFor;
 	use substrate_test_runtime_client;
 
 	#[test]

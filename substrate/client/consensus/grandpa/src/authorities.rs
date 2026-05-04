@@ -27,7 +27,7 @@ use log::debug;
 use parking_lot::MappedMutexGuard;
 use rc_consensus::shared_data::{SharedData, SharedDataLocked};
 use rc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_INFO};
-use rp_consensus_grandpa::{AuthorityId, AuthorityList};
+use sp_consensus_grandpa::{AuthorityId, AuthorityList};
 
 use crate::{SetId, LOG_TARGET};
 
@@ -785,7 +785,7 @@ impl<N: Ord + Clone> AuthoritySetChanges<N> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_core::crypto::{ByteArray, UncheckedFrom};
+	use sp_core::crypto::{ByteArray, UncheckedFrom};
 
 	fn static_is_descendent_of<A>(value: bool) -> impl Fn(&A, &A) -> Result<bool, std::io::Error> {
 		move |_, _| Ok(value)

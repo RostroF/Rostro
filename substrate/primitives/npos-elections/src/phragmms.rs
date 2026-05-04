@@ -26,7 +26,7 @@ use crate::{
 	IdentifierT, PerThing128, VoteWeight, Voter,
 };
 use alloc::{rc::Rc, vec, vec::Vec};
-use rp_arithmetic::{traits::Bounded, PerThing, Rational128};
+use sp_arithmetic::{traits::Bounded, PerThing, Rational128};
 
 /// Execute the phragmms method.
 ///
@@ -233,7 +233,7 @@ mod tests {
 	use super::*;
 	use crate::{Assignment, ElectionResult};
 	use alloc::rc::Rc;
-	use rp_runtime::{Perbill, Percent};
+	use sp_runtime::{Perbill, Percent};
 
 	#[test]
 	fn basic_election_manual_works() {

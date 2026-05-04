@@ -35,14 +35,14 @@ use rc_block_builder::BlockBuilderBuilder;
 use rc_client_api::ChildInfo;
 use rc_rpc::testing::TokioTestExecutor;
 use rc_service::client::new_with_backend;
-use rp_blockchain::HeaderBackend;
-use rp_consensus::BlockOrigin;
-use rp_core::{
+use sp_blockchain::HeaderBackend;
+use sp_consensus::BlockOrigin;
+use sp_core::{
 	storage::well_known_keys::{self, CODE},
 	Blake2Hasher, Hasher,
 };
-use rp_runtime::traits::Block as BlockT;
-use rp_version::RuntimeVersion;
+use sp_runtime::traits::Block as BlockT;
+use sp_version::RuntimeVersion;
 use std::{
 	collections::{HashMap, HashSet, VecDeque},
 	fmt::Debug,
@@ -416,18 +416,18 @@ async fn follow_with_runtime() {
 	// The `RuntimeVersion` is embedded into the WASM blob at the `runtime_version`
 	// section. Modify the `RuntimeVersion` and commit the changes to a new block.
 	// The RPC must notify the runtime event change.
-	let wasm = rp_maybe_compressed_blob::decompress(
+	let wasm = sp_maybe_compressed_blob::decompress(
 		runtime::wasm_binary_unwrap(),
-		rp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
+		sp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
 	)
 	.unwrap();
 	// Update the runtime spec version.
 	let mut runtime = runtime;
 	runtime.spec_version += 1;
-	let embedded = rp_version::embed::embed_runtime_version(&wasm, runtime.clone()).unwrap();
-	let wasm = rp_maybe_compressed_blob::compress_strongly(
+	let embedded = sp_version::embed::embed_runtime_version(&wasm, runtime.clone()).unwrap();
+	let wasm = sp_maybe_compressed_blob::compress_strongly(
 		&embedded,
-		rp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
+		sp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
 	)
 	.unwrap();
 

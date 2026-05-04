@@ -27,16 +27,16 @@ pallet-delegated-staking = { workspace = true }
 pallet-nomination-pools = { workspace = true }
 pallet-staking = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-runtime = { workspace = true }
-rp-runtime-interface = { workspace = true }
-rp-staking = { workspace = true }
+sp-runtime = { workspace = true }
+sp-runtime-interface = { workspace = true }
+sp-staking = { workspace = true }
 
 [dev-dependencies]
 pallet-balances = { workspace = true, default-features = false }
 pallet-staking-reward-curve = { default-features = true, workspace = true }
 pallet-timestamp = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-io = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-io = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -52,9 +52,9 @@ std = [
 	"pallet-nomination-pools/std",
 	"pallet-staking/std",
 	"scale-info/std",
-	"rp-runtime-interface/std",
-	"rp-runtime/std",
-	"rp-staking/std",
+	"sp-runtime-interface/std",
+	"sp-runtime/std",
+	"sp-staking/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
@@ -67,6 +67,6 @@ runtime-benchmarks = [
 	"pallet-nomination-pools/runtime-benchmarks",
 	"pallet-staking/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
-	"rp-runtime/runtime-benchmarks",
-	"rp-staking/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+	"sp-staking/runtime-benchmarks",
 ]

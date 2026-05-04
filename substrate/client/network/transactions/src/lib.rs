@@ -49,7 +49,7 @@ use rc_network_common::{role::ObservedRole, ExHashT};
 use rc_network_sync::{SyncEvent, SyncEventStream};
 use rc_network_types::PeerId;
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 use std::{
 	collections::{hash_map::Entry, HashMap},
@@ -176,7 +176,7 @@ impl TransactionsHandlerPrototype {
 		B: BlockT + 'static,
 		H: ExHashT,
 		N: NetworkPeers + NetworkEventStream,
-		S: SyncEventStream + rp_consensus::SyncOracle,
+		S: SyncEventStream + sp_consensus::SyncOracle,
 	>(
 		self,
 		network: N,
@@ -247,7 +247,7 @@ pub struct TransactionsHandler<
 	B: BlockT + 'static,
 	H: ExHashT,
 	N: NetworkPeers + NetworkEventStream,
-	S: SyncEventStream + rp_consensus::SyncOracle,
+	S: SyncEventStream + sp_consensus::SyncOracle,
 > {
 	protocol_name: ProtocolName,
 	/// Interval at which we call `propagate_transactions`.
@@ -288,7 +288,7 @@ where
 	B: BlockT + 'static,
 	H: ExHashT,
 	N: NetworkPeers + NetworkEventStream,
-	S: SyncEventStream + rp_consensus::SyncOracle,
+	S: SyncEventStream + sp_consensus::SyncOracle,
 {
 	/// Turns the [`TransactionsHandler`] into a future that should run forever and not be
 	/// interrupted.

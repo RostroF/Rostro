@@ -20,12 +20,12 @@
 use crate::{Error, Keystore, KeystorePtr};
 
 #[cfg(feature = "bandersnatch-experimental")]
-use rp_core::bandersnatch;
+use sp_core::bandersnatch;
 #[cfg(feature = "bls-experimental")]
-use rp_core::{
+use sp_core::{
 	bls381, ecdsa_bls381, proof_of_possession::ProofOfPossessionGenerator, KeccakHasher,
 };
-use rp_core::{
+use sp_core::{
 	crypto::{ByteArray, KeyTypeId, Pair, VrfSecret},
 	ecdsa, ed25519, sr25519,
 };
@@ -415,7 +415,7 @@ impl Into<KeystorePtr> for MemoryKeystore {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rp_core::{
+	use sp_core::{
 		sr25519,
 		testing::{ECDSA, ED25519, SR25519},
 	};
@@ -530,7 +530,7 @@ mod tests {
 	#[test]
 	#[cfg(feature = "bls-experimental")]
 	fn ecdsa_bls381_sign_with_keccak_works() {
-		use rp_core::testing::ECDSA_BLS377;
+		use sp_core::testing::ECDSA_BLS377;
 
 		let store = MemoryKeystore::new();
 
@@ -562,7 +562,7 @@ mod tests {
 	#[test]
 	#[cfg(feature = "bls-experimental")]
 	fn ecdsa_bls381_generate_with_none_works() {
-		use rp_core::testing::ECDSA_BLS381;
+		use sp_core::testing::ECDSA_BLS381;
 
 		let store = MemoryKeystore::new();
 		let ecdsa_bls381_key =
@@ -590,7 +590,7 @@ mod tests {
 	#[test]
 	#[cfg(feature = "bls-experimental")]
 	fn ecdsa_bls381_generate_with_seed_works() {
-		use rp_core::testing::ECDSA_BLS381;
+		use sp_core::testing::ECDSA_BLS381;
 
 		let store = MemoryKeystore::new();
 		let ecdsa_bls381_key = store
@@ -619,7 +619,7 @@ mod tests {
 	#[test]
 	#[cfg(feature = "bandersnatch-experimental")]
 	fn bandersnatch_vrf_sign() {
-		use rp_core::testing::BANDERSNATCH;
+		use sp_core::testing::BANDERSNATCH;
 
 		let store = MemoryKeystore::new();
 
@@ -643,7 +643,7 @@ mod tests {
 	#[test]
 	#[cfg(feature = "bandersnatch-experimental")]
 	fn bandersnatch_ring_vrf_sign() {
-		use rp_core::testing::BANDERSNATCH;
+		use sp_core::testing::BANDERSNATCH;
 
 		let store = MemoryKeystore::new();
 

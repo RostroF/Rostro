@@ -24,11 +24,11 @@
 //! and the off-chain indexing API.
 
 use alloc::vec::Vec;
-use rp_runtime::{
+use sp_runtime::{
 	offchain::storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
 	KeyTypeId,
 };
-use rp_session::MembershipProof;
+use sp_session::MembershipProof;
 
 use super::{shared, Config, IdentificationTuple, ProvingTrie};
 use crate::{Pallet as SessionModule, SessionIndex};
@@ -143,18 +143,18 @@ mod tests {
 	};
 
 	use codec::Encode;
-	use rp_core::{
+	use sp_core::{
 		crypto::key_types::DUMMY,
 		offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt, StorageKind},
 	};
-	use rp_runtime::{testing::UintAuthorityId, BuildStorage};
-	use rp_state_machine::BasicExternalities;
+	use sp_runtime::{testing::UintAuthorityId, BuildStorage};
+	use sp_state_machine::BasicExternalities;
 
 	use frame_support::traits::{KeyOwnerProofSystem, OnInitialize};
 
 	type Historical = Pallet<Test>;
 
-	pub fn new_test_ext() -> rp_io::TestExternalities {
+	pub fn new_test_ext() -> sp_io::TestExternalities {
 		let mut t = frame_system::GenesisConfig::<Test>::default()
 			.build_storage()
 			.expect("Failed to create test externalities.");
@@ -175,7 +175,7 @@ mod tests {
 			.assimilate_storage(&mut t)
 			.unwrap();
 
-		let mut ext = rp_io::TestExternalities::new(t);
+		let mut ext = sp_io::TestExternalities::new(t);
 
 		let (offchain, offchain_state) = TestOffchainExt::with_offchain_db(ext.offchain_db());
 
@@ -210,14 +210,14 @@ mod tests {
 
 		const DATA: &[u8] = &[7, 8, 9, 10, 11];
 		ext.execute_with(|| {
-			b"alphaomega"[..].using_encoded(|key| rp_io::offchain_index::set(key, DATA));
+			b"alphaomega"[..].using_encoded(|key| sp_io::offchain_index::set(key, DATA));
 		});
 
 		ext.persist_offchain_overlay();
 
 		ext.execute_with(|| {
 			let data = b"alphaomega"[..].using_encoded(|key| {
-				rp_io::offchain::local_storage_get(StorageKind::PERSISTENT, key)
+				sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, key)
 			});
 			assert_eq!(data, Some(DATA.to_vec()));
 		});

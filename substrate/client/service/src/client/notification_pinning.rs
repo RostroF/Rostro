@@ -33,7 +33,7 @@ use rc_client_api::{Backend, UnpinWorkerMessage};
 
 use rc_utils::mpsc::TracingUnboundedReceiver;
 use schnellru::Limiter;
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 const LOG_TARGET: &str = "db::notification_pinning";
 const NOTIFICATION_PINNING_LIMIT: usize = 1024;
@@ -193,8 +193,8 @@ mod tests {
 
 	use rc_client_api::{Backend, UnpinWorkerMessage};
 	use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver};
-	use rp_core::H256;
-	use rp_runtime::traits::Block as BlockT;
+	use sp_core::H256;
+	use sp_runtime::traits::Block as BlockT;
 
 	type Block = substrate_test_runtime_client::runtime::Block;
 

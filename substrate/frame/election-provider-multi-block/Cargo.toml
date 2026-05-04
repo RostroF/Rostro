@@ -27,19 +27,19 @@ rand = { features = ["alloc", "small_rng"], optional = true, workspace = true }
 scale-info = { features = [
 	"derive",
 ], workspace = true }
-rp-arithmetic = { workspace = true }
-rp-core = { workspace = true }
-rp-io = { workspace = true }
-rp-npos-elections = { workspace = true }
-rp-runtime = { workspace = true }
-rp-std = { workspace = true }
+sp-arithmetic = { workspace = true }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-npos-elections = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
 
 [dev-dependencies]
 frame-benchmarking = { default-features = true, workspace = true }
 pallet-balances = { default-features = true, workspace = true }
 parking_lot = { workspace = true, default-features = true }
-rp-io = { default-features = true, workspace = true }
-rp-tracing = { default-features = true, workspace = true }
+sp-io = { default-features = true, workspace = true }
+sp-tracing = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -52,12 +52,12 @@ std = [
 	"log/std",
 	"rand/std",
 	"scale-info/std",
-	"rp-arithmetic/std",
-	"rp-core/std",
-	"rp-io/std",
-	"rp-npos-elections/std",
-	"rp-runtime/std",
-	"rp-std/std",
+	"sp-arithmetic/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-npos-elections/std",
+	"sp-runtime/std",
+	"sp-std/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
@@ -66,12 +66,12 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"rand",
-	"rp-runtime/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-election-provider-support/try-runtime",
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"pallet-balances/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

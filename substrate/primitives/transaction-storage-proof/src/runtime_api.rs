@@ -17,9 +17,9 @@
 
 //! Runtime API definition for the transaction storage proof processing.
 
-use rp_runtime::traits::NumberFor;
+use sp_runtime::traits::NumberFor;
 
-rp_api::decl_runtime_apis! {
+sp_api::decl_runtime_apis! {
 	/// Runtime API trait for transaction storage support.
 	pub trait TransactionStorageApi {
 		/// Get the actual value of a retention period in blocks.

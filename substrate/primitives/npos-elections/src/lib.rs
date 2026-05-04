@@ -42,8 +42,8 @@
 //!   denoting the amount of support given to that particular target.
 //!
 //! ```rust
-//! # use rp_npos_elections::*;
-//! # use rp_runtime::Perbill;
+//! # use sp_npos_elections::*;
+//! # use sp_runtime::Perbill;
 //! // the winners.
 //! let winners = vec![(1, 100), (2, 50)];
 //! let assignments = vec![
@@ -82,7 +82,7 @@ use core::{cell::RefCell, cmp::Ordering};
 use scale_info::TypeInfo;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use rp_arithmetic::{traits::Zero, Normalizable, PerThing, Rational128, ThresholdOrd};
+use sp_arithmetic::{traits::Zero, Normalizable, PerThing, Rational128, ThresholdOrd};
 use Debug;
 
 #[cfg(test)]
@@ -249,7 +249,7 @@ impl ElectionScore {
 	/// Compares two sets of election scores based on desirability, returning true if `self` is
 	/// strictly better than `other`.
 	pub fn strict_better(self, other: Self) -> bool {
-		self.strict_threshold_better(other, rp_runtime::Perbill::zero())
+		self.strict_threshold_better(other, sp_runtime::Perbill::zero())
 	}
 }
 

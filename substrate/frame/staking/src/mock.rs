@@ -31,10 +31,10 @@ use frame_support::{
 	weights::constants::RocksDbWeight,
 };
 use frame_system::{EnsureRoot, EnsureSignedBy};
-use rp_core::ConstBool;
-use rp_io;
-use rp_runtime::{curve::PiecewiseLinear, testing::UintAuthorityId, traits::Zero, BuildStorage};
-use rp_staking::{
+use sp_core::ConstBool;
+use sp_io;
+use sp_runtime::{curve::PiecewiseLinear, testing::UintAuthorityId, traits::Zero, BuildStorage};
+use sp_staking::{
 	offence::{OffenceDetails, OnOffenceHandler},
 	OnStakingUpdate, StakingAccount,
 };
@@ -70,7 +70,7 @@ impl OneSessionHandler<AccountId> for OtherSessionHandler {
 	fn on_disabled(_validator_index: u32) {}
 }
 
-impl rp_runtime::BoundToRuntimeAppPublic for OtherSessionHandler {
+impl sp_runtime::BoundToRuntimeAppPublic for OtherSessionHandler {
 	type Public = UintAuthorityId;
 }
 
@@ -134,7 +134,7 @@ impl pallet_balances::Config for Test {
 	type AccountStore = System;
 }
 
-rp_runtime::impl_opaque_keys! {
+sp_runtime::impl_opaque_keys! {
 	pub struct SessionKeys {
 		pub other: OtherSessionHandler,
 	}
@@ -146,7 +146,7 @@ impl pallet_session::Config for Test {
 	type SessionHandler = (OtherSessionHandler,);
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorId = AccountId;
-	type ValidatorIdOf = rp_runtime::traits::ConvertInto;
+	type ValidatorIdOf = sp_runtime::traits::ConvertInto;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
 	type DisablingStrategy =
 		pallet_session::disabling::UpToLimitWithReEnablingDisablingStrategy<DISABLING_LIMIT_FACTOR>;
@@ -202,11 +202,11 @@ impl OnUnbalanced<NegativeImbalanceOf<Test>> for RewardRemainderMock {
 	}
 }
 
-const THRESHOLDS: [rp_npos_elections::VoteWeight; 9] =
+const THRESHOLDS: [sp_npos_elections::VoteWeight; 9] =
 	[10, 20, 30, 40, 50, 60, 1_000, 2_000, 10_000];
 
 parameter_types! {
-	pub static BagThresholds: &'static [rp_npos_elections::VoteWeight] = &THRESHOLDS;
+	pub static BagThresholds: &'static [sp_npos_elections::VoteWeight] = &THRESHOLDS;
 	pub static HistoryDepth: u32 = 80;
 	pub static MaxExposurePageSize: u32 = 64;
 	pub static MaxUnlockingChunks: u32 = 32;
@@ -452,8 +452,8 @@ impl ExtBuilder {
 		SkipTryStateCheck::set(!enable);
 		self
 	}
-	fn build(self) -> rp_io::TestExternalities {
-		rp_tracing::try_init_simple();
+	fn build(self) -> sp_io::TestExternalities {
+		sp_tracing::try_init_simple();
 		let mut storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 		let ed = ExistentialDeposit::get();
 
@@ -570,7 +570,7 @@ impl ExtBuilder {
 		}
 		.assimilate_storage(&mut storage);
 
-		let mut ext = rp_io::TestExternalities::from(storage);
+		let mut ext = sp_io::TestExternalities::from(storage);
 
 		if self.initialize_first_session {
 			ext.execute_with(|| {
@@ -584,7 +584,7 @@ impl ExtBuilder {
 		ext
 	}
 	pub fn build_and_execute(self, test: impl FnOnce() -> ()) {
-		rp_tracing::try_init_simple();
+		sp_tracing::try_init_simple();
 		let mut ext = self.build();
 		ext.execute_with(test);
 		ext.execute_with(|| {
@@ -633,7 +633,7 @@ pub(crate) fn bond_virtual_nominator(
 	target: Vec<AccountId>,
 ) {
 	// Bond who virtually.
-	assert_ok!(<Staking as rp_staking::StakingUnchecked>::virtual_bond(&who, val, &payee));
+	assert_ok!(<Staking as sp_staking::StakingUnchecked>::virtual_bond(&who, val, &payee));
 	assert_ok!(Staking::nominate(RuntimeOrigin::signed(who), target));
 }
 

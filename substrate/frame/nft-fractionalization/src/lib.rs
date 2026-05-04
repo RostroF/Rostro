@@ -53,7 +53,7 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::{pallet_prelude::*, Config as SystemConfig};
-use rp_runtime::{
+use sp_runtime::{
 	traits::{AccountIdConversion, StaticLookup},
 	TokenError,
 };

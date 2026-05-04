@@ -30,13 +30,13 @@ use frame_system::{
 	DispatchEventInfo,
 };
 use scale_info::TypeInfo;
-use rp_core::sr25519;
-use rp_runtime::{
+use sp_core::sr25519;
+use sp_runtime::{
 	generic,
 	traits::{BlakeTwo256, ValidateUnsigned, Verify},
 	DispatchError, ModuleError,
 };
-use rp_version::RuntimeVersion;
+use sp_version::RuntimeVersion;
 
 parameter_types! {
 	pub static IntegrityTestExec: u32 = 0;
@@ -367,7 +367,7 @@ mod runtime {
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Runtime {
 	type AccountId = AccountId;
-	type Lookup = rp_runtime::traits::IdentityLookup<AccountId>;
+	type Lookup = sp_runtime::traits::IdentityLookup<AccountId>;
 	type BaseCallFilter = frame_support::traits::Everything;
 	type RuntimeOrigin = RuntimeOrigin;
 	type RuntimeCall = RuntimeCall;
@@ -420,7 +420,7 @@ fn test_pub() -> AccountId {
 
 #[test]
 fn check_modules_error_type() {
-	rp_io::TestExternalities::default().execute_with(|| {
+	sp_io::TestExternalities::default().execute_with(|| {
 		assert_eq!(
 			Module1_1::fail(frame_system::Origin::<Runtime>::Root.into()),
 			Err(DispatchError::Module(ModuleError {
@@ -736,8 +736,8 @@ fn test_metadata() {
 		*,
 	};
 	use scale_info::meta_type;
-	use rp_core::Encode;
-	use rp_metadata_ir::StorageEntryModifierIR::Optional;
+	use sp_core::Encode;
+	use sp_metadata_ir::StorageEntryModifierIR::Optional;
 
 	fn maybe_docs(doc: Vec<&'static str>) -> Vec<&'static str> {
 		if cfg!(feature = "no-metadata-docs") {

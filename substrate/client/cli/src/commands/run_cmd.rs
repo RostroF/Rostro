@@ -166,8 +166,8 @@ pub struct RunCmd {
 
 impl RunCmd {
 	/// Get the `Sr25519Keyring` matching one of the flag.
-	pub fn get_keyring(&self) -> Option<rp_keyring::Sr25519Keyring> {
-		use rp_keyring::Sr25519Keyring::*;
+	pub fn get_keyring(&self) -> Option<sp_keyring::Sr25519Keyring> {
+		use sp_keyring::Sr25519Keyring::*;
 
 		if self.alice {
 			Some(Alice)

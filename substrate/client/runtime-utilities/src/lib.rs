@@ -25,12 +25,12 @@
 use codec::{Decode, Encode};
 use error::{Error, Result};
 use rc_executor::WasmExecutor;
-use rp_core::{
+use sp_core::{
 	traits::{CallContext, CodeExecutor, FetchRuntimeCode, RuntimeCode},
 	OpaqueMetadata,
 };
-use rp_state_machine::BasicExternalities;
-use rp_wasm_interface::HostFunctions;
+use sp_state_machine::BasicExternalities;
+use sp_wasm_interface::HostFunctions;
 use std::borrow::Cow;
 
 pub mod error;
@@ -79,7 +79,7 @@ impl<'a> FetchRuntimeCode for BasicCodeFetcher<'a> {
 
 impl<'a> BasicCodeFetcher<'a> {
 	fn new(code: Cow<'a, [u8]>) -> Self {
-		Self { hash: rp_crypto_hashing::blake2_256(&code).to_vec(), code }
+		Self { hash: sp_crypto_hashing::blake2_256(&code).to_vec(), code }
 	}
 
 	fn runtime_code(&'a self) -> RuntimeCode<'a> {

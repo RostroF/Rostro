@@ -30,9 +30,9 @@ use rc_network_types::ed25519;
 use std::{collections::HashSet, sync::Arc};
 
 use rc_network::{multiaddr::Protocol, Multiaddr, PeerId};
-use rp_authority_discovery::AuthorityId;
-use rp_core::{crypto::key_types, testing::TaskExecutor, traits::SpawnNamed};
-use rp_keystore::{testing::MemoryKeystore, Keystore};
+use sp_authority_discovery::AuthorityId;
+use sp_core::{crypto::key_types, testing::TaskExecutor, traits::SpawnNamed};
+use sp_keystore::{testing::MemoryKeystore, Keystore};
 
 pub(super) fn create_spawner() -> Box<dyn SpawnNamed> {
 	Box::new(TaskExecutor::new())
@@ -95,13 +95,13 @@ async fn get_addresses_and_authority_id() {
 
 #[tokio::test]
 async fn cryptos_are_compatible() {
-	use rp_core::crypto::Pair;
+	use sp_core::crypto::Pair;
 
 	let libp2p_keypair = ed25519::Keypair::generate();
 	let libp2p_public = libp2p_keypair.public();
 
 	let sp_core_secret =
-		{ rp_core::ed25519::Pair::from_seed_slice(&libp2p_keypair.secret().as_ref()).unwrap() };
+		{ sp_core::ed25519::Pair::from_seed_slice(&libp2p_keypair.secret().as_ref()).unwrap() };
 	let sp_core_public = sp_core_secret.public();
 
 	let message = b"we are more powerful than not to be better";
@@ -109,8 +109,8 @@ async fn cryptos_are_compatible() {
 	let libp2p_signature = libp2p_keypair.sign(message);
 	let sp_core_signature = sp_core_secret.sign(message); // no error expected...
 
-	assert!(rp_core::ed25519::Pair::verify(
-		&rp_core::ed25519::Signature::try_from(libp2p_signature.as_slice()).unwrap(),
+	assert!(sp_core::ed25519::Pair::verify(
+		&sp_core::ed25519::Signature::try_from(libp2p_signature.as_slice()).unwrap(),
 		message,
 		&sp_core_public
 	));

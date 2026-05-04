@@ -38,7 +38,7 @@ use rc_client_api::{
 use rc_client_db::{Backend, BlocksPruning, DatabaseSettings, PruningMode};
 use rc_consensus::import_queue::{ImportQueue, ImportQueueService};
 use rc_executor::{
-	rp_wasm_interface::HostFunctions, HeapAllocStrategy, NativeExecutionDispatch, RuntimeVersionOf,
+	sp_wasm_interface::HostFunctions, HeapAllocStrategy, NativeExecutionDispatch, RuntimeVersionOf,
 	WasmExecutor, DEFAULT_HEAP_ALLOC_STRATEGY,
 };
 use rc_keystore::LocalKeystore;
@@ -84,15 +84,15 @@ use rc_telemetry::{telemetry, ConnectionMessage, Telemetry, TelemetryHandle, SUB
 use rc_tracing::block::TracingExecuteBlock;
 use rc_transaction_pool_api::{MaintainedTransactionPool, TransactionPool};
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
-use rp_api::{CallApiAt, ProvideRuntimeApi};
-use rp_blockchain::{HeaderBackend, HeaderMetadata};
-use rp_consensus::block_validation::{
+use sp_api::{CallApiAt, ProvideRuntimeApi};
+use sp_blockchain::{HeaderBackend, HeaderMetadata};
+use sp_consensus::block_validation::{
 	BlockAnnounceValidator, Chain, DefaultBlockAnnounceValidator,
 };
-use rp_core::traits::{CodeExecutor, SpawnNamed};
-use rp_keystore::KeystorePtr;
-use rp_runtime::traits::{Block as BlockT, BlockIdTo, NumberFor, Zero};
-use rp_storage::{ChildInfo, ChildType, PrefixedStorageKey};
+use sp_core::traits::{CodeExecutor, SpawnNamed};
+use sp_keystore::KeystorePtr;
+use sp_runtime::traits::{Block as BlockT, BlockIdTo, NumberFor, Zero};
+use sp_storage::{ChildInfo, ChildType, PrefixedStorageKey};
 use std::{
 	str::FromStr,
 	sync::Arc,
@@ -318,7 +318,7 @@ fn warm_up_trie_cache<TBl: BlockT>(
 	storage_root: TBl::Hash,
 ) -> Result<(), Error> {
 	use rc_client_api::backend::Backend;
-	use rp_state_machine::Backend as StateBackend;
+	use sp_state_machine::Backend as StateBackend;
 
 	let untrusted_state = || backend.state_at(storage_root, TrieCacheContext::Untrusted);
 	let trusted_state = || backend.state_at(storage_root, TrieCacheContext::Trusted);
@@ -393,7 +393,7 @@ pub fn new_wasm_executor<H: HostFunctions>(config: &ExecutorConfiguration) -> Wa
 /// If any filter returns `true` for a block's justifications, the block will not be pruned.
 pub fn new_db_backend<Block>(
 	settings: DatabaseSettings,
-) -> Result<Arc<Backend<Block>>, rp_blockchain::Error>
+) -> Result<Arc<Backend<Block>>, sp_blockchain::Error>
 where
 	Block: BlockT,
 {
@@ -421,7 +421,7 @@ pub fn new_client<E, Block, RA, G>(
 		Block,
 		RA,
 	>,
-	rp_blockchain::Error,
+	sp_blockchain::Error,
 >
 where
 	Block: BlockT,
@@ -504,10 +504,10 @@ pub fn spawn_tasks<TBl, TBackend, TExPool, TRpc, TCl>(
 ) -> Result<RpcHandlers, Error>
 where
 	TCl: ProvideRuntimeApi<TBl>
-		+ HeaderMetadata<TBl, Error = rp_blockchain::Error>
+		+ HeaderMetadata<TBl, Error = sp_blockchain::Error>
 		+ Chain<TBl>
 		+ BlockBackend<TBl>
-		+ BlockIdTo<TBl, Error = rp_blockchain::Error>
+		+ BlockIdTo<TBl, Error = sp_blockchain::Error>
 		+ ProofProvider<TBl>
 		+ HeaderBackend<TBl>
 		+ BlockchainEvents<TBl>
@@ -517,10 +517,10 @@ where
 		+ CallApiAt<TBl>
 		+ Send
 		+ 'static,
-	<TCl as ProvideRuntimeApi<TBl>>::Api: rp_api::Metadata<TBl>
-		+ rp_transaction_pool::runtime_api::TaggedTransactionQueue<TBl>
-		+ rp_session::SessionKeys<TBl>
-		+ rp_api::ApiExt<TBl>,
+	<TCl as ProvideRuntimeApi<TBl>>::Api: sp_api::Metadata<TBl>
+		+ sp_transaction_pool::runtime_api::TaggedTransactionQueue<TBl>
+		+ sp_session::SessionKeys<TBl>
+		+ sp_api::ApiExt<TBl>,
 	TBl: BlockT,
 	TBl::Hash: Unpin,
 	TBl::Header: Unpin,
@@ -529,7 +529,7 @@ where
 {
 	let chain_info = client.usage_info().chain;
 
-	rp_session::generate_initial_session_keys(
+	sp_session::generate_initial_session_keys(
 		client.clone(),
 		chain_info.best_hash,
 		config.dev_key_seed.clone().map(|s| vec![s]).unwrap_or_default(),
@@ -829,7 +829,7 @@ where
 	TCl: ProvideRuntimeApi<TBl>
 		+ BlockchainEvents<TBl>
 		+ HeaderBackend<TBl>
-		+ HeaderMetadata<TBl, Error = rp_blockchain::Error>
+		+ HeaderMetadata<TBl, Error = sp_blockchain::Error>
 		+ ExecutorProvider<TBl>
 		+ CallApiAt<TBl>
 		+ ProofProvider<TBl>
@@ -839,7 +839,7 @@ where
 		+ Sync
 		+ 'static,
 	TBackend: rc_client_api::backend::Backend<TBl> + 'static,
-	<TCl as ProvideRuntimeApi<TBl>>::Api: rp_session::SessionKeys<TBl> + rp_api::Metadata<TBl>,
+	<TCl as ProvideRuntimeApi<TBl>>::Api: sp_session::SessionKeys<TBl> + sp_api::Metadata<TBl>,
 	TExPool: MaintainedTransactionPool<Block = TBl, Hash = <TBl as BlockT>::Hash> + 'static,
 	TBl::Hash: Unpin,
 	TBl::Header: Unpin,
@@ -1003,10 +1003,10 @@ pub fn build_network<Block, Net, TxPool, IQ, Client>(
 where
 	Block: BlockT,
 	Client: ProvideRuntimeApi<Block>
-		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ Chain<Block>
 		+ BlockBackend<Block>
-		+ BlockIdTo<Block, Error = rp_blockchain::Error>
+		+ BlockIdTo<Block, Error = sp_blockchain::Error>
 		+ ProofProvider<Block>
 		+ HeaderBackend<Block>
 		+ BlockchainEvents<Block>
@@ -1169,10 +1169,10 @@ pub fn build_network_advanced<Block, Net, TxPool, IQ, Client>(
 where
 	Block: BlockT,
 	Client: ProvideRuntimeApi<Block>
-		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ Chain<Block>
 		+ BlockBackend<Block>
-		+ BlockIdTo<Block, Error = rp_blockchain::Error>
+		+ BlockIdTo<Block, Error = sp_blockchain::Error>
 		+ ProofProvider<Block>
 		+ HeaderBackend<Block>
 		+ BlockchainEvents<Block>
@@ -1364,7 +1364,7 @@ where
 	Block: BlockT,
 	Client: HeaderBackend<Block>
 		+ BlockBackend<Block>
-		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ ProofProvider<Block>
 		+ Send
 		+ Sync
@@ -1480,7 +1480,7 @@ where
 	Block: BlockT,
 	Client: HeaderBackend<Block>
 		+ BlockBackend<Block>
-		+ HeaderMetadata<Block, Error = rp_blockchain::Error>
+		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ ProofProvider<Block>
 		+ Send
 		+ Sync

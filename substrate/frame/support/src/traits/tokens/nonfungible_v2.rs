@@ -31,7 +31,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
-use rp_runtime::TokenError;
+use sp_runtime::TokenError;
 
 /// Trait for providing an interface to a read-only NFT-like item.
 pub trait Inspect<AccountId> {

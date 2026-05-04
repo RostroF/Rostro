@@ -20,8 +20,8 @@
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use impl_trait_for_tuples::impl_for_tuples;
-use rp_arithmetic::traits::AtLeast16BitUnsigned;
-use rp_runtime::DispatchResult;
+use sp_arithmetic::traits::AtLeast16BitUnsigned;
+use sp_runtime::DispatchResult;
 
 /// A trait for querying whether a type can be said to "contain" a value.
 pub trait Contains<T> {

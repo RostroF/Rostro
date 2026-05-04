@@ -34,12 +34,12 @@ use frame_support::{
 	BoundedVec,
 };
 use frame_system::{ensure_root, ensure_signed, pallet_prelude::*};
-use rp_runtime::{
+use sp_runtime::{
 	traits::{SaturatedConversion, StaticLookup, Zero},
 	ArithmeticError, Perbill, Percent,
 };
 
-use rp_staking::{
+use sp_staking::{
 	EraIndex, Page, SessionIndex,
 	StakingAccount::{self, Controller, Stash},
 	StakingInterface,
@@ -112,7 +112,7 @@ pub mod pallet {
 
 		/// Just the `Currency::Balance` type; we have this item to allow us to constrain it to
 		/// `From<u64>`.
-		type CurrencyBalance: rp_runtime::traits::AtLeast32BitUnsigned
+		type CurrencyBalance: sp_runtime::traits::AtLeast32BitUnsigned
 			+ codec::FullCodec
 			+ DecodeWithMemTracking
 			+ HasCompact<Type: DecodeWithMemTracking>
@@ -139,7 +139,7 @@ pub mod pallet {
 		/// Consequently, the backward convert is used convert the u128s from sp-elections back to a
 		/// [`BalanceOf`].
 		#[pallet::no_default_bounds]
-		type CurrencyToVote: rp_staking::currency_to_vote::CurrencyToVote<BalanceOf<Self>>;
+		type CurrencyToVote: sp_staking::currency_to_vote::CurrencyToVote<BalanceOf<Self>>;
 
 		/// Something that provides the election functionality.
 		#[pallet::no_default]
@@ -314,7 +314,7 @@ pub mod pallet {
 		///
 		/// WARNING: this only reports slashing and withdraw events for the time being.
 		#[pallet::no_default_bounds]
-		type EventListeners: rp_staking::OnStakingUpdate<Self::AccountId, BalanceOf<Self>>;
+		type EventListeners: sp_staking::OnStakingUpdate<Self::AccountId, BalanceOf<Self>>;
 
 		#[pallet::no_default_bounds]
 		/// Filter some accounts from participating in staking.
@@ -1004,7 +1004,7 @@ pub mod pallet {
 		}
 
 		#[cfg(feature = "try-runtime")]
-		fn try_state(n: BlockNumberFor<T>) -> Result<(), rp_runtime::TryRuntimeError> {
+		fn try_state(n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 			Self::do_try_state(n)
 		}
 	}
@@ -2311,7 +2311,7 @@ pub mod pallet {
 				Error::<T>::InvalidEraToReward
 			);
 
-			let offence_details = rp_staking::offence::OffenceDetails {
+			let offence_details = sp_staking::offence::OffenceDetails {
 				offender: validator_stash.clone(),
 				reporters: Vec::new(),
 			};

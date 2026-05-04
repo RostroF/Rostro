@@ -24,6 +24,6 @@ rc-consensus-epochs = { default-features = true, workspace = true }
 rc-consensus-grandpa = { default-features = true, workspace = true }
 serde = { features = ["derive"], workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
 thiserror = { workspace = true }

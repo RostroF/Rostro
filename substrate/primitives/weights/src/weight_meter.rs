@@ -19,7 +19,7 @@
 
 use super::Weight;
 
-use rp_arithmetic::Perbill;
+use sp_arithmetic::Perbill;
 
 /// Meters consumed weight and a hard limit for the maximal consumable weight.
 ///
@@ -28,7 +28,7 @@ use rp_arithmetic::Perbill;
 /// # Example
 ///
 /// ```rust
-/// use rp_weights::{Weight, WeightMeter};
+/// use sp_weights::{Weight, WeightMeter};
 ///
 /// // The weight is limited to (10, 0).
 /// let mut meter = WeightMeter::with_limit(Weight::from_parts(10, 0));
@@ -93,8 +93,8 @@ impl WeightMeter {
 	///
 	/// # Example
 	/// ```rust
-	/// use rp_weights::{Weight, WeightMeter};
-	/// use rp_arithmetic::Perbill;
+	/// use sp_weights::{Weight, WeightMeter};
+	/// use sp_arithmetic::Perbill;
 	///
 	/// let mut meter = WeightMeter::with_limit(Weight::from_parts(10, 20));
 	/// // Nothing consumed so far:
@@ -158,7 +158,7 @@ impl WeightMeter {
 #[cfg(test)]
 mod tests {
 	use crate::*;
-	use rp_arithmetic::traits::Zero;
+	use sp_arithmetic::traits::Zero;
 
 	#[test]
 	fn weight_meter_remaining_works() {

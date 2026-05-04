@@ -22,16 +22,16 @@ frame-system = { workspace = true }
 pallet-session = { features = ["historical"], workspace = true }
 pallet-staking = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
-rp-core = { workspace = true }
-rp-runtime = { workspace = true }
-rp-staking = { workspace = true }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-staking = { workspace = true }
 
 [dev-dependencies]
 pallet-balances = { default-features = true, workspace = true }
 pallet-staking-reward-curve = { default-features = true, workspace = true }
 pallet-timestamp = { default-features = true, workspace = true }
 
-rp-io = { default-features = true, workspace = true }
+sp-io = { default-features = true, workspace = true }
 
 frame-election-provider-support = { default-features = true, workspace = true }
 
@@ -44,9 +44,9 @@ std = [
 	"pallet-session/std",
 	"pallet-staking/std",
 	"scale-info/std",
-	"rp-core/std",
-	"rp-runtime/std",
-	"rp-staking/std",
+	"sp-core/std",
+	"sp-runtime/std",
+	"sp-staking/std",
 ]
 runtime-benchmarks = [
 	"frame-election-provider-support/runtime-benchmarks",
@@ -56,8 +56,8 @@ runtime-benchmarks = [
 	"pallet-session/runtime-benchmarks",
 	"pallet-staking/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
-	"rp-runtime/runtime-benchmarks",
-	"rp-staking/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+	"sp-staking/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-election-provider-support/try-runtime",
@@ -67,5 +67,5 @@ try-runtime = [
 	"pallet-session/try-runtime",
 	"pallet-staking/try-runtime",
 	"pallet-timestamp/try-runtime",
-	"rp-runtime/try-runtime",
+	"sp-runtime/try-runtime",
 ]

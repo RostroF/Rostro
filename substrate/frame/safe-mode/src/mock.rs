@@ -29,9 +29,9 @@ use frame_support::{
 };
 use frame_system::{mocking::MockBlock, EnsureSignedBy};
 use scale_info::TypeInfo;
-use rp_core::H256;
-use rp_io::TestExternalities;
-use rp_runtime::{traits::{BlakeTwo256, IdentityLookup}, BuildStorage};
+use sp_core::H256;
+use sp_io::TestExternalities;
+use sp_runtime::{traits::{BlakeTwo256, IdentityLookup}, BuildStorage};
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {

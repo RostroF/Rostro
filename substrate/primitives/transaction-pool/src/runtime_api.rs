@@ -17,12 +17,12 @@
 
 //! Tagged Transaction Queue Runtime API.
 
-use rp_runtime::{
+use sp_runtime::{
 	traits::Block as BlockT,
 	transaction_validity::{TransactionSource, TransactionValidity},
 };
 
-rp_api::decl_runtime_apis! {
+sp_api::decl_runtime_apis! {
 	/// The `TaggedTransactionQueue` api trait for interfering with the transaction queue.
 	#[api_version(3)]
 	pub trait TaggedTransactionQueue {

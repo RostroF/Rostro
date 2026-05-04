@@ -30,8 +30,8 @@ use frame_support::{
 };
 use pallet_staking::{CurrentEra, RewardDestination};
 
-use rp_runtime::traits::BadOrigin;
-use rp_staking::StakingInterface;
+use sp_runtime::traits::BadOrigin;
+use sp_staking::StakingInterface;
 
 #[test]
 fn test_setup_works() {

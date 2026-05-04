@@ -37,10 +37,10 @@
 //! needed must be provided in the given directory.
 
 use rc_executor::RuntimeVersionOf;
-use rp_blockchain::Result;
-use rp_core::traits::{FetchRuntimeCode, RuntimeCode, WrappedRuntimeCode};
-use rp_state_machine::BasicExternalities;
-use rp_version::RuntimeVersion;
+use sp_blockchain::Result;
+use sp_core::traits::{FetchRuntimeCode, RuntimeCode, WrappedRuntimeCode};
+use sp_state_machine::BasicExternalities;
+use sp_version::RuntimeVersion;
 use std::{
 	collections::{hash_map::DefaultHasher, HashMap},
 	fs,
@@ -109,7 +109,7 @@ pub enum WasmOverrideError {
 	DuplicateRuntime(Vec<String>),
 }
 
-impl From<WasmOverrideError> for rp_blockchain::Error {
+impl From<WasmOverrideError> for sp_blockchain::Error {
 	fn from(err: WasmOverrideError) -> Self {
 		Self::Application(Box::new(err))
 	}
@@ -173,7 +173,7 @@ impl WasmOverride {
 	where
 		E: RuntimeVersionOf,
 	{
-		let handle_err = |e: std::io::Error| -> rp_blockchain::Error {
+		let handle_err = |e: std::io::Error| -> sp_blockchain::Error {
 			WasmOverrideError::Io(dir.to_owned(), e).into()
 		};
 
@@ -320,7 +320,7 @@ mod tests {
 			let scraped = WasmOverride::scrape_overrides(dir, exec);
 
 			match scraped {
-				Err(rp_blockchain::Error::Application(e)) => {
+				Err(sp_blockchain::Error::Application(e)) => {
 					match e.downcast_ref::<WasmOverrideError>() {
 						Some(WasmOverrideError::DuplicateRuntime(duplicates)) => {
 							assert_eq!(duplicates.len(), 1);

@@ -28,7 +28,7 @@ use rc_network::{
 };
 
 use rc_network_common::sync::message::BlockAnnouncesHandshake;
-use rp_runtime::traits::Zero;
+use sp_runtime::traits::Zero;
 use std::{sync::Arc, time::Duration};
 use substrate_test_runtime_client::runtime;
 use tokio::sync::Mutex;

@@ -31,8 +31,8 @@ use rc_client_api::{
 	backend,
 	blockchain::{Backend as BlockChainBackendT, HeaderBackend},
 };
-use rp_consensus::BlockOrigin;
-use rp_runtime::traits::Block as BlockT;
+use sp_consensus::BlockOrigin;
+use sp_runtime::traits::Block as BlockT;
 use substrate_test_runtime::Transfer;
 
 /// helper to test the `leaves` implementation for various backends

@@ -16,9 +16,9 @@
 // limitations under the License.
 
 use substrate_test_runtime_client::runtime::Block;
-use rp_api::ApiError;
+use sp_api::ApiError;
 
-rp_api::decl_runtime_apis! {
+sp_api::decl_runtime_apis! {
 	pub trait Api {
 		fn test();
 	}
@@ -26,7 +26,7 @@ rp_api::decl_runtime_apis! {
 
 struct MockApi;
 
-rp_api::mock_impl_runtime_apis! {
+sp_api::mock_impl_runtime_apis! {
 	impl Api<Block> for MockApi {
 		#[advanced]
 		fn test(&self) -> Result<(), ApiError> {

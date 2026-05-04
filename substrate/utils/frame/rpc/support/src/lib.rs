@@ -26,7 +26,7 @@ use frame_support::storage::generator::{StorageDoubleMap, StorageMap, StorageVal
 use jsonrpsee::core::ClientError as RpcError;
 use rc_rpc_api::state::StateApiClient;
 use serde::{de::DeserializeOwned, Serialize};
-use rp_storage::{StorageData, StorageKey};
+use sp_storage::{StorageData, StorageKey};
 
 /// A typed query on chain state usable from an RPC client.
 ///
@@ -37,7 +37,7 @@ use rp_storage::{StorageData, StorageKey};
 /// # use frame_support::{construct_runtime, derive_impl, traits::ConstU32};
 /// # use substrate_frame_rpc_support::StorageQuery;
 /// # use rc_rpc_api::state::StateApiClient;
-/// # use rp_runtime::{traits::{BlakeTwo256, IdentityLookup}, testing::Header};
+/// # use sp_runtime::{traits::{BlakeTwo256, IdentityLookup}, testing::Header};
 /// #
 /// # construct_runtime!(
 /// # 	pub enum TestRuntime
@@ -47,7 +47,7 @@ use rp_storage::{StorageData, StorageKey};
 /// # 	}
 /// # );
 /// #
-/// # type Hash = rp_core::H256;
+/// # type Hash = sp_core::H256;
 /// #
 /// # #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 /// # impl frame_system::Config for TestRuntime {

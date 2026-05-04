@@ -32,8 +32,8 @@ use alloc::vec::Vec;
 use codec::Encode;
 use core::marker::PhantomData;
 use frame_support::weights::Weight;
-use rp_runtime::{traits::Hash, Perbill};
-use rp_staking::{
+use sp_runtime::{traits::Hash, Perbill};
+use sp_staking::{
 	offence::{Kind, Offence, OffenceDetails, OffenceError, OnOffenceHandler, ReportOffence},
 	SessionIndex,
 };

@@ -38,7 +38,7 @@ pub use rc_rpc_server::{
 };
 pub use rc_telemetry::TelemetryEndpoints;
 pub use rc_transaction_pool::TransactionPoolOptions;
-use rp_core::crypto::SecretString;
+use sp_core::crypto::SecretString;
 use std::{
 	io, iter,
 	net::SocketAddr,

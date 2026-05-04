@@ -1,5 +1,5 @@
 [package]
-name = "rp-state-machine"
+name = "sp-state-machine"
 version = "0.50.0"
 authors.workspace = true
 description = "Substrate State Machine"
@@ -7,7 +7,7 @@ edition.workspace = true
 license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
-documentation = "https://docs.rs/rp-state-machine"
+documentation = "https://docs.rs/sp-state-machine"
 readme = "README.md"
 
 [lints]
@@ -24,10 +24,10 @@ log = { workspace = true }
 parking_lot = { optional = true, workspace = true, default-features = true }
 rand = { optional = true, workspace = true, default-features = true }
 smallvec = { workspace = true, default-features = true }
-rp-core = { workspace = true }
-rp-externalities = { workspace = true }
-rp-panic-handler = { optional = true, workspace = true, default-features = true }
-rp-trie = { workspace = true }
+sp-core = { workspace = true }
+sp-externalities = { workspace = true }
+sp-panic-handler = { optional = true, workspace = true, default-features = true }
+sp-trie = { workspace = true }
 thiserror = { optional = true, workspace = true }
 tracing = { optional = true, workspace = true, default-features = true }
 trie-db = { workspace = true }
@@ -38,7 +38,7 @@ array-bytes = { workspace = true, default-features = true }
 assert_matches = { workspace = true }
 pretty_assertions = { workspace = true }
 rand = { workspace = true, default-features = true }
-rp-runtime = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -49,10 +49,10 @@ std = [
 	"log/std",
 	"parking_lot",
 	"rand",
-	"rp-core/std",
-	"rp-externalities/std",
-	"rp-panic-handler",
-	"rp-trie/std",
+	"sp-core/std",
+	"sp-externalities/std",
+	"sp-panic-handler",
+	"sp-trie/std",
 	"thiserror",
 	"tracing",
 	"trie-db/std",

@@ -18,7 +18,7 @@
 use super::{common_strategies::*, *};
 use crate::{
 	dispatch::DispatchResult,
-	rp_runtime::traits::Convert,
+	sp_runtime::traits::Convert,
 	traits::{misc::TypedGet, EnsureOriginWithArg},
 };
 

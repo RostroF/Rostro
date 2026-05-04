@@ -30,7 +30,7 @@ use rc_network::{
 	request_responses::{IncomingRequest, OutgoingResponse},
 	NetworkBackend, MAX_RESPONSE_SIZE,
 };
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 
 use std::{sync::Arc, time::Duration};
 
@@ -152,7 +152,7 @@ enum HandleRequestError {
 	DecodeScale(#[from] codec::Error),
 
 	#[error(transparent)]
-	Client(#[from] rp_blockchain::Error),
+	Client(#[from] sp_blockchain::Error),
 
 	#[error("Invalid request {0}.")]
 	InvalidRequest(#[from] Box<dyn std::error::Error + Send + Sync>),

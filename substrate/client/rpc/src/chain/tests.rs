@@ -21,8 +21,8 @@ use crate::testing::{test_executor, timeout_secs};
 use assert_matches::assert_matches;
 use jsonrpsee::core::EmptyServerParams as EmptyParams;
 use rc_block_builder::BlockBuilderBuilder;
-use rp_consensus::BlockOrigin;
-use rp_rpc::list::ListOrValue;
+use sp_consensus::BlockOrigin;
+use sp_rpc::list::ListOrValue;
 use substrate_test_runtime_client::{
 	prelude::*,
 	runtime::{Block, Header, H256},
@@ -184,7 +184,7 @@ async fn should_return_block_hash() {
 	);
 
 	let res: ListOrValue<Option<H256>> = api
-		.call("chain_getBlockHash", [ListOrValue::Value(rp_core::U256::from(1_u64))])
+		.call("chain_getBlockHash", [ListOrValue::Value(sp_core::U256::from(1_u64))])
 		.await
 		.unwrap();
 	assert_matches!(

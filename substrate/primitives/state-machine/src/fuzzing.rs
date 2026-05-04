@@ -23,10 +23,10 @@ use arbitrary::Arbitrary;
 #[cfg(test)]
 use codec::Encode;
 use hash_db::Hasher;
-use rp_core::{storage::StateVersion, traits::Externalities};
+use sp_core::{storage::StateVersion, traits::Externalities};
 #[cfg(test)]
-use rp_runtime::traits::BlakeTwo256;
-use rp_trie::PrefixedMemoryDB;
+use sp_runtime::traits::BlakeTwo256;
+use sp_trie::PrefixedMemoryDB;
 use std::collections::BTreeMap;
 
 #[derive(Arbitrary, Debug, Clone)]

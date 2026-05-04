@@ -20,7 +20,7 @@
 
 use std::path::PathBuf;
 
-use rp_core::crypto;
+use sp_core::crypto;
 
 /// Result type alias for the CLI.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -39,7 +39,7 @@ pub enum Error {
 	Service(#[from] rc_service::Error),
 
 	#[error(transparent)]
-	Client(#[from] rp_blockchain::Error),
+	Client(#[from] sp_blockchain::Error),
 
 	#[error(transparent)]
 	Codec(#[from] codec::Error),

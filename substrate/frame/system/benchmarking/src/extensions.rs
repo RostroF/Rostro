@@ -31,7 +31,7 @@ use frame_system::{
 	CheckSpecVersion, CheckTxVersion, CheckWeight, Config, ExtensionsWeightInfo, Pallet as System,
 	RawOrigin, WeightReclaim,
 };
-use rp_runtime::{
+use sp_runtime::{
 	generic::Era,
 	traits::{
 		AsSystemOriginSigner, AsTransactionAuthorizedOrigin, DispatchTransaction, Dispatchable, Get,

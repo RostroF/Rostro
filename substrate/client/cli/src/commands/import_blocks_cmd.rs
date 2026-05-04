@@ -24,7 +24,7 @@ use crate::{
 use clap::Parser;
 use rc_client_api::HeaderBackend;
 use rc_service::chain_ops::import_blocks;
-use rp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::Block as BlockT;
 use std::{
 	fmt::Debug,
 	fs,

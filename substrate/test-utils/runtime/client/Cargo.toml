@@ -19,11 +19,11 @@ futures = { workspace = true }
 rc-block-builder = { default-features = true, workspace = true }
 rc-client-api = { default-features = true, workspace = true }
 rc-consensus = { default-features = true, workspace = true }
-rp-api = { default-features = true, workspace = true }
-rp-blockchain = { default-features = true, workspace = true }
-rp-consensus = { default-features = true, workspace = true }
-rp-core = { default-features = true, workspace = true }
-rp-runtime = { default-features = true, workspace = true }
+sp-api = { default-features = true, workspace = true }
+sp-blockchain = { default-features = true, workspace = true }
+sp-consensus = { default-features = true, workspace = true }
+sp-core = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
 substrate-test-client = { workspace = true }
 substrate-test-runtime = { workspace = true }
 

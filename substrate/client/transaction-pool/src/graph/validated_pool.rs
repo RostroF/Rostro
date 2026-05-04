@@ -26,8 +26,8 @@ use futures::channel::mpsc::{channel, Sender};
 use indexmap::IndexMap;
 use parking_lot::{Mutex, RwLock};
 use rc_transaction_pool_api::{error, PoolStatus, ReadyTransactions, TransactionPriority};
-use rp_blockchain::HashAndNumber;
-use rp_runtime::{
+use sp_blockchain::HashAndNumber;
+use sp_runtime::{
 	traits::SaturatedConversion,
 	transaction_validity::{TransactionTag as Tag, ValidTransaction},
 };

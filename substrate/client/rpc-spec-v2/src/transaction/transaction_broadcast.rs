@@ -35,9 +35,9 @@ use rc_client_api::BlockchainEvents;
 use rc_transaction_pool_api::{
 	error::IntoPoolError, TransactionFor, TransactionPool, TransactionSource,
 };
-use rp_blockchain::HeaderBackend;
-use rp_core::Bytes;
-use rp_runtime::traits::Block as BlockT;
+use sp_blockchain::HeaderBackend;
+use sp_core::Bytes;
+use sp_runtime::traits::Block as BlockT;
 use std::{collections::HashMap, sync::Arc};
 
 use super::error::ErrorBroadcast;

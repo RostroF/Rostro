@@ -18,7 +18,7 @@
 //! Configuration types for remote externalities.
 
 use codec::{Compact, Decode, Encode};
-use rp_runtime::{traits::Block as BlockT, StateVersion};
+use sp_runtime::{traits::Block as BlockT, StateVersion};
 use std::{
 	fs,
 	path::{Path, PathBuf},

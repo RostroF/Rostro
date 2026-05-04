@@ -31,7 +31,7 @@
 extern crate alloc;
 
 // Re-export since this is necessary for `impl_apis` in runtime.
-pub use rp_consensus_grandpa::{
+pub use sp_consensus_grandpa::{
 	self as fg_primitives, AuthorityId, AuthorityList, AuthorityWeight,
 };
 
@@ -46,13 +46,13 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::BlockNumberFor;
 use scale_info::TypeInfo;
-use rp_consensus_grandpa::{
+use sp_consensus_grandpa::{
 	ConsensusLog, EquivocationProof, ScheduledChange, SetId, GRANDPA_ENGINE_ID,
 	RUNTIME_LOG_TARGET as LOG_TARGET,
 };
-use rp_runtime::{generic::DigestItem, traits::Zero, DispatchResult};
-use rp_session::{GetSessionNumber, GetValidatorCount};
-use rp_staking::{offence::OffenceReportSystem, SessionIndex};
+use sp_runtime::{generic::DigestItem, traits::Zero, DispatchResult};
+use sp_session::{GetSessionNumber, GetValidatorCount};
+use sp_staking::{offence::OffenceReportSystem, SessionIndex};
 
 mod default_weights;
 mod equivocation;
@@ -600,7 +600,7 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-impl<T: Config> rp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
+impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
 	type Public = AuthorityId;
 }
 
