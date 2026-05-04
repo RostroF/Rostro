@@ -101,6 +101,19 @@ pub fn fingerprint(canonical_def: &[u8], role: &[u8], version: u32) -> [u8; 32] 
 	sp_io::hashing::blake2_256(&buf)
 }
 
+/// The seven well-known v0 roles paired with their canonical structural
+/// definitions. Source of truth for both genesis seeding and the runtime-upgrade
+/// gate; keeping them in one place ensures the two invariants can never drift.
+pub const V0_WELL_KNOWN_ROLES: [(&[u8], &[u8]); 7] = [
+	(roles::ACCOUNT, canonical_defs::ACCOUNT_ID_32),
+	(roles::HASH, canonical_defs::HASH_32),
+	(roles::ERA, canonical_defs::ERA),
+	(roles::MULTIADDRESS, canonical_defs::MULTIADDRESS),
+	(roles::WEIGHT, canonical_defs::WEIGHT),
+	(roles::BALANCE, canonical_defs::BALANCE_U128),
+	(roles::BLOCK_NUMBER, canonical_defs::BLOCK_NUMBER_U32),
+];
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -164,18 +177,7 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			// v0 default seed: the seven canonical Substrate-flavored roles.
-			let v0_seed: [(&[u8], &[u8]); 7] = [
-				(roles::ACCOUNT, canonical_defs::ACCOUNT_ID_32),
-				(roles::HASH, canonical_defs::HASH_32),
-				(roles::ERA, canonical_defs::ERA),
-				(roles::MULTIADDRESS, canonical_defs::MULTIADDRESS),
-				(roles::WEIGHT, canonical_defs::WEIGHT),
-				(roles::BALANCE, canonical_defs::BALANCE_U128),
-				(roles::BLOCK_NUMBER, canonical_defs::BLOCK_NUMBER_U32),
-			];
-
-			for (role, def) in v0_seed.iter() {
+			for (role, def) in super::V0_WELL_KNOWN_ROLES.iter() {
 				let fp = super::fingerprint(def, role, FINGERPRINT_VERSION);
 				let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
 					BoundedVec::try_from(role.to_vec())
@@ -232,6 +234,115 @@ pub mod pallet {
 	}
 }
 
+/// Runtime-upgrade-time guards. Wire `EnforceWellKnownFingerprints` into
+/// `frame_system::Config::SingleBlockMigrations` to make every runtime upgrade
+/// fail closed if the new binary's compile-time canonical types diverge from
+/// the fingerprints already anchored on chain.
+pub mod migrations {
+	use super::*;
+	use frame_support::{
+		traits::OnRuntimeUpgrade,
+		weights::Weight,
+	};
+
+	/// Result of comparing one role's recomputed fingerprint against the
+	/// on-chain entry. `Match` and `Healed` are non-fatal; `Mismatch` is the
+	/// signal a runtime upgrade should reject.
+	#[derive(Debug, PartialEq, Eq)]
+	pub enum RoleCheck {
+		/// On-chain entry exists and equals the recomputed fingerprint.
+		Match,
+		/// On-chain entry was missing (pallet just added via upgrade) and was
+		/// seeded with the recomputed fingerprint.
+		Healed,
+		/// On-chain entry exists but disagrees with the recomputed fingerprint.
+		/// The upgrade must be rejected.
+		Mismatch { stored: [u8; 32], expected: [u8; 32] },
+	}
+
+	/// Pure decision function: given a role's stored fingerprint (or absence)
+	/// and the recomputed expected value, decide what action to take. Extracted
+	/// from the storage-backed migration so it can be unit-tested without a
+	/// mock runtime.
+	pub fn classify_role(stored: Option<[u8; 32]>, expected: [u8; 32]) -> RoleCheck {
+		match stored {
+			None => RoleCheck::Healed,
+			Some(s) if s == expected => RoleCheck::Match,
+			Some(s) => RoleCheck::Mismatch { stored: s, expected },
+		}
+	}
+
+	/// Runtime-upgrade gate. Iterates every v0 well-known role, recomputes its
+	/// fingerprint from the *current binary's* canonical_def, and compares to
+	/// the on-chain entry:
+	/// - missing → seeded (handles the migration-onto-existing-chain case)
+	/// - matching → no-op
+	/// - mismatching → panic, which fails the block carrying the upgrade
+	///
+	/// Legitimate canonical-type version bumps land by ordering an SRT-gated
+	/// `register_fingerprint` migration *before* this gate in the migration
+	/// tuple, so the on-chain entry is updated to the new value before the
+	/// comparison runs.
+	pub struct EnforceWellKnownFingerprints<T>(core::marker::PhantomData<T>);
+
+	impl<T: Config> OnRuntimeUpgrade for EnforceWellKnownFingerprints<T> {
+		fn on_runtime_upgrade() -> Weight {
+			let mut reads = 0u64;
+			let mut writes = 0u64;
+
+			for (role, def) in V0_WELL_KNOWN_ROLES.iter() {
+				let expected = fingerprint(def, role, FINGERPRINT_VERSION);
+				let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
+					BoundedVec::try_from(role.to_vec())
+						.expect("v0 well-known role fits in MAX_ROLE_LEN; qed");
+
+				let stored = pallet::WellKnownTypeFingerprints::<T>::get(&key);
+				reads += 1;
+
+				match classify_role(stored, expected) {
+					RoleCheck::Match => {},
+					RoleCheck::Healed => {
+						pallet::WellKnownTypeFingerprints::<T>::insert(&key, expected);
+						writes += 1;
+					},
+					RoleCheck::Mismatch { stored, expected } => {
+						log::error!(
+							target: "runtime::rostro-type-registry",
+							"well-known role {:?} fingerprint mismatch — stored=0x{} expected=0x{}",
+							role,
+							hex_fmt(&stored),
+							hex_fmt(&expected),
+						);
+						panic!(
+							"rostro-type-registry: well-known role fingerprint mismatch — \
+							 runtime upgrade rejected"
+						);
+					},
+				}
+			}
+
+			T::DbWeight::get().reads_writes(reads, writes)
+		}
+	}
+
+	fn hex_fmt(bytes: &[u8; 32]) -> alloc::string::String {
+		use alloc::string::String;
+		let mut out = String::with_capacity(64);
+		for b in bytes.iter() {
+			out.push(nibble(b >> 4));
+			out.push(nibble(b & 0x0f));
+		}
+		out
+	}
+
+	const fn nibble(n: u8) -> char {
+		match n {
+			0..=9 => (b'0' + n) as char,
+			_ => (b'a' + n - 10) as char,
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -259,5 +370,40 @@ mod tests {
 		let v1 = fingerprint(b"u128", b"balance", 1);
 		let v2 = fingerprint(b"u128", b"balance", 2);
 		assert_ne!(v1, v2, "version bump must produce distinct fingerprint");
+	}
+
+	mod gate {
+		use super::super::migrations::{classify_role, RoleCheck};
+
+		const A: [u8; 32] = [0xAA; 32];
+		const B: [u8; 32] = [0xBB; 32];
+
+		#[test]
+		fn match_when_stored_equals_expected() {
+			assert_eq!(classify_role(Some(A), A), RoleCheck::Match);
+		}
+
+		#[test]
+		fn heals_when_storage_missing() {
+			assert_eq!(classify_role(None, A), RoleCheck::Healed);
+		}
+
+		#[test]
+		fn mismatch_signals_rejection() {
+			assert_eq!(
+				classify_role(Some(A), B),
+				RoleCheck::Mismatch { stored: A, expected: B },
+			);
+		}
+
+		#[test]
+		fn v0_seed_recomputes_to_distinct_values() {
+			use super::super::{fingerprint, FINGERPRINT_VERSION, V0_WELL_KNOWN_ROLES};
+			let mut seen = std::collections::HashSet::new();
+			for (role, def) in V0_WELL_KNOWN_ROLES.iter() {
+				let fp = fingerprint(def, role, FINGERPRINT_VERSION);
+				assert!(seen.insert(fp), "v0 fingerprints must be globally distinct");
+			}
+		}
 	}
 }

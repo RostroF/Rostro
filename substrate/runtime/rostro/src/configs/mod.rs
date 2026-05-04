@@ -55,8 +55,12 @@ parameter_types! {
 	pub const SS58Prefix: u8 = 42;
 }
 
+/// Runtime-upgrade migrations. The type-registry gate runs last so any
+/// SRT-approved fingerprint updates earlier in the tuple have already landed
+/// before we assert the post-upgrade invariant.
 #[allow(unused_parens)]
-type SingleBlockMigrations = ();
+type SingleBlockMigrations =
+	(pallet_rostro_type_registry::migrations::EnforceWellKnownFingerprints<Runtime>,);
 
 // ─── frame_system ───────────────────────────────────────────────────────────
 
