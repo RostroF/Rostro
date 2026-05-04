@@ -130,10 +130,14 @@ fn deregister_unknown_verifier_fails() {
 }
 
 #[test]
-fn verify_proof_against_registered_key_succeeds_at_wiring_level() {
-	// Wiring-level test only: real Plonky3 verification lands in a
-	// follow-up commit. This test confirms storage lookup + dispatch +
-	// event emission work correctly.
+fn verify_proof_fails_closed_until_plonky3_lands() {
+	// Behaviour intentionally changed 2026-05-04: the previous "wiring-
+	// level" assertion that `verify_proof` returns `Ok(())` against a
+	// registered verifier was a security gap (any downstream code that
+	// trusted the dispatch result would be silently bypassable). Until
+	// real Plonky3 verification lands, the extrinsic fails closed with
+	// `VerifierNotImplemented` after passing input validation and storage
+	// lookup. This test asserts the new contract.
 	new_test_ext().execute_with(|| {
 		let key = make_key(0xEF, 256);
 		let family = make_family(b"checkpoint-v1");
@@ -150,23 +154,19 @@ fn verify_proof_against_registered_key_succeeds_at_wiring_level() {
 			.expect("hash is 32 bytes");
 
 		let proof: BoundedVec<u8, ConstU32<MAX_PROOF_LEN>> =
-			BoundedVec::try_from(vec![0u8; 4096]).expect("fits");
+			BoundedVec::try_from(vec![0xAB; 4096]).expect("fits");
 		let public_inputs: BoundedVec<u8, ConstU32<MAX_PUBLIC_INPUTS_LEN>> =
 			BoundedVec::try_from(vec![0u8; 256]).expect("fits");
 
-		assert_ok!(ProofVerifier::verify_proof(
-			RawOrigin::Signed(1).into(),
-			key_hash,
-			proof,
-			public_inputs,
-		));
-
-		// ProofVerified event emitted.
-		let events = System::events();
-		assert!(events.iter().any(|r| matches!(
-			r.event,
-			RuntimeEvent::ProofVerifier(Event::ProofVerified { .. })
-		)));
+		assert_noop!(
+			ProofVerifier::verify_proof(
+				RawOrigin::Signed(1).into(),
+				key_hash,
+				proof,
+				public_inputs,
+			),
+			Error::<Test>::VerifierNotImplemented,
+		);
 	});
 }
 

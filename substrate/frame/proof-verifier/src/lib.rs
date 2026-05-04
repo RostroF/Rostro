@@ -189,6 +189,11 @@ pub mod pallet {
 		/// Verification could not be performed (deserialization or runtime
 		/// error before the cryptographic check).
 		VerifierError,
+		/// Real Plonky3 verification is not yet implemented; the extrinsic
+		/// fails closed. Returning `Ok(())` from a stub verifier was a
+		/// security gap caught in the 2026-05-04 red-team; do not relax
+		/// this until `p3_uni_stark::verify` is wired in.
+		VerifierNotImplemented,
 	}
 
 	#[pallet::call]
@@ -268,14 +273,19 @@ pub mod pallet {
 
 		/// Verify a Plonky3 STARK proof against a registered verifying key.
 		///
-		/// Returns `Ok(())` if verification succeeds, or
-		/// [`Error::InvalidProof`] if the proof is invalid.
+		/// **Until Plonky3 verification lands, this extrinsic fails closed**:
+		/// every call returns `Error::VerifierNotImplemented` after passing
+		/// the input-validation and storage-lookup checks. Returning `Ok(())`
+		/// from a stub verifier was identified as a critical security gap
+		/// during the 2026-05-04 white-box red-team — any downstream pallet
+		/// that began trusting the dispatch result or the `ProofVerified`
+		/// event would be silently bypassable. Fail-closed avoids that
+		/// trap; the path remains live so wiring work can continue without
+		/// landing a soundness regression in the meantime.
 		///
-		/// **NOTE**: actual Plonky3 verification logic lands in a follow-up
-		/// commit. This first-pass scaffolding validates the wiring
-		/// (deserialization, storage lookup, event emission) but always
-		/// returns `Ok(())` for any registered verifier. Real cryptographic
-		/// verification dispatches per circuit family in the next iteration.
+		/// When the real verifier lands it dispatches on `info.circuit_family`
+		/// to invoke the correct `p3_uni_stark::verify` call with the right
+		/// `StarkConfig` and AIR.
 		#[pallet::call_index(2)]
 		#[pallet::weight(T::WeightInfo::verify_proof())]
 		pub fn verify_proof(
@@ -284,7 +294,7 @@ pub mod pallet {
 			proof: BoundedVec<u8, ConstU32<MAX_PROOF_LEN>>,
 			_public_inputs: BoundedVec<u8, ConstU32<MAX_PUBLIC_INPUTS_LEN>>,
 		) -> DispatchResult {
-			let submitter = ensure_signed(origin)?;
+			let _submitter = ensure_signed(origin)?;
 			ensure!(key_hash != [0u8; 32], Error::<T>::ZeroKeyHash);
 			ensure!(!proof.is_empty(), Error::<T>::EmptyProof);
 			// `_public_inputs` may legitimately be empty for circuits with no
@@ -294,13 +304,7 @@ pub mod pallet {
 				.ok_or(Error::<T>::VerifierNotRegistered)?;
 
 			// TODO(stage3-plonky3-base): real Plonky3 verification.
-			// Dispatch on `info.circuit_family` to invoke the correct
-			// `p3_uni_stark::verify` call with the appropriate StarkConfig
-			// and AIR. For now, reaching this point is a successful
-			// "wiring is correct" verification.
-
-			Self::deposit_event(Event::ProofVerified { key_hash, submitter });
-			Ok(())
+			Err(Error::<T>::VerifierNotImplemented.into())
 		}
 	}
 }
