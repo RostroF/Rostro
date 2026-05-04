@@ -261,6 +261,63 @@ fn verify_rejects_zero_key_hash() {
 }
 
 #[test]
+fn register_rejects_short_verifying_key() {
+	new_test_ext().execute_with(|| {
+		// 8 bytes: non-empty, non-zero, but below MIN_VERIFYING_KEY_LEN=16.
+		let short = make_key(0xAB, 8);
+		let family = make_family(b"execution-proof-v1");
+		assert_noop!(
+			ProofVerifier::register_verifier(RawOrigin::Root.into(), short, family),
+			Error::<Test>::VerifyingKeyTooShort,
+		);
+	});
+}
+
+#[test]
+fn register_rejects_short_circuit_family() {
+	new_test_ext().execute_with(|| {
+		let key = make_key(0xAB, 256);
+		// 2 bytes: non-empty but below MIN_CIRCUIT_FAMILY_LEN=3.
+		let short_family = make_family(b"v1");
+		assert_noop!(
+			ProofVerifier::register_verifier(RawOrigin::Root.into(), key, short_family),
+			Error::<Test>::CircuitFamilyTooShort,
+		);
+	});
+}
+
+#[test]
+fn verify_rejects_short_proof() {
+	new_test_ext().execute_with(|| {
+		let key = make_key(0xAB, 256);
+		let family = make_family(b"execution-proof-v1");
+		assert_ok!(ProofVerifier::register_verifier(
+			RawOrigin::Root.into(),
+			key.clone(),
+			family,
+		));
+		let key_hash: [u8; 32] = <Test as frame_system::Config>::Hashing::hash(&key)
+			.as_ref()
+			.try_into()
+			.expect("hash is 32 bytes");
+
+		// 8 bytes of garbage: non-empty, but below MIN_PROOF_LEN=16.
+		let short_proof: BoundedVec<u8, ConstU32<MAX_PROOF_LEN>> =
+			BoundedVec::try_from(vec![0xAB; 8]).expect("fits");
+		let public_inputs: BoundedVec<u8, ConstU32<MAX_PUBLIC_INPUTS_LEN>> = BoundedVec::default();
+		assert_noop!(
+			ProofVerifier::verify_proof(
+				RawOrigin::Signed(1).into(),
+				key_hash,
+				short_proof,
+				public_inputs,
+			),
+			Error::<Test>::ProofTooShort,
+		);
+	});
+}
+
+#[test]
 fn verify_rejects_empty_proof() {
 	new_test_ext().execute_with(|| {
 		// First register a verifier so we get past the registration check.

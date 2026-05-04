@@ -94,6 +94,12 @@ pub const FINGERPRINT_VERSION: u32 = 1;
 /// Maximum role marker length in bytes. Roles are short ASCII strings.
 pub const MAX_ROLE_LEN: u32 = 32;
 
+/// Minimum role marker length in bytes. The shortest meaningful protocol
+/// identifier in v0/v1 is `era` (3 bytes); single- and two-byte markers are
+/// rejected as too terse to be human-readable. Will be tuned alongside
+/// MAX_ROLE_LEN as we benchmark under load.
+pub const MIN_ROLE_LEN: u32 = 3;
+
 /// Maximum number of `(role, fingerprint)` pairs a chain spec may supply via
 /// `GenesisConfig::additional_fingerprints`. Bounded at 64 to prevent a
 /// permissionless-fork chain spec from DoS'ing genesis import. The v0 set is
@@ -189,6 +195,10 @@ pub mod pallet {
 		/// string is semantically meaningless; rejected as a known-invalid
 		/// sentinel.
 		EmptyRole,
+		/// Role marker is shorter than `MIN_ROLE_LEN`. Subset of `EmptyRole`
+		/// with a higher floor — single- and two-byte markers are too terse
+		/// to be self-documenting protocol identifiers.
+		RoleTooShort,
 		/// Role marker contains a `:` byte. The fingerprint hash uses `:` as a
 		/// field separator (`canonical_def : role : version`); a colon-bearing
 		/// role admits a preimage-ambiguity surface where a different
@@ -233,6 +243,12 @@ pub mod pallet {
 			for (role, fp) in self.additional_fingerprints.iter() {
 				assert!(!role.is_empty(), "chain spec must not supply empty role");
 				assert!(
+					role.len() >= MIN_ROLE_LEN as usize,
+					"chain spec role {:?} shorter than MIN_ROLE_LEN ({})",
+					role,
+					MIN_ROLE_LEN
+				);
+				assert!(
 					!role.contains(&b':'),
 					"chain spec role {:?} contains ':' — reserved for fingerprint field separator",
 					role
@@ -276,6 +292,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::SecurityResponseTeamOrigin::ensure_origin(origin)?;
 			ensure!(!role.is_empty(), Error::<T>::EmptyRole);
+			ensure!(role.len() >= MIN_ROLE_LEN as usize, Error::<T>::RoleTooShort);
 			ensure!(!role.contains(&b':'), Error::<T>::RoleContainsColon);
 			ensure!(fingerprint != [0u8; 32], Error::<T>::ZeroFingerprint);
 			let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
@@ -291,6 +308,7 @@ pub mod pallet {
 		pub fn remove_fingerprint(origin: OriginFor<T>, role: Vec<u8>) -> DispatchResult {
 			T::SecurityResponseTeamOrigin::ensure_origin(origin)?;
 			ensure!(!role.is_empty(), Error::<T>::EmptyRole);
+			ensure!(role.len() >= MIN_ROLE_LEN as usize, Error::<T>::RoleTooShort);
 			ensure!(!role.contains(&b':'), Error::<T>::RoleContainsColon);
 			let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
 				BoundedVec::try_from(role.clone()).map_err(|_| Error::<T>::RoleTooLong)?;
@@ -617,6 +635,33 @@ mod tests {
 						[0xAB; 32],
 					),
 					Error::<Test>::RoleContainsColon,
+				);
+			});
+		}
+
+		#[test]
+		fn register_rejects_role_too_short() {
+			new_test_ext().execute_with(|| {
+				assert_noop!(
+					TypeRegistry::register_fingerprint(
+						frame_system::RawOrigin::Root.into(),
+						b"ab".to_vec(),
+						[0xAB; 32],
+					),
+					Error::<Test>::RoleTooShort,
+				);
+			});
+		}
+
+		#[test]
+		fn remove_rejects_role_too_short() {
+			new_test_ext().execute_with(|| {
+				assert_noop!(
+					TypeRegistry::remove_fingerprint(
+						frame_system::RawOrigin::Root.into(),
+						b"ab".to_vec(),
+					),
+					Error::<Test>::RoleTooShort,
 				);
 			});
 		}

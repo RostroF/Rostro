@@ -60,13 +60,28 @@ pub mod pallet {
 	/// based on actual circuit measurements.
 	pub const MAX_VERIFYING_KEY_LEN: u32 = 64 * 1024;
 
+	/// Minimum verifying-key blob size in bytes. Conservative floor that
+	/// rejects single-byte garbage without blocking small future circuits.
+	/// Will be tuned upward as we benchmark real Plonky3 verifying keys.
+	pub const MIN_VERIFYING_KEY_LEN: u32 = 16;
+
 	/// Maximum size in bytes of a proof the pallet will verify in one
 	/// extrinsic. Plonky3 STARK proofs are typically 50-200 KB; we allow up
 	/// to 512 KB to leave headroom for larger circuits.
 	pub const MAX_PROOF_LEN: u32 = 512 * 1024;
 
+	/// Minimum proof blob size in bytes. Real STARK proofs are kilobytes;
+	/// floor of 16 catches obviously-malformed input. Will be tuned upward
+	/// as circuit-family-specific lower bounds emerge from benchmarks.
+	pub const MIN_PROOF_LEN: u32 = 16;
+
 	/// Maximum size in bytes of public-input bytes for a single proof.
 	pub const MAX_PUBLIC_INPUTS_LEN: u32 = 64 * 1024;
+
+	/// Minimum circuit-family identifier length in bytes. Identifiers are
+	/// human-readable routing keys (e.g. `execution-proof-v1`); single- and
+	/// two-byte identifiers are too terse to be self-documenting.
+	pub const MIN_CIRCUIT_FAMILY_LEN: u32 = 3;
 
 	/// Information about a registered verifying key.
 	#[derive(
@@ -168,10 +183,18 @@ pub mod pallet {
 		/// The verifying key bytes are all zero. Known-invalid sentinel —
 		/// no real circuit's verifying key is the zero blob.
 		ZeroVerifyingKey,
+		/// The verifying key is shorter than [`MIN_VERIFYING_KEY_LEN`].
+		/// Real Plonky3 verifying keys are well above this floor; the
+		/// floor catches obviously-malformed input and will be tuned
+		/// upward as we benchmark.
+		VerifyingKeyTooShort,
 		/// The proof exceeds [`MAX_PROOF_LEN`] bytes.
 		ProofTooLarge,
 		/// The proof bytes are empty. A real STARK proof is non-empty.
 		EmptyProof,
+		/// The proof is shorter than [`MIN_PROOF_LEN`]. Real STARK proofs
+		/// are kilobytes; the floor catches obvious garbage.
+		ProofTooShort,
 		/// The public inputs exceed [`MAX_PUBLIC_INPUTS_LEN`] bytes.
 		PublicInputsTooLarge,
 		/// The circuit-family identifier exceeds 64 bytes.
@@ -180,6 +203,10 @@ pub mod pallet {
 		/// dispatch key for downstream pallets; the empty string routes
 		/// nowhere.
 		EmptyCircuitFamily,
+		/// The circuit-family identifier is shorter than
+		/// [`MIN_CIRCUIT_FAMILY_LEN`]. Identifiers must be self-documenting
+		/// human-readable strings.
+		CircuitFamilyTooShort,
 		/// The supplied verifier-key hash is the all-zero sentinel. Rejected
 		/// at the boundary even though storage lookup would also fail —
 		/// types prove shape, not semantics.
@@ -214,10 +241,18 @@ pub mod pallet {
 			T::RegistrarOrigin::ensure_origin(origin.clone())?;
 			ensure!(!verifying_key.is_empty(), Error::<T>::EmptyVerifyingKey);
 			ensure!(
+				verifying_key.len() >= MIN_VERIFYING_KEY_LEN as usize,
+				Error::<T>::VerifyingKeyTooShort
+			);
+			ensure!(
 				verifying_key.iter().any(|b| *b != 0),
 				Error::<T>::ZeroVerifyingKey
 			);
 			ensure!(!circuit_family.is_empty(), Error::<T>::EmptyCircuitFamily);
+			ensure!(
+				circuit_family.len() >= MIN_CIRCUIT_FAMILY_LEN as usize,
+				Error::<T>::CircuitFamilyTooShort
+			);
 			// Try to extract a signing account if the origin happens to
 			// also be signed; otherwise `None` (root or non-account
 			// governance origin).
@@ -297,6 +332,7 @@ pub mod pallet {
 			let _submitter = ensure_signed(origin)?;
 			ensure!(key_hash != [0u8; 32], Error::<T>::ZeroKeyHash);
 			ensure!(!proof.is_empty(), Error::<T>::EmptyProof);
+			ensure!(proof.len() >= MIN_PROOF_LEN as usize, Error::<T>::ProofTooShort);
 			// `_public_inputs` may legitimately be empty for circuits with no
 			// public inputs; do not validate.
 
