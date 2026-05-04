@@ -12229,9 +12229,13 @@ version = "0.1.0"
 dependencies = [
  "frame-metadata 23.0.1",
  "hex",
+ "jsonrpsee",
  "parity-scale-codec",
  "scale-info",
+ "serde",
  "sp-core 40.0.0",
+ "thiserror 1.0.65",
+ "tokio",
 ]
 
 [[package]]

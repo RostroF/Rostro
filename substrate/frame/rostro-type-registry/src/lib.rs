@@ -58,22 +58,31 @@ use frame_support::pallet_prelude::*;
 pub mod roles {
 	pub const ACCOUNT: &[u8] = b"account";
 	pub const HASH: &[u8] = b"hash";
-	pub const ERA: &[u8] = b"era";
-	pub const MULTIADDRESS: &[u8] = b"multiaddress";
 	pub const WEIGHT: &[u8] = b"weight";
 	pub const BALANCE: &[u8] = b"balance";
 	pub const BLOCK_NUMBER: &[u8] = b"block-number";
+
+	// Deferred to v1: encoding-quirky types whose `scale_info::TypeInfo`
+	// does not produce a clean structural string. Anchoring them requires
+	// either (a) a build-script that emits canonical_def from the actual
+	// `TypeInfo`, or (b) computing canonical_def at runtime from the
+	// types' metadata. Hand-writing was tried and broke against live
+	// metadata on 2026-05-04 — see the recognizer test that caught it.
+	pub const ERA: &[u8] = b"era";
+	pub const MULTIADDRESS: &[u8] = b"multiaddress";
 }
 
 /// Canonical structural definitions for the v0 well-known roles.
 /// Alphabetized fields/variants, no whitespace.
+///
+/// Caveat: a canonical_def must mirror exactly what `scale_info` emits for
+/// the type, including `#[codec(compact)]` field encodings. Substrate's
+/// `Weight` carries `#[codec(compact)]` on both fields, so the v0
+/// canonical_def for Weight uses `Compact<u64>` rather than raw `u64`.
 pub mod canonical_defs {
 	pub const ACCOUNT_ID_32: &[u8] = b"[u8;32]";
 	pub const HASH_32: &[u8] = b"[u8;32]";
-	pub const ERA: &[u8] = b"enum{Immortal,Mortal{period:u64,phase:u64}}";
-	pub const MULTIADDRESS: &[u8] =
-		b"enum{Address20([u8;20]),Address32([u8;32]),Id([u8;32]),Index(Compact<()>),Raw(Vec<u8>)}";
-	pub const WEIGHT: &[u8] = b"struct{proof_size:u64,ref_time:u64}";
+	pub const WEIGHT: &[u8] = b"struct{proof_size:Compact<u64>,ref_time:Compact<u64>}";
 	pub const BALANCE_U128: &[u8] = b"u128";
 	pub const BLOCK_NUMBER_U32: &[u8] = b"u32";
 }
@@ -107,14 +116,17 @@ pub fn fingerprint(canonical_def: &[u8], role: &[u8], version: u32) -> [u8; 32] 
 	sp_io::hashing::blake2_256(&buf)
 }
 
-/// The seven well-known v0 roles paired with their canonical structural
-/// definitions. Source of truth for both genesis seeding and the runtime-upgrade
-/// gate; keeping them in one place ensures the two invariants can never drift.
-pub const V0_WELL_KNOWN_ROLES: [(&[u8], &[u8]); 7] = [
+/// The five well-known v0 roles paired with their canonical structural
+/// definitions. Source of truth for both genesis seeding and the runtime-
+/// upgrade gate; keeping them in one place ensures the two invariants can
+/// never drift.
+///
+/// Era and MultiAddress are deferred to v1 (see `roles` module docs) — their
+/// real `scale_info::TypeInfo` does not produce a clean structural string
+/// that can be hand-written safely.
+pub const V0_WELL_KNOWN_ROLES: [(&[u8], &[u8]); 5] = [
 	(roles::ACCOUNT, canonical_defs::ACCOUNT_ID_32),
 	(roles::HASH, canonical_defs::HASH_32),
-	(roles::ERA, canonical_defs::ERA),
-	(roles::MULTIADDRESS, canonical_defs::MULTIADDRESS),
 	(roles::WEIGHT, canonical_defs::WEIGHT),
 	(roles::BALANCE, canonical_defs::BALANCE_U128),
 	(roles::BLOCK_NUMBER, canonical_defs::BLOCK_NUMBER_U32),

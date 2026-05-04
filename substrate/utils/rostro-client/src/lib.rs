@@ -47,6 +47,8 @@ mod canonicalize;
 mod fingerprint;
 mod recognizer;
 mod role;
+mod rpc;
+mod storage;
 
 #[cfg(test)]
 mod tests;
@@ -55,6 +57,10 @@ pub use canonicalize::{canonical_def, CanonicalizeError};
 pub use fingerprint::{fingerprint, FINGERPRINT_VERSION};
 pub use recognizer::{recognize, Recognition, Recognizer};
 pub use role::WellKnownRole;
+pub use rpc::{RostroClient, RpcError};
+pub use storage::{
+	decode_role_from_storage_key, well_known_fingerprints_prefix, PALLET_NAME, STORAGE_NAME,
+};
 
 /// Maximum depth of type-tree recursion the canonicalizer will accept.
 /// Prevents adversarial metadata from forcing unbounded recursion.

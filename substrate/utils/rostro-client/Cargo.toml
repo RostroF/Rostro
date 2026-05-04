@@ -15,8 +15,12 @@ workspace = true
 [dependencies]
 codec = { workspace = true, default-features = true, features = ["derive"] }
 frame-metadata = { workspace = true, default-features = true, features = ["current"] }
+jsonrpsee = { workspace = true, features = ["ws-client"] }
 scale-info = { workspace = true, default-features = true, features = ["derive"] }
+serde = { workspace = true, default-features = true, features = ["derive"] }
 sp-core = { workspace = true, default-features = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 hex = "0.4"

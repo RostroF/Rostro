@@ -6,13 +6,15 @@
 //! `canonical_defs` modules byte-for-byte.
 
 /// Well-known canonical roles seeded into the on-chain fingerprint registry
-/// at genesis.
+/// at genesis. v0 covers the shape-clean roles whose `scale_info::TypeInfo`
+/// produces a deterministic structural string. Era and MultiAddress are
+/// deferred to v1 — Substrate's custom `TypeInfo` impls for those produce
+/// large, encoding-quirky representations that hand-written canonical_defs
+/// could not safely mirror.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum WellKnownRole {
 	Account,
 	Hash,
-	Era,
-	MultiAddress,
 	Weight,
 	Balance,
 	BlockNumber,
@@ -21,11 +23,9 @@ pub enum WellKnownRole {
 impl WellKnownRole {
 	/// All v0 well-known roles. Order is stable but not load-bearing — the
 	/// fingerprint binds the role marker into the hash.
-	pub const ALL: [Self; 7] = [
+	pub const ALL: [Self; 5] = [
 		Self::Account,
 		Self::Hash,
-		Self::Era,
-		Self::MultiAddress,
 		Self::Weight,
 		Self::Balance,
 		Self::BlockNumber,
@@ -36,8 +36,6 @@ impl WellKnownRole {
 		match self {
 			Self::Account => b"account",
 			Self::Hash => b"hash",
-			Self::Era => b"era",
-			Self::MultiAddress => b"multiaddress",
 			Self::Weight => b"weight",
 			Self::Balance => b"balance",
 			Self::BlockNumber => b"block-number",
@@ -45,16 +43,15 @@ impl WellKnownRole {
 	}
 
 	/// Canonical structural definition — the byte string the pallet hashes
-	/// alongside the role marker. Whitespace-free, fields/variants
-	/// alphabetized.
+	/// alongside the role marker. Must mirror byte-for-byte what the pallet
+	/// stores; the recognizer recomputes against this constant.
 	pub const fn canonical_def(self) -> &'static [u8] {
 		match self {
 			Self::Account => b"[u8;32]",
 			Self::Hash => b"[u8;32]",
-			Self::Era => b"enum{Immortal,Mortal{period:u64,phase:u64}}",
-			Self::MultiAddress =>
-				b"enum{Address20([u8;20]),Address32([u8;32]),Id([u8;32]),Index(Compact<()>),Raw(Vec<u8>)}",
-			Self::Weight => b"struct{proof_size:u64,ref_time:u64}",
+			// Substrate's Weight has `#[codec(compact)]` on both fields,
+			// so the metadata representation uses `Compact<u64>` not `u64`.
+			Self::Weight => b"struct{proof_size:Compact<u64>,ref_time:Compact<u64>}",
 			Self::Balance => b"u128",
 			Self::BlockNumber => b"u32",
 		}
@@ -68,8 +65,6 @@ impl WellKnownRole {
 		match last {
 			"AccountId32" | "AccountId" => Some(Self::Account),
 			"H256" | "Hash" => Some(Self::Hash),
-			"Era" => Some(Self::Era),
-			"MultiAddress" => Some(Self::MultiAddress),
 			"Weight" => Some(Self::Weight),
 			// Balance and BlockNumber are usually type aliases (not in
 			// metadata as named types) — they appear inline as u128 / u32
