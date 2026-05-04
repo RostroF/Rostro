@@ -12224,6 +12224,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-client"
+version = "0.1.0"
+dependencies = [
+ "frame-metadata 23.0.1",
+ "hex",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 40.0.0",
+]
+
+[[package]]
 name = "rostro-frame"
 version = "0.15.0"
 dependencies = [
