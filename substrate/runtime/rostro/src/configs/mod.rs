@@ -309,6 +309,13 @@ impl pallet_proof_verifier::Config for Runtime {
 	type WeightInfo = ();
 }
 
+// ─── pallet_rostro_type_registry ────────────────────────────────────────────
+
+impl pallet_rostro_type_registry::Config for Runtime {
+	// TODO(srt): retarget at `pallet-rostro-security-response-team` when it lands.
+	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 //                              RNS
 // ───────────────────────────────────────────────────────────────────────────

@@ -166,6 +166,12 @@ construct_runtime!(
 		// Rostro
 		ProofVerifier: pallet_proof_verifier,
 
+		// On-chain registry of canonical type fingerprints. Anchors the
+		// recognizer architecture for rostro-client (Tier-2). v0 ships the
+		// storage primitive + genesis seed; metadata-ir extension and
+		// runtime-upgrade gate land in follow-up commits.
+		RostroTypeRegistry: pallet_rostro_type_registry,
+
 		// Rostro Name Service (RNS).
 		// Four sub-pallets live inside the pallet-rns-registrar crate; they're
 		// declared here as separate runtime pallets in construct_runtime.
