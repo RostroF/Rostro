@@ -107,6 +107,22 @@ pub mod pallet {
 
         type ManagerOrigin: EnsureOrigin<Self::RuntimeOrigin, Success = Self::AccountId>;
 
+        /// Origin authorized to mutate the on-chain `ReservedList` via
+        /// [`Pallet::add_reserved`] / [`Pallet::remove_reserved`].
+        ///
+        /// Reserved-list curation is an active anti-phishing surface — Rostro
+        /// names map directly to `*.rostro.org` subdomains via the snorkel,
+        /// so an unreserved operational label (e.g. `rpc`, `docs`, `blog`)
+        /// becomes a real DNS attack weapon if registered.
+        ///
+        /// In production this resolves to the Security Response Team's
+        /// threshold signature (`pallet-rostro-security-response-team`,
+        /// deferred to prelaunch). Runtimes MUST stub this to
+        /// `EnsureRoot<AccountId>` until that pallet lands; see the prelaunch
+        /// checklist for the retrofit.
+        // TODO(srt): retarget at `pallet-rostro-security-response-team`
+        type SecurityResponseTeamOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
         type PnsCustodian: Get<Self::AccountId>;
 
 
@@ -190,7 +206,7 @@ pub mod pallet {
         pub infos: Vec<(DomainHash, RegistrarInfoOf<T>)>,
         /// Pre-computed namehashes to reserve. Use `reserved_names` for human-readable names instead.
         pub reserved_list: rp_std::collections::btree_set::BTreeSet<DomainHash>,
-        /// Plain-text labels (e.g. b"polkadot") to reserve at genesis.
+        /// Plain-text labels (e.g. b"rostro") to reserve at genesis.
         /// Each is hashed against the runtime's BaseNode at build time.
         /// Invalid or unrecognised labels are silently skipped.
         /// The `add_reserved` / `remove_reserved` extrinsics can extend or shrink
@@ -363,7 +379,7 @@ pub mod pallet {
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::add_reserved())]
         pub fn add_reserved(origin: OriginFor<T>, name: Vec<u8>) -> DispatchResult {
-            let _who = T::ManagerOrigin::ensure_origin(origin)?;
+            T::SecurityResponseTeamOrigin::ensure_origin(origin)?;
 
             let (label, _) = Label::new_with_len(&name).ok_or(Error::<T>::ParseLabelFailed)?;
             let node = label.encode_with_node(&T::BaseNode::get());
@@ -379,7 +395,7 @@ pub mod pallet {
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::remove_reserved())]
         pub fn remove_reserved(origin: OriginFor<T>, name: Vec<u8>) -> DispatchResult {
-            let _who = T::ManagerOrigin::ensure_origin(origin)?;
+            T::SecurityResponseTeamOrigin::ensure_origin(origin)?;
 
             let (label, _) = Label::new_with_len(&name).ok_or(Error::<T>::ParseLabelFailed)?;
             let node = label.encode_with_node(&T::BaseNode::get());

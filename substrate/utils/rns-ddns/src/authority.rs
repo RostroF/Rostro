@@ -12,8 +12,6 @@ pub enum RData {
     Ss58(Vec<u8>),
     Rpc(Vec<u8>),
     Validator(Vec<u8>),
-    Para(Vec<u8>),
-    Proxy(Vec<u8>),
     Pubkey1(Vec<u8>),
     Pubkey2(Vec<u8>),
     Pubkey3(Vec<u8>),
@@ -60,14 +58,6 @@ impl DnsRecord {
 
     pub fn validator(stash: Vec<u8>, ttl: u32) -> Self {
         Self { record_type: RecordType::VALIDATOR, rdata: RData::Validator(stash), ttl }
-    }
-
-    pub fn para(id: Vec<u8>, ttl: u32) -> Self {
-        Self { record_type: RecordType::PARA, rdata: RData::Para(id), ttl }
-    }
-
-    pub fn proxy(target: Vec<u8>, ttl: u32) -> Self {
-        Self { record_type: RecordType::PROXY, rdata: RData::Proxy(target), ttl }
     }
 
     pub fn pubkey1(key: Vec<u8>, ttl: u32) -> Self {
@@ -119,8 +109,6 @@ impl DnsRecord {
             RecordType::SS58 => RData::Ss58(data),
             RecordType::RPC => RData::Rpc(data),
             RecordType::VALIDATOR => RData::Validator(data),
-            RecordType::PARA => RData::Para(data),
-            RecordType::PROXY => RData::Proxy(data),
             RecordType::PUBKEY1 => RData::Pubkey1(data),
             RecordType::PUBKEY2 => RData::Pubkey2(data),
             RecordType::PUBKEY3 => RData::Pubkey3(data),

@@ -210,9 +210,9 @@ pub mod pallet {
             let who = ensure_signed(origin)?;
             const USER_SETTABLE: &[RecordType] = &[
                 RecordType::A, RecordType::AAAA, RecordType::CNAME, RecordType::TXT,
-                RecordType::RPC, RecordType::VALIDATOR, RecordType::PARA,
-                RecordType::PROXY, RecordType::PUBKEY1, RecordType::PUBKEY2,
-                RecordType::PUBKEY3, RecordType::AVATAR, RecordType::CONTRACT,
+                RecordType::RPC, RecordType::VALIDATOR,
+                RecordType::PUBKEY1, RecordType::PUBKEY2, RecordType::PUBKEY3,
+                RecordType::AVATAR, RecordType::CONTRACT,
                 RecordType::IPFS, RecordType::CONTENT,
             ];
             ensure!(
@@ -280,7 +280,7 @@ pub trait WeightInfo {
 pub trait RegistryChecker {
     type AccountId;
     fn check_node_useable(node: rns_types::DomainHash, owner: &Self::AccountId) -> bool;
-    /// Returns the TLD base node used by the chain (e.g. `DOT_BASENODE`).
+    /// Returns the TLD base node used by the chain (e.g. `RST_BASENODE`).
     /// Required so the resolver pallet can compute domain hashes from name strings.
     fn base_node() -> rns_types::DomainHash;
 }

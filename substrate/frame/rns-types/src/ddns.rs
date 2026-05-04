@@ -28,16 +28,15 @@ pub mod codec_type {
     #[allow(dead_code)]
     #[non_exhaustive]
     pub enum RecordType {
-        /// Polkadot SS58 address record (IANA private use 65280)
+        /// Native SS58 address record (IANA private use 65280)
         SS58,
-        /// Polkadot RPC/WebSocket endpoint record (IANA private use 65281)
+        /// JSON-RPC / WebSocket endpoint record (IANA private use 65281)
         RPC,
-        /// Polkadot validator stash address record (IANA private use 65282)
+        /// Validator stash address record (IANA private use 65282)
         VALIDATOR,
-        /// Polkadot parachain ID record (IANA private use 65283)
-        PARA,
-        /// PNS name pointer, CNAME equivalent for SS58 namespace (IANA private use 65284)
-        PROXY,
+        // Codes 65283 and 65284 intentionally unallocated (formerly PARA / PROXY,
+        // retired pre-genesis as Polkadot-specific). On-the-wire decoders must
+        // treat unallocated codes as `Unknown(u16)`.
         /// Public key slot 1 for encrypted messaging (IANA private use 65285)
         PUBKEY1,
         /// IPFS hash for avatar/profile image (IANA private use 65286)
@@ -53,8 +52,8 @@ pub mod codec_type {
         /// stored as 32 raw bytes. Serves as on-chain proof of purchase validity
         /// (IANA private use 65290).
         ORIGIN,
-        /// Public key of a TLS certificate for this domain (IANA private use 65291).
-        /// Allows clients to verify TLS without a traditional CA chain.
+        /// IPFS CID pointing to a directory of files (IANA private use 65291).
+        /// Store the raw CID string.
         IPFS,
         /// IPFS CID pointing to a website or dapp hosted on IPFS (IANA private use 65292).
         /// Store the raw CID string. Distinct from AVATAR (65286) which is scoped to profile images.
@@ -72,18 +71,15 @@ pub mod codec_type {
     }
 
     impl RecordType {
-        pub fn all() -> [Self; 17] {
+        pub fn all() -> [Self; 15] {
             [
                 RecordType::A,
                 RecordType::AAAA,
                 RecordType::CNAME,
                 RecordType::TXT,
-                // Polkadot-specific
                 RecordType::SS58,
                 RecordType::RPC,
                 RecordType::VALIDATOR,
-                RecordType::PARA,
-                RecordType::PROXY,
                 RecordType::PUBKEY1,
                 RecordType::AVATAR,
                 RecordType::CONTRACT,

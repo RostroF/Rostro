@@ -1,14 +1,14 @@
-//! # PNS `Origin`
+//! # RNS `Origin`
 //!
 //! This module is responsible for providing administrator account
-//! authentication for `pns-pallets`. Considering that `pns-pallets`
-//! does not routinely obtain administrator privileges on the chain,
-//! this interface is provided to operate and maintain `pns-pallets`.
+//! authentication for the `pallet-rns-*` family. Considering that the
+//! pallets do not routinely obtain administrator privileges on the chain,
+//! this interface is provided to operate and maintain them.
 //!
 //! ## Introduction
 //!
 //! This module provides storage to mark which account is the manager
-//!  and to enable or disable `pns` domain registration.
+//!  and to enable or disable RNS domain registration.
 //!
 //! ### Module functions
 //!

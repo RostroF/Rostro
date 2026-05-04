@@ -18,9 +18,9 @@
 //! - `burn` - Burn NFT(non fungible token)
 //! - `destroy_class` - Destroy NFT(non fungible token) class
 
-//! ### PNS Added
+//! ### RNS Added
 //!
-//! The current `pns-pallets` have had the following magic changes made to them.
+//! The current `pallet-rns-*` family has had the following magic changes made to upstream.
 //!
 //! 1. Removed the `token id` that relied on the counter, and
 //! instead stored it via an externally provided `token id`.

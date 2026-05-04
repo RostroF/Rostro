@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// (1568-byte public key) with headroom for future schemes.
 pub type MaxPubKeySize = ConstU32<2048>;
 
-/// Full resolution record returned by `pns_resolveName` / `pns_getInfo`.
+/// Full resolution record returned by `rns_resolveName` / `rns_getInfo`.
 /// Extends [`RegistrarInfo`] with the current NFT owner so callers
 /// do not need a second query to discover who registered the name.
 #[derive(Serialize, Deserialize, Encode, Decode, PartialEq, Eq, Clone, TypeInfo, MaxEncodedLen)]
@@ -37,7 +37,7 @@ pub struct NameRecord<AccountId, Moment, Balance> {
     pub read_block_hash: DomainHash,
 }
 
-/// Active marketplace listing returned by `pns_getListing`.
+/// Active marketplace listing returned by `rns_getListing`.
 #[derive(Serialize, Deserialize, Encode, Decode, PartialEq, Eq, Clone, TypeInfo, MaxEncodedLen)]
 pub struct ListingInfo<AccountId, Balance, Moment> {
     /// Account that created the listing and will receive the proceeds.
@@ -74,7 +74,7 @@ pub enum DomainTracing {
 
 /// NFT token data attached to each registered name.
 /// Tracks the number of active subdomains. Public key slots have moved to
-/// `Records` storage in pns-resolvers as `PUBKEY1`/`PUBKEY2`/`PUBKEY3` record types.
+/// `Records` storage in pallet-rns-resolvers as `PUBKEY1`/`PUBKEY2`/`PUBKEY3` record types.
 #[derive(Serialize, Deserialize, Encode, Decode, DecodeWithMemTracking, PartialEq, Eq, Clone, Default, TypeInfo, Debug)]
 pub struct Record {
     pub children: u32,
@@ -121,22 +121,32 @@ pub struct OfferedNameRecord<AccountId, Moment> {
     pub offered_at: Moment,
 }
 
-/// Account-level summary returned by `pns_accountDashboard`.
 pub type DomainHash = rp_core::H256;
 
-/// Namehash of "dot" — the Polkadot TLD base node.
-pub const DOT_BASENODE: DomainHash = rp_core::H256([
-    63, 206, 125, 19, 100, 168, 147, 226, 19, 188, 66, 18, 121, 43, 81, 127, 252, 136, 245, 177,
-    59, 134, 200, 239, 156, 141, 57, 12, 58, 19, 112, 206,
+// Per-network basenode constants. Each Rostro runtime selects one via its
+// `BaseNode: Get<DomainHash>` config type — there is no implicit default,
+// because the choice is network-defining and should be explicit at runtime
+// wiring time. Values are `keccak_256(label)` precomputed at build time.
+
+/// Namehash of "rst" — basenode for **Rostro mainnet**.
+pub const RST_BASENODE: DomainHash = rp_core::H256([
+    161, 35, 83, 185, 48, 192, 248, 170, 91, 171, 154, 39, 99, 61, 120, 167, 226, 225, 102, 211,
+    121, 182, 144, 34, 106, 234, 186, 142, 117, 132, 223, 126,
 ]);
 
-// TODO(rostro-basenode): replace DOT_BASENODE above with per-network constants
-// (keccak256("rst") for mainnet, keccak256("canaria") for canary, keccak256("camino")
-// for testnet). Each runtime selects its own via a `BaseNode: Get<DomainHash>` config
-// type. Tracked in the Polkadot-isms-strip follow-up.
-pub const NATIVE_BASENODE: DomainHash = DOT_BASENODE;
+/// Namehash of "canaria" — basenode for **Canaria** (the canary network).
+pub const CANARIA_BASENODE: DomainHash = rp_core::H256([
+    252, 36, 102, 254, 93, 83, 25, 35, 152, 34, 171, 202, 98, 175, 139, 142, 124, 212, 211, 158,
+    196, 113, 245, 241, 83, 138, 71, 42, 65, 49, 7, 170,
+]);
 
-/// Parse a human-readable PNS name into a [`DomainHash`].
+/// Namehash of "camino" — basenode for **Camino** (the public testnet).
+pub const CAMINO_BASENODE: DomainHash = rp_core::H256([
+    219, 28, 127, 166, 210, 130, 98, 51, 53, 15, 21, 190, 190, 54, 187, 114, 16, 187, 79, 12, 73,
+    84, 64, 156, 4, 173, 35, 143, 148, 45, 217, 93,
+]);
+
+/// Parse a human-readable RNS name into a [`DomainHash`].
 ///
 /// Rules:
 /// - `"sub.domain"` (contains exactly one dot) → namehash of subdomain `sub`
@@ -157,7 +167,7 @@ pub fn parse_name_to_node(name: &[u8], base_node: &DomainHash) -> Option<DomainH
     }
 
     /// Combine a parent node hash and a label hash into a child namehash.
-    /// Mirrors `Label::encode_with_node` in pns-registrar.
+    /// Mirrors `Label::encode_with_node` in pallet-rns-registrar.
     fn encode_with_node(parent: &DomainHash, label_hash: DomainHash) -> DomainHash {
         let encoded = (parent, label_hash).encode();
         DomainHash::from(keccak_256(&encoded))
