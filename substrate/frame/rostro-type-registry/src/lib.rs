@@ -85,6 +85,12 @@ pub const FINGERPRINT_VERSION: u32 = 1;
 /// Maximum role marker length in bytes. Roles are short ASCII strings.
 pub const MAX_ROLE_LEN: u32 = 32;
 
+/// Maximum number of `(role, fingerprint)` pairs a chain spec may supply via
+/// `GenesisConfig::additional_fingerprints`. Bounded at 64 to prevent a
+/// permissionless-fork chain spec from DoS'ing genesis import. The v0 set is
+/// 7; legitimate extensions are short.
+pub const MAX_ADDITIONAL_FINGERPRINTS: usize = 64;
+
 /// Compute a canonical type fingerprint.
 ///
 /// `blake2_256(canonical_def_bytes ‖ b':' ‖ role ‖ b':' ‖ version.to_le_bytes())`
@@ -153,6 +159,14 @@ pub mod pallet {
 		FingerprintRegistered { role: Vec<u8>, fingerprint: [u8; 32] },
 		/// A canonical role fingerprint was removed.
 		FingerprintRemoved { role: Vec<u8> },
+		/// The runtime-upgrade gate self-healed a missing well-known role by
+		/// inserting the recomputed fingerprint from the binary's compile-
+		/// time canonical_def. A `Healed` event fires in two scenarios:
+		/// (1) first runtime upgrade after the pallet was added to an
+		/// existing chain; (2) someone removed the role earlier and the
+		/// next upgrade silently re-anchored it. The latter is an audit
+		/// signal worth investigating.
+		FingerprintHealed { role: Vec<u8>, fingerprint: [u8; 32] },
 	}
 
 	#[pallet::error]
@@ -163,6 +177,13 @@ pub mod pallet {
 		/// string is semantically meaningless; rejected as a known-invalid
 		/// sentinel.
 		EmptyRole,
+		/// Role marker contains a `:` byte. The fingerprint hash uses `:` as a
+		/// field separator (`canonical_def : role : version`); a colon-bearing
+		/// role admits a preimage-ambiguity surface where a different
+		/// `(canonical_def, role)` split could produce identical hash input.
+		/// Rejected at the boundary even though no v0 canonical_def emits a
+		/// trailing colon — defence in depth.
+		RoleContainsColon,
 		/// Fingerprint is the all-zero 32-byte sentinel. blake2_256 of any
 		/// real canonical_def input does not produce this; accepting it would
 		/// install a value that recomputation can never match, permanently
@@ -186,19 +207,24 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			for (role, def) in super::V0_WELL_KNOWN_ROLES.iter() {
-				let fp = super::fingerprint(def, role, FINGERPRINT_VERSION);
-				let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
-					BoundedVec::try_from(role.to_vec())
-						.expect("v0 seed roles fit in MAX_ROLE_LEN; qed");
-				WellKnownTypeFingerprints::<T>::insert(&key, fp);
-			}
+			// Genesis-supplied additions run FIRST, then the v0 seed runs
+			// last and is therefore authoritative — a chain spec cannot
+			// override the well-known role anchors. (Order also matters for
+			// the size cap: refusing to seed at all is preferable to
+			// half-seeding a malformed chain spec.)
+			assert!(
+				self.additional_fingerprints.len() <= MAX_ADDITIONAL_FINGERPRINTS,
+				"additional_fingerprints exceeds MAX_ADDITIONAL_FINGERPRINTS ({})",
+				MAX_ADDITIONAL_FINGERPRINTS
+			);
 
-			// Genesis-supplied additions (chain-spec extension). Same
-			// known-invalid-sentinel rejections as the SRT-gated extrinsic;
-			// chain-spec input is not a trusted boundary.
 			for (role, fp) in self.additional_fingerprints.iter() {
 				assert!(!role.is_empty(), "chain spec must not supply empty role");
+				assert!(
+					!role.contains(&b':'),
+					"chain spec role {:?} contains ':' — reserved for fingerprint field separator",
+					role
+				);
 				assert!(
 					fp != &[0u8; 32],
 					"chain spec must not supply all-zero fingerprint for role {:?}",
@@ -206,6 +232,16 @@ pub mod pallet {
 				);
 				let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
 					BoundedVec::try_from(role.clone()).expect("chain spec role fits; qed");
+				WellKnownTypeFingerprints::<T>::insert(&key, fp);
+			}
+
+			// v0 seed last — authoritative; overwrites any chain-spec entry
+			// that tried to claim a well-known role.
+			for (role, def) in super::V0_WELL_KNOWN_ROLES.iter() {
+				let fp = super::fingerprint(def, role, FINGERPRINT_VERSION);
+				let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
+					BoundedVec::try_from(role.to_vec())
+						.expect("v0 seed roles fit in MAX_ROLE_LEN; qed");
 				WellKnownTypeFingerprints::<T>::insert(&key, fp);
 			}
 		}
@@ -228,6 +264,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::SecurityResponseTeamOrigin::ensure_origin(origin)?;
 			ensure!(!role.is_empty(), Error::<T>::EmptyRole);
+			ensure!(!role.contains(&b':'), Error::<T>::RoleContainsColon);
 			ensure!(fingerprint != [0u8; 32], Error::<T>::ZeroFingerprint);
 			let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
 				BoundedVec::try_from(role.clone()).map_err(|_| Error::<T>::RoleTooLong)?;
@@ -242,6 +279,7 @@ pub mod pallet {
 		pub fn remove_fingerprint(origin: OriginFor<T>, role: Vec<u8>) -> DispatchResult {
 			T::SecurityResponseTeamOrigin::ensure_origin(origin)?;
 			ensure!(!role.is_empty(), Error::<T>::EmptyRole);
+			ensure!(!role.contains(&b':'), Error::<T>::RoleContainsColon);
 			let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
 				BoundedVec::try_from(role.clone()).map_err(|_| Error::<T>::RoleTooLong)?;
 			ensure!(
@@ -324,6 +362,23 @@ pub mod migrations {
 					RoleCheck::Healed => {
 						pallet::WellKnownTypeFingerprints::<T>::insert(&key, expected);
 						writes += 1;
+						// Audit signal: emit a dedicated event AND log loudly.
+						// Healed state means either pallet-was-just-added or
+						// someone removed the role and the upgrade re-anchored
+						// it. The latter is the case worth investigating.
+						pallet::Pallet::<T>::deposit_event(
+							pallet::Event::FingerprintHealed {
+								role: role.to_vec(),
+								fingerprint: expected,
+							},
+						);
+						log::warn!(
+							target: "runtime::rostro-type-registry",
+							"well-known role {:?} healed by runtime upgrade — \
+							 missing on-chain entry re-anchored to 0x{}",
+							role,
+							hex_fmt(&expected),
+						);
 					},
 					RoleCheck::Mismatch { stored, expected } => {
 						log::error!(
@@ -535,6 +590,109 @@ mod tests {
 					),
 					Error::<Test>::EmptyRole,
 				);
+			});
+		}
+
+		// ─── hardening from 2026-05-04 white-box red-team ──────────────────
+
+		#[test]
+		fn register_rejects_role_with_colon() {
+			new_test_ext().execute_with(|| {
+				assert_noop!(
+					TypeRegistry::register_fingerprint(
+						frame_system::RawOrigin::Root.into(),
+						b"foo:bar".to_vec(),
+						[0xAB; 32],
+					),
+					Error::<Test>::RoleContainsColon,
+				);
+			});
+		}
+
+		#[test]
+		fn remove_rejects_role_with_colon() {
+			new_test_ext().execute_with(|| {
+				assert_noop!(
+					TypeRegistry::remove_fingerprint(
+						frame_system::RawOrigin::Root.into(),
+						b"foo:bar".to_vec(),
+					),
+					Error::<Test>::RoleContainsColon,
+				);
+			});
+		}
+
+		#[test]
+		fn genesis_additional_cannot_override_v0_seed() {
+			// Build a chain spec that tries to override `account` with a
+			// bogus fingerprint. After genesis, `account` MUST equal the
+			// canonical v0 seed value, not the bogus one.
+			use crate::{canonical_defs, fingerprint as fp_fn, roles, FINGERPRINT_VERSION, MAX_ROLE_LEN};
+			use frame_support::pallet_prelude::*;
+
+			let bogus = [0xBAu8; 32];
+			let genesis = crate::pallet::GenesisConfig::<Test> {
+				additional_fingerprints: alloc::vec![(roles::ACCOUNT.to_vec(), bogus)],
+				_config: core::marker::PhantomData,
+			};
+			let mut t = frame_system::GenesisConfig::<Test>::default()
+				.build_storage()
+				.unwrap();
+			use sp_runtime::BuildStorage;
+			genesis.assimilate_storage(&mut t).unwrap();
+
+			let mut ext = sp_io::TestExternalities::new(t);
+			ext.execute_with(|| {
+				let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
+					BoundedVec::try_from(roles::ACCOUNT.to_vec()).unwrap();
+				let stored = crate::pallet::WellKnownTypeFingerprints::<Test>::get(&key);
+				let canonical = fp_fn(
+					canonical_defs::ACCOUNT_ID_32,
+					roles::ACCOUNT,
+					FINGERPRINT_VERSION,
+				);
+				assert_eq!(stored, Some(canonical), "v0 seed must overwrite bogus");
+				assert_ne!(stored, Some(bogus), "bogus must not survive");
+			});
+		}
+
+		#[test]
+		fn migration_self_heal_emits_event() {
+			use crate::migrations::EnforceWellKnownFingerprints;
+			use frame_support::traits::OnRuntimeUpgrade;
+			use frame_support::pallet_prelude::*;
+			use crate::{
+				canonical_defs, fingerprint as fp_fn, roles, FINGERPRINT_VERSION, MAX_ROLE_LEN,
+			};
+
+			new_test_ext().execute_with(|| {
+				// Genesis seeded all 7 roles. Remove one (simulating an SRT
+				// `remove_fingerprint`), then run the migration. The Healed
+				// arm must re-anchor + emit `FingerprintHealed`.
+				let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
+					BoundedVec::try_from(roles::ACCOUNT.to_vec()).unwrap();
+				crate::pallet::WellKnownTypeFingerprints::<Test>::remove(&key);
+
+				EnforceWellKnownFingerprints::<Test>::on_runtime_upgrade();
+
+				let expected = fp_fn(
+					canonical_defs::ACCOUNT_ID_32,
+					roles::ACCOUNT,
+					FINGERPRINT_VERSION,
+				);
+				assert_eq!(
+					crate::pallet::WellKnownTypeFingerprints::<Test>::get(&key),
+					Some(expected),
+				);
+
+				let events = System::events();
+				let healed = events.iter().any(|r| matches!(
+					r.event,
+					RuntimeEvent::TypeRegistry(
+						crate::pallet::Event::FingerprintHealed { .. }
+					)
+				));
+				assert!(healed, "Healed migration arm must emit FingerprintHealed");
 			});
 		}
 	}
