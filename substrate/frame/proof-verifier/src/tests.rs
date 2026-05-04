@@ -190,3 +190,102 @@ fn verify_proof_against_unregistered_key_fails() {
 		);
 	});
 }
+
+// ─── known-invalid sentinel rejection ───────────────────────────────────────
+// Per `feedback_input_validation_at_handoffs.md`: types prove shape, not
+// semantics. Each boundary gets explicit rejection of the specific bit
+// patterns that satisfy the type but should never act as that role.
+
+#[test]
+fn register_rejects_empty_verifying_key() {
+	new_test_ext().execute_with(|| {
+		let empty: BoundedVec<u8, ConstU32<MAX_VERIFYING_KEY_LEN>> = BoundedVec::default();
+		let family = make_family(b"execution-proof-v1");
+		assert_noop!(
+			ProofVerifier::register_verifier(RawOrigin::Root.into(), empty, family),
+			Error::<Test>::EmptyVerifyingKey,
+		);
+	});
+}
+
+#[test]
+fn register_rejects_zero_verifying_key() {
+	new_test_ext().execute_with(|| {
+		let zero_key = make_key(0u8, 256);
+		let family = make_family(b"execution-proof-v1");
+		assert_noop!(
+			ProofVerifier::register_verifier(RawOrigin::Root.into(), zero_key, family),
+			Error::<Test>::ZeroVerifyingKey,
+		);
+	});
+}
+
+#[test]
+fn register_rejects_empty_circuit_family() {
+	new_test_ext().execute_with(|| {
+		let key = make_key(0xAB, 256);
+		let empty_family: BoundedVec<u8, ConstU32<64>> = BoundedVec::default();
+		assert_noop!(
+			ProofVerifier::register_verifier(RawOrigin::Root.into(), key, empty_family),
+			Error::<Test>::EmptyCircuitFamily,
+		);
+	});
+}
+
+#[test]
+fn deregister_rejects_zero_key_hash() {
+	new_test_ext().execute_with(|| {
+		assert_noop!(
+			ProofVerifier::deregister_verifier(RawOrigin::Root.into(), [0u8; 32]),
+			Error::<Test>::ZeroKeyHash,
+		);
+	});
+}
+
+#[test]
+fn verify_rejects_zero_key_hash() {
+	new_test_ext().execute_with(|| {
+		let proof: BoundedVec<u8, ConstU32<MAX_PROOF_LEN>> =
+			BoundedVec::try_from(vec![0xAB; 1024]).expect("fits");
+		let public_inputs: BoundedVec<u8, ConstU32<MAX_PUBLIC_INPUTS_LEN>> = BoundedVec::default();
+		assert_noop!(
+			ProofVerifier::verify_proof(
+				RawOrigin::Signed(1).into(),
+				[0u8; 32],
+				proof,
+				public_inputs,
+			),
+			Error::<Test>::ZeroKeyHash,
+		);
+	});
+}
+
+#[test]
+fn verify_rejects_empty_proof() {
+	new_test_ext().execute_with(|| {
+		// First register a verifier so we get past the registration check.
+		let key = make_key(0xAB, 256);
+		let family = make_family(b"execution-proof-v1");
+		assert_ok!(ProofVerifier::register_verifier(
+			RawOrigin::Root.into(),
+			key.clone(),
+			family,
+		));
+		let key_hash: [u8; 32] = <Test as frame_system::Config>::Hashing::hash(&key)
+			.as_ref()
+			.try_into()
+			.expect("hash is 32 bytes");
+
+		let empty_proof: BoundedVec<u8, ConstU32<MAX_PROOF_LEN>> = BoundedVec::default();
+		let public_inputs: BoundedVec<u8, ConstU32<MAX_PUBLIC_INPUTS_LEN>> = BoundedVec::default();
+		assert_noop!(
+			ProofVerifier::verify_proof(
+				RawOrigin::Signed(1).into(),
+				key_hash,
+				empty_proof,
+				public_inputs,
+			),
+			Error::<Test>::EmptyProof,
+		);
+	});
+}

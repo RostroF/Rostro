@@ -161,12 +161,29 @@ pub mod pallet {
 		VerifierAlreadyRegistered,
 		/// The verifying key exceeds [`MAX_VERIFYING_KEY_LEN`] bytes.
 		VerifyingKeyTooLarge,
+		/// The verifying key is empty. Empty bytes hash to a deterministic
+		/// constant; accepting this would create a registered "verifier"
+		/// that proves nothing.
+		EmptyVerifyingKey,
+		/// The verifying key bytes are all zero. Known-invalid sentinel —
+		/// no real circuit's verifying key is the zero blob.
+		ZeroVerifyingKey,
 		/// The proof exceeds [`MAX_PROOF_LEN`] bytes.
 		ProofTooLarge,
+		/// The proof bytes are empty. A real STARK proof is non-empty.
+		EmptyProof,
 		/// The public inputs exceed [`MAX_PUBLIC_INPUTS_LEN`] bytes.
 		PublicInputsTooLarge,
 		/// The circuit-family identifier exceeds 64 bytes.
 		CircuitFamilyTooLarge,
+		/// The circuit-family identifier is empty. Circuit family is a
+		/// dispatch key for downstream pallets; the empty string routes
+		/// nowhere.
+		EmptyCircuitFamily,
+		/// The supplied verifier-key hash is the all-zero sentinel. Rejected
+		/// at the boundary even though storage lookup would also fail —
+		/// types prove shape, not semantics.
+		ZeroKeyHash,
 		/// The proof failed verification.
 		InvalidProof,
 		/// Verification could not be performed (deserialization or runtime
@@ -190,6 +207,12 @@ pub mod pallet {
 			circuit_family: BoundedVec<u8, ConstU32<64>>,
 		) -> DispatchResult {
 			T::RegistrarOrigin::ensure_origin(origin.clone())?;
+			ensure!(!verifying_key.is_empty(), Error::<T>::EmptyVerifyingKey);
+			ensure!(
+				verifying_key.iter().any(|b| *b != 0),
+				Error::<T>::ZeroVerifyingKey
+			);
+			ensure!(!circuit_family.is_empty(), Error::<T>::EmptyCircuitFamily);
 			// Try to extract a signing account if the origin happens to
 			// also be signed; otherwise `None` (root or non-account
 			// governance origin).
@@ -233,6 +256,7 @@ pub mod pallet {
 			key_hash: VerifierKeyHash,
 		) -> DispatchResult {
 			T::RegistrarOrigin::ensure_origin(origin)?;
+			ensure!(key_hash != [0u8; 32], Error::<T>::ZeroKeyHash);
 			ensure!(
 				Verifiers::<T>::contains_key(key_hash),
 				Error::<T>::VerifierNotRegistered
@@ -257,10 +281,14 @@ pub mod pallet {
 		pub fn verify_proof(
 			origin: OriginFor<T>,
 			key_hash: VerifierKeyHash,
-			_proof: BoundedVec<u8, ConstU32<MAX_PROOF_LEN>>,
+			proof: BoundedVec<u8, ConstU32<MAX_PROOF_LEN>>,
 			_public_inputs: BoundedVec<u8, ConstU32<MAX_PUBLIC_INPUTS_LEN>>,
 		) -> DispatchResult {
 			let submitter = ensure_signed(origin)?;
+			ensure!(key_hash != [0u8; 32], Error::<T>::ZeroKeyHash);
+			ensure!(!proof.is_empty(), Error::<T>::EmptyProof);
+			// `_public_inputs` may legitimately be empty for circuits with no
+			// public inputs; do not validate.
 
 			let _info = Verifiers::<T>::get(key_hash)
 				.ok_or(Error::<T>::VerifierNotRegistered)?;

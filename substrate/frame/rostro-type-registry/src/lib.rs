@@ -159,6 +159,15 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// Role marker exceeds `MAX_ROLE_LEN`.
 		RoleTooLong,
+		/// Role marker is empty. Roles are protocol identifiers and the empty
+		/// string is semantically meaningless; rejected as a known-invalid
+		/// sentinel.
+		EmptyRole,
+		/// Fingerprint is the all-zero 32-byte sentinel. blake2_256 of any
+		/// real canonical_def input does not produce this; accepting it would
+		/// install a value that recomputation can never match, permanently
+		/// bricking the role's gate.
+		ZeroFingerprint,
 		/// No fingerprint registered for the supplied role.
 		RoleNotFound,
 	}
@@ -185,8 +194,16 @@ pub mod pallet {
 				WellKnownTypeFingerprints::<T>::insert(&key, fp);
 			}
 
-			// Genesis-supplied additions (chain-spec extension).
+			// Genesis-supplied additions (chain-spec extension). Same
+			// known-invalid-sentinel rejections as the SRT-gated extrinsic;
+			// chain-spec input is not a trusted boundary.
 			for (role, fp) in self.additional_fingerprints.iter() {
+				assert!(!role.is_empty(), "chain spec must not supply empty role");
+				assert!(
+					fp != &[0u8; 32],
+					"chain spec must not supply all-zero fingerprint for role {:?}",
+					role
+				);
 				let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
 					BoundedVec::try_from(role.clone()).expect("chain spec role fits; qed");
 				WellKnownTypeFingerprints::<T>::insert(&key, fp);
@@ -210,6 +227,8 @@ pub mod pallet {
 			fingerprint: [u8; 32],
 		) -> DispatchResult {
 			T::SecurityResponseTeamOrigin::ensure_origin(origin)?;
+			ensure!(!role.is_empty(), Error::<T>::EmptyRole);
+			ensure!(fingerprint != [0u8; 32], Error::<T>::ZeroFingerprint);
 			let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
 				BoundedVec::try_from(role.clone()).map_err(|_| Error::<T>::RoleTooLong)?;
 			WellKnownTypeFingerprints::<T>::insert(&key, fingerprint);
@@ -222,6 +241,7 @@ pub mod pallet {
 		#[pallet::weight(Weight::from_parts(10_000, 0))]
 		pub fn remove_fingerprint(origin: OriginFor<T>, role: Vec<u8>) -> DispatchResult {
 			T::SecurityResponseTeamOrigin::ensure_origin(origin)?;
+			ensure!(!role.is_empty(), Error::<T>::EmptyRole);
 			let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
 				BoundedVec::try_from(role.clone()).map_err(|_| Error::<T>::RoleTooLong)?;
 			ensure!(
@@ -404,6 +424,118 @@ mod tests {
 				let fp = fingerprint(def, role, FINGERPRINT_VERSION);
 				assert!(seen.insert(fp), "v0 fingerprints must be globally distinct");
 			}
+		}
+	}
+
+	mod validation {
+		use crate as pallet_rostro_type_registry;
+		use crate::pallet::Error;
+		use frame_support::{assert_noop, assert_ok, derive_impl};
+		use frame_system::EnsureRoot;
+		use sp_core::H256;
+		use sp_runtime::{
+			traits::{BlakeTwo256, IdentityLookup},
+			BuildStorage,
+		};
+
+		type AccountId = u64;
+		type Block = frame_system::mocking::MockBlock<Test>;
+
+		frame_support::construct_runtime!(
+			pub enum Test {
+				System: frame_system,
+				TypeRegistry: pallet_rostro_type_registry,
+			}
+		);
+
+		#[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
+		impl frame_system::Config for Test {
+			type Block = Block;
+			type AccountId = AccountId;
+			type Lookup = IdentityLookup<Self::AccountId>;
+			type Hash = H256;
+			type Hashing = BlakeTwo256;
+			type AccountData = ();
+		}
+
+		impl pallet_rostro_type_registry::Config for Test {
+			type SecurityResponseTeamOrigin = EnsureRoot<AccountId>;
+		}
+
+		fn new_test_ext() -> sp_io::TestExternalities {
+			let t = frame_system::GenesisConfig::<Test>::default()
+				.build_storage()
+				.unwrap();
+			let mut ext = sp_io::TestExternalities::new(t);
+			ext.execute_with(|| System::set_block_number(1));
+			ext
+		}
+
+		#[test]
+		fn register_rejects_empty_role() {
+			new_test_ext().execute_with(|| {
+				assert_noop!(
+					TypeRegistry::register_fingerprint(
+						frame_system::RawOrigin::Root.into(),
+						alloc::vec![],
+						[0xAB; 32],
+					),
+					Error::<Test>::EmptyRole,
+				);
+			});
+		}
+
+		#[test]
+		fn register_rejects_zero_fingerprint() {
+			new_test_ext().execute_with(|| {
+				assert_noop!(
+					TypeRegistry::register_fingerprint(
+						frame_system::RawOrigin::Root.into(),
+						b"new-role".to_vec(),
+						[0u8; 32],
+					),
+					Error::<Test>::ZeroFingerprint,
+				);
+			});
+		}
+
+		#[test]
+		fn register_rejects_role_too_long() {
+			new_test_ext().execute_with(|| {
+				let too_long = alloc::vec![b'x'; (super::super::MAX_ROLE_LEN as usize) + 1];
+				assert_noop!(
+					TypeRegistry::register_fingerprint(
+						frame_system::RawOrigin::Root.into(),
+						too_long,
+						[0xAB; 32],
+					),
+					Error::<Test>::RoleTooLong,
+				);
+			});
+		}
+
+		#[test]
+		fn register_accepts_valid_input() {
+			new_test_ext().execute_with(|| {
+				assert_ok!(TypeRegistry::register_fingerprint(
+					frame_system::RawOrigin::Root.into(),
+					b"new-role".to_vec(),
+					[0xAB; 32],
+				));
+			});
+		}
+
+		#[test]
+		fn remove_rejects_empty_role() {
+			new_test_ext().execute_with(|| {
+				assert_noop!(
+					TypeRegistry::remove_fingerprint(
+						frame_system::RawOrigin::Root.into(),
+						alloc::vec![],
+					),
+					Error::<Test>::EmptyRole,
+				);
+			});
 		}
 	}
 }
