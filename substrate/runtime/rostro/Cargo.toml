@@ -47,9 +47,12 @@ pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 pallet-utility = { workspace = true }
 
 # Rostro pallets
-# (RNS family lands in a follow-up commit on this branch — Phase 1 base
-# template ships pure consensus + economic + utility + proof-verifier first.)
 pallet-proof-verifier = { workspace = true }
+pallet-rns-marketplace = { workspace = true }
+pallet-rns-registrar = { workspace = true }
+pallet-rns-resolvers = { workspace = true }
+rns-runtime-api = { workspace = true }
+rns-types = { workspace = true }
 
 # Primitives
 sp-api = { workspace = true }
@@ -91,6 +94,11 @@ std = [
 	"pallet-multisig/std",
 	"pallet-proof-verifier/std",
 	"pallet-proxy/std",
+	"pallet-rns-marketplace/std",
+	"pallet-rns-registrar/std",
+	"pallet-rns-resolvers/std",
+	"rns-runtime-api/std",
+	"rns-types/std",
 	"pallet-session/std",
 	"pallet-sudo/std",
 	"pallet-timestamp/std",

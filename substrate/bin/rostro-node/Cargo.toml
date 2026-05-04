@@ -65,6 +65,8 @@ sp-timestamp = { workspace = true, default-features = true }
 
 # The runtime
 rostro-runtime = { workspace = true, default-features = true }
+rns-types = { workspace = true, default-features = true }
+pallet-rns-registrar = { workspace = true, default-features = true }
 
 [build-dependencies]
 substrate-build-script-utils = { workspace = true, default-features = true }

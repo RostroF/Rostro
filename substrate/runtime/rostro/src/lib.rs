@@ -165,8 +165,16 @@ construct_runtime!(
 
 		// Rostro
 		ProofVerifier: pallet_proof_verifier,
-		// RNS family (registrar / resolvers / marketplace) lands in the next
-		// commit on this branch once the base template proves out gates 1-5.
+
+		// Rostro Name Service (RNS).
+		// Four sub-pallets live inside the pallet-rns-registrar crate; they're
+		// declared here as separate runtime pallets in construct_runtime.
+		RnsNft: pallet_rns_registrar::nft,
+		RnsPriceOracle: pallet_rns_registrar::price_oracle,
+		RnsRegistry: pallet_rns_registrar::registry,
+		RnsRegistrar: pallet_rns_registrar::registrar,
+		RnsResolvers: pallet_rns_resolvers::resolvers,
+		RnsMarketplace: pallet_rns_marketplace,
 	}
 );
 

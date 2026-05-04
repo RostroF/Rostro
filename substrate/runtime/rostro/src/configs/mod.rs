@@ -309,3 +309,185 @@ impl pallet_proof_verifier::Config for Runtime {
 	type WeightInfo = ();
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+//                              RNS
+// ───────────────────────────────────────────────────────────────────────────
+//
+// Wiring for the Rostro Name Service. Modeled on paseo-node's working PNS
+// runtime (its older Config trait surface) and extended for the LeanPNS
+// additions: RuntimeHoldReason / Fungible (deposit holds), OfferWindow,
+// PnsCustodian, BlockAuthor, SecurityResponseTeamOrigin.
+
+use rns_types::DomainHash;
+use frame_support::traits::Get;
+
+const DAYS_MS: u64 = 24 * 60 * 60 * 1000;
+
+parameter_types! {
+	pub const RnsBaseNode: DomainHash = rns_types::RST_BASENODE;
+	pub const RnsGracePeriod: u64 = 30 * DAYS_MS;
+	pub const RnsOfferWindow: u64 = 90 * DAYS_MS;
+	pub const RnsDefaultCapacity: u32 = 100;
+	pub const RnsMinRegistrationDuration: u64 = 28 * DAYS_MS;
+	pub const RnsMaxRegistrationDuration: u64 = 365 * DAYS_MS;
+	pub const RnsMaxContentLen: u32 = 1024;
+	pub const RnsListingDeposit: Balance = 10 * ROSTO;
+	pub const RnsListingGracePeriod: u64 = 7 * DAYS_MS;
+	pub PnsCustodianAccount: AccountId = AccountId::new([0u8; 32]);
+}
+
+/// `EnsureRoot`-equivalent that satisfies `Success = AccountId`.
+/// Returns the all-zero address; the caller is still gated behind Root.
+pub struct EnsureRootAsAccountId;
+impl frame_support::traits::EnsureOrigin<RuntimeOrigin> for EnsureRootAsAccountId {
+	type Success = AccountId;
+
+	fn try_origin(o: RuntimeOrigin) -> Result<Self::Success, RuntimeOrigin> {
+		frame_system::EnsureRoot::<AccountId>::try_origin(o).map(|_| AccountId::new([0u8; 32]))
+	}
+
+	#[cfg(feature = "runtime-benchmarks")]
+	fn try_successful_origin() -> Result<RuntimeOrigin, ()> {
+		Ok(frame_system::RawOrigin::Root.into())
+	}
+}
+
+pub struct RnsIsOpen;
+impl pallet_rns_registrar::traits::IsRegistrarOpen for RnsIsOpen {
+	fn is_open() -> bool {
+		true
+	}
+}
+
+pub struct RnsSs58Updater;
+impl pallet_rns_registrar::traits::Ss58Updater for RnsSs58Updater {
+	type AccountId = AccountId;
+	fn update_ss58(node: DomainHash, owner: &AccountId) -> sp_runtime::DispatchResult {
+		pallet_rns_resolvers::resolvers::Pallet::<Runtime>::set_ss58_record(node, owner)
+	}
+}
+
+pub struct RnsOriginRecorder;
+impl pallet_rns_registrar::traits::OriginRecorder for RnsOriginRecorder {
+	fn record_origin(node: DomainHash, block_hash: [u8; 32]) -> sp_runtime::DispatchResult {
+		pallet_rns_resolvers::resolvers::Pallet::<Runtime>::set_origin_record(node, block_hash)
+	}
+}
+
+pub struct RnsRecordCleaner;
+impl pallet_rns_registrar::traits::RecordCleaner for RnsRecordCleaner {
+	fn clear_records_except_ss58(node: DomainHash) {
+		pallet_rns_resolvers::resolvers::Pallet::<Runtime>::clear_records_except_ss58(node)
+	}
+	fn clear_all_records(node: DomainHash) {
+		pallet_rns_resolvers::resolvers::Pallet::<Runtime>::clear_all_records(node)
+	}
+}
+
+pub struct RnsBlockAuthor;
+impl pallet_rns_registrar::traits::BlockAuthor for RnsBlockAuthor {
+	type AccountId = AccountId;
+	fn author() -> Option<Self::AccountId> {
+		pallet_authorship::Pallet::<Runtime>::author()
+	}
+}
+
+pub struct RnsRegistryChecker;
+impl pallet_rns_resolvers::resolvers::RegistryChecker for RnsRegistryChecker {
+	type AccountId = AccountId;
+	fn check_node_useable(node: DomainHash, owner: &AccountId) -> bool {
+		use pallet_rns_registrar::traits::Registrar as _;
+		if pallet_rns_registrar::registry::Pallet::<Runtime>::verify(owner, node).is_err() {
+			return false;
+		}
+		pallet_rns_registrar::registrar::Pallet::<Runtime>::get_info(node)
+			.map(|_| {
+				<pallet_rns_registrar::registrar::Pallet<Runtime> as pallet_rns_registrar::traits::Registrar>::check_expires_useable(node).is_ok()
+			})
+			.unwrap_or(true)
+	}
+	fn base_node() -> DomainHash {
+		<RnsBaseNode as Get<DomainHash>>::get()
+	}
+}
+
+// rns-registrar's NFT sub-pallet: tracks domain ownership.
+impl pallet_rns_registrar::nft::Config for Runtime {
+	type ClassId = u32;
+	type TotalId = u128;
+	type TokenId = DomainHash;
+	type ClassData = ();
+	type TokenData = rns_types::Record;
+	type MaxClassMetadata = ConstU32<0>;
+	type MaxTokenMetadata = ConstU32<0>;
+}
+
+// rns-registrar's price oracle sub-pallet: governance-managed pricing curve.
+impl pallet_rns_registrar::price_oracle::Config for Runtime {
+	type Currency = Balances;
+	type Moment = u64;
+	type ExchangeRate = pallet_rns_registrar::price_oracle::Pallet<Runtime>;
+	type WeightInfo = ();
+	type ManagerOrigin = EnsureRootAsAccountId;
+}
+
+// rns-registrar's registry sub-pallet: NFT-backed name ownership.
+impl pallet_rns_registrar::registry::Config for Runtime {
+	type WeightInfo = ();
+	type Registrar = pallet_rns_registrar::registrar::Pallet<Runtime>;
+	type ManagerOrigin = EnsureRootAsAccountId;
+	type Ss58Updater = RnsSs58Updater;
+	type RecordCleaner = RnsRecordCleaner;
+	type OriginRecorder = RnsOriginRecorder;
+}
+
+// rns-registrar's main registrar sub-pallet: register/renew/transfer/subdomain.
+impl pallet_rns_registrar::registrar::Config for Runtime {
+	type Registry = pallet_rns_registrar::registry::Pallet<Runtime>;
+	type Currency = Balances;
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type Fungible = Balances;
+	type NowProvider = Timestamp;
+	type Moment = u64;
+	type GracePeriod = RnsGracePeriod;
+	type DefaultCapacity = RnsDefaultCapacity;
+	type BaseNode = RnsBaseNode;
+	type MinRegistrationDuration = RnsMinRegistrationDuration;
+	type MaxRegistrationDuration = RnsMaxRegistrationDuration;
+	type OfferWindow = RnsOfferWindow;
+	type WeightInfo = ();
+	type PriceOracle = pallet_rns_registrar::price_oracle::Pallet<Runtime>;
+	type ManagerOrigin = EnsureRootAsAccountId;
+	// TODO(srt): retarget at `pallet-rostro-security-response-team`
+	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
+	type PnsCustodian = PnsCustodianAccount;
+	type BlockAuthor = RnsBlockAuthor;
+	type IsOpen = RnsIsOpen;
+	type Official = pallet_rns_registrar::registry::Pallet<Runtime>;
+	type Ss58Updater = RnsSs58Updater;
+	type OriginRecorder = RnsOriginRecorder;
+	type RecordCleaner = RnsRecordCleaner;
+}
+
+impl pallet_rns_resolvers::resolvers::Config for Runtime {
+	const OFFCHAIN_PREFIX: &'static [u8] = b"rns/";
+	type WeightInfo = ();
+	type MaxContentLen = RnsMaxContentLen;
+	type RegistryChecker = RnsRegistryChecker;
+}
+
+impl pallet_rns_marketplace::Config for Runtime {
+	type Currency = Balances;
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type Fungible = Balances;
+	type ListingDeposit = RnsListingDeposit;
+	type ListingGracePeriod = RnsListingGracePeriod;
+	type Moment = u64;
+	type NowProvider = Timestamp;
+	type NameRegistry = pallet_rns_registrar::registrar::Pallet<Runtime>;
+	type Ss58Updater = RnsSs58Updater;
+	type RecordCleaner = RnsRecordCleaner;
+	type OriginRecorder = RnsOriginRecorder;
+	type BaseNode = RnsBaseNode;
+	type WeightInfo = ();
+}

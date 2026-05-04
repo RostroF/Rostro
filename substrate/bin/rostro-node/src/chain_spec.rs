@@ -4,6 +4,7 @@
 //! Chain specifications for Rostro.
 
 use rc_service::ChainType;
+use rns_types::{Record, RST_BASENODE};
 use rostro_runtime::{AccountId, AuraId, GrandpaId, Signature, ROSTO, WASM_BINARY};
 use sp_consensus_grandpa::AuthorityId as GrandpaAuthorityId;
 use sp_core::{sr25519, Pair, Public};
@@ -84,6 +85,29 @@ fn testnet_genesis(
 ) -> Value {
 	const ENDOWMENT: u128 = 1_000_000 * ROSTO;
 
+	// RNS pricing: registration fee per label length (1..=10+ chars, length 11 = "10 or more")
+	let base_prices: [u128; 11] = [
+		1000 * ROSTO, // 1 char
+		100 * ROSTO,  // 2 chars
+		45 * ROSTO,   // 3 chars
+		25 * ROSTO,   // 4 chars
+		10 * ROSTO,   // 5 chars
+		ROSTO / 2,    // 6 chars
+		ROSTO / 2,    // 7 chars
+		ROSTO / 2,    // 8 chars
+		ROSTO / 2,    // 9 chars
+		ROSTO / 2,    // 10 chars
+		ROSTO / 2,    // 11+ chars
+	];
+
+	// Seed reserved labels — vendored from pallet_rns_registrar::genesis_reserved::SEED_RESERVED.
+	// Inlined here as a JSON-serializable Vec<Vec<u8>> rather than imported, since the
+	// runtime crate isn't a chain-spec dep target. Sync with that file pre-mainnet.
+	let reserved_labels: Vec<Vec<u8>> = pallet_rns_registrar::genesis_reserved::SEED_RESERVED
+		.iter()
+		.map(|s| s.to_vec())
+		.collect();
+
 	json!({
 		"balances": {
 			"balances": endowed_accounts
@@ -102,7 +126,38 @@ fn testnet_genesis(
 				.collect::<Vec<_>>(),
 		},
 		"sudo": {
-			"key": Some(root_key),
+			"key": Some(root_key.clone()),
+		},
+
+		// ─── RNS genesis ────────────────────────────────────────────────────
+		// Mint the basenode NFT (class 0) to root. This anchors the entire
+		// `.rst` namespace under root's ownership at chain birth.
+		"rnsNft": {
+			"tokens": vec![(
+				root_key.clone(),
+				Vec::<u8>::new(),
+				(),
+				vec![(
+					root_key.clone(),
+					Vec::<u8>::new(),
+					Record::default(),
+					RST_BASENODE,
+				)],
+			)],
+		},
+		"rnsPriceOracle": {
+			"basePrices": base_prices,
+			"rentPrices": base_prices,
+			"initRate": ROSTO,
+		},
+		"rnsRegistrar": {
+			"infos": Vec::<(rns_types::DomainHash, ())>::new(),
+			"reservedList": Vec::<rns_types::DomainHash>::new(),
+			"reservedNames": reserved_labels,
+		},
+		"rnsRegistry": {
+			"origin": Vec::<(rns_types::DomainHash, rns_types::DomainTracing)>::new(),
+			"official": Some(root_key),
 		},
 	})
 }
