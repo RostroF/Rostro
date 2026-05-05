@@ -114,7 +114,11 @@ pub fn prove_chain_window(
 			extrinsic_count: 0,
 			pre_state_root: last.post_state_root,
 			post_state_root: last.post_state_root,
+			// Padding rows extend the chain trivially: same block_hash so
+			// next.parent_hash = local.block_hash holds for the chain.
 			block_hash: last.block_hash,
+			parent_hash: last.block_hash,
+			extrinsics_root: [0u8; 32],
 		});
 	}
 

@@ -47,6 +47,9 @@ mod row;
 #[cfg(test)]
 mod tests;
 
-pub use air::{ChainConsistencyAir, COL_BLOCK_NUMBER, COL_EXTRINSIC_COUNT, COL_PRE_STATE_ROOT, COL_POST_STATE_ROOT, COL_BLOCK_HASH, NUM_COLS};
+pub use air::{
+	ChainConsistencyAir, COL_BLOCK_HASH, COL_BLOCK_NUMBER, COL_EXTRINSICS_ROOT,
+	COL_EXTRINSIC_COUNT, COL_PARENT_HASH, COL_POST_STATE_ROOT, COL_PRE_STATE_ROOT, NUM_COLS,
+};
 pub use prover::{make_config, prove_chain_window, verify_chain_window, Config, Proof, ProofMeta, ProverError};
 pub use row::BlockTraceRow;

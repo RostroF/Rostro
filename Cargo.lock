@@ -8853,6 +8853,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-rostro-proof-anchor"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-inherents 41.0.0",
+ "sp-runtime 46.0.0",
+]
+
+[[package]]
 name = "pallet-rostro-type-registry"
 version = "0.1.0"
 dependencies = [
@@ -12292,11 +12306,13 @@ dependencies = [
 name = "rostro-node"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "clap",
  "frame-system",
  "futures",
  "jsonrpsee",
  "pallet-rns-registrar",
+ "pallet-rostro-proof-anchor",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "postcard",
@@ -12360,6 +12376,7 @@ dependencies = [
  "pallet-rns-marketplace",
  "pallet-rns-registrar",
  "pallet-rns-resolvers",
+ "pallet-rostro-proof-anchor",
  "pallet-rostro-type-registry",
  "pallet-session",
  "pallet-sudo",

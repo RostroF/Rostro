@@ -14,6 +14,10 @@ use crate::air::NUM_COLS;
 /// (Goldilocks field) we chunk each hash into 8 × u32 (4 bytes each), so
 /// each hash spans 8 columns. `block_number` and `extrinsic_count` are u32
 /// and each fit in a single Goldilocks field element.
+///
+/// v0.5 adds `parent_hash` and `extrinsics_root` to the structural trace.
+/// Parent-hash chain is constrained in the AIR; extrinsics-root is data-only
+/// at v0.5 (constraint can be added later when we model the body).
 #[derive(Clone, Debug, Decode, Encode, Eq, PartialEq)]
 pub struct BlockTraceRow {
 	pub block_number: u32,
@@ -21,6 +25,8 @@ pub struct BlockTraceRow {
 	pub pre_state_root: [u8; 32],
 	pub post_state_root: [u8; 32],
 	pub block_hash: [u8; 32],
+	pub parent_hash: [u8; 32],
+	pub extrinsics_root: [u8; 32],
 }
 
 impl BlockTraceRow {
@@ -33,6 +39,8 @@ impl BlockTraceRow {
 		write_hash(&self.pre_state_root, &mut out[crate::air::COL_PRE_STATE_ROOT..]);
 		write_hash(&self.post_state_root, &mut out[crate::air::COL_POST_STATE_ROOT..]);
 		write_hash(&self.block_hash, &mut out[crate::air::COL_BLOCK_HASH..]);
+		write_hash(&self.parent_hash, &mut out[crate::air::COL_PARENT_HASH..]);
+		write_hash(&self.extrinsics_root, &mut out[crate::air::COL_EXTRINSICS_ROOT..]);
 		out
 	}
 }

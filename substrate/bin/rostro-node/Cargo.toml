@@ -20,6 +20,7 @@ name = "rostro-node"
 path = "src/main.rs"
 
 [dependencies]
+async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 serde_json = { workspace = true, default-features = true }
@@ -69,6 +70,7 @@ sp-timestamp = { workspace = true, default-features = true }
 rostro-runtime = { workspace = true, default-features = true }
 rns-types = { workspace = true, default-features = true }
 pallet-rns-registrar = { workspace = true, default-features = true }
+pallet-rostro-proof-anchor = { workspace = true, default-features = true }
 
 # Trace observer (advisory; no proof generation in this node-side hook yet)
 rostro-trace = { path = "../../utils/rostro-trace" }

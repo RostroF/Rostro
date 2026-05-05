@@ -172,6 +172,14 @@ construct_runtime!(
 		// runtime-upgrade gate land in follow-up commits.
 		RostroTypeRegistry: pallet_rostro_type_registry,
 
+		// Inherent that anchors the per-window execution proof into the
+		// block header as a `DigestItem::Consensus(*b"rstr", proof)`.
+		// Block authors pull the latest proof bytes node-side via
+		// `RostroProofInherentDataProvider`; the inherent here deposits
+		// the digest log. Consensus-engine-agnostic — composes with Aura
+		// today and Sassafras when Phase Ring lands.
+		RostroProofAnchor: pallet_rostro_proof_anchor,
+
 		// Rostro Name Service (RNS).
 		// Four sub-pallets live inside the pallet-rns-registrar crate; they're
 		// declared here as separate runtime pallets in construct_runtime.

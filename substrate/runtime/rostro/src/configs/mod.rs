@@ -320,6 +320,10 @@ impl pallet_rostro_type_registry::Config for Runtime {
 	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
 }
 
+// ─── pallet_rostro_proof_anchor ─────────────────────────────────────────────
+
+impl pallet_rostro_proof_anchor::Config for Runtime {}
+
 // ───────────────────────────────────────────────────────────────────────────
 //                              RNS
 // ───────────────────────────────────────────────────────────────────────────

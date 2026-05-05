@@ -51,6 +51,7 @@ pallet-proof-verifier = { workspace = true }
 pallet-rns-marketplace = { workspace = true }
 pallet-rns-registrar = { workspace = true }
 pallet-rns-resolvers = { workspace = true }
+pallet-rostro-proof-anchor = { workspace = true }
 pallet-rostro-type-registry = { workspace = true }
 rns-runtime-api = { workspace = true }
 rns-types = { workspace = true }
@@ -98,6 +99,7 @@ std = [
 	"pallet-rns-marketplace/std",
 	"pallet-rns-registrar/std",
 	"pallet-rns-resolvers/std",
+	"pallet-rostro-proof-anchor/std",
 	"pallet-rostro-type-registry/std",
 	"rns-runtime-api/std",
 	"rns-types/std",

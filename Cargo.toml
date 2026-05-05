@@ -157,6 +157,7 @@ members = [
 	"substrate/frame/rns-types",
 	"substrate/frame/root-offences",
 	"substrate/frame/root-testing",
+	"substrate/frame/rostro-proof-anchor",
 	"substrate/frame/rostro-type-registry",
 	"substrate/frame/safe-mode",
 	"substrate/frame/sassafras",
@@ -604,6 +605,7 @@ pallet-proof-verifier = { path = "substrate/frame/proof-verifier", default-featu
 pallet-rns-marketplace = { path = "substrate/frame/rns-marketplace", default-features = false }
 pallet-rns-registrar = { path = "substrate/frame/rns-registrar", default-features = false }
 pallet-rns-resolvers = { path = "substrate/frame/rns-resolvers", default-features = false }
+pallet-rostro-proof-anchor = { path = "substrate/frame/rostro-proof-anchor", default-features = false }
 pallet-rostro-type-registry = { path = "substrate/frame/rostro-type-registry", default-features = false }
 pallet-proxy = { path = "substrate/frame/proxy", default-features = false }
 pallet-recovery = { path = "substrate/frame/recovery", default-features = false }

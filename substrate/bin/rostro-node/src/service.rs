@@ -8,6 +8,7 @@
 //! pallet-boundary refactor.
 
 use futures::{FutureExt, StreamExt};
+use pallet_rostro_proof_anchor::ROSTRO_PROOF_INHERENT_ID;
 use rc_client_api::{Backend, BlockBackend, BlockchainEvents};
 use rc_consensus_aura::{ImportQueueParams, SlotProportion, StartAuraParams};
 use rc_consensus_grandpa::{GrandpaPruningFilter, SharedVoterState};
@@ -17,8 +18,12 @@ use rc_transaction_pool_api::OffchainTransactionPoolFactory;
 use rostro_runtime::{self, opaque::Block, RuntimeApi};
 use rostro_trace::{prove_chain_window, verify_chain_window, BlockTraceRow};
 use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
+use sp_inherents::{InherentData, InherentIdentifier};
 use sp_runtime::traits::Header as HeaderT;
-use std::{sync::Arc, time::Duration};
+use std::{
+	sync::{Arc, Mutex},
+	time::Duration,
+};
 
 pub(crate) type FullClient = rc_service::TFullClient<
 	Block,
@@ -231,6 +236,15 @@ pub fn new_full<
 	// trace observer below for proof persistence.
 	let proofs_dir = config.base_path.path().join("proofs");
 
+	// Shared state for the per-block-window proof: the trace observer
+	// writes the latest postcard-encoded proof here after each successful
+	// prove + self-verify; the inherent data provider (constructed below
+	// in the Aura authoring path) consumes it via `take()` when the
+	// proposer asks for inherent data on a slot. `Arc<Mutex<...>>` is
+	// fine because the only operations are an occasional `set` and an
+	// occasional `take` — no contention.
+	let latest_proof: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+
 	let _rpc_handlers = rc_service::spawn_tasks(rc_service::SpawnTasksParams {
 		network: Arc::new(network.clone()),
 		client: client.clone(),
@@ -258,7 +272,7 @@ pub fn new_full<
 	task_manager.spawn_handle().spawn(
 		"rostro-trace-observer",
 		Some("rostro-trace"),
-		spawn_trace_observer(client.clone(), proofs_dir).boxed(),
+		spawn_trace_observer(client.clone(), proofs_dir, latest_proof.clone()).boxed(),
 	);
 
 	if role.is_authority() {
@@ -279,14 +293,23 @@ pub fn new_full<
 				select_chain,
 				block_import,
 				proposer_factory,
-				create_inherent_data_providers: move |_, ()| async move {
-					let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-					let slot =
-						sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-							*timestamp,
-							slot_duration,
-						);
-					Ok((slot, timestamp))
+				create_inherent_data_providers: {
+					let latest_proof = latest_proof.clone();
+					move |_, ()| {
+						let latest_proof = latest_proof.clone();
+						async move {
+							let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+							let slot =
+								sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
+									*timestamp,
+									slot_duration,
+								);
+							let rostro_proof = RostroProofInherentDataProvider {
+								latest_proof,
+							};
+							Ok((slot, timestamp, rostro_proof))
+						}
+					}
 				},
 				force_authoring,
 				backoff_authoring_blocks,
@@ -365,7 +388,11 @@ const PROVE_WINDOW_ROWS: usize = 8;
 /// Errors during row construction, prove/verify, or persistence are logged
 /// at warn level and do not break the observer loop — the chain keeps
 /// producing blocks regardless of advisory proof health.
-async fn spawn_trace_observer(client: Arc<FullClient>, proofs_dir: std::path::PathBuf) {
+async fn spawn_trace_observer(
+	client: Arc<FullClient>,
+	proofs_dir: std::path::PathBuf,
+	latest_proof: Arc<Mutex<Option<Vec<u8>>>>,
+) {
 	if let Err(e) = std::fs::create_dir_all(&proofs_dir) {
 		tracing::warn!(
 			target: "rostro-trace",
@@ -416,6 +443,16 @@ async fn spawn_trace_observer(client: Arc<FullClient>, proofs_dir: std::path::Pa
 						Ok(()) => {
 							let verify_elapsed = verify_start.elapsed();
 							let persisted = persist_proof(&proofs_dir, first, last, &proof);
+							// Stage the proof for the next block author's
+							// inherent. Overwrites whatever was queued —
+							// only the freshest proof rides at any time.
+							let encoded = postcard::to_allocvec(&proof).ok();
+							let staged_for_inherent = encoded.is_some();
+							if let Some(bytes) = encoded {
+								if let Ok(mut guard) = latest_proof.lock() {
+									*guard = Some(bytes);
+								}
+							}
 							tracing::info!(
 								target: "rostro-trace",
 								window_first_block = first,
@@ -425,7 +462,8 @@ async fn spawn_trace_observer(client: Arc<FullClient>, proofs_dir: std::path::Pa
 								prove_ms = prove_elapsed.as_millis() as u64,
 								verify_ms = verify_elapsed.as_millis() as u64,
 								persisted = ?persisted,
-								"chain-window proof generated, self-verified, persisted",
+								staged_for_inherent,
+								"chain-window proof generated, self-verified, persisted, staged",
 							);
 						},
 						Err(e) => {
@@ -449,6 +487,44 @@ async fn spawn_trace_observer(client: Arc<FullClient>, proofs_dir: std::path::Pa
 					);
 				},
 			}
+		}
+	}
+}
+
+/// Inherent-data provider that yields the most-recently-staged execution
+/// proof to the block author's proposer. Reads (and consumes via `take()`)
+/// the shared `latest_proof` slot the trace observer writes to. If no proof
+/// is staged at slot time, the inherent is skipped — block authoring still
+/// proceeds normally.
+struct RostroProofInherentDataProvider {
+	latest_proof: Arc<Mutex<Option<Vec<u8>>>>,
+}
+
+#[async_trait::async_trait]
+impl sp_inherents::InherentDataProvider for RostroProofInherentDataProvider {
+	async fn provide_inherent_data(
+		&self,
+		inherent_data: &mut InherentData,
+	) -> Result<(), sp_inherents::Error> {
+		let proof = self.latest_proof.lock().ok().and_then(|mut g| g.take());
+		if let Some(bytes) = proof {
+			inherent_data
+				.put_data(ROSTRO_PROOF_INHERENT_ID, &bytes)
+				.map_err(|e| sp_inherents::Error::Application(Box::new(e)))?;
+		}
+		Ok(())
+	}
+
+	async fn try_handle_error(
+		&self,
+		identifier: &InherentIdentifier,
+		_error: &[u8],
+	) -> Option<Result<(), sp_inherents::Error>> {
+		if *identifier == ROSTRO_PROOF_INHERENT_ID {
+			// Anchoring is advisory at v0; never fatal.
+			Some(Ok(()))
+		} else {
+			None
 		}
 	}
 }
@@ -477,6 +553,8 @@ fn build_trace_row(
 	let header = &notification.header;
 	let post_state_root: [u8; 32] = (*header.state_root()).into();
 	let block_hash: [u8; 32] = notification.hash.into();
+	let parent_hash: [u8; 32] = (*header.parent_hash()).into();
+	let extrinsics_root: [u8; 32] = (*header.extrinsics_root()).into();
 	let block_number: u32 = (*header.number())
 		.try_into()
 		.map_err(|_| "block_number does not fit in u32".to_string())?;
@@ -486,9 +564,8 @@ fn build_trace_row(
 	let pre_state_root: [u8; 32] = if block_number == 0 {
 		[0u8; 32]
 	} else {
-		let parent_hash = *header.parent_hash();
 		(*client
-			.header(parent_hash)
+			.header(*header.parent_hash())
 			.map_err(|e| format!("parent header lookup failed: {}", e))?
 			.ok_or_else(|| "parent header missing".to_string())?
 			.state_root())
@@ -511,5 +588,7 @@ fn build_trace_row(
 		pre_state_root,
 		post_state_root,
 		block_hash,
+		parent_hash,
+		extrinsics_root,
 	})
 }

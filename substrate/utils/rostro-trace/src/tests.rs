@@ -14,6 +14,8 @@ fn make_row(n: u32, pre: [u8; 32], post: [u8; 32], hash: [u8; 32]) -> BlockTrace
 		pre_state_root: pre,
 		post_state_root: post,
 		block_hash: hash,
+		parent_hash: [0u8; 32],
+		extrinsics_root: [0u8; 32],
 	}
 }
 
@@ -52,24 +54,28 @@ fn air_width_matches_num_cols() {
 }
 
 /// Build a synthetic chain trace where each block's post-state-root = next
-/// block's pre-state-root, and block numbers increment by 1. This is the
-/// shape the AIR's transition constraints expect.
+/// block's pre-state-root, block numbers increment by 1, and parent_hash
+/// chains correctly to the previous block_hash. Shape matches all AIR
+/// transition constraints at v0.5.
 fn synthetic_trace(rows: u32) -> Vec<BlockTraceRow> {
 	let mut roots = vec![[0u8; 32]; rows as usize + 1];
 	for (i, root) in roots.iter_mut().enumerate() {
 		root[0..4].copy_from_slice(&(i as u32).to_be_bytes());
 	}
+	let block_hash_for = |n: u32| {
+		let mut h = [0u8; 32];
+		h[0..4].copy_from_slice(&(n + 0x1000).to_be_bytes());
+		h
+	};
 	(0..rows)
 		.map(|n| BlockTraceRow {
 			block_number: n,
 			extrinsic_count: 1,
 			pre_state_root: roots[n as usize],
 			post_state_root: roots[n as usize + 1],
-			block_hash: {
-				let mut h = [0u8; 32];
-				h[0..4].copy_from_slice(&(n + 0x1000).to_be_bytes());
-				h
-			},
+			block_hash: block_hash_for(n),
+			parent_hash: if n == 0 { [0u8; 32] } else { block_hash_for(n - 1) },
+			extrinsics_root: [0u8; 32],
 		})
 		.collect()
 }
@@ -97,7 +103,31 @@ fn synthetic_trace_satisfies_transition_constraints_manually() {
 				local[COL_POST_STATE_ROOT + limb].as_canonical_u64(),
 			);
 		}
+		// parent-hash chain (v0.5)
+		for limb in 0..8 {
+			assert_eq!(
+				next[COL_PARENT_HASH + limb].as_canonical_u64(),
+				local[COL_BLOCK_HASH + limb].as_canonical_u64(),
+			);
+		}
 	}
+}
+
+#[test]
+fn forged_parent_hash_chain_break_caught_by_constraint() {
+	// Tamper with block #3's parent_hash so it doesn't match block #2's
+	// block_hash. The parent-hash chain constraint (v0.5) must detect it.
+	let mut trace: Vec<_> =
+		synthetic_trace(8).into_iter().map(|r| r.to_goldilocks_row()).collect();
+	trace[3][COL_PARENT_HASH] = Goldilocks::new(0xCAFEBABE);
+
+	let local = &trace[2];
+	let bad_next = &trace[3];
+	assert_ne!(
+		bad_next[COL_PARENT_HASH].as_canonical_u64(),
+		local[COL_BLOCK_HASH].as_canonical_u64(),
+		"forged parent_hash must violate the parent-hash chain constraint",
+	);
 }
 
 #[test]
@@ -197,6 +227,8 @@ mod proof {
 				pre_state_root: last.post_state_root,
 				post_state_root: last.post_state_root,
 				block_hash: last.block_hash,
+				parent_hash: last.block_hash,
+				extrinsics_root: [0u8; 32],
 			});
 		}
 
@@ -239,6 +271,8 @@ mod proof {
 				pre_state_root: last.post_state_root,
 				post_state_root: last.post_state_root,
 				block_hash: last.block_hash,
+				parent_hash: last.block_hash,
+				extrinsics_root: [0u8; 32],
 			});
 		}
 		let flat: Vec<Val> = rows
