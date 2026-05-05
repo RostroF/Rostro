@@ -12299,6 +12299,7 @@ dependencies = [
  "pallet-rns-registrar",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
+ "postcard",
  "rc-basic-authorship",
  "rc-cli",
  "rc-client-api",
@@ -12317,6 +12318,7 @@ dependencies = [
  "rc-transaction-pool-api",
  "rns-types",
  "rostro-runtime",
+ "rostro-trace",
  "serde_json",
  "sp-api 41.0.0",
  "sp-block-builder",
@@ -12332,6 +12334,7 @@ dependencies = [
  "sp-timestamp",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
+ "tracing",
 ]
 
 [[package]]
@@ -12385,6 +12388,28 @@ dependencies = [
  "sp-transaction-pool",
  "sp-version 44.0.0",
  "substrate-wasm-builder",
+]
+
+[[package]]
+name = "rostro-trace"
+version = "0.1.0"
+dependencies = [
+ "p3-air",
+ "p3-challenger",
+ "p3-commit",
+ "p3-dft",
+ "p3-field",
+ "p3-fri",
+ "p3-goldilocks",
+ "p3-matrix",
+ "p3-merkle-tree",
+ "p3-symmetric",
+ "p3-uni-stark",
+ "parity-scale-codec",
+ "postcard",
+ "scale-info",
+ "serde",
+ "thiserror 1.0.65",
 ]
 
 [[package]]

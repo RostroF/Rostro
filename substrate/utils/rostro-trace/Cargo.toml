@@ -1,0 +1,35 @@
+[package]
+name = "rostro-trace"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Rostro execution-trace types + minimal Plonky3 AIR. v0 is observational and advisory: the trace captures per-block state-transition fingerprints (block_number, pre/post state root, block hash, extrinsic count) and the AIR constrains chain consistency (sequential block numbers, hash chain). Proofs are generated but not enforced — wire in for runtime upgrade once the verifier host function exists. Roadmap toward AIR for FRAME's hot path lives here."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { workspace = true, default-features = true, features = ["derive"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+scale-info = { workspace = true, default-features = true, features = ["derive"] }
+serde = { workspace = true, default-features = true, features = ["derive"] }
+thiserror = { workspace = true }
+
+# Plonky3 stack — same crypto choices as pallet-proof-verifier per
+# crypto_stack_v1.md (Goldilocks field, uni-stark + TwoAdicFriPcs +
+# BinomialExtensionField<Goldilocks,2> + Poseidon2 width 8).
+p3-air = { workspace = true, default-features = true }
+p3-challenger = { workspace = true, default-features = true }
+p3-commit = { workspace = true, default-features = true }
+p3-dft = { workspace = true, default-features = true }
+p3-field = { workspace = true, default-features = true }
+p3-fri = { workspace = true, default-features = true }
+p3-goldilocks = { workspace = true, default-features = true }
+p3-matrix = { workspace = true, default-features = true }
+p3-merkle-tree = { workspace = true, default-features = true }
+p3-symmetric = { workspace = true, default-features = true }
+p3-uni-stark = { workspace = true, default-features = true }

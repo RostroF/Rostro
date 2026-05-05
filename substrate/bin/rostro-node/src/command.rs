@@ -38,6 +38,8 @@ impl SubstrateCli for Cli {
 	fn load_spec(&self, id: &str) -> Result<Box<dyn rc_service::ChainSpec>, String> {
 		Ok(match id {
 			"" | "dev" | "rostro-dev" => Box::new(chain_spec::development_config()?),
+			"gemini" | "rostro-gemini" => Box::new(chain_spec::gemini_config()?),
+			"rostro" => Box::new(chain_spec::rostro_config()?),
 			path => Box::new(chain_spec::ChainSpec::from_json_file(
 				std::path::PathBuf::from(path),
 			)?),

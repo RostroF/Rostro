@@ -54,10 +54,6 @@ pub const SIGNATURE_SERIALIZED_SIZE: usize = 65;
 #[derive(Clone)]
 pub struct EcdsaTag;
 
-#[doc(hidden)]
-#[derive(Clone)]
-pub struct EcdsaKeccakTag;
-
 /// The secret seed.
 ///
 /// The raw secret seed, which can be used to create the `Pair`.
@@ -70,11 +66,6 @@ pub type GenericPublic<TAG> = PublicBytes<PUBLIC_KEY_SERIALIZED_SIZE, TAG>;
 ///
 /// Uses blake2 during key recovery.
 pub type Public = GenericPublic<EcdsaTag>;
-
-/// The ECDSA compressed public key.
-///
-/// Uses keccak during key recovery.
-pub type KeccakPublic = GenericPublic<EcdsaKeccakTag>;
 
 impl<TAG> GenericPublic<TAG> {
 	/// Create a new instance from the given full public key.
@@ -134,11 +125,6 @@ pub type GenericSignature<PUBLIC> = SignatureBytes<SIGNATURE_SERIALIZED_SIZE, PU
 /// Uses blake2 during key recovery.
 pub type Signature = GenericSignature<Public>;
 
-/// A signature (a 512-bit value, plus 8 bits for recovery ID).
-///
-/// Uses keccak during key recovery.
-pub type KeccakSignature = GenericSignature<KeccakPublic>;
-
 /// A signature that allows recovering the public key from a message.
 pub trait Recover: seal::Sealed {
 	/// The public key that will be recovered from the signature.
@@ -177,11 +163,6 @@ impl<PUBLIC: From<VerifyingKey>> GenericSignature<PUBLIC> {
 /// Uses blake2 during key recovery.
 pub type ProofOfPossession = Signature;
 
-/// Proof of Possession is the same as Signature.
-///
-/// Uses keccak during key recovery.
-pub type KeccakProofOfPossession = KeccakSignature;
-
 impl Signature {
 	/// Recover the public key from this signature and a message.
 	pub fn recover<M: AsRef<[u8]>>(&self, message: M) -> Option<Public> {
@@ -189,27 +170,8 @@ impl Signature {
 	}
 }
 
-impl KeccakSignature {
-	/// Recover the public key from this signature and a message.
-	pub fn recover<M: AsRef<[u8]>>(&self, message: M) -> Option<KeccakPublic> {
-		self.recover_prehashed(&sp_crypto_hashing::keccak_256(message.as_ref()))
-	}
-}
-
 impl Recover for Signature {
 	type Public = Public;
-
-	fn recover_prehashed(&self, message: &[u8; 32]) -> Option<Self::Public> {
-		self.recover_prehashed(message)
-	}
-
-	fn recover<M: AsRef<[u8]>>(&self, message: M) -> Option<Self::Public> {
-		self.recover(message)
-	}
-}
-
-impl Recover for KeccakSignature {
-	type Public = KeccakPublic;
 
 	fn recover_prehashed(&self, message: &[u8; 32]) -> Option<Self::Public> {
 		self.recover_prehashed(message)
@@ -258,9 +220,6 @@ pub struct GenericPair<PUBLIC> {
 /// An ecdsa key pair using the blake2 algorithm for hashing the message.
 pub type Pair = GenericPair<Public>;
 
-/// An ecdsa key pair using the keccak algorithm for hashing the message.
-pub type KeccakPair = GenericPair<KeccakPublic>;
-
 impl TraitPair for Pair {
 	type Public = Public;
 	type Seed = Seed;
@@ -290,44 +249,6 @@ impl TraitPair for Pair {
 
 	/// Verify a signature on a message. Returns true if the signature is good.
 	fn verify<M: AsRef<[u8]>>(sig: &Self::Signature, message: M, public: &Public) -> bool {
-		Self::verify(sig, message, public)
-	}
-
-	/// Return a vec filled with raw data.
-	fn to_raw_vec(&self) -> Vec<u8> {
-		self.to_raw_vec()
-	}
-}
-
-impl TraitPair for KeccakPair {
-	type Public = KeccakPublic;
-	type Seed = Seed;
-	type Signature = KeccakSignature;
-	type ProofOfPossession = KeccakProofOfPossession;
-
-	fn from_seed_slice(seed_slice: &[u8]) -> Result<Self, SecretStringError> {
-		Self::from_seed_slice(seed_slice)
-	}
-
-	fn derive<Iter: Iterator<Item = DeriveJunction>>(
-		&self,
-		path: Iter,
-		_seed: Option<Seed>,
-	) -> Result<(Self, Option<Seed>), DeriveError> {
-		self.derive(path)
-	}
-
-	fn public(&self) -> Self::Public {
-		self.public
-	}
-
-	#[cfg(feature = "full_crypto")]
-	fn sign(&self, message: &[u8]) -> Self::Signature {
-		self.sign(message)
-	}
-
-	/// Verify a signature on a message. Returns true if the signature is good.
-	fn verify<M: AsRef<[u8]>>(sig: &Self::Signature, message: M, public: &Self::Public) -> bool {
 		Self::verify(sig, message, public)
 	}
 
@@ -485,16 +406,6 @@ where
 	}
 }
 
-#[cfg(feature = "full_crypto")]
-impl KeccakPair
-where
-	<Self as TraitPair>::Signature: From<NativeSignature>,
-{
-	fn sign(&self, message: &[u8]) -> KeccakSignature {
-		self.sign_prehashed(&sp_crypto_hashing::keccak_256(message))
-	}
-}
-
 // The `secp256k1` backend doesn't implement cleanup for their private keys.
 // Currently we should take care of wiping the secret from memory.
 // NOTE: this solution is not effective when `Pair` is moved around memory.
@@ -511,23 +422,11 @@ impl CryptoType for Public {
 	type Pair = Pair;
 }
 
-impl CryptoType for KeccakPublic {
-	type Pair = KeccakPair;
-}
-
 impl CryptoType for Signature {
 	type Pair = Pair;
 }
 
-impl CryptoType for KeccakSignature {
-	type Pair = KeccakPair;
-}
-
 impl CryptoType for Pair {
-	type Pair = Self;
-}
-
-impl CryptoType for KeccakPair {
 	type Pair = Self;
 }
 
@@ -536,7 +435,6 @@ impl NonAggregatable for Pair {}
 mod seal {
 	pub trait Sealed {}
 	impl Sealed for super::Signature {}
-	impl Sealed for super::KeccakSignature {}
 }
 
 #[cfg(test)]
@@ -626,16 +524,6 @@ mod test {
 		let signature = pair.sign(&message[..]);
 		assert!(Pair::verify(&signature, &message[..], &public));
 		assert!(!Pair::verify(&signature, b"Something else", &public));
-	}
-
-	#[test]
-	fn generated_pair_should_work_keccak() {
-		let (pair, _) = KeccakPair::generate();
-		let public = pair.public();
-		let message = b"Something important";
-		let signature = pair.sign(&message[..]);
-		assert!(KeccakPair::verify(&signature, &message[..], &public));
-		assert!(!KeccakPair::verify(&signature, b"Something else", &public));
 	}
 
 	#[test]
