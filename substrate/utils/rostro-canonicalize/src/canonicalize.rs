@@ -1,46 +1,51 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
-//! Canonicalize a metadata type into the deterministic structural string
-//! the pallet hashes.
-//!
-//! The pallet stores hand-written canonical_def strings (e.g. `[u8;32]`,
-//! `enum{Immortal,Mortal{period:u64,phase:u64}}`). For client-side
-//! recognition we walk the metadata's `PortableRegistry` and produce the
-//! same string for any structurally-equivalent type.
-//!
-//! Format rules (must match the pallet exactly):
-//! - whitespace-free
-//! - struct/enum fields and variants alphabetized
-//! - primitive type names: `u8`, `u32`, `u64`, `u128`, `bool`, `str`, ...
-//! - arrays: `[T;N]`
-//! - sequences: `Vec<T>`
-//! - compact: `Compact<T>`
-//! - tuples: `(T1,T2,...)` or `()` for unit
-//! - structs: `struct{a:T,b:T}` (named fields, sorted by name)
-//! - enums: `enum{Unit,Tuple(T),Named{a:T}}` (variants sorted by name)
-//! - newtype unwrap: a single-field composite is canonicalized as its inner
-//!   type — the role marker carries the semantic distinction
-//!
-//! The newtype-unwrap rule is what makes `pub struct AccountId32([u8;32])`
-//! canonicalize to `[u8;32]`, matching the pallet's hand-written entry.
+// Structural canonicalization of metadata types.
+//
+// Walks a `scale_info::PortableRegistry` type and produces a deterministic
+// whitespace-free string representation. Used by both the runtime side
+// (`pallet-rostro-type-registry`'s `build.rs`, indirectly) and the client
+// recognizer.
+//
+// Format rules (must match byte-for-byte across both ends):
+// - whitespace-free
+// - struct fields and enum variants alphabetized
+// - primitives: `u8`, `u32`, `u64`, `u128`, `bool`, `str`, ...
+// - arrays: `[T;N]`
+// - sequences: `Vec<T>`
+// - compact: `Compact<T>`
+// - tuples: `(T1,T2,...)` or `()` for unit
+// - structs: `struct{a:T,b:T}` (named fields, sorted by name)
+// - enums: `enum{Unit,Tuple(T),Named{a:T}}` (variants sorted by name)
+// - newtype unwrap: a single-field composite is canonicalized as its inner
+//   type — the role marker carries the semantic distinction
+//
+// This file is shared between `lib.rs` (via `mod`) and `build.rs` (via
+// `include!`) so the build-time deriver and the runtime recognizer use
+// identical logic. Use regular `//` comments only — `//!` inner doc
+// comments are not valid mid-file and `include!` puts this content into
+// the middle of `build.rs`.
 
-use crate::{newtype_inner_id, primitive_name, resolve, MAX_CANONICALIZE_DEPTH};
-use scale_info::{form::PortableForm, PortableRegistry, TypeDef};
+use alloc::{
+	string::{String, ToString},
+	vec::Vec,
+};
+use scale_info::{form::PortableForm, PortableRegistry, TypeDef, TypeDefPrimitive};
+
+/// Maximum depth of type-tree recursion the canonicalizer will accept.
+/// Prevents adversarial metadata from forcing unbounded recursion.
+pub const MAX_CANONICALIZE_DEPTH: u32 = 32;
 
 /// Errors the canonicalizer can produce. Each is a structural property of the
 /// input metadata, not a runtime error — types prove shape, not validity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CanonicalizeError {
-	/// Type id was not present in the registry. Adversarial metadata may
-	/// carry dangling ids; we reject rather than panic.
+	/// Type id was not present in the registry.
 	UnknownTypeId(u32),
-	/// Recursion exceeded `MAX_CANONICALIZE_DEPTH`. Adversarial metadata
-	/// may try to force unbounded recursion via cyclic type references.
+	/// Recursion exceeded `MAX_CANONICALIZE_DEPTH`.
 	DepthLimitExceeded,
-	/// scale-info BitSequence types are not part of the v0 grammar. They
-	/// exist in metadata for some chains; v0 leaves them out of recognition
-	/// rather than guessing a canonical form.
+	/// scale-info BitSequence types are not part of the v0 grammar.
 	UnsupportedBitSequence,
 }
 
@@ -64,10 +69,8 @@ fn canonicalize_into(
 	if depth >= MAX_CANONICALIZE_DEPTH {
 		return Err(CanonicalizeError::DepthLimitExceeded);
 	}
-	let ty = resolve(id, registry).ok_or(CanonicalizeError::UnknownTypeId(id))?;
+	let ty = registry.resolve(id).ok_or(CanonicalizeError::UnknownTypeId(id))?;
 
-	// Newtype unwrap before anything else — a single-field composite is
-	// transparent under our grammar.
 	if let Some(inner) = newtype_inner_id(&ty.type_def) {
 		return canonicalize_into(inner, registry, out, depth + 1);
 	}
@@ -104,8 +107,6 @@ fn canonicalize_into(
 			out.push(')');
 		},
 		TypeDef::Composite(c) => {
-			// Multi-field composite — render as struct{name:T,...}, sorted
-			// by field name. (Single-field composites were unwrapped above.)
 			out.push_str("struct{");
 			let mut named: Vec<(&str, u32)> = c
 				.fields
@@ -172,9 +173,6 @@ fn render_variant_fields(
 		}
 		out.push('}');
 	} else {
-		// Tuple-style variant: positional, render in declaration order.
-		// Mixing named and unnamed fields in a single variant is not
-		// expressible in Rust source; we render all-unnamed as a tuple.
 		out.push('(');
 		for (i, field) in variant.fields.iter().enumerate() {
 			if i > 0 {
@@ -185,4 +183,39 @@ fn render_variant_fields(
 		out.push(')');
 	}
 	Ok(())
+}
+
+/// Detect the "newtype wrapper" pattern. A single-field composite (tuple
+/// struct or single-named-field struct) is treated as transparent — its
+/// canonical_def is the inner type's canonical_def. The role marker carries
+/// the semantic distinction.
+pub fn newtype_inner_id(td: &TypeDef<PortableForm>) -> Option<u32> {
+	if let TypeDef::Composite(c) = td {
+		if c.fields.len() == 1 {
+			return Some(c.fields[0].ty.id);
+		}
+	}
+	None
+}
+
+/// Name of a primitive type in the canonical_def grammar.
+pub fn primitive_name(p: &TypeDefPrimitive) -> &'static str {
+	use TypeDefPrimitive::*;
+	match p {
+		Bool => "bool",
+		Char => "char",
+		Str => "str",
+		U8 => "u8",
+		U16 => "u16",
+		U32 => "u32",
+		U64 => "u64",
+		U128 => "u128",
+		U256 => "u256",
+		I8 => "i8",
+		I16 => "i16",
+		I32 => "i32",
+		I64 => "i64",
+		I128 => "i128",
+		I256 => "i256",
+	}
 }

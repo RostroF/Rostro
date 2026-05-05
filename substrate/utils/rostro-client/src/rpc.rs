@@ -8,12 +8,13 @@
 //! fetch each storage value. Anything more is out of v0 scope.
 
 use crate::{
-	canonicalize, fingerprint as fp_fn, recognize as run_recognize,
+	recognize as run_recognize,
 	storage::{
 		decode_role_from_storage_key, well_known_fingerprints_prefix, PALLET_NAME, STORAGE_NAME,
 	},
 	Recognizer,
 };
+use rostro_canonicalize::CanonicalizeError;
 use codec::Decode;
 use frame_metadata::{RuntimeMetadata, RuntimeMetadataPrefixed};
 use jsonrpsee::{core::client::ClientT, rpc_params, ws_client::WsClientBuilder};
@@ -37,7 +38,7 @@ pub enum RpcError {
 	#[error("metadata missing well-known role marker on chain")]
 	NoWellKnownFingerprints,
 	#[error("canonicalize: {0:?}")]
-	Canonicalize(canonicalize::CanonicalizeError),
+	Canonicalize(CanonicalizeError),
 }
 
 /// Async chain client. Holds an open WebSocket session.
@@ -209,14 +210,8 @@ fn nibble_char(n: u8) -> char {
 #[allow(unused_imports)]
 use ClientT as _;
 
-// `fp_fn` is re-exported from `crate::fingerprint` and kept in scope for
-// use by the recognizer; the explicit `use` here avoids the appearance of
-// an unused import in some toolchains.
-#[allow(unused_imports)]
-use fp_fn as _;
-
-// Same for `STORAGE_NAME` and `PALLET_NAME` — they're imported as constants
-// the storage module exposes; not used directly here but documented as part
-// of the public surface a downstream consumer can reference.
+// `STORAGE_NAME` and `PALLET_NAME` are imported as constants the storage
+// module exposes; documented as part of the public surface a downstream
+// consumer can reference.
 #[allow(unused_imports)]
 use {PALLET_NAME as _, STORAGE_NAME as _};

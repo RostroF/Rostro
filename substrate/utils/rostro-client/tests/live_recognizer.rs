@@ -33,6 +33,8 @@ async fn recognizer_verifies_well_known_roles_against_live_dev_node() {
 	let labels = [
 		(WellKnownRole::Account, "Account"),
 		(WellKnownRole::Hash, "Hash"),
+		(WellKnownRole::Era, "Era"),
+		(WellKnownRole::MultiAddress, "MultiAddress"),
 		(WellKnownRole::Weight, "Weight"),
 		(WellKnownRole::Balance, "Balance"),
 		(WellKnownRole::BlockNumber, "BlockNumber"),
@@ -67,12 +69,15 @@ async fn recognizer_verifies_well_known_roles_against_live_dev_node() {
 	// shapes; verified-recognition for them is not expected at v0 because
 	// Substrate uses them via type aliases and the metadata shows the
 	// raw primitive without a path hint).
-	let account_verified = counts.get("Account").map(|c| c.0.len()).unwrap_or(0);
-	let hash_verified = counts.get("Hash").map(|c| c.0.len()).unwrap_or(0);
-	let weight_verified = counts.get("Weight").map(|c| c.0.len()).unwrap_or(0);
-	assert!(account_verified > 0, "no Account types verified");
-	assert!(hash_verified > 0, "no Hash types verified");
-	assert!(weight_verified > 0, "no Weight types verified");
+	for role in &["Account", "Hash", "Era", "MultiAddress", "Weight"] {
+		let verified = counts.get(role).map(|c| c.0.len()).unwrap_or(0);
+		assert!(
+			verified > 0,
+			"no {role} types verified — recognizer disagrees with on-chain \
+			 fingerprint for this role; investigate canonicalize.rs vs the \
+			 generated canonical_def from build.rs"
+		);
+	}
 
 	// Forgery signal: any HintMismatch on a healthy --dev chain. Print
 	// them with their paths so a real mismatch is debuggable.

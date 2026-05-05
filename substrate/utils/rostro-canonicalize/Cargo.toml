@@ -1,0 +1,32 @@
+[package]
+name = "rostro-canonicalize"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Structural canonicalization + fingerprint hashing shared between pallet-rostro-type-registry and rostro-client. Single source of truth for the recognizer architecture's canonical_def grammar; build.rs derives canonical_defs for the v0 well-known role types from real scale_info::TypeInfo."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+scale-info = { workspace = true, features = ["derive"] }
+sp-core = { workspace = true }
+
+[build-dependencies]
+codec = { workspace = true, default-features = true, features = ["derive"] }
+frame-metadata = { workspace = true, default-features = true, features = ["current"] }
+scale-info = { workspace = true, default-features = true, features = ["derive"] }
+sp-core = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+sp-weights = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"scale-info/std",
+	"sp-core/std",
+]

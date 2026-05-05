@@ -25,6 +25,8 @@ frame-benchmarking = { optional = true, workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 
+rostro-canonicalize = { path = "../../utils/rostro-canonicalize", default-features = false }
+
 sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
@@ -37,6 +39,7 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"log/std",
+	"rostro-canonicalize/std",
 	"scale-info/std",
 	"serde/std",
 	"sp-core/std",

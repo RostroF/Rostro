@@ -16,6 +16,7 @@ workspace = true
 codec = { workspace = true, default-features = true, features = ["derive"] }
 frame-metadata = { workspace = true, default-features = true, features = ["current"] }
 jsonrpsee = { workspace = true, features = ["ws-client"] }
+rostro-canonicalize = { path = "../rostro-canonicalize" }
 scale-info = { workspace = true, default-features = true, features = ["derive"] }
 serde = { workspace = true, default-features = true, features = ["derive"] }
 sp-core = { workspace = true, default-features = true }
@@ -24,3 +25,5 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 hex = "0.4"
+sp-runtime = { workspace = true, default-features = true }
+sp-weights = { workspace = true, default-features = true }

@@ -1,31 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
-//! The seven v0 well-known roles, with their role markers and canonical_def
-//! strings. Mirrors `pallet-rostro-type-registry`'s `roles` and
-//! `canonical_defs` modules byte-for-byte.
+//! The seven v1 well-known roles, with their role markers and canonical_def
+//! strings sourced from `rostro_canonicalize`'s build-time-derived constants.
+//! Pallet and client share the same source of truth — identical bytes flow
+//! into both ends of the fingerprint hash.
+
+use rostro_canonicalize::{well_known_canonical_defs as defs, well_known_roles as roles};
 
 /// Well-known canonical roles seeded into the on-chain fingerprint registry
-/// at genesis. v0 covers the shape-clean roles whose `scale_info::TypeInfo`
-/// produces a deterministic structural string. Era and MultiAddress are
-/// deferred to v1 — Substrate's custom `TypeInfo` impls for those produce
-/// large, encoding-quirky representations that hand-written canonical_defs
-/// could not safely mirror.
+/// at genesis. v1 covers all seven roles; canonical_defs are auto-derived
+/// from real `scale_info::TypeInfo` at build time.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum WellKnownRole {
 	Account,
 	Hash,
+	Era,
+	MultiAddress,
 	Weight,
 	Balance,
 	BlockNumber,
 }
 
 impl WellKnownRole {
-	/// All v0 well-known roles. Order is stable but not load-bearing — the
+	/// All v1 well-known roles. Order is stable but not load-bearing — the
 	/// fingerprint binds the role marker into the hash.
-	pub const ALL: [Self; 5] = [
+	pub const ALL: [Self; 7] = [
 		Self::Account,
 		Self::Hash,
+		Self::Era,
+		Self::MultiAddress,
 		Self::Weight,
 		Self::Balance,
 		Self::BlockNumber,
@@ -34,26 +38,28 @@ impl WellKnownRole {
 	/// Role marker bytes — the literal byte string the pallet hashes.
 	pub const fn marker(self) -> &'static [u8] {
 		match self {
-			Self::Account => b"account",
-			Self::Hash => b"hash",
-			Self::Weight => b"weight",
-			Self::Balance => b"balance",
-			Self::BlockNumber => b"block-number",
+			Self::Account => roles::ACCOUNT_ID_32,
+			Self::Hash => roles::HASH_32,
+			Self::Era => roles::ERA,
+			Self::MultiAddress => roles::MULTIADDRESS,
+			Self::Weight => roles::WEIGHT,
+			Self::Balance => roles::BALANCE_U128,
+			Self::BlockNumber => roles::BLOCK_NUMBER_U32,
 		}
 	}
 
-	/// Canonical structural definition — the byte string the pallet hashes
-	/// alongside the role marker. Must mirror byte-for-byte what the pallet
-	/// stores; the recognizer recomputes against this constant.
+	/// Canonical structural definition — derived at build time from real
+	/// `scale_info::TypeInfo`. Both pallet and client read these from the
+	/// same `rostro-canonicalize` build artifact, so they cannot drift.
 	pub const fn canonical_def(self) -> &'static [u8] {
 		match self {
-			Self::Account => b"[u8;32]",
-			Self::Hash => b"[u8;32]",
-			// Substrate's Weight has `#[codec(compact)]` on both fields,
-			// so the metadata representation uses `Compact<u64>` not `u64`.
-			Self::Weight => b"struct{proof_size:Compact<u64>,ref_time:Compact<u64>}",
-			Self::Balance => b"u128",
-			Self::BlockNumber => b"u32",
+			Self::Account => defs::ACCOUNT_ID_32,
+			Self::Hash => defs::HASH_32,
+			Self::Era => defs::ERA,
+			Self::MultiAddress => defs::MULTIADDRESS,
+			Self::Weight => defs::WEIGHT,
+			Self::Balance => defs::BALANCE_U128,
+			Self::BlockNumber => defs::BLOCK_NUMBER_U32,
 		}
 	}
 
@@ -65,11 +71,13 @@ impl WellKnownRole {
 		match last {
 			"AccountId32" | "AccountId" => Some(Self::Account),
 			"H256" | "Hash" => Some(Self::Hash),
+			"Era" => Some(Self::Era),
+			"MultiAddress" => Some(Self::MultiAddress),
 			"Weight" => Some(Self::Weight),
 			// Balance and BlockNumber are usually type aliases (not in
 			// metadata as named types) — they appear inline as u128 / u32
-			// at the use site. The recognizer also probes shape-matching
-			// roles for primitive-typed fields when no path hint applies.
+			// at the use site. Recognition for them goes through the
+			// shape-only `Inferred` path.
 			_ => None,
 		}
 	}

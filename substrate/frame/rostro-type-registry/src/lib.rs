@@ -54,38 +54,16 @@ extern crate alloc;
 use alloc::vec::Vec;
 use frame_support::pallet_prelude::*;
 
-/// Canonical role markers seeded at genesis. Treat these as protocol constants.
-pub mod roles {
-	pub const ACCOUNT: &[u8] = b"account";
-	pub const HASH: &[u8] = b"hash";
-	pub const WEIGHT: &[u8] = b"weight";
-	pub const BALANCE: &[u8] = b"balance";
-	pub const BLOCK_NUMBER: &[u8] = b"block-number";
+/// Canonical role markers seeded at genesis. Re-exported from
+/// `rostro-canonicalize` so pallet and client share one source of truth.
+pub use rostro_canonicalize::well_known_roles as roles;
 
-	// Deferred to v1: encoding-quirky types whose `scale_info::TypeInfo`
-	// does not produce a clean structural string. Anchoring them requires
-	// either (a) a build-script that emits canonical_def from the actual
-	// `TypeInfo`, or (b) computing canonical_def at runtime from the
-	// types' metadata. Hand-writing was tried and broke against live
-	// metadata on 2026-05-04 — see the recognizer test that caught it.
-	pub const ERA: &[u8] = b"era";
-	pub const MULTIADDRESS: &[u8] = b"multiaddress";
-}
-
-/// Canonical structural definitions for the v0 well-known roles.
-/// Alphabetized fields/variants, no whitespace.
-///
-/// Caveat: a canonical_def must mirror exactly what `scale_info` emits for
-/// the type, including `#[codec(compact)]` field encodings. Substrate's
-/// `Weight` carries `#[codec(compact)]` on both fields, so the v0
-/// canonical_def for Weight uses `Compact<u64>` rather than raw `u64`.
-pub mod canonical_defs {
-	pub const ACCOUNT_ID_32: &[u8] = b"[u8;32]";
-	pub const HASH_32: &[u8] = b"[u8;32]";
-	pub const WEIGHT: &[u8] = b"struct{proof_size:Compact<u64>,ref_time:Compact<u64>}";
-	pub const BALANCE_U128: &[u8] = b"u128";
-	pub const BLOCK_NUMBER_U32: &[u8] = b"u32";
-}
+/// Canonical structural definitions for the v1 well-known roles, derived at
+/// build time from real `scale_info::TypeInfo` (see
+/// `rostro-canonicalize/build.rs`). Hand-writing these was tried at v0 and
+/// broke against live metadata for `Era` and `Weight` — derivation
+/// eliminates that drift class entirely.
+pub use rostro_canonicalize::well_known_canonical_defs as canonical_defs;
 
 /// Fingerprint version. Bump when the canonical_def format changes (e.g. if we
 /// extend to cover generics differently). v0 ships at 1.
@@ -122,21 +100,11 @@ pub fn fingerprint(canonical_def: &[u8], role: &[u8], version: u32) -> [u8; 32] 
 	sp_io::hashing::blake2_256(&buf)
 }
 
-/// The five well-known v0 roles paired with their canonical structural
-/// definitions. Source of truth for both genesis seeding and the runtime-
-/// upgrade gate; keeping them in one place ensures the two invariants can
-/// never drift.
-///
-/// Era and MultiAddress are deferred to v1 (see `roles` module docs) — their
-/// real `scale_info::TypeInfo` does not produce a clean structural string
-/// that can be hand-written safely.
-pub const V0_WELL_KNOWN_ROLES: [(&[u8], &[u8]); 5] = [
-	(roles::ACCOUNT, canonical_defs::ACCOUNT_ID_32),
-	(roles::HASH, canonical_defs::HASH_32),
-	(roles::WEIGHT, canonical_defs::WEIGHT),
-	(roles::BALANCE, canonical_defs::BALANCE_U128),
-	(roles::BLOCK_NUMBER, canonical_defs::BLOCK_NUMBER_U32),
-];
+/// The seven v1 well-known roles paired with their canonical structural
+/// definitions, sourced from `rostro-canonicalize`'s build-time-derived
+/// table. Single source of truth shared by genesis seeding, the runtime-
+/// upgrade gate, and the client recognizer.
+pub use rostro_canonicalize::V0_WELL_KNOWN_ROLE_DEFS as V0_WELL_KNOWN_ROLES;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -458,8 +426,8 @@ mod tests {
 	/// property of the recognizer architecture.
 	#[test]
 	fn account_and_hash_fingerprints_diverge() {
-		let acc = fingerprint(canonical_defs::ACCOUNT_ID_32, roles::ACCOUNT, FINGERPRINT_VERSION);
-		let hash = fingerprint(canonical_defs::HASH_32, roles::HASH, FINGERPRINT_VERSION);
+		let acc = fingerprint(canonical_defs::ACCOUNT_ID_32, roles::ACCOUNT_ID_32, FINGERPRINT_VERSION);
+		let hash = fingerprint(canonical_defs::HASH_32, roles::HASH_32, FINGERPRINT_VERSION);
 		assert_ne!(acc, hash, "shape-equivalent types must fingerprint to different roles");
 	}
 
@@ -689,7 +657,7 @@ mod tests {
 
 			let bogus = [0xBAu8; 32];
 			let genesis = crate::pallet::GenesisConfig::<Test> {
-				additional_fingerprints: alloc::vec![(roles::ACCOUNT.to_vec(), bogus)],
+				additional_fingerprints: alloc::vec![(roles::ACCOUNT_ID_32.to_vec(), bogus)],
 				_config: core::marker::PhantomData,
 			};
 			let mut t = frame_system::GenesisConfig::<Test>::default()
@@ -701,11 +669,11 @@ mod tests {
 			let mut ext = sp_io::TestExternalities::new(t);
 			ext.execute_with(|| {
 				let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
-					BoundedVec::try_from(roles::ACCOUNT.to_vec()).unwrap();
+					BoundedVec::try_from(roles::ACCOUNT_ID_32.to_vec()).unwrap();
 				let stored = crate::pallet::WellKnownTypeFingerprints::<Test>::get(&key);
 				let canonical = fp_fn(
 					canonical_defs::ACCOUNT_ID_32,
-					roles::ACCOUNT,
+					roles::ACCOUNT_ID_32,
 					FINGERPRINT_VERSION,
 				);
 				assert_eq!(stored, Some(canonical), "v0 seed must overwrite bogus");
@@ -727,14 +695,14 @@ mod tests {
 				// `remove_fingerprint`), then run the migration. The Healed
 				// arm must re-anchor + emit `FingerprintHealed`.
 				let key: BoundedVec<u8, ConstU32<MAX_ROLE_LEN>> =
-					BoundedVec::try_from(roles::ACCOUNT.to_vec()).unwrap();
+					BoundedVec::try_from(roles::ACCOUNT_ID_32.to_vec()).unwrap();
 				crate::pallet::WellKnownTypeFingerprints::<Test>::remove(&key);
 
 				EnforceWellKnownFingerprints::<Test>::on_runtime_upgrade();
 
 				let expected = fp_fn(
 					canonical_defs::ACCOUNT_ID_32,
-					roles::ACCOUNT,
+					roles::ACCOUNT_ID_32,
 					FINGERPRINT_VERSION,
 				);
 				assert_eq!(

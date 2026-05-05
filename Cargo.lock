@@ -8861,6 +8861,7 @@ dependencies = [
  "frame-system",
  "log",
  "parity-scale-codec",
+ "rostro-canonicalize",
  "scale-info",
  "serde",
  "sp-core 40.0.0",
@@ -12224,6 +12225,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-canonicalize"
+version = "0.1.0"
+dependencies = [
+ "frame-metadata 23.0.1",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 40.0.0",
+ "sp-runtime 46.0.0",
+ "sp-weights 34.0.0",
+]
+
+[[package]]
 name = "rostro-client"
 version = "0.1.0"
 dependencies = [
@@ -12231,9 +12244,12 @@ dependencies = [
  "hex",
  "jsonrpsee",
  "parity-scale-codec",
+ "rostro-canonicalize",
  "scale-info",
  "serde",
  "sp-core 40.0.0",
+ "sp-runtime 46.0.0",
+ "sp-weights 34.0.0",
  "thiserror 1.0.65",
  "tokio",
 ]
