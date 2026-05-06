@@ -772,6 +772,143 @@ mod import_verifier_tests {
 	}
 }
 
+// ─── slot worker decision logic (R2.5c) ─────────────────────────────────
+
+mod slot_worker_tests {
+	use super::*;
+	use crate::slot_worker::{fallback_winner_index, try_claim_slot, ClaimDecision};
+
+	fn ctx<'a>(pubkeys: &'a [AuthorityId]) -> EpochContext<'a> {
+		EpochContext { index: EPOCH_INDEX, randomness: &RANDOMNESS, authorities: pubkeys }
+	}
+
+	#[test]
+	fn primary_claim_when_local_authority_holds_ticket_secret() {
+		let authorities = make_authorities(3);
+		let pubkeys = pubkeys(&authorities);
+		let (body, erased_pair) = make_ticket_body("//Worker//A");
+
+		let decision = try_claim_slot(
+			SLOT.into(),
+			ctx(&pubkeys),
+			1, // local authority idx
+			&authorities[1],
+			|_slot| Some((1u128, body.clone())),
+			|_b: &TicketBody| Some(erased_pair.clone()),
+		);
+
+		match decision {
+			ClaimDecision::Primary { authority_idx, claim } => {
+				assert_eq!(authority_idx, 1);
+				assert!(claim.ticket_claim.is_some());
+				// And the produced claim verifies via the full pipeline.
+				let header = make_header(vec![pre_runtime_item(&claim)]);
+				let body_clone = body.clone();
+				let lookup = |_s: Slot| Some((1u128, body_clone.clone()));
+				crate::verify_block(&header, ctx(&pubkeys), lookup)
+					.expect("worker-produced primary claim must verify");
+			},
+			other => panic!("expected Primary, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn not_my_turn_when_someone_elses_ticket_is_bound() {
+		let authorities = make_authorities(2);
+		let pubkeys = pubkeys(&authorities);
+		let (body, _erased_pair) = make_ticket_body("//Worker//SomeoneElse");
+
+		let decision = try_claim_slot(
+			SLOT.into(),
+			ctx(&pubkeys),
+			0,
+			&authorities[0],
+			|_slot| Some((1u128, body.clone())),
+			|_b: &TicketBody| None, // we don't hold this erased secret
+		);
+		assert!(matches!(decision, ClaimDecision::NotMyTurn));
+	}
+
+	#[test]
+	fn fallback_claim_when_unbound_slot_and_we_are_winner() {
+		let authorities = make_authorities(4);
+		let pubkeys = pubkeys(&authorities);
+
+		// Find which authority the placeholder fallback rule picks
+		// for this slot, then exercise that index.
+		let test_slot = Slot::from(SLOT);
+		let winner = fallback_winner_index(test_slot, &ctx(&pubkeys))
+			.expect("fallback rule returns a winner for non-empty authority set");
+
+		let decision = try_claim_slot(
+			test_slot,
+			ctx(&pubkeys),
+			winner,
+			&authorities[winner as usize],
+			|_slot| None, // no ticket bound
+			|_b: &TicketBody| None,
+		);
+
+		match decision {
+			ClaimDecision::Fallback { authority_idx, claim } => {
+				assert_eq!(authority_idx, winner);
+				assert!(claim.ticket_claim.is_none());
+				let header = make_header(vec![pre_runtime_item(&claim)]);
+				let lookup = |_s: Slot| None;
+				crate::verify_block(&header, ctx(&pubkeys), lookup)
+					.expect("worker-produced fallback claim must verify");
+			},
+			other => panic!("expected Fallback, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn not_my_turn_when_unbound_slot_and_we_are_not_winner() {
+		let authorities = make_authorities(4);
+		let pubkeys = pubkeys(&authorities);
+		let test_slot = Slot::from(SLOT);
+		let winner = fallback_winner_index(test_slot, &ctx(&pubkeys)).unwrap();
+		// Pick any non-winner index.
+		let non_winner = (winner + 1) % 4;
+
+		let decision = try_claim_slot(
+			test_slot,
+			ctx(&pubkeys),
+			non_winner,
+			&authorities[non_winner as usize],
+			|_slot| None,
+			|_b: &TicketBody| None,
+		);
+		assert!(matches!(decision, ClaimDecision::NotMyTurn));
+	}
+
+	#[test]
+	fn fallback_winner_is_deterministic() {
+		let authorities = make_authorities(4);
+		let pubkeys = pubkeys(&authorities);
+		let test_slot = Slot::from(SLOT);
+		let a = fallback_winner_index(test_slot, &ctx(&pubkeys));
+		let b = fallback_winner_index(test_slot, &ctx(&pubkeys));
+		assert_eq!(a, b, "fallback rule must be deterministic");
+	}
+
+	#[test]
+	fn fallback_winner_varies_with_slot() {
+		let authorities = make_authorities(8);
+		let pubkeys = pubkeys(&authorities);
+		// Different slots should sometimes produce different winners
+		// (placeholder-rule property check; real spec-rule should
+		// have similar diffusion).
+		let mut seen = std::collections::HashSet::new();
+		for s in 0..50u64 {
+			if let Some(w) = fallback_winner_index(s.into(), &ctx(&pubkeys)) {
+				seen.insert(w);
+			}
+		}
+		assert!(seen.len() >= 2, "50 slots → at least 2 distinct fallback winners");
+	}
+}
+
 // ─── aux_schema: CachedEpochProvider (R2.5b) ─────────────────────────────
 
 mod aux_schema_tests {

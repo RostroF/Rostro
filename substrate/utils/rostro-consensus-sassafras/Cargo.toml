@@ -19,6 +19,7 @@ log = { workspace = true }
 rc-consensus = { workspace = true, default-features = true }
 sp-consensus-sassafras = { features = ["serde"], workspace = true, default-features = true }
 sp-core = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
 thiserror = { workspace = true }
 

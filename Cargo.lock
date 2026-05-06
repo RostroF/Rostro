@@ -12280,6 +12280,7 @@ dependencies = [
  "sp-consensus 0.47.0",
  "sp-consensus-sassafras",
  "sp-core 40.0.0",
+ "sp-io 45.0.0",
  "sp-runtime 46.0.0",
  "thiserror 1.0.65",
  "tokio",
