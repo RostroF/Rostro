@@ -12269,6 +12269,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-consensus-sassafras"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "rand 0.8.5",
+ "sp-consensus-sassafras",
+ "sp-core 40.0.0",
+ "sp-runtime 46.0.0",
+ "thiserror 1.0.65",
+]
+
+[[package]]
 name = "rostro-frame"
 version = "0.15.0"
 dependencies = [

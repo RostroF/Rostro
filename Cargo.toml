@@ -278,6 +278,7 @@ members = [
 	"substrate/utils/rns-ddns",
 	"substrate/utils/rostro-canonicalize",
 	"substrate/utils/rostro-client",
+	"substrate/utils/rostro-consensus-sassafras",
 	"substrate/utils/rostro-kzg-srs",
 	"substrate/utils/rostro-ratchet",
 	"substrate/utils/rostro-trace",

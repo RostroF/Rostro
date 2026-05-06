@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Rostro Foundation contributors
+
+//! # rostro-consensus-sassafras
+//!
+//! Node-side client for Sassafras consensus. Phase Ring's R2 deliverable.
+//!
+//! ## Why this crate exists
+//!
+//! Upstream `paritytech/polkadot-sdk` ships the runtime side of
+//! Sassafras (`pallet-sassafras` + `sp-consensus-sassafras`) but has
+//! never published a node-side client. The `substrate/client/consensus/`
+//! tree has aura, babe, beefy, grandpa, manual-seal, pow, slots — no
+//! sassafras. This crate fills the gap.
+//!
+//! Apache-2.0 (not GPL-3.0 like the upstream `rc-consensus-*` siblings)
+//! and lives outside `substrate/client/` deliberately — that subtree
+//! is the GPL-3.0 zone in our fork's license posture.
+//!
+//! ## Naming
+//!
+//! Polkadot's documentation has rebranded the protocol to "Safrole"
+//! ([wiki][1]), but the actual SDK code (pallet, primitives, all
+//! references in upstream `master` as of 2026-05-05) still uses
+//! Sassafras. We follow the SDK code, not the documentation rebrand;
+//! if upstream renames the pallet, we follow at that point.
+//!
+//! [1]: https://wiki.polkadot.com/learn/learn-safrole/
+//!
+//! ## Phase Ring R2 stages
+//!
+//! - **R2a (this commit)** — `slot_claim` verifier. Pure-crypto: given
+//!   a `SlotClaim` digest, the epoch's authorities + randomness +
+//!   index, decide whether the bandersnatch IETF VRF signature is
+//!   valid. No IO, no runtime API calls. Foundation that R2b's import
+//!   queue and R2c's slot worker compose on.
+//! - R2b — block-level import-queue verifier wrapping `slot_claim`,
+//!   plus `aux_schema` for epoch-state persistence across restarts.
+//! - R2c — slot worker (block production): claim slots, drive proposer.
+//! - R2d — ticket generation worker (epoch-start ring-VRF tickets +
+//!   unsigned-extrinsic submission, riding rostro-ratchet for the
+//!   peer-to-peer relay channel since `pallet-sassafras` rejects
+//!   tickets from `TransactionSource::External`).
+//! - R2e — equivocation reporter (double-sign detection + slashing
+//!   report).
+//!
+//! ## What R2a explicitly does NOT do
+//!
+//! - No ticket-claim verification. `SlotClaim::ticket_claim` is the
+//!   ephemeral signature proving the block author held the
+//!   ticket-binding key; verifying it requires the runtime API
+//!   (`SassafrasApi::slot_ticket`) to learn which ticket is bound to
+//!   the slot. That cross-check is import-queue territory (R2b) where
+//!   we have a `Client` handle.
+//! - No fallback-slot logic. If a slot has no assigned ticket, the
+//!   protocol falls back to a deterministic-but-not-anonymous selection
+//!   from the active set. R2b decides which path applies; R2a just
+//!   verifies the VRF.
+//! - No randomness derivation. The caller provides the epoch's
+//!   randomness; deriving it from chain state is the runtime's job.
+
+#![warn(missing_docs)]
+
+pub mod epoch;
+pub mod error;
+pub mod slot_claim;
+
+#[cfg(test)]
+mod tests;
+
+pub use epoch::EpochContext;
+pub use error::VerificationError;
+pub use slot_claim::verify_slot_claim;
