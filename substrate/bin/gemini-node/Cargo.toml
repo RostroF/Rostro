@@ -23,6 +23,7 @@ path = "src/main.rs"
 async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
+hex = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
 jsonrpsee = { workspace = true, features = ["server"] }
 tracing = { workspace = true, default-features = true }
@@ -57,9 +58,10 @@ sp-block-builder = { workspace = true, default-features = true }
 sp-blockchain = { workspace = true, default-features = true }
 sp-consensus-aura = { workspace = true, default-features = true }
 sp-consensus-grandpa = { workspace = true, default-features = true }
-sp-consensus-sassafras = { workspace = true, default-features = true }
+sp-consensus-sassafras = { workspace = true, default-features = true, features = ["serde"] }
 sp-consensus-slots = { workspace = true, default-features = true }
-sp-core = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true, features = ["bandersnatch-experimental"] }
+sp-keystore = { workspace = true, default-features = true, features = ["bandersnatch-experimental"] }
 sp-genesis-builder = { workspace = true, default-features = true }
 sp-inherents = { workspace = true, default-features = true }
 sp-io = { workspace = true, default-features = true }

@@ -40,8 +40,13 @@
 
 use std::marker::PhantomData;
 
-use rc_consensus::{BlockImportParams, Verifier as ConsensusVerifier};
-use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
+use rc_consensus::{BlockImportParams, ForkChoiceStrategy, Verifier as ConsensusVerifier};
+use sp_runtime::{
+	traits::{Block as BlockT, Header as HeaderT},
+	DigestItem,
+};
+
+use sp_consensus_sassafras::SASSAFRAS_ENGINE_ID;
 
 use crate::{
 	epoch::EpochContext,
@@ -78,8 +83,34 @@ where
 {
 	async fn verify(
 		&self,
-		block: BlockImportParams<Block>,
+		mut block: BlockImportParams<Block>,
 	) -> Result<BlockImportParams<Block>, String> {
+		// Strip the SASS Seal digest off the header before block-execution
+		// hands it to the runtime's `final_checks`. The runtime computes
+		// the expected digest from on_initialize/on_finalize state — it
+		// has no knowledge of the post-execution Seal that the block
+		// author signed. Leaving the Seal in place causes the runtime's
+		// digest-count assertion to fail with "Number of digest items
+		// must match that calculated."
+		//
+		// Pattern lifted from rc-consensus-aura's import_queue::check_header.
+		// We pop, stash in post_digests so substrate appends it back to
+		// the canonical block-storage form on success, and proceed.
+		let seal = match block.header.digest_mut().pop() {
+			Some(item @ DigestItem::Seal(engine_id, _))
+				if engine_id == SASSAFRAS_ENGINE_ID =>
+				item,
+			Some(other) => {
+				// Put it back if it wasn't ours — let the next layer
+				// decide what to do with the unexpected entry.
+				block.header.digest_mut().push(other);
+				return Err("Sassafras: header's last digest entry is not a SASS Seal"
+					.to_string());
+			},
+			None => return Err("Sassafras: header has no digest entries to seal-strip".to_string()),
+		};
+		block.post_digests.push(seal);
+
 		let parent_hash = *block.header.parent_hash();
 
 		let epoch = self
@@ -99,6 +130,15 @@ where
 
 		verify_block(&block.header, ctx, lookup)
 			.map_err(|e| format!("Sassafras: block verification failed: {e}"))?;
+
+		// Set fork choice. The import pipeline rejects blocks with
+		// fork_choice=None as `IncompletePipeline`. LongestChain is
+		// the right policy for a Sassafras-only chain at this stage —
+		// GRANDPA's finality kicks in separately and will trim short
+		// forks via its justification stream.
+		if block.fork_choice.is_none() {
+			block.fork_choice = Some(ForkChoiceStrategy::LongestChain);
+		}
 
 		Ok(block)
 	}

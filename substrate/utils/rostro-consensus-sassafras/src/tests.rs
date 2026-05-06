@@ -677,12 +677,20 @@ mod import_verifier_tests {
 		BlockImportParams::new(sp_consensus::BlockOrigin::NetworkBroadcast, header)
 	}
 
+	/// Dummy SASS Seal digest entry. The verifier strips the Seal off
+	/// before running the block-level checks; tests need one present
+	/// at the end of the digest list. The verifier doesn't validate
+	/// the seal's signature contents (that's a follow-up).
+	fn dummy_seal() -> DigestItem {
+		DigestItem::Seal(SASSAFRAS_ENGINE_ID, vec![0u8; 64])
+	}
+
 	#[tokio::test(flavor = "current_thread")]
 	async fn import_verifier_accepts_valid_fallback_block() {
 		let authorities = make_authorities(2);
 		let pubkeys = pubkeys(&authorities);
 		let claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
-		let header = make_header(vec![pre_runtime_item(&claim)]);
+		let header = make_header(vec![pre_runtime_item(&claim), dummy_seal()]);
 
 		let verifier = SassafrasImportVerifier::<TestBlock, _, _>::new(
 			StubEpoch { epoch: make_epoch(pubkeys) },
@@ -699,7 +707,7 @@ mod import_verifier_tests {
 		let mut claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
 		let (body, erased_pair) = make_ticket_body("//Import//A");
 		claim.ticket_claim = Some(make_ticket_claim(&claim, &erased_pair));
-		let header = make_header(vec![pre_runtime_item(&claim)]);
+		let header = make_header(vec![pre_runtime_item(&claim), dummy_seal()]);
 
 		let verifier = SassafrasImportVerifier::<TestBlock, _, _>::new(
 			StubEpoch { epoch: make_epoch(pubkeys) },
@@ -721,7 +729,9 @@ mod import_verifier_tests {
 	async fn import_verifier_rejects_missing_slot_claim() {
 		let authorities = make_authorities(1);
 		let pubkeys = pubkeys(&authorities);
-		let header = make_header(vec![]); // no PreRuntime entry
+		// Header carries only the seal (no PreRuntime); after the
+		// verifier pops the seal, MissingSlotClaim fires.
+		let header = make_header(vec![dummy_seal()]);
 
 		let verifier = SassafrasImportVerifier::<TestBlock, _, _>::new(
 			StubEpoch { epoch: make_epoch(pubkeys) },
@@ -739,7 +749,7 @@ mod import_verifier_tests {
 		let mut claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
 		let (_body, erased_pair) = make_ticket_body("//Import//B");
 		claim.ticket_claim = Some(make_ticket_claim(&claim, &erased_pair));
-		let header = make_header(vec![pre_runtime_item(&claim)]);
+		let header = make_header(vec![pre_runtime_item(&claim), dummy_seal()]);
 
 		let verifier = SassafrasImportVerifier::<TestBlock, _, _>::new(
 			StubEpoch { epoch: make_epoch(pubkeys) },
@@ -764,7 +774,7 @@ mod import_verifier_tests {
 
 		let authorities = make_authorities(1);
 		let claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
-		let header = make_header(vec![pre_runtime_item(&claim)]);
+		let header = make_header(vec![pre_runtime_item(&claim), dummy_seal()]);
 
 		let verifier = SassafrasImportVerifier::<TestBlock, _, _>::new(
 			FailingEpoch,
