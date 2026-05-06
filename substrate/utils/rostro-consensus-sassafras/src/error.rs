@@ -7,6 +7,10 @@
 use sp_consensus_sassafras::{AuthorityIndex, Slot};
 use thiserror::Error;
 
+// Re-export so error consumers don't need a direct sp-consensus-sassafras dep
+// for the type that names a slot in error variants.
+pub use sp_consensus_sassafras::Slot as ErrorSlot;
+
 /// Reasons a slot claim or block can be rejected during verification.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum VerificationError {
@@ -42,6 +46,36 @@ pub enum VerificationError {
 	/// malformed. Reject — Sassafras blocks must carry a slot claim.
 	#[error("header has no Sassafras PreRuntime digest entry; not a Sassafras-produced block")]
 	MissingSlotClaim,
+
+	/// The slot has a ticket bound to it (per the runtime's
+	/// `slot_ticket(slot)` lookup), so the block author *must* attach
+	/// a `TicketClaim` proving they hold the erased ephemeral secret.
+	/// They didn't.
+	#[error("slot {slot} has a bound ticket but the claim has no ticket_claim payload")]
+	MissingTicketClaim {
+		/// Slot the verifier was checking.
+		slot: Slot,
+	},
+
+	/// The block author attached a `TicketClaim` but the slot has no
+	/// ticket bound to it (per `slot_ticket(slot) == None`). Either
+	/// they're forging a ticket binding, or they're using a fallback
+	/// path with the wrong digest shape. Reject.
+	#[error("slot {slot} has no bound ticket but the claim carries a ticket_claim payload")]
+	UnexpectedTicketClaim {
+		/// Slot the verifier was checking.
+		slot: Slot,
+	},
+
+	/// The `TicketClaim::erased_signature` did not verify against the
+	/// bound ticket body's `erased_public` over the expected message
+	/// (see `ticket_claim::signed_data_for_ticket_binding` for what
+	/// "expected message" means and the assumption that drives it).
+	#[error("ticket-binding ed25519 signature failed to verify for slot {slot}")]
+	TicketBindingFailed {
+		/// Slot the binding was for.
+		slot: Slot,
+	},
 
 	/// The claim slot doesn't fall in the supplied epoch — sanity check
 	/// for caller errors. (The verifier itself doesn't enforce slot ↔

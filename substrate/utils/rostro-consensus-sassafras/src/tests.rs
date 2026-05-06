@@ -12,12 +12,13 @@
 use codec::Encode;
 use sp_consensus_sassafras::{
 	digests::{ConsensusLog, NextEpochDescriptor, SlotClaim},
+	ticket::{TicketBody, TicketClaim, TicketId},
 	vrf::{slot_claim_sign_data, VrfSignature},
 	AuthorityId, AuthorityPair, EpochConfiguration, Randomness, Slot, SASSAFRAS_ENGINE_ID,
 };
 use sp_core::{
 	crypto::{Pair, VrfSecret, Wraps},
-	H256,
+	ed25519, H256,
 };
 use sp_runtime::{
 	generic::{Digest, DigestItem, Header as GenericHeader},
@@ -29,7 +30,8 @@ use crate::{
 	error::VerificationError,
 	header::{extract_consensus_log, extract_next_epoch_descriptor, extract_slot_claim},
 	slot_claim::verify_slot_claim,
-	verifier::verify_header,
+	ticket_claim::signed_data_for_ticket_binding,
+	verifier::{verify_block, verify_header},
 };
 
 type TestHeader = GenericHeader<u32, BlakeTwo256>;
@@ -372,5 +374,151 @@ fn verify_header_surfaces_next_epoch_descriptor() {
 	let surfaced = verified.next_epoch.expect("next-epoch descriptor surfaced");
 	assert_eq!(surfaced.randomness, desc.randomness);
 	assert_eq!(surfaced.authorities, desc.authorities);
+}
+
+// ─── verify_block: ticket-binding cross-check ────────────────────────────
+
+/// Construct a TicketBody + matching erased keypair. Returns
+/// (TicketBody, erased_pair) so tests can sign with the erased secret.
+fn make_ticket_body(seed: &str) -> (TicketBody, ed25519::Pair) {
+	let erased_pair =
+		ed25519::Pair::from_string(seed, None).expect("valid SURI test seed; qed");
+	let revealed_pair =
+		ed25519::Pair::from_string(&format!("{seed}//revealed"), None).expect("revealed; qed");
+	let body = TicketBody {
+		attempt_idx: 0,
+		erased_public: erased_pair.public(),
+		revealed_public: revealed_pair.public(),
+	};
+	(body, erased_pair)
+}
+
+/// Build a valid TicketClaim: sign the SlotClaim's expected ticket-
+/// binding message with the erased secret.
+fn make_ticket_claim(claim: &SlotClaim, erased_pair: &ed25519::Pair) -> TicketClaim {
+	let message = signed_data_for_ticket_binding(claim);
+	let erased_signature = erased_pair.sign(&message);
+	TicketClaim { erased_signature }
+}
+
+#[test]
+fn verify_block_happy_path_with_ticket() {
+	let authorities = make_authorities(2);
+	let pubkeys = pubkeys(&authorities);
+	let mut claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+	let (ticket_body, erased_pair) = make_ticket_body("//RostroTicket//A");
+	claim.ticket_claim = Some(make_ticket_claim(&claim, &erased_pair));
+
+	let header = make_header(vec![pre_runtime_item(&claim)]);
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let bound_id: TicketId = 0xCAFEBABE;
+	let body_clone = ticket_body.clone();
+	let lookup = |s: Slot| {
+		assert_eq!(s, Slot::from(SLOT));
+		Some((bound_id, body_clone.clone()))
+	};
+	let verified = verify_block(&header, ctx, lookup).expect("primary slot must verify");
+	assert_eq!(verified.slot, Slot::from(SLOT));
+}
+
+#[test]
+fn verify_block_fallback_path_no_ticket() {
+	// No ticket bound to this slot. Claim has no ticket_claim. Must
+	// pass — fallback / secondary slot path.
+	let authorities = make_authorities(1);
+	let pubkeys = pubkeys(&authorities);
+	let claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+	let header = make_header(vec![pre_runtime_item(&claim)]);
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let lookup = |_s: Slot| None;
+	let verified = verify_block(&header, ctx, lookup).expect("fallback must pass");
+	assert!(verified.claim.ticket_claim.is_none());
+}
+
+#[test]
+fn verify_block_rejects_missing_ticket_claim_for_bound_slot() {
+	let authorities = make_authorities(1);
+	let pubkeys = pubkeys(&authorities);
+	let claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+	// Claim has NO ticket_claim, but the slot has a bound ticket.
+	let header = make_header(vec![pre_runtime_item(&claim)]);
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let (body, _erased) = make_ticket_body("//RostroTicket//B");
+	let lookup = |_s: Slot| Some((42u128, body.clone()));
+	let err = verify_block(&header, ctx, lookup).unwrap_err();
+	assert!(matches!(err, VerificationError::MissingTicketClaim { .. }));
+}
+
+#[test]
+fn verify_block_rejects_unexpected_ticket_claim_for_unbound_slot() {
+	let authorities = make_authorities(1);
+	let pubkeys = pubkeys(&authorities);
+	let mut claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+	// Claim CARRIES a ticket_claim, but the slot has no bound ticket.
+	let (_body, erased_pair) = make_ticket_body("//RostroTicket//C");
+	claim.ticket_claim = Some(make_ticket_claim(&claim, &erased_pair));
+
+	let header = make_header(vec![pre_runtime_item(&claim)]);
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let lookup = |_s: Slot| None;
+	let err = verify_block(&header, ctx, lookup).unwrap_err();
+	assert!(matches!(err, VerificationError::UnexpectedTicketClaim { .. }));
+}
+
+#[test]
+fn verify_block_rejects_wrong_erased_signature() {
+	// Bound ticket, claim has ticket_claim, but the erased_signature
+	// was signed by a DIFFERENT erased key than the one in the body.
+	let authorities = make_authorities(1);
+	let pubkeys = pubkeys(&authorities);
+	let mut claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+
+	let (body_for_lookup, _erased_a) = make_ticket_body("//RostroTicket//KeyA");
+	let (_body_b, erased_b) = make_ticket_body("//RostroTicket//KeyB");
+
+	// Sign with erased_b but the body the lookup returns has erased_a.
+	claim.ticket_claim = Some(make_ticket_claim(&claim, &erased_b));
+
+	let header = make_header(vec![pre_runtime_item(&claim)]);
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let body_clone = body_for_lookup.clone();
+	let lookup = |_s: Slot| Some((1u128, body_clone.clone()));
+	let err = verify_block(&header, ctx, lookup).unwrap_err();
+	assert!(matches!(err, VerificationError::TicketBindingFailed { .. }));
+}
+
+#[test]
+fn verify_block_propagates_header_errors() {
+	let authorities = make_authorities(1);
+	let pubkeys = pubkeys(&authorities);
+	let header = make_header(vec![]); // no PreRuntime entry
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let lookup = |_s: Slot| None;
+	let err = verify_block(&header, ctx, lookup).unwrap_err();
+	assert!(matches!(err, VerificationError::MissingSlotClaim));
 }
 

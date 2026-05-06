@@ -65,6 +65,7 @@ pub mod epoch;
 pub mod error;
 pub mod header;
 pub mod slot_claim;
+pub mod ticket_claim;
 pub mod verifier;
 
 #[cfg(test)]
@@ -74,4 +75,5 @@ pub use epoch::EpochContext;
 pub use error::VerificationError;
 pub use header::{extract_consensus_log, extract_next_epoch_descriptor, extract_slot_claim};
 pub use slot_claim::verify_slot_claim;
-pub use verifier::{verify_header, VerifiedHeader};
+pub use ticket_claim::{signed_data_for_ticket_binding, verify_ticket_claim};
+pub use verifier::{verify_block, verify_header, VerifiedHeader};

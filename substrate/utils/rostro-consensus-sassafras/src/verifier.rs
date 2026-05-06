@@ -36,6 +36,7 @@
 
 use sp_consensus_sassafras::{
 	digests::{NextEpochDescriptor, SlotClaim},
+	ticket::{TicketBody, TicketId},
 	AuthorityId, Slot,
 };
 use sp_runtime::traits::Header as HeaderT;
@@ -45,6 +46,7 @@ use crate::{
 	error::VerificationError,
 	header::{extract_next_epoch_descriptor, extract_slot_claim},
 	slot_claim::verify_slot_claim,
+	ticket_claim::verify_ticket_claim,
 };
 
 /// Bundle of facts the verifier extracts from a Sassafras block
@@ -74,6 +76,10 @@ pub struct VerifiedHeader<'a> {
 /// `MissingSlotClaim`. The bandersnatch IETF VRF signature in the
 /// claim must verify against the authority indexed by
 /// `claim.authority_idx` in the supplied epoch.
+///
+/// **This entry point doesn't run the ticket-binding check** — see
+/// [`verify_block`] for the composition that adds it via a
+/// caller-supplied ticket lookup.
 pub fn verify_header<'a, H: HeaderT>(
 	header: &H,
 	epoch: EpochContext<'a>,
@@ -82,4 +88,50 @@ pub fn verify_header<'a, H: HeaderT>(
 	let authority = verify_slot_claim(&claim, epoch)?;
 	let next_epoch = extract_next_epoch_descriptor(header);
 	Ok(VerifiedHeader { slot: claim.slot, authority, claim, next_epoch })
+}
+
+/// Verify a Sassafras block end-to-end: header digest + slot-claim
+/// VRF + ticket-binding cross-check.
+///
+/// The caller supplies `ticket_lookup` — a closure that mirrors the
+/// `SassafrasApi::slot_ticket(slot)` runtime API. This keeps the
+/// verifier function pure and testable without dragging in a `Client`
+/// dependency at this layer; the import-queue Verifier impl (its own
+/// follow-up) is the thin glue that calls the runtime API and feeds
+/// the result here.
+///
+/// Cross-check policy enforced:
+///
+/// - If `ticket_lookup(slot)` returns `Some(ticket_id, body)`:
+///   - the claim **must** have a `ticket_claim` payload, OR error
+///     [`VerificationError::MissingTicketClaim`].
+///   - the `ticket_claim.erased_signature` **must** verify against
+///     `body.erased_public` per [`crate::ticket_claim::verify_ticket_claim`],
+///     OR error [`VerificationError::TicketBindingFailed`].
+/// - If `ticket_lookup(slot)` returns `None`:
+///   - the claim **must not** have a `ticket_claim` payload, OR error
+///     [`VerificationError::UnexpectedTicketClaim`]. (This is the
+///     "fallback / secondary slot" path; protocol policy on whether
+///     fallback is allowed at all is up to the import-queue caller.)
+pub fn verify_block<'a, H, F>(
+	header: &H,
+	epoch: EpochContext<'a>,
+	mut ticket_lookup: F,
+) -> Result<VerifiedHeader<'a>, VerificationError>
+where
+	H: HeaderT,
+	F: FnMut(Slot) -> Option<(TicketId, TicketBody)>,
+{
+	let verified = verify_header(header, epoch)?;
+	let slot = verified.slot;
+
+	match (ticket_lookup(slot), verified.claim.ticket_claim.as_ref()) {
+		(Some((_id, body)), Some(ticket_claim)) =>
+			verify_ticket_claim(&verified.claim, ticket_claim, &body)?,
+		(Some(_), None) => return Err(VerificationError::MissingTicketClaim { slot }),
+		(None, Some(_)) => return Err(VerificationError::UnexpectedTicketClaim { slot }),
+		(None, None) => { /* fallback / secondary slot path; caller decides policy */ },
+	}
+
+	Ok(verified)
 }
