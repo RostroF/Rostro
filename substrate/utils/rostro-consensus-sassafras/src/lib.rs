@@ -67,6 +67,7 @@ pub mod header;
 pub mod producer;
 pub mod slot_claim;
 pub mod ticket_claim;
+pub mod ticket_generation;
 pub mod verifier;
 
 #[cfg(test)]
@@ -78,4 +79,5 @@ pub use header::{extract_consensus_log, extract_next_epoch_descriptor, extract_s
 pub use producer::{produce_primary_slot_claim, produce_slot_claim, produce_ticket_claim};
 pub use slot_claim::verify_slot_claim;
 pub use ticket_claim::{signed_data_for_ticket_binding, verify_ticket_claim};
+pub use ticket_generation::{compute_ticket_id, produce_ticket_envelope};
 pub use verifier::{verify_block, verify_header, VerifiedHeader};

@@ -613,3 +613,92 @@ fn produced_claim_with_wrong_authority_index_fails_verification() {
 	assert!(matches!(err, VerificationError::InvalidVrfSignature { .. }));
 }
 
+// ─── Ticket generation ───────────────────────────────────────────────────
+
+mod ticket_gen_tests {
+	use super::*;
+	use crate::ticket_generation::{compute_ticket_id, produce_ticket_envelope};
+	use sp_consensus_sassafras::vrf::{ticket_body_sign_data, ticket_id_input};
+	use sp_core::bandersnatch::{self, ring_vrf::RingContext as InnerRingContext};
+
+	/// Small ring size for tests; matches upstream's TEST_RING_SIZE.
+	/// Avoids the multi-second 3073-G1-power setup the production
+	/// RING_SIZE=512 would impose on every test run.
+	const TEST_RING_SIZE: usize = 16;
+	type TestRingContext = InnerRingContext<TEST_RING_SIZE>;
+
+	/// Convert AuthorityId → underlying bandersnatch::Public for ring-
+	/// VRF construction. AuthorityId wraps via app_crypto::Public →
+	/// bandersnatch::Public.
+	fn to_bandersnatch_public(id: &AuthorityId) -> bandersnatch::Public {
+		id.as_inner_ref().clone()
+	}
+
+	#[test]
+	fn compute_ticket_id_is_deterministic() {
+		let authorities = make_authorities(2);
+		let id1 = compute_ticket_id(&authorities[0], &RANDOMNESS, 5, EPOCH_INDEX);
+		let id2 = compute_ticket_id(&authorities[0], &RANDOMNESS, 5, EPOCH_INDEX);
+		assert_eq!(id1, id2, "compute_ticket_id must be deterministic");
+	}
+
+	#[test]
+	fn compute_ticket_id_varies_with_attempt() {
+		let authorities = make_authorities(1);
+		let id_a = compute_ticket_id(&authorities[0], &RANDOMNESS, 1, EPOCH_INDEX);
+		let id_b = compute_ticket_id(&authorities[0], &RANDOMNESS, 2, EPOCH_INDEX);
+		assert_ne!(id_a, id_b, "different attempt indices must produce different ticket ids");
+	}
+
+	#[test]
+	fn compute_ticket_id_varies_with_authority() {
+		let authorities = make_authorities(2);
+		let id_a = compute_ticket_id(&authorities[0], &RANDOMNESS, 0, EPOCH_INDEX);
+		let id_b = compute_ticket_id(&authorities[1], &RANDOMNESS, 0, EPOCH_INDEX);
+		assert_ne!(id_a, id_b, "different authorities must produce different ticket ids");
+	}
+
+	#[test]
+	fn produce_ticket_envelope_round_trip_ring_vrf_verifies() {
+		// Build a small (TEST_RING_SIZE=16) ring, generate a ticket
+		// envelope for one member, verify the ring signature against
+		// the same context's verifier. This proves the ring-VRF wiring
+		// is correct end-to-end.
+		let ring_ctx = TestRingContext::new_testing();
+		let authorities = make_authorities(4);
+		let pubkeys = pubkeys(&authorities);
+		let bandersnatch_pubs: Vec<bandersnatch::Public> =
+			pubkeys.iter().map(to_bandersnatch_public).collect();
+
+		let my_idx: usize = 1;
+		let prover = ring_ctx.prover(&bandersnatch_pubs, my_idx);
+		let verifier = ring_ctx.verifier(&bandersnatch_pubs);
+
+		let erased_pair = ed25519::Pair::from_string("//Ticket//Erased", None).unwrap();
+		let revealed_pair = ed25519::Pair::from_string("//Ticket//Revealed", None).unwrap();
+
+		let attempt_idx = 7;
+		let envelope = produce_ticket_envelope(
+			&authorities[my_idx],
+			&erased_pair,
+			&revealed_pair,
+			attempt_idx,
+			&RANDOMNESS,
+			EPOCH_INDEX,
+			&prover,
+		);
+
+		assert_eq!(envelope.body.attempt_idx, attempt_idx);
+		assert_eq!(envelope.body.erased_public, erased_pair.public());
+		assert_eq!(envelope.body.revealed_public, revealed_pair.public());
+
+		// Rebuild sign_data the verifier-side way and check.
+		let id_input = ticket_id_input(&RANDOMNESS, attempt_idx, EPOCH_INDEX);
+		let sign_data = ticket_body_sign_data(&envelope.body, id_input);
+		assert!(
+			envelope.signature.ring_vrf_verify(&sign_data, &verifier),
+			"ring-VRF signature must verify against the same context's verifier"
+		);
+	}
+}
+
