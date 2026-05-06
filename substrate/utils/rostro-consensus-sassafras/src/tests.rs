@@ -9,14 +9,30 @@
 //! epoch index, wrong randomness, mutated signature — confirming each
 //! mutation surfaces the right error.
 
+use codec::Encode;
 use sp_consensus_sassafras::{
-	digests::SlotClaim,
+	digests::{ConsensusLog, NextEpochDescriptor, SlotClaim},
 	vrf::{slot_claim_sign_data, VrfSignature},
-	AuthorityId, AuthorityPair, Randomness, Slot,
+	AuthorityId, AuthorityPair, EpochConfiguration, Randomness, Slot, SASSAFRAS_ENGINE_ID,
 };
-use sp_core::crypto::{Pair, VrfSecret, Wraps};
+use sp_core::{
+	crypto::{Pair, VrfSecret, Wraps},
+	H256,
+};
+use sp_runtime::{
+	generic::{Digest, DigestItem, Header as GenericHeader},
+	traits::BlakeTwo256,
+};
 
-use crate::{epoch::EpochContext, error::VerificationError, slot_claim::verify_slot_claim};
+use crate::{
+	epoch::EpochContext,
+	error::VerificationError,
+	header::{extract_consensus_log, extract_next_epoch_descriptor, extract_slot_claim},
+	slot_claim::verify_slot_claim,
+	verifier::verify_header,
+};
+
+type TestHeader = GenericHeader<u32, BlakeTwo256>;
 
 // ─── Test fixture ────────────────────────────────────────────────────────
 
@@ -201,5 +217,160 @@ fn slot_falls_in_epoch_boundaries() {
 	assert!(ctx.slot_falls_in_epoch(109u64.into(), 100u64.into(), 10));
 	assert!(!ctx.slot_falls_in_epoch(99u64.into(), 100u64.into(), 10));
 	assert!(!ctx.slot_falls_in_epoch(110u64.into(), 100u64.into(), 10));
+}
+
+// ─── Header construction + extraction ────────────────────────────────────
+
+/// Build a minimal test header carrying the supplied digest items.
+/// Parent hash + state/extrinsics roots + block number are placeholders
+/// — we never run a real chain through this, just verify-side cracking.
+fn make_header(digest_items: Vec<DigestItem>) -> TestHeader {
+	TestHeader {
+		parent_hash: H256::zero(),
+		number: 1,
+		state_root: H256::zero(),
+		extrinsics_root: H256::zero(),
+		digest: Digest { logs: digest_items },
+	}
+}
+
+fn pre_runtime_item(claim: &SlotClaim) -> DigestItem {
+	DigestItem::from(claim)
+}
+
+fn next_epoch_consensus_item(desc: &NextEpochDescriptor) -> DigestItem {
+	DigestItem::Consensus(SASSAFRAS_ENGINE_ID, ConsensusLog::NextEpochData(desc.clone()).encode())
+}
+
+fn sample_next_epoch_descriptor(authorities: &[AuthorityId]) -> NextEpochDescriptor {
+	NextEpochDescriptor {
+		randomness: [0xEE; 32],
+		authorities: authorities.to_vec(),
+		config: Some(EpochConfiguration { redundancy_factor: 2, attempts_number: 64 }),
+	}
+}
+
+#[test]
+fn extract_slot_claim_recovers_payload() {
+	let authorities = make_authorities(2);
+	let claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+	let header = make_header(vec![pre_runtime_item(&claim)]);
+
+	let extracted = extract_slot_claim(&header).expect("PreRuntime entry must be readable");
+	assert_eq!(extracted.authority_idx, claim.authority_idx);
+	assert_eq!(extracted.slot, claim.slot);
+}
+
+#[test]
+fn extract_slot_claim_returns_none_for_empty_digest() {
+	let header = make_header(vec![]);
+	assert!(extract_slot_claim(&header).is_none());
+}
+
+#[test]
+fn extract_slot_claim_returns_none_for_unrelated_engine_id() {
+	// PreRuntime with a non-Sassafras engine ID — should be ignored.
+	let header = make_header(vec![DigestItem::PreRuntime(*b"AURA", vec![1, 2, 3])]);
+	assert!(extract_slot_claim(&header).is_none());
+}
+
+#[test]
+fn extract_consensus_log_recovers_next_epoch_data() {
+	let authorities = make_authorities(2);
+	let pubkeys = pubkeys(&authorities);
+	let desc = sample_next_epoch_descriptor(&pubkeys);
+	let header = make_header(vec![next_epoch_consensus_item(&desc)]);
+
+	let log = extract_consensus_log(&header).expect("ConsensusLog must decode");
+	match log {
+		ConsensusLog::NextEpochData(parsed) => {
+			assert_eq!(parsed.authorities, desc.authorities);
+			assert_eq!(parsed.randomness, desc.randomness);
+		},
+		ConsensusLog::OnDisabled(idx) => panic!("expected NextEpochData, got OnDisabled({idx})"),
+	}
+}
+
+#[test]
+fn extract_next_epoch_descriptor_returns_none_for_on_disabled() {
+	// A different ConsensusLog variant must NOT surface as a NextEpochDescriptor.
+	let payload = ConsensusLog::OnDisabled(3).encode();
+	let header =
+		make_header(vec![DigestItem::Consensus(SASSAFRAS_ENGINE_ID, payload)]);
+	assert!(extract_next_epoch_descriptor(&header).is_none());
+}
+
+// ─── verify_header (block-level) ─────────────────────────────────────────
+
+#[test]
+fn verify_header_happy_path() {
+	let authorities = make_authorities(3);
+	let pubkeys = pubkeys(&authorities);
+	let claim = build_claim(&authorities[1], 1, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+	let header = make_header(vec![pre_runtime_item(&claim)]);
+
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let verified = verify_header(&header, ctx).expect("valid header must verify");
+	assert_eq!(verified.slot, Slot::from(SLOT));
+	assert_eq!(verified.authority, &pubkeys[1]);
+	assert!(verified.next_epoch.is_none(), "no next-epoch descriptor in this header");
+}
+
+#[test]
+fn verify_header_missing_pre_runtime_is_caught() {
+	let authorities = make_authorities(1);
+	let pubkeys = pubkeys(&authorities);
+	let header = make_header(vec![]); // no PreRuntime entry
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let err = verify_header(&header, ctx).unwrap_err();
+	assert!(matches!(err, VerificationError::MissingSlotClaim));
+}
+
+#[test]
+fn verify_header_propagates_signature_failure() {
+	// Header carries a valid claim but the verifier supplies a
+	// different epoch — the resulting sign-data mismatch surfaces as
+	// InvalidVrfSignature, not as a header-extraction error.
+	let authorities = make_authorities(2);
+	let pubkeys = pubkeys(&authorities);
+	let claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+	let header = make_header(vec![pre_runtime_item(&claim)]);
+
+	let ctx = EpochContext {
+		index: EPOCH_INDEX + 5, // wrong
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let err = verify_header(&header, ctx).unwrap_err();
+	assert!(matches!(err, VerificationError::InvalidVrfSignature { .. }));
+}
+
+#[test]
+fn verify_header_surfaces_next_epoch_descriptor() {
+	let authorities = make_authorities(2);
+	let pubkeys = pubkeys(&authorities);
+	let claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+	let desc = sample_next_epoch_descriptor(&pubkeys);
+
+	let header =
+		make_header(vec![pre_runtime_item(&claim), next_epoch_consensus_item(&desc)]);
+
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let verified = verify_header(&header, ctx).expect("header must verify");
+	let surfaced = verified.next_epoch.expect("next-epoch descriptor surfaced");
+	assert_eq!(surfaced.randomness, desc.randomness);
+	assert_eq!(surfaced.authorities, desc.authorities);
 }
 

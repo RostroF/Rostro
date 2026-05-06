@@ -12273,6 +12273,7 @@ name = "rostro-consensus-sassafras"
 version = "0.1.0"
 dependencies = [
  "log",
+ "parity-scale-codec",
  "rand 0.8.5",
  "sp-consensus-sassafras",
  "sp-core 40.0.0",

@@ -37,6 +37,12 @@ pub enum VerificationError {
 		epoch_index: u64,
 	},
 
+	/// Header has no `PreRuntime(SASS, …)` digest entry. Either the
+	/// block isn't Sassafras-produced, or the digest was stripped /
+	/// malformed. Reject — Sassafras blocks must carry a slot claim.
+	#[error("header has no Sassafras PreRuntime digest entry; not a Sassafras-produced block")]
+	MissingSlotClaim,
+
 	/// The claim slot doesn't fall in the supplied epoch — sanity check
 	/// for caller errors. (The verifier itself doesn't enforce slot ↔
 	/// epoch mapping cryptographically; it just verifies what the
