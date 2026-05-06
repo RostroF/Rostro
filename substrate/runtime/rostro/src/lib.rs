@@ -17,6 +17,7 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 extern crate alloc;
 
 pub mod configs;
+pub mod ring_proof;
 
 use alloc::{vec, vec::Vec};
 use sp_api::impl_runtime_apis;
