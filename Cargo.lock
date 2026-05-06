@@ -3947,6 +3947,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "gemini-runtime"
+version = "0.1.0"
+dependencies = [
+ "frame-executive",
+ "frame-metadata-hash-extension",
+ "frame-support",
+ "frame-system",
+ "frame-system-rpc-runtime-api",
+ "log",
+ "pallet-authorship",
+ "pallet-balances",
+ "pallet-grandpa",
+ "pallet-sassafras",
+ "pallet-session",
+ "pallet-sudo",
+ "pallet-timestamp",
+ "pallet-transaction-payment",
+ "pallet-transaction-payment-rpc-runtime-api",
+ "parity-scale-codec",
+ "scale-info",
+ "serde_json",
+ "sp-api 41.0.0",
+ "sp-block-builder",
+ "sp-consensus-grandpa",
+ "sp-consensus-sassafras",
+ "sp-core 40.0.0",
+ "sp-genesis-builder 0.22.0",
+ "sp-inherents 41.0.0",
+ "sp-offchain",
+ "sp-runtime 46.0.0",
+ "sp-session",
+ "sp-std 14.0.0",
+ "sp-storage 23.0.0",
+ "sp-transaction-pool",
+ "sp-version 44.0.0",
+ "substrate-wasm-builder",
+]
+
+[[package]]
 name = "generate-bags"
 version = "46.0.0"
 dependencies = [

@@ -258,6 +258,7 @@ members = [
 	"substrate/primitives/version/proc-macro",
 	"substrate/primitives/wasm-interface",
 	"substrate/primitives/weights",
+	"substrate/runtime/gemini",
 	"substrate/runtime/rostro",
 	"substrate/scripts/ci/node-template-release",
 	"substrate/test-utils",
@@ -789,6 +790,7 @@ simple-mermaid = { version = "0.1.1" }
 slotmap = { version = "1.0" }
 smallvec = { version = "1.11.0", default-features = false }
 soketto = { version = "0.8.0" }
+gemini-runtime = { path = "substrate/runtime/gemini", default-features = false }
 rostro-runtime = { path = "substrate/runtime/rostro", default-features = false }
 rns-ddns = { path = "substrate/utils/rns-ddns", default-features = false }
 rns-runtime-api = { path = "substrate/frame/rns-runtime-api", default-features = false }
