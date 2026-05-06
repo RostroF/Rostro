@@ -12303,6 +12303,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-kzg-srs"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-std 0.5.0",
+ "ark-vrf",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "sha2 0.10.9",
+ "sp-consensus-sassafras",
+ "thiserror 1.0.65",
+]
+
+[[package]]
 name = "rostro-node"
 version = "0.1.0"
 dependencies = [

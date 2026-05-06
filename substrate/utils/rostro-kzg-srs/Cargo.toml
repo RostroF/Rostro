@@ -1,0 +1,27 @@
+[package]
+name = "rostro-kzg-srs"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Phase Ring R1.5 verification spike: load an Ethereum KZG ceremony transcript (or synthetic equivalent) and derive a bandersnatch ring context compatible with pallet-sassafras."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+ark-bls12-381 = { workspace = true, default-features = true }
+ark-ec = { workspace = true, default-features = true }
+ark-ff = { workspace = true, default-features = true }
+ark-vrf = { workspace = true, default-features = true, features = ["bandersnatch", "ring"] }
+sha2 = { workspace = true, default-features = true }
+sp-consensus-sassafras = { workspace = true, default-features = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+ark-std = "0.5"
+rand = "0.8"
+rand_chacha = "0.3"

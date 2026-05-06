@@ -132,6 +132,16 @@ impl RingProofSystem for BandersnatchKzg {
 /// Naming the source as a typed value (rather than burying it in a
 /// constant) makes the lineage auditable and swappable.
 ///
+/// **R5/v1 source: Ethereum's EIP-4844 KZG Ceremony.** This is feasible
+/// only because Rostro picked `RING_SIZE = 512`
+/// (`sp_consensus_sassafras::vrf::RING_SIZE`), which needs 3073 G1
+/// powers — comfortably inside Ethereum's 4096-power ceremony output.
+/// At `RING_SIZE = 1024` (Polkadot's choice) you'd need 6145 powers
+/// and Ethereum's ceremony would not fit; you'd be forced into
+/// Filecoin's PPoT, snarkjs PPoT, or a fresh ceremony. See R1.5
+/// findings in `substrate/utils/rostro-kzg-srs/src/lib.rs` for the
+/// full table.
+///
 /// Note: deliberately not deriving `MaxEncodedLen`. Storage usage of
 /// this type isn't decided yet — it may live in chainspec properties, a
 /// runtime API return, or `pallet_sassafras` storage with a bound. When
@@ -140,12 +150,14 @@ impl RingProofSystem for BandersnatchKzg {
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
 pub enum UrsSource {
 	/// Ethereum's EIP-4844 KZG Ceremony output (Apr 2023, ~141k contributors).
-	/// We take a prefix to RING_SIZE=1024.
+	/// 4096 G1 powers, 65 G2 powers. We take the first 3073 G1 powers
+	/// (matching `pcs_domain_size(RING_SIZE=512) = 3073`) and the first
+	/// 2 G2 powers.
 	///
-	/// The 32-byte field is the SHA-256 of the canonical
-	/// (compressed-G1, compressed-G2) serialization of the prefix
-	/// actually used. Anyone can re-derive the URS from the public
-	/// ceremony output and verify this hash matches.
+	/// The 32-byte field is the SHA-256 of arkworks' canonical
+	/// uncompressed serialization of the resulting `RingProofParams`.
+	/// Anyone can re-derive it from the public ceremony output and
+	/// verify this hash matches.
 	EthereumKzgCeremony2023 { srs_hash: [u8; 32] },
 
 	/// Hybrid: Ethereum's URS combined sequentially with one or more
