@@ -772,6 +772,126 @@ mod import_verifier_tests {
 	}
 }
 
+// ─── Equivocation reporter loop (R2.5e) ─────────────────────────────────
+
+mod equivocation_reporter_tests {
+	use super::*;
+	use crate::{
+		equivocation_reporter::{process_equivocation, ReportOutcome},
+		providers::{EquivocationReporter, KeyOwnershipProver, ProviderError},
+	};
+	use sp_consensus_sassafras::{EquivocationProof, OpaqueKeyOwnershipProof};
+	use std::sync::Mutex;
+
+	type TestBlock = sp_runtime::generic::Block<TestHeader, sp_runtime::OpaqueExtrinsic>;
+
+	struct StubKeyOwnerProver {
+		// Inner bytes; construct OpaqueKeyOwnershipProof on demand.
+		// (Type doesn't impl Clone so we can't cache the wrapper.)
+		proof_bytes: Option<Vec<u8>>,
+	}
+	impl KeyOwnershipProver<TestBlock> for StubKeyOwnerProver {
+		fn generate_key_ownership_proof(
+			&self,
+			_parent: H256,
+			_authority: AuthorityId,
+		) -> Result<Option<OpaqueKeyOwnershipProof>, ProviderError> {
+			Ok(self.proof_bytes.as_ref().map(|b| fake_key_owner_proof(b.clone())))
+		}
+	}
+
+	#[derive(Default)]
+	struct RecordingReporter {
+		submitted: Mutex<Vec<()>>,
+	}
+	impl EquivocationReporter<TestBlock> for RecordingReporter {
+		fn submit_report(
+			&self,
+			_proof: EquivocationProof<TestHeader>,
+			_kop: OpaqueKeyOwnershipProof,
+		) -> Result<(), ProviderError> {
+			self.submitted.lock().expect("not poisoned in tests").push(());
+			Ok(())
+		}
+	}
+
+	fn dummy_proof() -> EquivocationProof<TestHeader> {
+		let authorities = make_authorities(1);
+		let header_a = TestHeader {
+			parent_hash: H256::repeat_byte(0xAB),
+			number: 1,
+			state_root: H256::repeat_byte(0x11),
+			extrinsics_root: H256::zero(),
+			digest: Digest { logs: vec![] },
+		};
+		let header_b = TestHeader {
+			parent_hash: H256::repeat_byte(0xAB),
+			number: 1,
+			state_root: H256::repeat_byte(0x22),
+			extrinsics_root: H256::zero(),
+			digest: Digest { logs: vec![] },
+		};
+		EquivocationProof {
+			offender: pubkeys(&authorities)[0].clone(),
+			slot: SLOT.into(),
+			first_header: header_a,
+			second_header: header_b,
+		}
+	}
+
+	/// Tuple-struct field is private outside the module; construct via
+	/// SCALE codec round-trip (the type implements Decode and its
+	/// encoding is just the inner Vec<u8>'s encoding).
+	fn fake_key_owner_proof(bytes: Vec<u8>) -> OpaqueKeyOwnershipProof {
+		use codec::Decode;
+		OpaqueKeyOwnershipProof::decode(&mut &bytes.encode()[..]).expect("test fixture decodes")
+	}
+
+	#[test]
+	fn reporter_submits_when_key_owner_proof_available() {
+		let prover = StubKeyOwnerProver { proof_bytes: Some(vec![1, 2, 3]) };
+		let reporter = RecordingReporter::default();
+		let outcome =
+			process_equivocation::<TestBlock, _, _>(dummy_proof(), &prover, &reporter)
+				.expect("submit ok");
+		assert_eq!(outcome, ReportOutcome::Submitted);
+		assert_eq!(reporter.submitted.lock().unwrap().len(), 1);
+	}
+
+	#[test]
+	fn reporter_drops_quietly_when_no_key_owner_proof() {
+		// Runtime can't generate a key-ownership proof (offender
+		// rotated out, etc.). Report dropped without error and without
+		// submission.
+		let prover = StubKeyOwnerProver { proof_bytes: None };
+		let reporter = RecordingReporter::default();
+		let outcome =
+			process_equivocation::<TestBlock, _, _>(dummy_proof(), &prover, &reporter)
+				.expect("no error");
+		assert_eq!(outcome, ReportOutcome::NoKeyOwnershipProof);
+		assert!(reporter.submitted.lock().unwrap().is_empty(), "must not submit without key proof");
+	}
+
+	#[test]
+	fn reporter_propagates_provider_errors() {
+		struct FailingProver;
+		impl KeyOwnershipProver<TestBlock> for FailingProver {
+			fn generate_key_ownership_proof(
+				&self,
+				_: H256,
+				_: AuthorityId,
+			) -> Result<Option<OpaqueKeyOwnershipProof>, ProviderError> {
+				Err(ProviderError::Runtime("simulated failure".into()))
+			}
+		}
+		let reporter = RecordingReporter::default();
+		let result =
+			process_equivocation::<TestBlock, _, _>(dummy_proof(), &FailingProver, &reporter);
+		assert!(matches!(result, Err(ProviderError::Runtime(_))));
+		assert!(reporter.submitted.lock().unwrap().is_empty());
+	}
+}
+
 // ─── Equivocation detection ──────────────────────────────────────────────
 
 mod equivocation_tests {

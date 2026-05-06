@@ -25,7 +25,7 @@
 
 use sp_consensus_sassafras::{
 	ticket::{TicketBody, TicketId},
-	Epoch, Slot,
+	AuthorityId, Epoch, EquivocationProof, OpaqueKeyOwnershipProof, Slot,
 };
 use sp_runtime::traits::Block as BlockT;
 use thiserror::Error;
@@ -75,4 +75,37 @@ pub trait TicketProvider<Block: BlockT>: Send + Sync {
 		parent_hash: Block::Hash,
 		slot: Slot,
 	) -> Result<Option<(TicketId, TicketBody)>, ProviderError>;
+}
+
+/// Generate a `KeyOwnershipProof` for an authority at a given parent
+/// hash. Required by the equivocation-reporter flow before the proof
+/// can be submitted on-chain.
+///
+/// Production wiring queries `SassafrasApi::generate_key_ownership_proof`.
+/// Returns `None` if the runtime can't produce one (e.g. authority
+/// rotated out, session-historical state pruned).
+pub trait KeyOwnershipProver<Block: BlockT>: Send + Sync {
+	/// Generate the opaque key-ownership proof for `authority` per
+	/// chain state at `parent_hash`.
+	fn generate_key_ownership_proof(
+		&self,
+		parent_hash: Block::Hash,
+		authority: AuthorityId,
+	) -> Result<Option<OpaqueKeyOwnershipProof>, ProviderError>;
+}
+
+/// Submit an equivocation report on-chain. Mirrors
+/// `SassafrasApi::submit_report_equivocation_unsigned_extrinsic`.
+///
+/// Production wiring calls the runtime API, which crafts and gossips
+/// an unsigned extrinsic. Returns `false` per the runtime API
+/// convention if extrinsic construction fails — we surface that as an
+/// `Err` so callers don't silently lose reports.
+pub trait EquivocationReporter<Block: BlockT>: Send + Sync {
+	/// Submit the equivocation proof bundle.
+	fn submit_report(
+		&self,
+		proof: EquivocationProof<Block::Header>,
+		key_owner_proof: OpaqueKeyOwnershipProof,
+	) -> Result<(), ProviderError>;
 }

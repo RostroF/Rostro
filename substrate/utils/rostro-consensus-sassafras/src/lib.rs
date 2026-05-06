@@ -63,6 +63,7 @@
 
 pub mod epoch;
 pub mod equivocation;
+pub mod equivocation_reporter;
 pub mod error;
 pub mod header;
 pub mod import_verifier;
@@ -78,11 +79,14 @@ mod tests;
 
 pub use epoch::EpochContext;
 pub use equivocation::EquivocationDetector;
+pub use equivocation_reporter::{process_equivocation, ReportOutcome};
 pub use error::VerificationError;
 pub use header::{extract_consensus_log, extract_next_epoch_descriptor, extract_slot_claim};
 pub use import_verifier::SassafrasImportVerifier;
 pub use producer::{produce_primary_slot_claim, produce_slot_claim, produce_ticket_claim};
-pub use providers::{EpochProvider, ProviderError, TicketProvider};
+pub use providers::{
+	EpochProvider, EquivocationReporter, KeyOwnershipProver, ProviderError, TicketProvider,
+};
 pub use slot_claim::verify_slot_claim;
 pub use ticket_claim::{signed_data_for_ticket_binding, verify_ticket_claim};
 pub use ticket_generation::{compute_ticket_id, produce_ticket_envelope};
