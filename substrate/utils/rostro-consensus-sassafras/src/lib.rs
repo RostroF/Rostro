@@ -74,6 +74,7 @@ pub mod slot_claim;
 pub mod slot_worker;
 pub mod ticket_claim;
 pub mod ticket_generation;
+pub mod ticket_submission;
 pub mod verifier;
 
 #[cfg(test)]
@@ -94,4 +95,7 @@ pub use slot_claim::verify_slot_claim;
 pub use slot_worker::{fallback_winner_index, try_claim_slot, ClaimDecision};
 pub use ticket_claim::{signed_data_for_ticket_binding, verify_ticket_claim};
 pub use ticket_generation::{compute_ticket_id, produce_ticket_envelope};
+pub use ticket_submission::{
+	submit_batch, ticket_threshold, SubmissionStats, TicketSubmitter, TicketThresholdParams,
+};
 pub use verifier::{verify_block, verify_header, VerifiedHeader};

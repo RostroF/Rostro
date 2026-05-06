@@ -772,6 +772,140 @@ mod import_verifier_tests {
 	}
 }
 
+// ─── Ticket submission orchestration (R2.5d) ────────────────────────────
+
+mod ticket_submission_tests {
+	use super::*;
+	use crate::ticket_submission::{
+		submit_batch, ticket_threshold, SubmissionStats, TicketSubmitter,
+		TicketThresholdParams,
+	};
+	use sp_consensus_sassafras::ticket::TicketEnvelope;
+	use std::sync::{
+		atomic::{AtomicUsize, Ordering},
+		Mutex,
+	};
+
+	type TestBlock = sp_runtime::generic::Block<TestHeader, sp_runtime::OpaqueExtrinsic>;
+
+	fn dummy_envelope(attempt: u32) -> TicketEnvelope {
+		// Use the existing ticket-gen test helpers; we don't need a
+		// real ring signature for submission-orchestration tests.
+		// Build a body with placeholder ed25519 keys, paired with
+		// the smallest possible ring signature (we serialize a fresh
+		// dummy via SCALE round-trip).
+		use codec::{Decode, Encode, MaxEncodedLen};
+		use sp_consensus_sassafras::ticket::{TicketBody, TicketSignature};
+		let pair = ed25519::Pair::from_string(
+			&format!("//Submission//Attempt{attempt}"),
+			None,
+		)
+		.unwrap();
+		let body = TicketBody {
+			attempt_idx: attempt,
+			erased_public: pair.public(),
+			revealed_public: pair.public(),
+		};
+		// TicketSignature is RingVrfSignature; build a zeroed dummy
+		// via SCALE codec round-trip. Submission-layer tests don't
+		// need real cryptography; verify-layer tests already covered
+		// that.
+		let raw = vec![0u8; TicketSignature::max_encoded_len()];
+		let signature = TicketSignature::decode(&mut &raw.encode()[..])
+			.expect("dummy signature decodes for orchestration tests");
+		TicketEnvelope { body, signature }
+	}
+
+	#[test]
+	fn ticket_threshold_matches_primitive() {
+		let params = TicketThresholdParams {
+			redundancy_factor: 2,
+			attempts_number: 64,
+			epoch_length: 100,
+			validator_count: 50,
+		};
+		let ours = ticket_threshold(&params);
+		let primitive =
+			sp_consensus_sassafras::ticket_id_threshold(2, 100, 64, 50);
+		assert_eq!(ours, primitive, "wrapper must agree with primitive");
+	}
+
+	#[test]
+	fn ticket_threshold_zero_when_validators_zero() {
+		// Edge case: division by zero protection in the primitive.
+		let params = TicketThresholdParams {
+			redundancy_factor: 2,
+			attempts_number: 64,
+			epoch_length: 100,
+			validator_count: 0,
+		};
+		let t = ticket_threshold(&params);
+		assert_eq!(t, 0, "zero validators → zero threshold (no tickets accepted)");
+	}
+
+	struct CountingSubmitter {
+		count: AtomicUsize,
+	}
+	#[async_trait::async_trait]
+	impl TicketSubmitter<TestBlock> for CountingSubmitter {
+		async fn submit_ticket(
+			&self,
+			_envelope: TicketEnvelope,
+		) -> Result<(), crate::providers::ProviderError> {
+			self.count.fetch_add(1, Ordering::SeqCst);
+			Ok(())
+		}
+	}
+
+	#[derive(Default)]
+	struct AlternatingSubmitter {
+		flag: Mutex<bool>,
+	}
+	#[async_trait::async_trait]
+	impl TicketSubmitter<TestBlock> for AlternatingSubmitter {
+		async fn submit_ticket(
+			&self,
+			_envelope: TicketEnvelope,
+		) -> Result<(), crate::providers::ProviderError> {
+			let mut flag = self.flag.lock().unwrap();
+			let outcome = if *flag {
+				Ok(())
+			} else {
+				Err(crate::providers::ProviderError::Runtime("simulated".into()))
+			};
+			*flag = !*flag;
+			outcome
+		}
+	}
+
+	#[tokio::test(flavor = "current_thread")]
+	async fn submit_batch_counts_successful_submissions() {
+		let envelopes = (0..5).map(dummy_envelope).collect();
+		let submitter = CountingSubmitter { count: AtomicUsize::new(0) };
+		let stats = submit_batch::<TestBlock, _>(envelopes, &submitter).await;
+		assert_eq!(stats, SubmissionStats { attempted: 5, successful: 5, failed: 0 });
+		assert_eq!(submitter.count.load(Ordering::SeqCst), 5);
+	}
+
+	#[tokio::test(flavor = "current_thread")]
+	async fn submit_batch_continues_after_individual_errors() {
+		// AlternatingSubmitter starts with Err, then alternates. Of 4
+		// envelopes: Err, Ok, Err, Ok → 2 successful, 2 failed.
+		let envelopes = (0..4).map(dummy_envelope).collect();
+		let submitter = AlternatingSubmitter::default();
+		let stats = submit_batch::<TestBlock, _>(envelopes, &submitter).await;
+		assert_eq!(stats, SubmissionStats { attempted: 4, successful: 2, failed: 2 });
+	}
+
+	#[tokio::test(flavor = "current_thread")]
+	async fn submit_batch_handles_empty_input() {
+		let envelopes: Vec<TicketEnvelope> = vec![];
+		let submitter = CountingSubmitter { count: AtomicUsize::new(0) };
+		let stats = submit_batch::<TestBlock, _>(envelopes, &submitter).await;
+		assert_eq!(stats, SubmissionStats { attempted: 0, successful: 0, failed: 0 });
+	}
+}
+
 // ─── slot worker decision logic (R2.5c) ─────────────────────────────────
 
 mod slot_worker_tests {
