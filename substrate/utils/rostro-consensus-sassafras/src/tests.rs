@@ -613,6 +613,165 @@ fn produced_claim_with_wrong_authority_index_fails_verification() {
 	assert!(matches!(err, VerificationError::InvalidVrfSignature { .. }));
 }
 
+// ─── Import-queue Verifier (rc_consensus::Verifier impl) ────────────────
+
+mod import_verifier_tests {
+	use super::*;
+	use crate::{
+		import_verifier::SassafrasImportVerifier,
+		providers::{EpochProvider, ProviderError, TicketProvider},
+	};
+	use rc_consensus::{BlockImportParams, Verifier as ConsensusVerifier};
+	use sp_consensus_sassafras::{Epoch, EpochConfiguration};
+
+	type TestBlock = sp_runtime::generic::Block<TestHeader, sp_runtime::OpaqueExtrinsic>;
+
+	/// Stub epoch provider — returns a canned epoch regardless of
+	/// parent hash. Tests parameterize via the constructor.
+	struct StubEpoch {
+		epoch: Epoch,
+	}
+
+	impl EpochProvider<TestBlock> for StubEpoch {
+		fn epoch_at(&self, _parent: H256) -> Result<Epoch, ProviderError> {
+			Ok(self.epoch.clone())
+		}
+
+		fn next_epoch_at(&self, _parent: H256) -> Result<Epoch, ProviderError> {
+			Ok(self.epoch.clone())
+		}
+	}
+
+	/// Stub ticket provider with a single canned binding.
+	struct StubTicket {
+		binding: Option<(TicketId, TicketBody)>,
+	}
+
+	impl TicketProvider<TestBlock> for StubTicket {
+		fn slot_ticket(
+			&self,
+			_parent: H256,
+			_slot: Slot,
+		) -> Result<Option<(TicketId, TicketBody)>, ProviderError> {
+			Ok(self.binding.clone())
+		}
+	}
+
+	/// Build an Epoch with the given authorities + randomness + index.
+	fn make_epoch(authorities: Vec<AuthorityId>) -> Epoch {
+		Epoch {
+			index: EPOCH_INDEX,
+			start: 0u64.into(),
+			length: 100,
+			randomness: RANDOMNESS,
+			authorities,
+			config: EpochConfiguration { redundancy_factor: 2, attempts_number: 64 },
+		}
+	}
+
+	fn make_import_params(header: TestHeader) -> BlockImportParams<TestBlock> {
+		BlockImportParams::new(sp_consensus::BlockOrigin::NetworkBroadcast, header)
+	}
+
+	#[tokio::test(flavor = "current_thread")]
+	async fn import_verifier_accepts_valid_fallback_block() {
+		let authorities = make_authorities(2);
+		let pubkeys = pubkeys(&authorities);
+		let claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+		let header = make_header(vec![pre_runtime_item(&claim)]);
+
+		let verifier = SassafrasImportVerifier::<TestBlock, _, _>::new(
+			StubEpoch { epoch: make_epoch(pubkeys) },
+			StubTicket { binding: None },
+		);
+
+		verifier.verify(make_import_params(header)).await.expect("valid block accepts");
+	}
+
+	#[tokio::test(flavor = "current_thread")]
+	async fn import_verifier_accepts_valid_primary_block() {
+		let authorities = make_authorities(2);
+		let pubkeys = pubkeys(&authorities);
+		let mut claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+		let (body, erased_pair) = make_ticket_body("//Import//A");
+		claim.ticket_claim = Some(make_ticket_claim(&claim, &erased_pair));
+		let header = make_header(vec![pre_runtime_item(&claim)]);
+
+		let verifier = SassafrasImportVerifier::<TestBlock, _, _>::new(
+			StubEpoch { epoch: make_epoch(pubkeys) },
+			StubTicket { binding: Some((1u128, body)) },
+		);
+		verifier.verify(make_import_params(header)).await.expect("primary block accepts");
+	}
+
+	/// Helper: BlockImportParams isn't Debug, so unwrap_err / expect_err
+	/// don't compile. Pattern-match instead.
+	fn expect_err<T, E>(result: Result<T, E>) -> E {
+		match result {
+			Ok(_) => panic!("expected Err, got Ok"),
+			Err(e) => e,
+		}
+	}
+
+	#[tokio::test(flavor = "current_thread")]
+	async fn import_verifier_rejects_missing_slot_claim() {
+		let authorities = make_authorities(1);
+		let pubkeys = pubkeys(&authorities);
+		let header = make_header(vec![]); // no PreRuntime entry
+
+		let verifier = SassafrasImportVerifier::<TestBlock, _, _>::new(
+			StubEpoch { epoch: make_epoch(pubkeys) },
+			StubTicket { binding: None },
+		);
+
+		let err = expect_err(verifier.verify(make_import_params(header)).await);
+		assert!(err.contains("PreRuntime") || err.contains("not a Sassafras"), "got: {err}");
+	}
+
+	#[tokio::test(flavor = "current_thread")]
+	async fn import_verifier_rejects_unbound_slot_with_ticket_claim() {
+		let authorities = make_authorities(1);
+		let pubkeys = pubkeys(&authorities);
+		let mut claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+		let (_body, erased_pair) = make_ticket_body("//Import//B");
+		claim.ticket_claim = Some(make_ticket_claim(&claim, &erased_pair));
+		let header = make_header(vec![pre_runtime_item(&claim)]);
+
+		let verifier = SassafrasImportVerifier::<TestBlock, _, _>::new(
+			StubEpoch { epoch: make_epoch(pubkeys) },
+			StubTicket { binding: None },
+		);
+
+		let err = expect_err(verifier.verify(make_import_params(header)).await);
+		assert!(err.contains("ticket_claim") || err.contains("no bound ticket"), "got: {err}");
+	}
+
+	#[tokio::test(flavor = "current_thread")]
+	async fn import_verifier_propagates_epoch_lookup_failure() {
+		struct FailingEpoch;
+		impl EpochProvider<TestBlock> for FailingEpoch {
+			fn epoch_at(&self, _: H256) -> Result<Epoch, ProviderError> {
+				Err(ProviderError::UnknownBlock)
+			}
+			fn next_epoch_at(&self, _: H256) -> Result<Epoch, ProviderError> {
+				Err(ProviderError::UnknownBlock)
+			}
+		}
+
+		let authorities = make_authorities(1);
+		let claim = build_claim(&authorities[0], 0, SLOT.into(), &RANDOMNESS, EPOCH_INDEX);
+		let header = make_header(vec![pre_runtime_item(&claim)]);
+
+		let verifier = SassafrasImportVerifier::<TestBlock, _, _>::new(
+			FailingEpoch,
+			StubTicket { binding: None },
+		);
+
+		let err = expect_err(verifier.verify(make_import_params(header)).await);
+		assert!(err.contains("epoch lookup") || err.contains("unknown block"), "got: {err}");
+	}
+}
+
 // ─── Equivocation detection ──────────────────────────────────────────────
 
 mod equivocation_tests {
