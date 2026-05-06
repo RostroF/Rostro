@@ -12331,10 +12331,12 @@ dependencies = [
  "ark-std 0.5.0",
  "ark-vrf",
  "hex",
+ "parity-scale-codec",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "sha2 0.10.9",
  "sp-consensus-sassafras",
+ "sp-core 40.0.0",
  "thiserror 1.0.65",
 ]
 

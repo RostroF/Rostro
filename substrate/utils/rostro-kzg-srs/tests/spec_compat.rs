@@ -207,6 +207,63 @@ fn eip4844_g2_monomial_first_entry_is_generator() {
 	);
 }
 
+// ─── R3.1: genesis-ready ring-context bytes ───────────────────────────────
+
+const SASSAFRAS_RING_SIZE: usize = 512;
+
+#[test]
+fn build_ring_context_bytes_passes_for_correct_hash() {
+	use rostro_kzg_srs::build_ring_context_bytes_for_genesis;
+
+	let pinned: [u8; 32] = {
+		let mut out = [0u8; 32];
+		hex::decode_to_slice(PINNED_CHAINSPEC_HASH, &mut out).expect("valid hex");
+		out
+	};
+	let bytes = build_ring_context_bytes_for_genesis(FIXTURE, SASSAFRAS_RING_SIZE, pinned)
+		.expect("bytes build with matching hash");
+	assert!(!bytes.is_empty(), "must produce non-empty ring-context bytes");
+	// Bytes are deterministic — same fixture + ring_size should produce
+	// the same bytes across runs.
+	let bytes2 = build_ring_context_bytes_for_genesis(FIXTURE, SASSAFRAS_RING_SIZE, pinned).unwrap();
+	assert_eq!(bytes, bytes2, "deterministic across calls");
+}
+
+#[test]
+fn build_ring_context_bytes_rejects_wrong_hash() {
+	use rostro_kzg_srs::{build_ring_context_bytes_for_genesis, GenesisBuildError};
+	let wrong = [0xFFu8; 32];
+	let err = build_ring_context_bytes_for_genesis(FIXTURE, SASSAFRAS_RING_SIZE, wrong)
+		.expect_err("must refuse to ship drifted bytes");
+	match err {
+		GenesisBuildError::HashMismatch { expected, actual } => {
+			assert_eq!(expected, wrong);
+			assert_ne!(actual, wrong, "actual hash differs from supplied expected");
+		},
+		other => panic!("expected HashMismatch, got {other:?}"),
+	}
+}
+
+#[test]
+fn ring_context_bytes_decode_as_sp_core_ring_context() {
+	use codec::Decode;
+	use rostro_kzg_srs::build_ring_context_bytes_for_genesis;
+	use sp_core::bandersnatch::ring_vrf::RingContext;
+
+	let pinned: [u8; 32] = {
+		let mut out = [0u8; 32];
+		hex::decode_to_slice(PINNED_CHAINSPEC_HASH, &mut out).expect("valid hex");
+		out
+	};
+	let bytes = build_ring_context_bytes_for_genesis(FIXTURE, SASSAFRAS_RING_SIZE, pinned).unwrap();
+
+	// The bytes must decode cleanly as the wire type
+	// pallet_sassafras stores in its RingContext storage.
+	type Ctx = RingContext<SASSAFRAS_RING_SIZE>;
+	let _ctx = Ctx::decode(&mut &bytes[..])
+		.expect("R3.1 bytes must decode as sp_core::bandersnatch::ring_vrf::RingContext<512>");
+}
+
 // ─── Hex helpers ──────────────────────────────────────────────────────────
 
 fn hex_to_array_48(s: &str) -> [u8; G1_COMPRESSED_LEN] {

@@ -372,6 +372,81 @@ pub fn build_ring_proof_params_from_seed(
 	BandersnatchRingProofParams::from_seed(ring_size, seed)
 }
 
+// ─── Genesis-ready ring-context bytes ──────────────────────────────────────
+
+/// Errors specific to the genesis-bytes builder.
+#[derive(Debug, Error)]
+pub enum GenesisBuildError {
+	/// Underlying transcript parsing failed.
+	#[error("transcript parse error: {0}")]
+	Transcript(#[from] crate::transcript::TranscriptError),
+	/// Underlying PcsParams / RingProofParams construction failed.
+	#[error("{0}")]
+	Construction(#[from] Error),
+	/// SHA-256 of the constructed RingProofParams doesn't match the
+	/// expected hash. Either the transcript bytes drifted or the
+	/// codec/arkworks-version changed; do not ship genesis with
+	/// drifted bytes.
+	#[error("ring-context hash mismatch — expected {expected:?}, got {actual:?}")]
+	HashMismatch {
+		/// Expected hash (typically `runtime::ring_proof::ROSTRO_URS_V1.srs_hash`).
+		expected: [u8; 32],
+		/// Actual hash computed from the constructed RingProofParams.
+		actual: [u8; 32],
+	},
+}
+
+/// Build genesis-ready SCALE-encoded ring-context bytes from an
+/// EIP-4844 trusted-setup transcript.
+///
+/// Pipeline:
+///
+/// 1. Parse the transcript via [`transcript::parse_eip4844_setup`].
+/// 2. Truncate G1 / G2 powers to what `ring_size` requires.
+/// 3. Build [`BandersnatchPcsParams`] →
+///    [`BandersnatchRingProofParams`].
+/// 4. Verify SHA-256 against `expected_hash` — fail loud on mismatch.
+/// 5. Serialize uncompressed (the wire format
+///    `sp_core::bandersnatch::ring_vrf::RingContext<R>` SCALE-decodes).
+///
+/// The returned bytes can be SCALE-decoded directly as
+/// `RingContext<R>` where `R == ring_size`. Drop them into
+/// `pallet_sassafras::RingContext` storage at genesis or via runtime
+/// upgrade.
+///
+/// `expected_hash` is typically
+/// `substrate/runtime/rostro/src/ring_proof.rs::ROSTRO_URS_V1.srs_hash`.
+/// Mismatch trips `GenesisBuildError::HashMismatch` rather than
+/// silently shipping drifted bytes.
+pub fn build_ring_context_bytes_for_genesis(
+	transcript_bytes: &str,
+	ring_size: usize,
+	expected_hash: [u8; 32],
+) -> Result<Vec<u8>, GenesisBuildError> {
+	let setup = crate::transcript::parse_eip4844_setup(transcript_bytes)?;
+
+	let required_g1 = ark_vrf::ring::pcs_domain_size::<BandersnatchSuite>(ring_size);
+	let mut g1 = setup.powers_in_g1_monomial;
+	g1.truncate(required_g1);
+	let mut g2 = setup.powers_in_g2_monomial;
+	g2.truncate(2);
+
+	let pcs = build_pcs_params(g1, g2, ring_size)?;
+	let ring_params = build_ring_proof_params_from_pcs(ring_size, pcs)?;
+
+	let actual_hash = ring_proof_params_sha256(&ring_params);
+	if actual_hash != expected_hash {
+		return Err(GenesisBuildError::HashMismatch { expected: expected_hash, actual: actual_hash });
+	}
+
+	use ark_vrf::reexports::ark_serialize::CanonicalSerialize;
+	let mut bytes = Vec::with_capacity(ring_params.uncompressed_size());
+	ring_params
+		.serialize_uncompressed(&mut bytes)
+		.expect("uncompressed serialization is infallible for valid RingProofParams; qed");
+	Ok(bytes)
+}
+
 // ─── Stable hash for chain-spec metadata ──────────────────────────────────
 
 /// SHA-256 of arkworks' canonical uncompressed encoding of the

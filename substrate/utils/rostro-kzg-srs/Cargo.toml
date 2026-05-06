@@ -23,6 +23,8 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 ark-std = "0.5"
+codec = { workspace = true, features = ["derive"], default-features = true }
 hex = "0.4"
 rand = "0.8"
 rand_chacha = "0.3"
+sp-core = { workspace = true, default-features = true, features = ["bandersnatch-experimental"] }
