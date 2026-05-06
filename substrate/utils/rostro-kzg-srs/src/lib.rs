@@ -71,6 +71,8 @@
 
 #![warn(missing_docs)]
 
+pub mod transcript;
+
 use ark_bls12_381::{Fq, Fq2, G1Affine, G2Affine};
 use ark_ec::AffineRepr;
 use ark_ff::{BigInt, BigInteger, Field, PrimeField};

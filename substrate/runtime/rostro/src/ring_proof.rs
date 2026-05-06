@@ -234,13 +234,29 @@ pub type RostroRingProofSystem = BandersnatchKzg;
 /// current [`RostroRingProofSystem`] choice.
 pub type RostroSetupArtifact = <RostroRingProofSystem as RingProofSystem>::SetupArtifact;
 
-/// Sentinel placeholder URS source — chainspec generation in R3 must
-/// overwrite the inner hash with the SHA-256 of the actually-loaded
-/// Ethereum SRS prefix. Holding it as a `const` makes the missing-hash
-/// case fail loudly (zero hash → ceremony unverified) rather than
-/// silently shipping a half-configured runtime.
-pub const ROSTRO_URS_V1_PLACEHOLDER: UrsSource =
-	UrsSource::EthereumKzgCeremony2023 { srs_hash: [0u8; 32] };
+/// The v1 URS source value chainspec genesis writes into pallet metadata.
+///
+/// This is the SHA-256 of arkworks' canonical uncompressed encoding of
+/// `RingProofParams::from_pcs_params(512, …)` derived from the
+/// EIP-4844 trusted-setup truncated to 3073 G1 monomial powers + 2 G2
+/// monomial powers. Verified against the actual ethereum/c-kzg-4844
+/// transcript file in `rostro-kzg-srs::tests::spec_compat::PINNED_CHAINSPEC_HASH`.
+///
+/// Anyone can re-derive this value from the public ceremony output:
+/// fetch `https://raw.githubusercontent.com/ethereum/c-kzg-4844/main/src/trusted_setup.txt`,
+/// parse, take the monomial-G1 prefix at length 3073 and monomial-G2
+/// prefix at length 2, build `PcsParams<Bls12_381>` →
+/// `RingProofParams::from_pcs_params(512, …)`, serialize uncompressed,
+/// SHA-256.
+///
+/// Updating this requires a runtime upgrade with ticket-pool flush.
+pub const ROSTRO_URS_V1: UrsSource = UrsSource::EthereumKzgCeremony2023 {
+	srs_hash: [
+		0x6f, 0xd7, 0x8b, 0xb0, 0x63, 0xa6, 0x60, 0x12, 0xb8, 0x4a, 0xa8, 0xf7, 0xa5, 0x60, 0x91,
+		0x5b, 0x05, 0xb3, 0xf3, 0x0c, 0x19, 0xc3, 0x42, 0xbd, 0x59, 0xe4, 0x33, 0x42, 0x85, 0xf9,
+		0x82, 0x63,
+	],
+};
 
 // ─── Compile-time invariants ──────────────────────────────────────────────
 
