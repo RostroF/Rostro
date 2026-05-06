@@ -29,6 +29,7 @@ use crate::{
 	epoch::EpochContext,
 	error::VerificationError,
 	header::{extract_consensus_log, extract_next_epoch_descriptor, extract_slot_claim},
+	producer::{produce_primary_slot_claim, produce_slot_claim, produce_ticket_claim},
 	slot_claim::verify_slot_claim,
 	ticket_claim::signed_data_for_ticket_binding,
 	verifier::{verify_block, verify_header},
@@ -520,5 +521,95 @@ fn verify_block_propagates_header_errors() {
 	let lookup = |_s: Slot| None;
 	let err = verify_block(&header, ctx, lookup).unwrap_err();
 	assert!(matches!(err, VerificationError::MissingSlotClaim));
+}
+
+// ─── Producer → Verifier round-trip ──────────────────────────────────────
+
+#[test]
+fn produce_then_verify_fallback_slot() {
+	// Producer-side: validator at index 1 produces a fallback (no
+	// ticket) slot claim. Verifier-side: rebuilds the sign-data and
+	// the bandersnatch IETF VRF check passes.
+	let authorities = make_authorities(3);
+	let pubkeys = pubkeys(&authorities);
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let claim = produce_slot_claim(&authorities[1], 1, SLOT.into(), ctx, None);
+	let resolved =
+		verify_slot_claim(&claim, ctx).expect("produced fallback claim must verify");
+	assert_eq!(resolved, &pubkeys[1]);
+}
+
+#[test]
+fn produce_then_verify_primary_slot_with_ticket() {
+	// Full primary-slot round-trip: producer signs the slot claim,
+	// then signs the ticket-binding message with the erased ed25519
+	// secret, attaches the ticket_claim. Verifier validates the
+	// bandersnatch VRF AND the ed25519 ticket-binding.
+	let authorities = make_authorities(2);
+	let pubkeys = pubkeys(&authorities);
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let (ticket_body, erased_pair) = make_ticket_body("//RostroProducer//A");
+	let claim = produce_primary_slot_claim(
+		&authorities[0],
+		0,
+		SLOT.into(),
+		ctx,
+		&erased_pair,
+	);
+	assert!(claim.ticket_claim.is_some(), "primary claim must carry ticket_claim");
+
+	// Wrap in a header and run the full verify_block path.
+	let header = make_header(vec![pre_runtime_item(&claim)]);
+	let body_clone = ticket_body.clone();
+	let lookup = |_s: Slot| Some((1u128, body_clone.clone()));
+	let verified = verify_block(&header, ctx, lookup).expect("primary round-trip must verify");
+	assert_eq!(verified.authority, &pubkeys[0]);
+}
+
+#[test]
+fn produce_ticket_claim_independently_then_compose() {
+	// Two-step flow: produce a SlotClaim with no ticket, then derive
+	// the ticket_claim, then attach. Verify the produce_ticket_claim
+	// helper alone produces a valid binding.
+	let authorities = make_authorities(1);
+	let pubkeys = pubkeys(&authorities);
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let intermediate = produce_slot_claim(&authorities[0], 0, SLOT.into(), ctx, None);
+
+	let (body, erased_pair) = make_ticket_body("//RostroProducer//Compose");
+	let ticket_claim = produce_ticket_claim(&erased_pair, &intermediate);
+
+	// Independent verification of just the ticket-binding step.
+	crate::ticket_claim::verify_ticket_claim(&intermediate, &ticket_claim, &body)
+		.expect("ticket-binding round-trip must hold");
+}
+
+#[test]
+fn produced_claim_with_wrong_authority_index_fails_verification() {
+	// Produce with authorities[2] but claim authority_idx = 0. The
+	// verifier looks up index 0's public key; the signature was made
+	// by index 2's secret. Verification fails.
+	let authorities = make_authorities(3);
+	let pubkeys = pubkeys(&authorities);
+	let ctx = EpochContext {
+		index: EPOCH_INDEX,
+		randomness: &RANDOMNESS,
+		authorities: &pubkeys,
+	};
+	let claim = produce_slot_claim(&authorities[2], 0, SLOT.into(), ctx, None);
+	let err = verify_slot_claim(&claim, ctx).unwrap_err();
+	assert!(matches!(err, VerificationError::InvalidVrfSignature { .. }));
 }
 
