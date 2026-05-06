@@ -12354,6 +12354,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-ratchet"
+version = "0.1.0"
+dependencies = [
+ "chacha20poly1305",
+ "hkdf",
+ "hmac 0.12.1",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "sha2 0.10.9",
+ "thiserror 1.0.65",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "rostro-runtime"
 version = "0.1.0"
 dependencies = [
