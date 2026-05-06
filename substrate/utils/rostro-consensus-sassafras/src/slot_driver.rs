@@ -154,7 +154,14 @@ pub struct StartSassafrasParams<B: BlockT, C, SC, I, PF, SO, L, CIDP, BS> {
 
 /// Start the Sassafras consensus worker. Returns a future that runs
 /// until the slot stream ends.
-pub fn start_sassafras<B, C, SC, I, PF, SO, L, CIDP, BS>(
+///
+/// `Error` is the proposer-factory's error type. Substrate's standard
+/// `BasicAuthorship` factory uses `sp_blockchain::Error`; the worker
+/// internally maps any such error into [`sp_consensus::Error`] for
+/// the SimpleSlotWorker contract. The `From<ConsensusError>` bound
+/// gives us a clean conversion path without the caller having to
+/// fight type aliases.
+pub fn start_sassafras<B, C, SC, I, PF, SO, L, CIDP, BS, Error>(
 	params: StartSassafrasParams<B, C, SC, I, PF, SO, L, CIDP, BS>,
 ) -> Result<impl Future<Output = ()> + Send, ConsensusError>
 where
@@ -163,13 +170,14 @@ where
 	C::Api: SassafrasApi<B>,
 	SC: SelectChain<B>,
 	I: BlockImport<B> + Send + Sync + 'static,
-	PF: Environment<B, Error = ConsensusError> + Send + Sync + 'static,
-	PF::Proposer: Proposer<B, Error = ConsensusError>,
+	PF: Environment<B, Error = Error> + Send + Sync + 'static,
+	PF::Proposer: Proposer<B, Error = Error>,
 	SO: SyncOracle + Send + Sync + Clone,
 	L: JustificationSyncLink<B>,
 	CIDP: CreateInherentDataProviders<B, ()> + Send + Sync + 'static,
 	CIDP::InherentDataProviders: InherentDataProviderExt + Send,
 	BS: BackoffAuthoringBlocksStrategy<NumberFor<B>> + Send + Sync + 'static,
+	Error: std::error::Error + Send + From<ConsensusError> + 'static,
 {
 	let StartSassafrasParams {
 		slot_duration,
@@ -217,17 +225,19 @@ where
 // ─── SimpleSlotWorker impl ─────────────────────────────────────────────────
 
 #[async_trait::async_trait]
-impl<B, C, E, I, SO, L, BS> SimpleSlotWorker<B> for SassafrasWorker<B, C, E, I, SO, L, BS>
+impl<B, C, E, I, SO, L, BS, Error> SimpleSlotWorker<B>
+	for SassafrasWorker<B, C, E, I, SO, L, BS>
 where
 	B: BlockT,
 	C: ProvideRuntimeApi<B> + HeaderBackend<B> + Send + Sync,
 	C::Api: SassafrasApi<B>,
-	E: Environment<B, Error = ConsensusError> + Send + Sync,
-	E::Proposer: Proposer<B, Error = ConsensusError>,
+	E: Environment<B, Error = Error> + Send + Sync,
+	E::Proposer: Proposer<B, Error = Error>,
 	I: BlockImport<B> + Send + Sync + 'static,
 	SO: SyncOracle + Send + Clone + Sync,
 	L: JustificationSyncLink<B>,
 	BS: BackoffAuthoringBlocksStrategy<NumberFor<B>> + Send + Sync + 'static,
+	Error: std::error::Error + Send + From<ConsensusError> + 'static,
 {
 	type BlockImport = I;
 	type SyncOracle = SO;

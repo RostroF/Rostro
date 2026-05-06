@@ -9,6 +9,7 @@ repository = "https://github.com/rostro-foundation/rostro.git"
 resolver = "2"
 
 members = [
+	"substrate/bin/gemini-node",
 	"substrate/bin/rostro-node",
 	"substrate/bin/utils/chain-spec-builder",
 	"substrate/bin/utils/subkey",

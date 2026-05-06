@@ -3947,6 +3947,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "gemini-node"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "clap",
+ "frame-system",
+ "futures",
+ "gemini-runtime",
+ "jsonrpsee",
+ "pallet-transaction-payment",
+ "pallet-transaction-payment-rpc",
+ "rc-basic-authorship",
+ "rc-cli",
+ "rc-client-api",
+ "rc-consensus",
+ "rc-consensus-grandpa",
+ "rc-consensus-slots",
+ "rc-executor",
+ "rc-keystore",
+ "rc-network",
+ "rc-network-sync",
+ "rc-offchain",
+ "rc-rpc-api",
+ "rc-service",
+ "rc-telemetry",
+ "rc-transaction-pool",
+ "rc-transaction-pool-api",
+ "rostro-consensus-sassafras",
+ "serde_json",
+ "sp-api 41.0.0",
+ "sp-block-builder",
+ "sp-blockchain 44.0.0",
+ "sp-consensus-aura",
+ "sp-consensus-grandpa",
+ "sp-consensus-sassafras",
+ "sp-consensus-slots",
+ "sp-core 40.0.0",
+ "sp-genesis-builder 0.22.0",
+ "sp-inherents 41.0.0",
+ "sp-io 45.0.0",
+ "sp-keyring",
+ "sp-runtime 46.0.0",
+ "sp-timestamp",
+ "substrate-build-script-utils",
+ "substrate-frame-rpc-system",
+ "tracing",
+]
+
+[[package]]
 name = "gemini-runtime"
 version = "0.1.0"
 dependencies = [

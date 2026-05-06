@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+// Copyright (C) 2026 Rostro Foundation contributors
+
+//! CLI surface for the gemini node. Mirrors the rostro-node CLI; the
+//! consensus difference (Aura vs Sassafras) is invisible at this level.
+
+use rc_cli::RunCmd;
+
+#[derive(Debug, clap::Parser)]
+pub struct Cli {
+	#[command(subcommand)]
+	pub subcommand: Option<Subcommand>,
+
+	#[clap(flatten)]
+	pub run: RunCmd,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum Subcommand {
+	/// Key management cli utilities
+	#[command(subcommand)]
+	Key(rc_cli::KeySubcommand),
+
+	/// Build a chain specification.
+	BuildSpec(rc_cli::BuildSpecCmd),
+
+	/// Validate blocks.
+	CheckBlock(rc_cli::CheckBlockCmd),
+
+	/// Export blocks.
+	ExportBlocks(rc_cli::ExportBlocksCmd),
+
+	/// Export the state of a given block into a chain spec.
+	ExportState(rc_cli::ExportStateCmd),
+
+	/// Import blocks.
+	ImportBlocks(rc_cli::ImportBlocksCmd),
+
+	/// Remove the whole chain.
+	PurgeChain(rc_cli::PurgeChainCmd),
+
+	/// Revert the chain to a previous state.
+	Revert(rc_cli::RevertCmd),
+
+	/// Db meta columns information.
+	ChainInfo(rc_cli::ChainInfoCmd),
+}
