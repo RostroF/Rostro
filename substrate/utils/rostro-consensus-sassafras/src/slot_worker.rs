@@ -46,7 +46,7 @@ use codec::Encode;
 use sp_consensus_sassafras::{
 	digests::SlotClaim,
 	ticket::{TicketBody, TicketId},
-	AuthorityIndex, AuthorityPair, Slot,
+	AuthorityIndex, Slot,
 };
 use sp_core::ed25519;
 use sp_io::hashing::blake2_256;
@@ -54,6 +54,7 @@ use sp_io::hashing::blake2_256;
 use crate::{
 	epoch::EpochContext,
 	producer::{produce_primary_slot_claim, produce_slot_claim},
+	signer::BandersnatchVrfSigner,
 };
 
 /// Outcome of the per-slot claim-decision routine.
@@ -116,43 +117,43 @@ pub fn fallback_winner_index(slot: Slot, epoch: &EpochContext<'_>) -> Option<Aut
 ///   locally at ticket-generation time; this lookup checks whether
 ///   the local validator holds the secret matching the ticket's
 ///   `erased_public`. None means "not our ticket."
-pub fn try_claim_slot<TL, EL>(
+pub fn try_claim_slot<S, TL, EL>(
 	slot: Slot,
 	epoch: EpochContext<'_>,
 	local_authority_idx: AuthorityIndex,
-	local_authority_pair: &AuthorityPair,
+	signer: &S,
 	ticket_lookup: TL,
 	erased_secret_lookup: EL,
 ) -> ClaimDecision
 where
+	S: BandersnatchVrfSigner,
 	TL: FnOnce(Slot) -> Option<(TicketId, TicketBody)>,
 	EL: FnOnce(&TicketBody) -> Option<ed25519::Pair>,
 {
 	match ticket_lookup(slot) {
 		Some((_id, body)) => match erased_secret_lookup(&body) {
 			Some(erased_pair) => {
-				let claim = produce_primary_slot_claim(
-					local_authority_pair,
+				match produce_primary_slot_claim(
+					signer,
 					local_authority_idx,
 					slot,
 					epoch,
 					&erased_pair,
-				);
-				ClaimDecision::Primary { authority_idx: local_authority_idx, claim }
+				) {
+					Some(claim) =>
+						ClaimDecision::Primary { authority_idx: local_authority_idx, claim },
+					None => ClaimDecision::NotMyTurn,
+				}
 			},
 			None => ClaimDecision::NotMyTurn,
 		},
 		None => match fallback_winner_index(slot, &epoch) {
-			Some(winner) if winner == local_authority_idx => {
-				let claim = produce_slot_claim(
-					local_authority_pair,
-					local_authority_idx,
-					slot,
-					epoch,
-					None,
-				);
-				ClaimDecision::Fallback { authority_idx: local_authority_idx, claim }
-			},
+			Some(winner) if winner == local_authority_idx =>
+				match produce_slot_claim(signer, local_authority_idx, slot, epoch, None) {
+					Some(claim) =>
+						ClaimDecision::Fallback { authority_idx: local_authority_idx, claim },
+					None => ClaimDecision::NotMyTurn,
+				},
 			_ => ClaimDecision::NotMyTurn,
 		},
 	}

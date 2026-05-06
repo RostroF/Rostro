@@ -71,7 +71,9 @@ pub mod header;
 pub mod import_verifier;
 pub mod producer;
 pub mod providers;
+pub mod signer;
 pub mod slot_claim;
+pub mod slot_driver;
 pub mod slot_worker;
 pub mod ticket_claim;
 pub mod ticket_generation;
@@ -93,7 +95,9 @@ pub use producer::{produce_primary_slot_claim, produce_slot_claim, produce_ticke
 pub use providers::{
 	EpochProvider, EquivocationReporter, KeyOwnershipProver, ProviderError, TicketProvider,
 };
+pub use signer::{BandersnatchVrfSigner, KeystoreSigner};
 pub use slot_claim::verify_slot_claim;
+pub use slot_driver::{start_sassafras, SassafrasClaim, StartSassafrasParams};
 pub use slot_worker::{fallback_winner_index, try_claim_slot, ClaimDecision};
 pub use ticket_claim::{signed_data_for_ticket_binding, verify_ticket_claim};
 pub use ticket_generation::{compute_ticket_id, produce_ticket_envelope};

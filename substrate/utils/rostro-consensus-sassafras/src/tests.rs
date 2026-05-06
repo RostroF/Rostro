@@ -537,7 +537,8 @@ fn produce_then_verify_fallback_slot() {
 		randomness: &RANDOMNESS,
 		authorities: &pubkeys,
 	};
-	let claim = produce_slot_claim(&authorities[1], 1, SLOT.into(), ctx, None);
+	let claim = produce_slot_claim(&authorities[1], 1, SLOT.into(), ctx, None)
+		.expect("AuthorityPair signer never returns None");
 	let resolved =
 		verify_slot_claim(&claim, ctx).expect("produced fallback claim must verify");
 	assert_eq!(resolved, &pubkeys[1]);
@@ -563,7 +564,8 @@ fn produce_then_verify_primary_slot_with_ticket() {
 		SLOT.into(),
 		ctx,
 		&erased_pair,
-	);
+	)
+	.expect("AuthorityPair signer never returns None");
 	assert!(claim.ticket_claim.is_some(), "primary claim must carry ticket_claim");
 
 	// Wrap in a header and run the full verify_block path.
@@ -586,7 +588,8 @@ fn produce_ticket_claim_independently_then_compose() {
 		randomness: &RANDOMNESS,
 		authorities: &pubkeys,
 	};
-	let intermediate = produce_slot_claim(&authorities[0], 0, SLOT.into(), ctx, None);
+	let intermediate = produce_slot_claim(&authorities[0], 0, SLOT.into(), ctx, None)
+		.expect("AuthorityPair signer never returns None");
 
 	let (body, erased_pair) = make_ticket_body("//RostroProducer//Compose");
 	let ticket_claim = produce_ticket_claim(&erased_pair, &intermediate);
@@ -608,7 +611,8 @@ fn produced_claim_with_wrong_authority_index_fails_verification() {
 		randomness: &RANDOMNESS,
 		authorities: &pubkeys,
 	};
-	let claim = produce_slot_claim(&authorities[2], 0, SLOT.into(), ctx, None);
+	let claim = produce_slot_claim(&authorities[2], 0, SLOT.into(), ctx, None)
+		.expect("AuthorityPair signer never returns None");
 	let err = verify_slot_claim(&claim, ctx).unwrap_err();
 	assert!(matches!(err, VerificationError::InvalidVrfSignature { .. }));
 }
