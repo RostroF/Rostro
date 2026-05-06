@@ -62,6 +62,7 @@
 #![warn(missing_docs)]
 
 pub mod epoch;
+pub mod equivocation;
 pub mod error;
 pub mod header;
 pub mod producer;
@@ -74,6 +75,7 @@ pub mod verifier;
 mod tests;
 
 pub use epoch::EpochContext;
+pub use equivocation::EquivocationDetector;
 pub use error::VerificationError;
 pub use header::{extract_consensus_log, extract_next_epoch_descriptor, extract_slot_claim};
 pub use producer::{produce_primary_slot_claim, produce_slot_claim, produce_ticket_claim};

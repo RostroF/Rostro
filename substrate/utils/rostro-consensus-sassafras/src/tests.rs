@@ -613,6 +613,148 @@ fn produced_claim_with_wrong_authority_index_fails_verification() {
 	assert!(matches!(err, VerificationError::InvalidVrfSignature { .. }));
 }
 
+// ─── Equivocation detection ──────────────────────────────────────────────
+
+mod equivocation_tests {
+	use super::*;
+	use crate::equivocation::EquivocationDetector;
+
+	/// Build a header that *would* be valid under the given epoch
+	/// context. Differentiator nudges the state_root so two headers
+	/// for the same slot are distinct.
+	fn make_valid_header(
+		pair: &AuthorityPair,
+		authority_idx: u32,
+		slot: u64,
+		differentiator: u8,
+	) -> TestHeader {
+		let claim = build_claim(pair, authority_idx, slot.into(), &RANDOMNESS, EPOCH_INDEX);
+		TestHeader {
+			parent_hash: H256::zero(),
+			number: 1,
+			state_root: H256::repeat_byte(differentiator),
+			extrinsics_root: H256::zero(),
+			digest: Digest { logs: vec![pre_runtime_item(&claim)] },
+		}
+	}
+
+	fn ctx<'a>(pubkeys: &'a [AuthorityId]) -> EpochContext<'a> {
+		EpochContext { index: EPOCH_INDEX, randomness: &RANDOMNESS, authorities: pubkeys }
+	}
+
+	#[test]
+	fn first_observation_is_not_equivocation() {
+		let authorities = make_authorities(2);
+		let pubkeys = pubkeys(&authorities);
+		let header = make_valid_header(&authorities[0], 0, SLOT, 0xAA);
+
+		let mut detector = EquivocationDetector::<TestHeader>::new();
+		let result = detector.observe(header, ctx(&pubkeys)).expect("verify ok");
+		assert!(result.is_none(), "first sighting must not raise equivocation");
+		assert_eq!(detector.tracked_count(), 1);
+	}
+
+	#[test]
+	fn duplicate_header_is_not_equivocation() {
+		let authorities = make_authorities(1);
+		let pubkeys = pubkeys(&authorities);
+		let header = make_valid_header(&authorities[0], 0, SLOT, 0xAA);
+
+		let mut detector = EquivocationDetector::<TestHeader>::new();
+		detector.observe(header.clone(), ctx(&pubkeys)).unwrap();
+		let result = detector.observe(header, ctx(&pubkeys)).expect("verify ok");
+		assert!(
+			result.is_none(),
+			"identical header re-observed is a duplicate import, not equivocation"
+		);
+		assert_eq!(detector.tracked_count(), 1);
+	}
+
+	#[test]
+	fn distinct_headers_same_slot_same_authority_is_equivocation() {
+		let authorities = make_authorities(2);
+		let pubkeys = pubkeys(&authorities);
+		// Both headers carry valid slot claims for slot SLOT by
+		// authority 0, but differ in state_root → different block hash.
+		let header_a = make_valid_header(&authorities[0], 0, SLOT, 0xAA);
+		let header_b = make_valid_header(&authorities[0], 0, SLOT, 0xBB);
+
+		let mut detector = EquivocationDetector::<TestHeader>::new();
+		detector.observe(header_a.clone(), ctx(&pubkeys)).unwrap();
+		let result = detector.observe(header_b.clone(), ctx(&pubkeys)).unwrap();
+		let proof = result.expect("equivocation must be detected");
+		assert_eq!(proof.offender, pubkeys[0]);
+		assert_eq!(proof.slot, Slot::from(SLOT));
+		assert_ne!(
+			proof.first_header.state_root, proof.second_header.state_root,
+			"proof's two headers must be distinct"
+		);
+	}
+
+	#[test]
+	fn different_slots_same_authority_is_not_equivocation() {
+		let authorities = make_authorities(1);
+		let pubkeys = pubkeys(&authorities);
+		let header_slot_a = make_valid_header(&authorities[0], 0, SLOT, 0xAA);
+		let header_slot_b = make_valid_header(&authorities[0], 0, SLOT + 1, 0xBB);
+
+		let mut detector = EquivocationDetector::<TestHeader>::new();
+		detector.observe(header_slot_a, ctx(&pubkeys)).unwrap();
+		let result = detector.observe(header_slot_b, ctx(&pubkeys)).expect("verify ok");
+		assert!(result.is_none(), "different slots = different keys = no equivocation");
+		assert_eq!(detector.tracked_count(), 2);
+	}
+
+	#[test]
+	fn different_authorities_same_slot_is_not_equivocation() {
+		// Different validators legitimately can't both be assigned the
+		// same slot in real Sassafras, but our detector's job is just
+		// "same authority, different blocks." Two authorities each
+		// signing for the same slot via separate pairs is a distinct
+		// pathology (would be caught by the on-chain ticket assignment
+		// rule, not by the equivocation detector).
+		let authorities = make_authorities(2);
+		let pubkeys = pubkeys(&authorities);
+		let header_a = make_valid_header(&authorities[0], 0, SLOT, 0xAA);
+		let header_b = make_valid_header(&authorities[1], 1, SLOT, 0xBB);
+
+		let mut detector = EquivocationDetector::<TestHeader>::new();
+		detector.observe(header_a, ctx(&pubkeys)).unwrap();
+		let result = detector.observe(header_b, ctx(&pubkeys)).expect("verify ok");
+		assert!(result.is_none(), "different authorities → no equivocation per this detector");
+	}
+
+	#[test]
+	fn clear_drops_state() {
+		let authorities = make_authorities(1);
+		let pubkeys = pubkeys(&authorities);
+		let header = make_valid_header(&authorities[0], 0, SLOT, 0xAA);
+		let mut detector = EquivocationDetector::<TestHeader>::new();
+		detector.observe(header, ctx(&pubkeys)).unwrap();
+		assert_eq!(detector.tracked_count(), 1);
+		detector.clear();
+		assert_eq!(detector.tracked_count(), 0);
+	}
+
+	#[test]
+	fn observe_propagates_verification_errors() {
+		let authorities = make_authorities(1);
+		let pubkeys = pubkeys(&authorities);
+		// Header with no PreRuntime entry — will fail verify_header
+		// before reaching the duplicate check.
+		let header = TestHeader {
+			parent_hash: H256::zero(),
+			number: 1,
+			state_root: H256::zero(),
+			extrinsics_root: H256::zero(),
+			digest: Digest { logs: vec![] },
+		};
+		let mut detector = EquivocationDetector::<TestHeader>::new();
+		let err = detector.observe(header, ctx(&pubkeys)).unwrap_err();
+		assert!(matches!(err, VerificationError::MissingSlotClaim));
+	}
+}
+
 // ─── Ticket generation ───────────────────────────────────────────────────
 
 mod ticket_gen_tests {
