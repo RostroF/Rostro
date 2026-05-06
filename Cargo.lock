@@ -12277,6 +12277,7 @@ dependencies = [
  "parity-scale-codec",
  "rand 0.8.5",
  "rc-consensus",
+ "sp-api 41.0.0",
  "sp-consensus 0.47.0",
  "sp-consensus-sassafras",
  "sp-core 40.0.0",
