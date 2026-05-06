@@ -613,6 +613,7 @@ pallet-recovery = { path = "substrate/frame/recovery", default-features = false 
 pallet-referenda = { path = "substrate/frame/referenda", default-features = false }
 pallet-root-offences = { default-features = false, path = "substrate/frame/root-offences" }
 pallet-root-testing = { path = "substrate/frame/root-testing", default-features = false }
+pallet-sassafras = { path = "substrate/frame/sassafras", default-features = false }
 pallet-scheduler = { path = "substrate/frame/scheduler", default-features = false }
 pallet-session = { path = "substrate/frame/session", default-features = false }
 pallet-session-benchmarking = { path = "substrate/frame/session/benchmarking", default-features = false }

@@ -39,6 +39,15 @@ pallet-balances = { workspace = true }
 pallet-grandpa = { workspace = true }
 pallet-multisig = { workspace = true }
 pallet-proxy = { workspace = true }
+# Sassafras lives in the runtime tree as a *dormant* dependency at R1: types
+# are available so node-side and chainspec code can name them, but the pallet
+# is NOT yet wired into `construct_runtime!`. Its `on_initialize` hard-expects
+# a `SASS` pre-runtime digest on every block, which Aura blocks don't carry —
+# wiring it live before the Sassafras-aware slot worker exists would brick
+# the chain. The full integration (construct_runtime entry, Config impl,
+# SassafrasApi runtime API) lands in Phase Ring R3 alongside the chainspec
+# switch + `rc-consensus-sassafras` worker.
+pallet-sassafras = { workspace = true }
 pallet-session = { workspace = true }
 pallet-sudo = { workspace = true }
 pallet-timestamp = { workspace = true }
@@ -62,6 +71,7 @@ sp-block-builder = { workspace = true }
 sp-debug-derive = { workspace = true }
 sp-consensus-aura = { features = ["serde"], workspace = true }
 sp-consensus-grandpa = { features = ["serde"], workspace = true }
+sp-consensus-sassafras = { features = ["serde"], workspace = true }
 sp-core = { features = ["serde"], workspace = true }
 sp-genesis-builder = { workspace = true }
 sp-inherents = { workspace = true }
@@ -103,6 +113,7 @@ std = [
 	"pallet-rostro-type-registry/std",
 	"rns-runtime-api/std",
 	"rns-types/std",
+	"pallet-sassafras/std",
 	"pallet-session/std",
 	"pallet-sudo/std",
 	"pallet-timestamp/std",
@@ -114,6 +125,7 @@ std = [
 	"sp-debug-derive/std",
 	"sp-consensus-aura/std",
 	"sp-consensus-grandpa/std",
+	"sp-consensus-sassafras/std",
 	"sp-core/std",
 	"sp-genesis-builder/std",
 	"sp-inherents/std",

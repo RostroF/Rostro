@@ -357,3 +357,9 @@ impl_runtime_apis! {
 
 pub use pallet_grandpa::AuthorityId as GrandpaId;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
+
+// Phase Ring R1: Sassafras authority type re-exported for downstream
+// (chainspec, node-service) reference. The pallet itself is *not* yet wired
+// into `construct_runtime!` — see the comment in `Cargo.toml`. R3 lands the
+// live integration alongside the chainspec switch.
+pub use sp_consensus_sassafras::AuthorityId as SassafrasId;
