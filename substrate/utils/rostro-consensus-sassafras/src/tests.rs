@@ -772,6 +772,150 @@ mod import_verifier_tests {
 	}
 }
 
+// ─── aux_schema: CachedEpochProvider (R2.5b) ─────────────────────────────
+
+mod aux_schema_tests {
+	use super::*;
+	use crate::{
+		aux_schema::CachedEpochProvider,
+		providers::{EpochProvider, ProviderError},
+	};
+	use sp_consensus_sassafras::{Epoch, EpochConfiguration};
+	use std::sync::atomic::{AtomicUsize, Ordering};
+
+	type TestBlock = sp_runtime::generic::Block<TestHeader, sp_runtime::OpaqueExtrinsic>;
+
+	/// EpochProvider that counts how many times each method is called.
+	/// Used to verify the cache actually short-circuits on hits.
+	struct CountingProvider {
+		epoch: Epoch,
+		next_epoch: Epoch,
+		epoch_calls: AtomicUsize,
+		next_epoch_calls: AtomicUsize,
+	}
+	impl EpochProvider<TestBlock> for CountingProvider {
+		fn epoch_at(&self, _: H256) -> Result<Epoch, ProviderError> {
+			self.epoch_calls.fetch_add(1, Ordering::SeqCst);
+			Ok(self.epoch.clone())
+		}
+		fn next_epoch_at(&self, _: H256) -> Result<Epoch, ProviderError> {
+			self.next_epoch_calls.fetch_add(1, Ordering::SeqCst);
+			Ok(self.next_epoch.clone())
+		}
+	}
+
+	fn make_test_epoch(index: u64) -> Epoch {
+		Epoch {
+			index,
+			start: 0u64.into(),
+			length: 100,
+			randomness: [index as u8; 32],
+			authorities: vec![],
+			config: EpochConfiguration { redundancy_factor: 2, attempts_number: 64 },
+		}
+	}
+
+	#[test]
+	fn second_lookup_with_same_parent_hits_cache() {
+		let counting = CountingProvider {
+			epoch: make_test_epoch(7),
+			next_epoch: make_test_epoch(8),
+			epoch_calls: AtomicUsize::new(0),
+			next_epoch_calls: AtomicUsize::new(0),
+		};
+		let cached = CachedEpochProvider::<TestBlock, _>::new(counting);
+
+		let parent = H256::repeat_byte(0xAB);
+		let _ = cached.epoch_at(parent).unwrap();
+		let _ = cached.epoch_at(parent).unwrap();
+		let _ = cached.epoch_at(parent).unwrap();
+
+		assert_eq!(
+			cached.cache_size(),
+			1,
+			"three calls with same parent → one cache entry"
+		);
+	}
+
+	#[test]
+	fn distinct_parents_each_populate_cache() {
+		let counting = CountingProvider {
+			epoch: make_test_epoch(7),
+			next_epoch: make_test_epoch(8),
+			epoch_calls: AtomicUsize::new(0),
+			next_epoch_calls: AtomicUsize::new(0),
+		};
+		let cached = CachedEpochProvider::<TestBlock, _>::new(counting);
+
+		let _ = cached.epoch_at(H256::repeat_byte(0x01)).unwrap();
+		let _ = cached.epoch_at(H256::repeat_byte(0x02)).unwrap();
+		let _ = cached.epoch_at(H256::repeat_byte(0x03)).unwrap();
+
+		assert_eq!(cached.cache_size(), 3);
+	}
+
+	#[test]
+	fn next_epoch_does_not_populate_cache() {
+		let counting = CountingProvider {
+			epoch: make_test_epoch(7),
+			next_epoch: make_test_epoch(8),
+			epoch_calls: AtomicUsize::new(0),
+			next_epoch_calls: AtomicUsize::new(0),
+		};
+		let cached = CachedEpochProvider::<TestBlock, _>::new(counting);
+
+		let _ = cached.next_epoch_at(H256::repeat_byte(0x01)).unwrap();
+		let _ = cached.next_epoch_at(H256::repeat_byte(0x01)).unwrap();
+
+		assert_eq!(cached.cache_size(), 0, "next-epoch lookups bypass cache by design");
+	}
+
+	#[test]
+	fn evict_below_epoch_drops_old_entries() {
+		// Populate with epochs 5, 6, 7. Evict below 7. Only the
+		// epoch-7 entry should survive.
+		struct VaryingProvider {
+			next_index: AtomicUsize,
+		}
+		impl EpochProvider<TestBlock> for VaryingProvider {
+			fn epoch_at(&self, _: H256) -> Result<Epoch, ProviderError> {
+				// Cycle through epoch indices 5, 6, 7 across calls.
+				let idx = 5 + (self.next_index.fetch_add(1, Ordering::SeqCst) % 3) as u64;
+				Ok(make_test_epoch(idx))
+			}
+			fn next_epoch_at(&self, _: H256) -> Result<Epoch, ProviderError> {
+				Ok(make_test_epoch(99))
+			}
+		}
+
+		let cached = CachedEpochProvider::<TestBlock, _>::new(VaryingProvider {
+			next_index: AtomicUsize::new(0),
+		});
+		let _ = cached.epoch_at(H256::repeat_byte(0x05)).unwrap();
+		let _ = cached.epoch_at(H256::repeat_byte(0x06)).unwrap();
+		let _ = cached.epoch_at(H256::repeat_byte(0x07)).unwrap();
+		assert_eq!(cached.cache_size(), 3);
+
+		cached.evict_below_epoch(7);
+		assert_eq!(cached.cache_size(), 1, "only epoch-7 entry survives");
+	}
+
+	#[test]
+	fn clear_drops_everything() {
+		let cached = CachedEpochProvider::<TestBlock, _>::new(CountingProvider {
+			epoch: make_test_epoch(1),
+			next_epoch: make_test_epoch(2),
+			epoch_calls: AtomicUsize::new(0),
+			next_epoch_calls: AtomicUsize::new(0),
+		});
+		let _ = cached.epoch_at(H256::repeat_byte(0x01)).unwrap();
+		let _ = cached.epoch_at(H256::repeat_byte(0x02)).unwrap();
+		assert_eq!(cached.cache_size(), 2);
+		cached.clear();
+		assert_eq!(cached.cache_size(), 0);
+	}
+}
+
 // ─── Equivocation reporter loop (R2.5e) ─────────────────────────────────
 
 mod equivocation_reporter_tests {

@@ -61,6 +61,7 @@
 
 #![warn(missing_docs)]
 
+pub mod aux_schema;
 pub mod epoch;
 pub mod equivocation;
 pub mod equivocation_reporter;
@@ -77,6 +78,7 @@ pub mod verifier;
 #[cfg(test)]
 mod tests;
 
+pub use aux_schema::CachedEpochProvider;
 pub use epoch::EpochContext;
 pub use equivocation::EquivocationDetector;
 pub use equivocation_reporter::{process_equivocation, ReportOutcome};
