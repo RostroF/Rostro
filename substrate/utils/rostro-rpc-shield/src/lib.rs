@@ -33,12 +33,14 @@
 
 pub mod inflight;
 pub mod penalty;
+pub mod policy_cache;
 pub mod ratelimit;
 pub mod shield;
 pub mod statecall;
 
 pub use inflight::{InFlightCap, OwnedInflightGuard};
 pub use penalty::PenaltyTracker;
+pub use policy_cache::PolicyCache;
 pub use ratelimit::{MethodRateLimiter, SourceRateLimiter, subnet_key};
 pub use shield::{Decision, DenyReason, Shield, ShieldConfig};
 pub use statecall::{MethodPolicy, StateCallPolicy};

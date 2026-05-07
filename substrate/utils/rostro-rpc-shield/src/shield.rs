@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::inflight::{InFlightCap, OwnedInflightGuard};
+use crate::policy_cache::PolicyCache;
 use crate::penalty::PenaltyTracker;
 use crate::ratelimit::{MethodRateLimiter, SourceRateLimiter, subnet_key};
 use crate::statecall::{MethodPolicy, StateCallPolicy};
@@ -83,11 +84,25 @@ pub enum Decision {
 /// future cancellation (connection close mid-request, timeout, etc.) —
 /// the slot releases on guard drop regardless of whether the holding
 /// future ever resumes.
+///
+/// The state_call method policy is sourced from two layers:
+///   1. **Primary**: an on-chain registry (`pallet-rostro-rpc-method-policy`)
+///      mirrored into [`PolicyCache`]. The substrate-side bridge code
+///      refreshes the cache periodically.
+///   2. **Fallback**: hard-coded [`StateCallPolicy::lookup`]. Used while
+///      the cache is unbootstrapped (early in startup, before the first
+///      successful runtime API query) or if the chain becomes unreachable.
+///
+/// Both layers share a single [`MethodPolicy`] enum. When the cache is
+/// bootstrapped its answer wins, including for "method not found" — the
+/// hard-coded fallback only fires when the cache hasn't heard from chain
+/// yet.
 pub struct Shield {
 	cfg: ShieldConfig,
 	inflight: Arc<InFlightCap>,
 	state: Mutex<MutableState>,
 	started: Instant,
+	policy_cache: PolicyCache,
 }
 
 struct MutableState {
@@ -97,7 +112,9 @@ struct MutableState {
 }
 
 impl Shield {
-	/// Construct from configuration.
+	/// Construct from configuration. The policy cache starts empty; the
+	/// substrate-side bridge populates it after the runtime API becomes
+	/// queryable (typically a few seconds after startup).
 	pub fn new(cfg: ShieldConfig) -> Self {
 		Self {
 			inflight: Arc::new(InFlightCap::new(cfg.inflight_cap)),
@@ -108,12 +125,19 @@ impl Shield {
 				penalty: PenaltyTracker::new(),
 			}),
 			started: Instant::now(),
+			policy_cache: PolicyCache::new(),
 		}
 	}
 
 	/// Read configuration.
 	pub fn config(&self) -> &ShieldConfig {
 		&self.cfg
+	}
+
+	/// Cloneable handle to the policy cache, for the substrate-side
+	/// refresh task to push updates into. Cheap clone (Arc).
+	pub fn policy_cache(&self) -> PolicyCache {
+		self.policy_cache.clone()
 	}
 
 	/// Convert wall-clock to monotonic micros for the rate limiters.
@@ -186,7 +210,8 @@ impl Shield {
 		runtime_api_method: &str,
 		is_loopback: bool,
 	) -> (Decision, Option<OwnedInflightGuard>) {
-		match StateCallPolicy::lookup(runtime_api_method) {
+		let policy = self.resolve_policy(runtime_api_method);
+		match policy {
 			MethodPolicy::Deny => (Decision::Deny(DenyReason::StateCallDenied), None),
 			MethodPolicy::LocalOnly if !is_loopback => {
 				(Decision::Deny(DenyReason::StateCallLocalOnly), None)
@@ -198,6 +223,24 @@ impl Shield {
 				self.check_request(source, runtime_api_method)
 			}
 		}
+	}
+
+	/// Resolve a state_call method to its policy.
+	///
+	/// On-chain cache wins when bootstrapped — including its "not found"
+	/// answer (which becomes Deny, the explicit-allowlist default). The
+	/// hard-coded [`StateCallPolicy::lookup`] is the fallback used only
+	/// while the cache hasn't heard from chain yet (typically a few
+	/// seconds at startup) or if the chain becomes unreachable and the
+	/// refresh task has stopped pushing updates. Either way the result
+	/// is a single [`MethodPolicy`]; the cache's "not found while
+	/// bootstrapped" maps to Deny because that's the registry's
+	/// default-deny semantics.
+	fn resolve_policy(&self, method: &str) -> MethodPolicy {
+		if self.policy_cache.is_bootstrapped() {
+			return self.policy_cache.lookup(method.as_bytes()).unwrap_or(MethodPolicy::Deny);
+		}
+		StateCallPolicy::lookup(method)
 	}
 
 	/// Gate the response payload size. Call before sending the response

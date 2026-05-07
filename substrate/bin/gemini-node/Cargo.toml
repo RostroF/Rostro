@@ -26,6 +26,7 @@ futures = { workspace = true }
 hex = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
 jsonrpsee = { workspace = true, features = ["server"] }
+log = { workspace = true, default-features = true }
 tokio = { workspace = true, default-features = true }
 tracing = { workspace = true, default-features = true }
 
@@ -42,6 +43,7 @@ rc-network = { workspace = true, default-features = true }
 rc-network-sync = { workspace = true, default-features = true }
 rc-offchain = { workspace = true, default-features = true }
 rc-rpc-api = { workspace = true, default-features = true }
+rc-rpc-server = { workspace = true, default-features = true }
 rc-service = { workspace = true, default-features = true }
 rc-telemetry = { workspace = true, default-features = true }
 rc-transaction-pool = { workspace = true, default-features = true }
@@ -49,6 +51,7 @@ rc-transaction-pool-api = { workspace = true, default-features = true }
 
 # Frame
 frame-system = { workspace = true, default-features = true }
+pallet-rostro-rpc-method-policy = { workspace = true, default-features = true }
 pallet-transaction-payment = { workspace = true, default-features = true }
 pallet-transaction-payment-rpc = { workspace = true, default-features = true }
 substrate-frame-rpc-system = { workspace = true, default-features = true }
@@ -72,6 +75,11 @@ sp-timestamp = { workspace = true, default-features = true }
 
 # Rostro consensus client (Apache-2.0; we rely on it for the import-queue Verifier impl)
 rostro-consensus-sassafras = { path = "../../utils/rostro-consensus-sassafras", default-features = true }
+
+# Apache-2.0 RPC shield primitives. Substrate's `rc-rpc-server` already
+# depends on this for the middleware adapter; we depend on it directly
+# so `policy_refresh` can use the same `MethodPolicy` enum.
+rostro-rpc-shield = { path = "../../utils/rostro-rpc-shield" }
 
 # The runtime
 gemini-runtime = { workspace = true, default-features = true }

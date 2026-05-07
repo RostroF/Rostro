@@ -33,7 +33,7 @@
 //! built so that plumbing the real source through (via jsonrpsee
 //! `ConnectionGuard` extensions) is a local change to this file only.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use futures::future::{BoxFuture, FutureExt};
 use jsonrpsee::{
@@ -45,6 +45,14 @@ use rostro_rpc_shield::{Decision, DenyReason, Shield, ShieldConfig};
 
 const ROSTRO_RPC_SHIELD_ENV: &str = "ROSTRO_RPC_SHIELD";
 
+/// Process-wide singleton holding the shield (or `None` if not
+/// activated via env). Computed once on the first `from_env()` call,
+/// observed identically by all subsequent callers. This guarantees
+/// that the substrate RPC server's shield instance and the binary's
+/// (e.g. gemini-node's) refresh task operate on the same `Shield`
+/// — they share its `policy_cache`, rate-limit state, etc.
+static SHIELD_SINGLETON: OnceLock<Option<RostroShieldLayer>> = OnceLock::new();
+
 /// Layer that activates the shield from environment configuration.
 #[derive(Clone)]
 pub struct RostroShieldLayer {
@@ -54,19 +62,35 @@ pub struct RostroShieldLayer {
 impl RostroShieldLayer {
 	/// Activate from `ROSTRO_RPC_SHIELD=1`. Returns `None` if the env
 	/// var is unset or set to anything other than `1`.
+	///
+	/// Memoized: the first call computes the layer (or `None`) and
+	/// every subsequent call returns the same instance. This is what
+	/// lets the substrate-side RPC service and the binary-side
+	/// refresh task observe the same `Shield`.
 	pub fn from_env() -> Option<Self> {
-		match std::env::var(ROSTRO_RPC_SHIELD_ENV).ok().as_deref() {
-			Some("1") => Some(Self {
-				shield: Arc::new(Shield::new(ShieldConfig::default())),
-			}),
-			_ => None,
-		}
+		SHIELD_SINGLETON
+			.get_or_init(|| {
+				match std::env::var(ROSTRO_RPC_SHIELD_ENV).ok().as_deref() {
+					Some("1") => Some(Self {
+						shield: Arc::new(Shield::new(ShieldConfig::default())),
+					}),
+					_ => None,
+				}
+			})
+			.clone()
 	}
 
 	/// Construct with an explicit shield. Useful for tests and for
 	/// future config plumbing.
 	pub fn with_shield(shield: Arc<Shield>) -> Self {
 		Self { shield }
+	}
+
+	/// Cloneable handle to the underlying shield. Used by the
+	/// substrate-side bridge (`spawn_chain_policy_refresh`) to push
+	/// on-chain policy data into the shield's [`PolicyCache`].
+	pub fn shield(&self) -> Arc<Shield> {
+		self.shield.clone()
 	}
 }
 

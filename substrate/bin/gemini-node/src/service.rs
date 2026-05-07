@@ -227,6 +227,16 @@ pub fn new_full<
 	// while the node is acting as a validator.
 	crate::role::spawn_self_audit_if_validator(role, &task_manager.spawn_handle());
 
+	// Phase 6.1c: refresh the rostro-rpc-shield's policy cache from
+	// the on-chain `pallet-rostro-rpc-method-policy` registry. No-op
+	// when the shield is disabled (ROSTRO_RPC_SHIELD env var unset).
+	let shield_layer = rc_rpc_server::middleware::RostroShieldLayer::from_env();
+	crate::policy_refresh::spawn(
+		&shield_layer,
+		client.clone(),
+		&task_manager.spawn_handle(),
+	);
+
 	let force_authoring = config.force_authoring;
 	let backoff_authoring_blocks: Option<()> = None;
 	let name = config.network.node_name.clone();
