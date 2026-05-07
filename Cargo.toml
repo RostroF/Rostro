@@ -283,6 +283,8 @@ members = [
 	"substrate/utils/rostro-consensus-sassafras",
 	"substrate/utils/rostro-kzg-srs",
 	"substrate/utils/rostro-ratchet",
+	"substrate/utils/rostro-rpc-shield",
+	"substrate/utils/rostro-sassafras-redteam",
 	"substrate/utils/rostro-trace",
 	"substrate/utils/prometheus",
 	"substrate/utils/substrate-bip39",

@@ -11638,6 +11638,7 @@ dependencies = [
  "jsonrpsee",
  "log",
  "rc-rpc-api",
+ "rostro-rpc-shield",
  "serde",
  "serde_json",
  "substrate-prometheus-endpoint 0.17.7",
@@ -12506,6 +12507,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-rpc-shield"
+version = "0.1.0"
+
+[[package]]
 name = "rostro-runtime"
 version = "0.1.0"
 dependencies = [
@@ -12559,6 +12564,25 @@ dependencies = [
  "sp-transaction-pool",
  "sp-version 44.0.0",
  "substrate-wasm-builder",
+]
+
+[[package]]
+name = "rostro-sassafras-redteam"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "jsonrpsee",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "sp-consensus-sassafras",
+ "sp-core 40.0.0",
+ "sp-runtime 46.0.0",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
