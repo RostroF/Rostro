@@ -79,6 +79,79 @@ Production builds use the standard cargo workflow. Specific build targets
 (camino-runtime, canaria-runtime, rostro-runtime) will be added as the runtime
 integration lands.
 
+## Running the gemini testbed
+
+`gemini-node` is the current testbed binary — Sassafras + GRANDPA consensus
+over `gemini-runtime`. Two-node bring-up:
+
+```sh
+# Build
+cargo build --release -p gemini-node
+
+# Insert each validator's bandersnatch authority key into its keystore
+./target/release/gemini-node insert-sassafras-key --suri "//Alice" --base-path /tmp/gemini-alice
+./target/release/gemini-node insert-sassafras-key --suri "//Bob"   --base-path /tmp/gemini-bob
+
+# Spin up Alice
+ROSTRO_RPC_SHIELD=1 ./target/release/gemini-node \
+  --chain local --base-path /tmp/gemini-alice --alice \
+  --port 30334 --rpc-port 9934 --validator \
+  --node-key 0000000000000000000000000000000000000000000000000000000000000001 \
+  --no-mdns
+
+# Spin up Bob, peering with Alice
+ROSTRO_RPC_SHIELD=1 ./target/release/gemini-node \
+  --chain local --base-path /tmp/gemini-bob --bob \
+  --port 30335 --rpc-port 9935 --validator \
+  --node-key 0000000000000000000000000000000000000000000000000000000000000002 \
+  --bootnodes /ip4/127.0.0.1/tcp/30334/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp \
+  --no-mdns
+```
+
+The chain produces blocks at ~10/min (6s slot, sub-block finality). Validators
+run a host-side ticket-generation worker that submits ring-VRF tickets on each
+epoch transition, populating the on-chain ticket pool that drives Sassafras's
+anonymous slot assignment.
+
+### Code-enforced operational invariants
+
+The binary refuses to run in any combination that would compromise security,
+regardless of CLI flags or configuration files:
+
+- **Validator role + non-loopback RPC binding → hard reject** at boot
+  (no `--unsafe-rpc-external` escape hatch on validators).
+- **Validator role + `--rpc-methods=unsafe` → hard reject** at boot.
+- **Configured non-validator + on-chain authority key in active set →
+  fail-stop crash** at the chain-state self-check (operator has been
+  elected but binary won't author; halt before silent absence harms
+  finality).
+
+These are enforced by the binary itself, not by operator discipline. Polkadot
+prints warnings; Rostro refuses.
+
+### `ROSTRO_RPC_SHIELD=1`
+
+Activates the `rostro-rpc-shield` defense-in-depth RPC middleware
+(`substrate/utils/rostro-rpc-shield`, Apache-2.0). The shield reads the
+on-chain `pallet-rostro-rpc-method-policy` registry — a SRT-gated table that
+classifies each runtime API method as `PublicSafe`, `PublicGated`,
+`LocalOnly`, or `Deny`. State_call dispatches are gated against this table;
+runtime upgrades that add new methods ship the access policy in the same
+upgrade, so the shield's allowlist stays coordinated with WASM hot-swaps.
+
+The shield additionally provides per-/24 source rate limiting, escalating
+penalty tracking on rate-limit exhaustion, and inflight cap enforcement —
+patterned on the [snorkel](https://github.com/jarchain/snorkel) DNS
+resolver's abuse-absorption layer.
+
+### Topology, not just config
+
+Validators do not expose public RPC. Public RPC is served by separate
+non-validator nodes (or a future dedicated `rostro-rpc-node` role). This
+separation is enforced by the binary's role checks and supported by future
+role-binary builds; see `memory/low_barrier_north_star.md` and the validator
+graduation rules in the project's prelaunch documentation.
+
 ## Contributing
 
 Rostro is open to contributions under Apache-2.0. See [CONTRIBUTING.md](./CONTRIBUTING.md)

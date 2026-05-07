@@ -13,6 +13,7 @@ mod policy_refresh;
 mod role;
 mod rpc;
 mod service;
+mod ticket_submitter;
 
 fn main() -> rc_cli::Result<()> {
 	command::run()

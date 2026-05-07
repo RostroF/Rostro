@@ -243,13 +243,20 @@ pub fn new_full<
 	// to deterministic round-robin slot assignment from the active
 	// authority set — block production works, but Sassafras's
 	// anonymous-slot guarantee evaporates.
+	//
+	// Submission goes through `PoolTicketSubmitter` (push the
+	// `UncheckedExtrinsic` straight into the local transaction pool
+	// with `TransactionSource::Local`) rather than
+	// `ClientProviders::submit_ticket` (which routes through the
+	// runtime API and panics host-side because no offchain extension
+	// is registered). The pallet's `validate_unsigned` accepts Local
+	// + InBlock sources, so the local-mempool path lands.
 	if role.is_authority() {
-		// The same ClientProviders instance built for the import-queue
-		// earlier in `new_partial` would be ideal, but it's owned by
-		// the verifier. Construct a fresh one — same client, same
-		// dispatch path, just a separate handle.
 		let ticket_submitter = Arc::new(
-			ClientProviders::<Block, _>::new(client.clone()),
+			crate::ticket_submitter::PoolTicketSubmitter::new(
+				transaction_pool.clone(),
+				client.clone(),
+			),
 		);
 		task_manager.spawn_handle().spawn(
 			"sassafras-ticket-worker",

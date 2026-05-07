@@ -50,8 +50,11 @@ rc-transaction-pool = { workspace = true, default-features = true }
 rc-transaction-pool-api = { workspace = true, default-features = true }
 
 # Frame
+codec = { workspace = true, default-features = true, features = ["derive"] }
+frame-support = { workspace = true, default-features = true }
 frame-system = { workspace = true, default-features = true }
 pallet-rostro-rpc-method-policy = { workspace = true, default-features = true }
+pallet-sassafras = { workspace = true, default-features = true }
 pallet-transaction-payment = { workspace = true, default-features = true }
 pallet-transaction-payment-rpc = { workspace = true, default-features = true }
 substrate-frame-rpc-system = { workspace = true, default-features = true }

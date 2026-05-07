@@ -95,15 +95,15 @@ pub async fn run<Client, Block, Submitter>(
 	Client::Api: SassafrasApi<Block>,
 	Submitter: TicketSubmitter<Block> + 'static,
 {
-	let mut last_epoch_index: Option<u64> = None;
+	let mut last_epoch_key: Option<u64> = None;
 	loop {
-		match try_round(&*client, &keystore, &*submitter, last_epoch_index).await {
+		match try_round(&*client, &keystore, &*submitter, last_epoch_key).await {
 			Ok(EpochOutcome::SkippedSameEpoch) => {}
-			Ok(EpochOutcome::Generated { epoch_index, stats }) => {
-				last_epoch_index = Some(epoch_index);
+			Ok(EpochOutcome::Generated { epoch_key, stats }) => {
+				last_epoch_key = Some(epoch_key);
 				log::info!(
 					target: "rostro-sassafras-ticket-worker",
-					"epoch {epoch_index}: generated {stats:?}",
+					"epoch (start_slot={epoch_key}): generated {stats:?}",
 				);
 			}
 			Ok(EpochOutcome::NotAuthority) => {
@@ -126,7 +126,7 @@ pub async fn run<Client, Block, Submitter>(
 enum EpochOutcome {
 	SkippedSameEpoch,
 	NotAuthority,
-	Generated { epoch_index: u64, stats: SubmissionStats },
+	Generated { epoch_key: u64, stats: SubmissionStats },
 }
 
 /// Single poll iteration. Returns immediately if epoch hasn't changed
@@ -136,7 +136,7 @@ async fn try_round<Client, Block, Submitter>(
 	client: &Client,
 	keystore: &KeystorePtr,
 	submitter: &Submitter,
-	last_epoch_index: Option<u64>,
+	last_epoch_key: Option<u64>,
 ) -> Result<EpochOutcome, String>
 where
 	Block: BlockT,
@@ -150,11 +150,31 @@ where
 	let epoch: Epoch = api
 		.current_epoch(best)
 		.map_err(|e| format!("current_epoch: {e:?}"))?;
-	let epoch_index = epoch_index_from(&epoch);
+	// Use `epoch.start` (the slot the epoch began at) as the
+	// epoch-identity key. It's stable across all blocks within the
+	// same epoch and changes exactly once per epoch transition. An
+	// earlier version computed `slot / length` which incremented
+	// every slot and caused continuous resubmission.
+	// `epoch_key` is our same-epoch detector — `epoch.start` (the slot
+	// the epoch began at) is constant within the epoch and changes
+	// once per epoch transition.
+	let epoch_key: u64 = (*epoch.start).into();
 
-	if last_epoch_index == Some(epoch_index) {
+	if last_epoch_key == Some(epoch_key) {
 		return Ok(EpochOutcome::SkippedSameEpoch);
 	}
+
+	// `epoch_index` is the chain's integer epoch identifier (epoch
+	// number 0, 1, 2, …) — what `ticket_id_input` mixes into the VRF
+	// preimage. Derived as `start_slot / epoch_length`. Defensive
+	// against zero length: a malformed epoch shouldn't crash the
+	// worker, just produce a spurious epoch_index = 0 that the chain
+	// will refuse on verification.
+	let epoch_index: u64 = if epoch.length > 0 {
+		epoch_key / (epoch.length as u64)
+	} else {
+		0
+	};
 
 	// Find which authority slot we hold a key for. The keystore's
 	// bandersnatch_public_keys returns raw bandersnatch::Public; the
@@ -244,7 +264,7 @@ where
 	// Submit the batch. submit_batch's stats let us telemetry-log
 	// per-epoch effort vs. effective contribution.
 	let stats = crate::ticket_submission::submit_batch::<Block, _>(envelopes, submitter).await;
-	Ok(EpochOutcome::Generated { epoch_index, stats })
+	Ok(EpochOutcome::Generated { epoch_key, stats })
 }
 
 /// Convert an app-wrapped Sassafras `AuthorityId` to the raw
@@ -276,18 +296,3 @@ fn find_authority(
 	None
 }
 
-/// The chain encodes "epoch index" as start_slot / epoch_length. We
-/// reproduce that derivation here rather than asking the runtime API
-/// for it explicitly (the API exposes the parts but not the index).
-fn epoch_index_from(epoch: &Epoch) -> u64 {
-	let start: u64 = (*epoch.start).into();
-	let length = epoch.length as u64;
-	if length == 0 {
-		// Defensive: a zero-length epoch is malformed but shouldn't
-		// crash the worker. Treat as "no epoch index"; caller sees a
-		// fresh epoch each round and re-submits tickets, which is
-		// wasteful but not unsafe.
-		return 0;
-	}
-	start / length
-}
