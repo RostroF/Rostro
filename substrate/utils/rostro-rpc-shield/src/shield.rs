@@ -17,10 +17,10 @@
 //! this crate to have minimal deps.
 
 use std::net::IpAddr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::inflight::InFlightCap;
+use crate::inflight::{InFlightCap, OwnedInflightGuard};
 use crate::penalty::PenaltyTracker;
 use crate::ratelimit::{MethodRateLimiter, SourceRateLimiter, subnet_key};
 use crate::statecall::{MethodPolicy, StateCallPolicy};
@@ -77,9 +77,15 @@ pub enum Decision {
 
 /// Shield orchestrator: one instance per node, shared across all RPC
 /// worker threads.
+///
+/// The inflight cap is held in `Arc<InFlightCap>` so it can hand out
+/// owned RAII guards. This makes the acquisition pattern resilient to
+/// future cancellation (connection close mid-request, timeout, etc.) —
+/// the slot releases on guard drop regardless of whether the holding
+/// future ever resumes.
 pub struct Shield {
 	cfg: ShieldConfig,
-	inflight: InFlightCap,
+	inflight: Arc<InFlightCap>,
 	state: Mutex<MutableState>,
 	started: Instant,
 }
@@ -94,7 +100,7 @@ impl Shield {
 	/// Construct from configuration.
 	pub fn new(cfg: ShieldConfig) -> Self {
 		Self {
-			inflight: InFlightCap::new(cfg.inflight_cap),
+			inflight: Arc::new(InFlightCap::new(cfg.inflight_cap)),
 			cfg,
 			state: Mutex::new(MutableState {
 				src_rl: SourceRateLimiter::new(),
@@ -122,13 +128,15 @@ impl Shield {
 	/// exhaustion records a penalty strike so repeat offenders escalate
 	/// into the cheap penalty-block path.
 	///
-	/// The returned [`Decision`] tells the caller whether to proceed.
-	/// On `Allow`, the inflight slot has already been acquired; the
-	/// caller must call [`Self::release_inflight`] when done. We don't
-	/// hand out an RAII guard because async callers can't hold one
-	/// across an `.await` cleanly (lifetime-tied to `&Shield`); a
-	/// separate release call works around that.
-	pub fn check_request(&self, source: IpAddr, method: &str) -> Decision {
+	/// On `Allow`, returns an [`OwnedInflightGuard`] that releases the
+	/// slot on drop. Carry it across the dispatch `.await` so the slot
+	/// frees even if the future is cancelled (connection close,
+	/// timeout, etc.). On `Deny`, no slot was acquired.
+	pub fn check_request(
+		&self,
+		source: IpAddr,
+		method: &str,
+	) -> (Decision, Option<OwnedInflightGuard>) {
 		let subnet = subnet_key(source);
 		let now = self.now_micros();
 
@@ -140,36 +148,28 @@ impl Shield {
 
 		// 1. Penalty: cheapest gate first. Blocked subnets pay one HashMap lookup.
 		if state.penalty.is_penalized(&subnet, now) {
-			return Decision::Deny(DenyReason::PenaltyBlock);
+			return (Decision::Deny(DenyReason::PenaltyBlock), None);
 		}
 
 		// 2. Source rate limit. Exhaustion → strike.
 		if !state.src_rl.check_and_consume(subnet, now) {
 			state.penalty.record_strike(subnet, now);
-			return Decision::Deny(DenyReason::SourceRateLimit);
+			return (Decision::Deny(DenyReason::SourceRateLimit), None);
 		}
 
 		// 3. Method rate limit. Exhaustion → strike.
 		if !state.method_rl.check_and_consume(method, now) {
 			state.penalty.record_strike(subnet, now);
-			return Decision::Deny(DenyReason::MethodRateLimit);
+			return (Decision::Deny(DenyReason::MethodRateLimit), None);
 		}
 
 		drop(state);
 
-		// 4. Inflight cap. No strike on exhaustion — this is normal back-pressure.
-		if !self.inflight.try_acquire() {
-			return Decision::Deny(DenyReason::InflightCap);
+		// 4. Inflight cap. No strike on exhaustion — normal back-pressure.
+		match self.inflight.try_acquire_owned() {
+			Some(guard) => (Decision::Allow, Some(guard)),
+			None => (Decision::Deny(DenyReason::InflightCap), None),
 		}
-
-		Decision::Allow
-	}
-
-	/// Release a slot acquired by an `Allow` decision from
-	/// [`Self::check_request`] / [`Self::check_state_call`]. Must be
-	/// called once per `Allow` and only once.
-	pub fn release_inflight(&self) {
-		self.inflight.release();
 	}
 
 	/// Gate a `state_call` for a specific runtime API method. Composes
@@ -177,16 +177,19 @@ impl Shield {
 	///
 	/// `is_loopback` should be true if the connection came in over
 	/// 127.0.0.1 / ::1; LocalOnly methods are admitted only in that case.
+	///
+	/// On `Allow`, returns an [`OwnedInflightGuard`] (see
+	/// [`Self::check_request`]). Deny tier paths return no guard.
 	pub fn check_state_call(
 		&self,
 		source: IpAddr,
 		runtime_api_method: &str,
 		is_loopback: bool,
-	) -> Decision {
+	) -> (Decision, Option<OwnedInflightGuard>) {
 		match StateCallPolicy::lookup(runtime_api_method) {
-			MethodPolicy::Deny => Decision::Deny(DenyReason::StateCallDenied),
+			MethodPolicy::Deny => (Decision::Deny(DenyReason::StateCallDenied), None),
 			MethodPolicy::LocalOnly if !is_loopback => {
-				Decision::Deny(DenyReason::StateCallLocalOnly)
+				(Decision::Deny(DenyReason::StateCallLocalOnly), None)
 			}
 			MethodPolicy::LocalOnly | MethodPolicy::PublicSafe | MethodPolicy::PublicGated => {
 				// Charge the request against the per-source / per-method buckets,
@@ -220,15 +223,14 @@ mod tests {
 	#[test]
 	fn allows_first_request() {
 		let s = Shield::new(ShieldConfig::default());
-		let d = s.check_request(ip(10, 0, 0, 1), "system_chain");
+		let (d, _g) = s.check_request(ip(10, 0, 0, 1), "system_chain");
 		assert_eq!(d, Decision::Allow);
-		s.release_inflight();
 	}
 
 	#[test]
 	fn denies_state_call_to_ring_context() {
 		let s = Shield::new(ShieldConfig::default());
-		let d = s.check_state_call(ip(10, 0, 0, 1), "SassafrasApi_ring_context", false);
+		let (d, _) = s.check_state_call(ip(10, 0, 0, 1), "SassafrasApi_ring_context", false);
 		assert_eq!(d, Decision::Deny(DenyReason::StateCallDenied));
 	}
 
@@ -240,7 +242,7 @@ mod tests {
 			"SassafrasApi_submit_report_equivocation_unsigned_extrinsic",
 			"GrandpaApi_submit_report_equivocation_unsigned_extrinsic",
 		] {
-			let d = s.check_state_call(ip(1, 2, 3, 4), method, false);
+			let (d, _) = s.check_state_call(ip(1, 2, 3, 4), method, false);
 			assert_eq!(
 				d,
 				Decision::Deny(DenyReason::StateCallDenied),
@@ -252,25 +254,24 @@ mod tests {
 	#[test]
 	fn local_only_admitted_only_on_loopback() {
 		let s = Shield::new(ShieldConfig::default());
-		let d_remote = s.check_state_call(
+		let (d_remote, _) = s.check_state_call(
 			ip(1, 2, 3, 4),
 			"SassafrasApi_generate_key_ownership_proof",
 			false,
 		);
 		assert_eq!(d_remote, Decision::Deny(DenyReason::StateCallLocalOnly));
-		let d_local = s.check_state_call(
+		let (d_local, _g) = s.check_state_call(
 			ip(127, 0, 0, 1),
 			"SassafrasApi_generate_key_ownership_proof",
 			true,
 		);
 		assert_eq!(d_local, Decision::Allow);
-		s.release_inflight();
 	}
 
 	#[test]
 	fn unknown_state_call_method_denied() {
 		let s = Shield::new(ShieldConfig::default());
-		let d = s.check_state_call(ip(1, 2, 3, 4), "MadeUpApi_method", false);
+		let (d, _) = s.check_state_call(ip(1, 2, 3, 4), "MadeUpApi_method", false);
 		assert_eq!(d, Decision::Deny(DenyReason::StateCallDenied));
 	}
 
@@ -278,18 +279,19 @@ mod tests {
 	fn source_rate_limit_eventually_denies_then_strikes() {
 		let s = Shield::new(ShieldConfig::default());
 		let src = ip(10, 9, 8, 1);
-		// 30 tokens default in the source bucket.
+		// 30 tokens default in the source bucket. Drop guards explicitly
+		// so the inflight cap doesn't fill (default cap=256).
 		for _ in 0..30 {
-			let d = s.check_request(src, "system_chain");
+			let (d, g) = s.check_request(src, "system_chain");
 			assert_eq!(d, Decision::Allow);
-			s.release_inflight();
+			drop(g);
 		}
 		// Exhausted → first denial is SourceRateLimit, *and* records a strike.
-		let d_first = s.check_request(src, "system_chain");
+		let (d_first, _) = s.check_request(src, "system_chain");
 		assert_eq!(d_first, Decision::Deny(DenyReason::SourceRateLimit));
 		// Subsequent requests fall to PenaltyBlock (cheaper gate) because
 		// the strike has now blocked the subnet.
-		let d_second = s.check_request(src, "system_chain");
+		let (d_second, _) = s.check_request(src, "system_chain");
 		assert_eq!(d_second, Decision::Deny(DenyReason::PenaltyBlock));
 	}
 
@@ -301,20 +303,36 @@ mod tests {
 	}
 
 	#[test]
-	fn inflight_cap_releases_via_release_call() {
+	fn inflight_cap_releases_on_guard_drop() {
 		let s = Shield::new(ShieldConfig { inflight_cap: 2, ..Default::default() });
-		let d1 = s.check_request(ip(10, 0, 0, 1), "system_chain");
-		let d2 = s.check_request(ip(10, 0, 0, 2), "system_chain");
+		let (d1, g1) = s.check_request(ip(10, 0, 0, 1), "system_chain");
+		let (d2, g2) = s.check_request(ip(10, 0, 0, 2), "system_chain");
 		assert_eq!(d1, Decision::Allow);
 		assert_eq!(d2, Decision::Allow);
 		// Cap full now; next request should be InflightCap-denied.
-		let d3 = s.check_request(ip(10, 0, 0, 3), "system_chain");
+		let (d3, _) = s.check_request(ip(10, 0, 0, 3), "system_chain");
 		assert_eq!(d3, Decision::Deny(DenyReason::InflightCap));
-		s.release_inflight();
-		s.release_inflight();
+		drop(g1);
+		drop(g2);
 		// After releases, capacity is restored.
-		let d4 = s.check_request(ip(10, 0, 0, 4), "system_chain");
+		let (d4, _g) = s.check_request(ip(10, 0, 0, 4), "system_chain");
 		assert_eq!(d4, Decision::Allow);
-		s.release_inflight();
+	}
+
+	#[test]
+	fn cancelled_future_releases_inflight_slot() {
+		// Simulates the connection-cancel-mid-request scenario: we
+		// acquire a guard but never explicitly release. Drop happens
+		// implicitly when the guard goes out of scope, mimicking what
+		// the borrow checker enforces when an async future is dropped.
+		let s = Shield::new(ShieldConfig { inflight_cap: 1, ..Default::default() });
+		{
+			let (d, _g) = s.check_request(ip(10, 0, 0, 1), "system_chain");
+			assert_eq!(d, Decision::Allow);
+			// _g goes out of scope here, simulating future cancellation.
+		}
+		// Slot must have been freed.
+		let (d, _g) = s.check_request(ip(10, 0, 0, 2), "system_chain");
+		assert_eq!(d, Decision::Allow, "cancelled guard must release slot");
 	}
 }

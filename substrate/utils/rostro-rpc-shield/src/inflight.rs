@@ -10,12 +10,43 @@
 //! cheap to release; no per-source bookkeeping. Used as the last line
 //! of defense before a request reaches the runtime.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Atomic in-flight counter with a fixed maximum.
 pub struct InFlightCap {
 	current: AtomicU64,
 	max: u64,
+}
+
+/// RAII guard returned by [`InFlightCap::try_acquire_owned`]. Releases
+/// the slot when dropped — including when the holding future is
+/// cancelled mid-flight (connection close, timeout, etc.). This is the
+/// async-safe acquisition pattern.
+///
+/// Holds `Arc<InFlightCap>` by value (not `&InFlightCap`) so the guard
+/// can be carried across `.await` points without lifetime contention
+/// from the borrow checker.
+pub struct OwnedInflightGuard {
+	cap: Arc<InFlightCap>,
+	released: bool,
+}
+
+impl OwnedInflightGuard {
+	/// Manual release. Subsequent drop is a no-op. Useful when the
+	/// caller wants to release before the natural scope end.
+	pub fn release_now(mut self) {
+		self.cap.release();
+		self.released = true;
+	}
+}
+
+impl Drop for OwnedInflightGuard {
+	fn drop(&mut self) {
+		if !self.released {
+			self.cap.release();
+		}
+	}
 }
 
 impl InFlightCap {
@@ -55,6 +86,19 @@ impl InFlightCap {
 	/// Current in-flight count (Relaxed read; for metrics only).
 	pub fn current(&self) -> u64 {
 		self.current.load(Ordering::Relaxed)
+	}
+
+	/// Try to acquire a slot, returning an owned RAII guard on success.
+	/// The guard releases the slot on drop, including on future
+	/// cancellation. Prefer this over [`Self::try_acquire`] +
+	/// [`Self::release`] in async code — those are only safe when the
+	/// caller can guarantee the release path always runs.
+	pub fn try_acquire_owned(self: &Arc<Self>) -> Option<OwnedInflightGuard> {
+		if self.try_acquire() {
+			Some(OwnedInflightGuard { cap: self.clone(), released: false })
+		} else {
+			None
+		}
 	}
 }
 

@@ -37,9 +37,8 @@ pub mod ratelimit;
 pub mod shield;
 pub mod statecall;
 
-pub use inflight::InFlightCap;
+pub use inflight::{InFlightCap, OwnedInflightGuard};
 pub use penalty::PenaltyTracker;
 pub use ratelimit::{MethodRateLimiter, SourceRateLimiter, subnet_key};
 pub use shield::{Decision, DenyReason, Shield, ShieldConfig};
-// InflightGuard was removed — async-friendly API uses `release_inflight` instead.
 pub use statecall::{MethodPolicy, StateCallPolicy};

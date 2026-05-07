@@ -110,57 +110,34 @@ where
 
 			// Special-case `state_call` — peek at params[0] to extract
 			// the runtime API method name and apply the state_call
-			// policy.
-			//
-			// `acquired` tracks whether the shield's `Allow` decision
-			// reserved an inflight slot. The library acquires a slot
-			// only on `Allow` from `check_request` / `check_state_call`
-			// (after passing penalty + source RL + method RL + inflight
-			// gates). The Deny short-circuits in those checks (and the
-			// special `None` arm below) do NOT acquire. We must
-			// `release_inflight()` only when we actually acquired —
-			// otherwise the counter underflows to `u64::MAX`,
-			// eventually wraps past `max`, and starves all callers.
-			let (decision, acquired) = if method_name == "state_call" {
+			// policy. The shield's check_* methods return an owned
+			// guard on Allow; we hold it across the dispatch await so
+			// the inflight slot frees on guard drop, including when the
+			// future itself is cancelled (connection close mid-request).
+			let (decision, _guard) = if method_name == "state_call" {
 				match peek_state_call_method(&req) {
-					Some(api_method) => {
-						let d = shield.check_state_call(
-							synthetic_source,
-							&api_method,
-							is_loopback,
-						);
-						let acq = matches!(d, Decision::Allow);
-						(d, acq)
-					}
+					Some(api_method) =>
+						shield.check_state_call(synthetic_source, &api_method, is_loopback),
 					// Couldn't parse params — pass through to
-					// substrate's normal error path. We did NOT
-					// acquire an inflight slot, so we must NOT release
-					// later.
-					None => (Decision::Allow, false),
+					// substrate's normal error path without claiming
+					// an inflight slot. _guard remains None, no
+					// release ever fires.
+					None => (Decision::Allow, None),
 				}
 			} else {
-				let d = shield.check_request(synthetic_source, method_name);
-				let acq = matches!(d, Decision::Allow);
-				(d, acq)
+				shield.check_request(synthetic_source, method_name)
 			};
 
 			if let Decision::Deny(reason) = decision {
 				return reject(req.id, reason);
 			}
 
-			// Response-size check is deferred — jsonrpsee 0.24
-			// `MethodResponse` does not expose body bytes from this
-			// middleware position. The shield's `check_response` API
-			// is already in place; once we plumb a response body
-			// inspection point (or replace the response post-hoc), this
-			// becomes one extra call. For now the highest-severity
-			// amplifier (ring_context) is covered by the state_call
-			// method allowlist (Deny tier), which fires *before* the
-			// runtime executes — no body to inspect.
+			// _guard is held across this await. If the future is
+			// cancelled, _guard drops, releasing the slot. If the
+			// future completes, _guard drops at end-of-block, also
+			// releasing. Either way, no slot leak.
 			let response = service.call(req).await;
-			if acquired {
-				shield.release_inflight();
-			}
+			drop(_guard);
 			response
 		}
 		.boxed()
