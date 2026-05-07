@@ -81,6 +81,152 @@ pub fn validate(config: &Configuration) -> Result<(), String> {
 	Ok(())
 }
 
+/// Spawn the Layer 3 chain-state self-check task.
+///
+/// Periodically reconciles two views:
+///
+///   1. **Local view**: bandersnatch keys present in the node's
+///      keystore (under the Sassafras KEY_TYPE).
+///   2. **On-chain view**: the active validator set from
+///      `SassafrasApi::current_epoch(best_hash).authorities`.
+///
+/// The four (config × on-chain) cases:
+///
+///   | role config | key in active set | action |
+///   |-------------|-------------------|--------|
+///   | validator   | yes               | normal — no action |
+///   | validator   | no                | warn — legitimate intermediate state (preparing, just rotated out, etc.) |
+///   | non-validator | yes             | **FATAL** — operator has been elected, binary won't author. Crash to prevent silent absence from finality. |
+///   | non-validator | no              | normal — no action |
+///
+/// The third row is the load-bearing case. Without this check, a node
+/// that's been elected to validate but is misconfigured (validator key
+/// installed but `--validator` flag forgotten) silently fails to
+/// produce blocks, dragging down finality and accruing slashing on
+/// the operator's stake. Crashing fast forces the operator to fix
+/// their configuration before the chain notices.
+///
+/// First check runs immediately after the task is spawned; periodic
+/// re-check every 60 seconds. If the runtime API call fails (chain
+/// not yet synced, or storage corrupted), the round is skipped — we
+/// don't crash on transient query errors.
+pub fn spawn_chain_state_self_check<C, B>(
+	role: rc_service::Role,
+	client: std::sync::Arc<C>,
+	keystore: sp_keystore::KeystorePtr,
+	task_handle: &rc_service::SpawnTaskHandle,
+) where
+	B: sp_runtime::traits::Block,
+	C: sp_api::ProvideRuntimeApi<B> + sp_blockchain::HeaderBackend<B> + Send + Sync + 'static,
+	C::Api: sp_consensus_sassafras::SassafrasApi<B>,
+{
+	task_handle.spawn(
+		"validator-chain-state-check",
+		Some("rostro-role"),
+		async move {
+			let interval = std::time::Duration::from_secs(60);
+			let role_is_authority = role.is_authority();
+			loop {
+				match local_key_in_active_set(&*client, &keystore) {
+					ChainStateView::Match { configured_validator } => {
+						handle_state(role_is_authority, configured_validator);
+					}
+					ChainStateView::Inconclusive => {
+						// Best-hash query failed or runtime API errored.
+						// Skip this round, retry next interval.
+					}
+				}
+				tokio::time::sleep(interval).await;
+			}
+		},
+	);
+}
+
+enum ChainStateView {
+	Match { configured_validator: bool },
+	Inconclusive,
+}
+
+fn local_key_in_active_set<C, B>(
+	client: &C,
+	keystore: &sp_keystore::KeystorePtr,
+) -> ChainStateView
+where
+	B: sp_runtime::traits::Block,
+	C: sp_api::ProvideRuntimeApi<B> + sp_blockchain::HeaderBackend<B>,
+	C::Api: sp_consensus_sassafras::SassafrasApi<B>,
+{
+	use sp_consensus_sassafras::SassafrasApi;
+	let best = client.info().best_hash;
+	let api = client.runtime_api();
+	let epoch = match api.current_epoch(best) {
+		Ok(e) => e,
+		Err(_) => return ChainStateView::Inconclusive,
+	};
+	let local_keys = keystore.bandersnatch_public_keys(sp_consensus_sassafras::KEY_TYPE);
+	if local_keys.is_empty() {
+		// No bandersnatch keys → can't be in active set → "no key in
+		// set" branch. configured_validator=false because we have no
+		// proof the operator intends to validate. handle_state() will
+		// route through the (any-role × no-key) cell which is always
+		// fine.
+		return ChainStateView::Match { configured_validator: false };
+	}
+	// Compare bytes: keystore returns raw `bandersnatch::Public`,
+	// runtime returns the `app::Public` wrapper. Both are 32-byte
+	// public keys; both impl `AsRef<[u8]>`.
+	let in_active = local_keys.iter().any(|local| {
+		let local_bytes: &[u8] = local.as_ref();
+		epoch.authorities.iter().any(|auth| {
+			let auth_bytes: &[u8] = auth.as_ref();
+			auth_bytes == local_bytes
+		})
+	});
+	ChainStateView::Match { configured_validator: in_active }
+}
+
+fn handle_state(role_is_authority: bool, key_in_active_set: bool) {
+	match (role_is_authority, key_in_active_set) {
+		(true, true) | (false, false) => {
+			// Normal cases. No action.
+		}
+		(true, false) => {
+			// Configured as validator, key not in active set. Could
+			// be: operator just inserted key but next era hasn't
+			// elected them yet; operator was just rotated out; chain
+			// hasn't fully synced past their election. Warn but
+			// continue — this is recoverable without binary
+			// intervention.
+			tracing::warn!(
+				target: "rostro-role",
+				"validator role configured but no local bandersnatch key is in the \
+				 active authority set. If this persists, verify the keystore and the \
+				 chain spec match the operator's elected key."
+			);
+		}
+		(false, true) => {
+			// CRITICAL: operator has a validator key that the chain
+			// has placed in the active authority set, but this binary
+			// is NOT running with --validator. The chain expects this
+			// node to author blocks at its assigned slots; if it
+			// doesn't, finality drags and the operator gets slashed
+			// for absence. Halt now, force the operator to fix the
+			// configuration before silent harm accumulates.
+			eprintln!(
+				"\nFATAL: a local bandersnatch key is in the active validator set, \
+				 but this binary is NOT running with --validator.\n\n\
+				 The chain has elected you and expects you to author blocks. \
+				 Either:\n\
+				 \x20  (a) restart with --validator, OR\n\
+				 \x20  (b) remove the matching bandersnatch key from your keystore \
+				 to step down from validation.\n\n\
+				 Halting now to prevent silent absence from finality.\n"
+			);
+			std::process::abort();
+		}
+	}
+}
+
 /// Spawn the Layer 4 periodic self-audit task on the validator.
 ///
 /// **Status: stub.** An earlier implementation walked

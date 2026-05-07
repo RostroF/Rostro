@@ -26,6 +26,7 @@ futures = { workspace = true }
 hex = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
 jsonrpsee = { workspace = true, features = ["server"] }
+tokio = { workspace = true, default-features = true }
 tracing = { workspace = true, default-features = true }
 
 # rc-* (client) crates

@@ -210,6 +210,17 @@ pub fn new_full<
 
 	let role = config.role;
 
+	// Phase 6 Layer 3: chain-state self-check. Reconciles the local
+	// bandersnatch keystore against the on-chain authority set.
+	// Critical case: operator has been elected but binary isn't
+	// running as --validator → fail-stop.
+	crate::role::spawn_chain_state_self_check(
+		role,
+		client.clone(),
+		keystore_container.keystore(),
+		&task_manager.spawn_handle(),
+	);
+
 	// Phase 6 Layer 4: spawn the validator self-audit task.
 	// No-op for non-validator roles. Defense in depth against any path
 	// (current or future) that might bind a non-loopback listener
