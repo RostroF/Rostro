@@ -141,11 +141,21 @@ impl Default for MethodRateLimiter {
 	fn default() -> Self { Self::new() }
 }
 
+/// Cap the number of bytes we hash from a method name. Legitimate RPC
+/// method names are well under 64 chars; even substrate's longest
+/// runtime API names (`SassafrasApi_submit_report_equivocation_unsigned_extrinsic`)
+/// are ~60 chars. Anything longer is hashing-cost amplification by an
+/// adversary; we silently truncate. Two distinct names sharing the
+/// same first 256 bytes will collide in the bucket — acceptable, since
+/// no legitimate names get close to this length.
+const HASH_MAX_BYTES: usize = 256;
+
 fn method_key(method: &str) -> [u8; 16] {
 	// Fast hash with no external dependency. Two FNV-1a-style passes
 	// over the bytes, producing 16 bytes of key material. Adequate for
 	// distinguishing method names; not cryptographic.
 	let bytes = method.as_bytes();
+	let bytes = if bytes.len() > HASH_MAX_BYTES { &bytes[..HASH_MAX_BYTES] } else { bytes };
 	let mut h1: u64 = 0xcbf29ce484222325;
 	let mut h2: u64 = 0x84222325cbf29ce4;
 	for &b in bytes {
@@ -225,6 +235,23 @@ mod tests {
 		assert!(!mrl.check_and_consume("ring_context", 0));
 		// Different method has its own bucket.
 		assert!(mrl.check_and_consume("slot_ticket", 0));
+	}
+
+	#[test]
+	fn long_method_names_are_truncated_for_hashing() {
+		// A 100 KB method name should hash in the same time as a 256-byte one.
+		// Functionally: two names sharing the first 256 bytes will collide,
+		// but neither legitimate names nor distinct attacker names that share
+		// 256-byte prefixes are realistic.
+		let short = "a".repeat(256);
+		let long = "a".repeat(100_000);
+		assert_eq!(
+			method_key(&short),
+			method_key(&long),
+			"truncation kicks in past 256 bytes",
+		);
+		// Different short names hash differently.
+		assert_ne!(method_key("foo"), method_key("bar"));
 	}
 
 	#[test]

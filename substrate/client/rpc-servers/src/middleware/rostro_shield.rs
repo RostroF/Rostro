@@ -144,13 +144,53 @@ where
 	}
 }
 
+/// Maximum raw params size we will attempt to JSON-parse for state_call
+/// peek. Legitimate state_call params are well under 4 KiB (method name
+/// is ~50 chars; encoded ticket envelopes are ~1.7 KiB hex; even
+/// generous over-padding stays under this cap). Anything larger is
+/// either a buggy client or a memory-amplification probe — we refuse
+/// to parse it. (Bug-test phase: without this cap, a 9 MB state_call
+/// params payload triggers a ~10 MB serde_json::Value allocation per
+/// call, multiplied by jsonrpsee's max_request_body_size budget.)
+const MAX_STATE_CALL_PARAMS_BYTES: usize = 4 * 1024;
+
+/// Maximum runtime API method name length we will hash. Legitimate
+/// names are well under 100 chars; the longest currently in our policy
+/// table is ~60. Anything longer is hashing-cost amplification, since
+/// `method_key` iterates one pass per byte.
+const MAX_METHOD_NAME_LEN: usize = 256;
+
 fn peek_state_call_method(req: &Request<'_>) -> Option<String> {
-	// state_call params: ["MethodName", "0xhex", optional_block_hash]
+	// JSON-RPC 2.0 allows BOTH positional (array) and named (object)
+	// params. substrate's state_call accepts both:
+	//   positional: ["MethodName", "0xhex", optional_block_hash]
+	//   named:      {"name": "MethodName", "bytes": "0xhex", ...}
+	//
+	// Earlier versions of this code peeked the array form only, which
+	// meant a named-params request bypassed the StateCallPolicy lookup
+	// entirely — F-NEW-2 / F-NEW-1 / F-6 were all reachable via the
+	// named form. (Bug-test phase: discovered when curl with
+	// `params: {"name":"SassafrasApi_ring_context","bytes":"0x"}`
+	// reached the runtime instead of being shield-denied.)
 	let raw = req.params.as_ref()?;
-	let parsed: serde_json::Value = serde_json::from_str(raw.get()).ok()?;
-	let arr = parsed.as_array()?;
-	let first = arr.first()?;
-	first.as_str().map(|s| s.to_owned())
+	let raw_str = raw.get();
+	if raw_str.len() > MAX_STATE_CALL_PARAMS_BYTES {
+		// Refuse to parse — caller has either misuse or a memory-amp
+		// attack in flight. Returning None lets the request fall through
+		// to substrate's normal error path; the per-source rate limit
+		// still gates how often this can happen.
+		return None;
+	}
+	let parsed: serde_json::Value = serde_json::from_str(raw_str).ok()?;
+	let s = match &parsed {
+		serde_json::Value::Array(arr) => arr.first()?.as_str()?,
+		serde_json::Value::Object(map) => map.get("name")?.as_str()?,
+		_ => return None,
+	};
+	if s.len() > MAX_METHOD_NAME_LEN {
+		return None;
+	}
+	Some(s.to_owned())
 }
 
 fn reject(id: Id<'_>, reason: DenyReason) -> MethodResponse {
