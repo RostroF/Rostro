@@ -33,6 +33,7 @@ frame-system-rpc-runtime-api = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-grandpa = { workspace = true }
+pallet-rostro-rpc-method-policy = { workspace = true }
 pallet-sassafras = { workspace = true, features = ["construct-dummy-ring-context"] }
 pallet-session = { workspace = true }
 pallet-sudo = { workspace = true }
@@ -72,6 +73,7 @@ std = [
 	"pallet-authorship/std",
 	"pallet-balances/std",
 	"pallet-grandpa/std",
+	"pallet-rostro-rpc-method-policy/std",
 	"pallet-sassafras/std",
 	"pallet-session/std",
 	"pallet-sudo/std",

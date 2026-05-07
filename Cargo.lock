@@ -3994,6 +3994,7 @@ dependencies = [
  "sp-timestamp",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
+ "tokio",
  "tracing",
 ]
 
@@ -4010,6 +4011,7 @@ dependencies = [
  "pallet-authorship",
  "pallet-balances",
  "pallet-grandpa",
+ "pallet-rostro-rpc-method-policy",
  "pallet-sassafras",
  "pallet-session",
  "pallet-sudo",
@@ -8953,6 +8955,23 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "sp-inherents 41.0.0",
+ "sp-runtime 46.0.0",
+]
+
+[[package]]
+name = "pallet-rostro-rpc-method-policy"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-api 41.0.0",
+ "sp-core 40.0.0",
+ "sp-io 45.0.0",
  "sp-runtime 46.0.0",
 ]
 

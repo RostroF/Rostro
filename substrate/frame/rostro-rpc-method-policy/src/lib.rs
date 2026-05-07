@@ -77,9 +77,19 @@ pub const MAX_ADDITIONAL_POLICIES: usize = 256;
 /// discriminants and the variants are explicitly numbered to make the
 /// wire format stable across versions.
 #[derive(
-	Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo,
+	Debug,
+	Clone,
+	Copy,
+	PartialEq,
+	Eq,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	MaxEncodedLen,
+	TypeInfo,
+	serde::Serialize,
+	serde::Deserialize,
 )]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum MethodPolicy {
 	/// Anyone may call. Subject only to the per-/24 source rate limit.
 	#[codec(index = 0)]
@@ -146,7 +156,32 @@ pub const V0_WELL_KNOWN_POLICIES: &[(&[u8], MethodPolicy)] = &[
 	(b"BlockBuilder_check_inherents", MethodPolicy::PublicGated),
 	(b"TaggedTransactionQueue_validate_transaction", MethodPolicy::PublicGated),
 	(b"GenesisBuilder_build_state", MethodPolicy::PublicGated),
+	// ─── This pallet's own runtime API ────────────────────────────────
+	// Self-anchoring: the policy registry must classify itself, since the
+	// shield will reach for these methods to bootstrap. Both gated rather
+	// than safe so a hostile peer can't mass-poll the full table at
+	// arbitrary rate even though entries are individually small.
+	(b"RpcMethodPolicyApi_policy_for", MethodPolicy::PublicGated),
+	(b"RpcMethodPolicyApi_all_policies", MethodPolicy::PublicGated),
 ];
+
+/// Runtime API exposed for the `rostro-rpc-shield` middleware to query
+/// the on-chain policy registry from the host side. The shield calls
+/// these via `client.runtime_api().{policy_for,all_policies}(at)` —
+/// that's an in-process call into the WASM runtime, not a JSON-RPC
+/// trip. They are also reachable from outside via `state_call`, gated
+/// PublicGated by V0_WELL_KNOWN_POLICIES above.
+sp_api::decl_runtime_apis! {
+	pub trait RpcMethodPolicyApi {
+		/// Look up the policy for a single method name. Returns `None`
+		/// if the method isn't registered (caller should default-Deny).
+		fn policy_for(method: Vec<u8>) -> Option<MethodPolicy>;
+
+		/// Iterate the full policy table. Bounded by the storage map's
+		/// entry count; intended for the shield's startup bootstrap.
+		fn all_policies() -> Vec<(Vec<u8>, MethodPolicy)>;
+	}
+}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -308,6 +343,29 @@ pub mod pallet {
 			);
 			Self::deposit_event(Event::PolicyRemoved { method });
 			Ok(())
+		}
+	}
+
+	impl<T: Config> Pallet<T> {
+		/// Read the policy for `method`. Used by the runtime API impl
+		/// (and indirectly by the native `rostro-rpc-shield`).
+		///
+		/// Returns `None` if the method isn't registered or if the
+		/// supplied name exceeds `MAX_METHOD_NAME_LEN` (oversized names
+		/// can't be a key, so they trivially aren't registered).
+		pub fn policy_for(method: &[u8]) -> Option<MethodPolicy> {
+			let key: BoundedVec<u8, ConstU32<MAX_METHOD_NAME_LEN>> =
+				BoundedVec::try_from(method.to_vec()).ok()?;
+			RpcMethodPolicy::<T>::get(&key)
+		}
+
+		/// Materialize the full policy table. Used by the native shield
+		/// at startup to bootstrap its in-memory cache. The result is
+		/// bounded by the storage map's entry count.
+		pub fn all_policies() -> Vec<(Vec<u8>, MethodPolicy)> {
+			RpcMethodPolicy::<T>::iter()
+				.map(|(k, v)| (k.into_inner(), v))
+				.collect()
 		}
 	}
 }

@@ -356,6 +356,16 @@ impl pallet_sudo::Config for Runtime {
 	type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
+// ─── pallet_rostro_rpc_method_policy ───────────────────────────────────────
+//
+// On-chain registry consumed by `rostro-rpc-shield` to know which RPC
+// methods to admit / gate / refuse. Origin stubbed at `EnsureRoot` until
+// `pallet-rostro-security-response-team` (prelaunch item) lands.
+
+impl pallet_rostro_rpc_method_policy::Config for Runtime {
+	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
+}
+
 // ─── construct_runtime ─────────────────────────────────────────────────────
 
 construct_runtime!(
@@ -374,6 +384,10 @@ construct_runtime!(
 		// Economic
 		Balances: pallet_balances,
 		TransactionPayment: pallet_transaction_payment,
+
+		// Operational — on-chain RPC method access policy registry,
+		// consumed by the native rostro-rpc-shield middleware.
+		RpcMethodPolicy: pallet_rostro_rpc_method_policy,
 	}
 );
 
@@ -591,6 +605,20 @@ impl_runtime_apis! {
 
 		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
 			vec![]
+		}
+	}
+
+	// On-chain RPC method-policy registry surface, queried by the
+	// native `rostro-rpc-shield` middleware to bridge the native +
+	// WASM trust domains. See `pallet-rostro-rpc-method-policy` for
+	// the design rationale.
+	impl pallet_rostro_rpc_method_policy::RpcMethodPolicyApi<Block> for Runtime {
+		fn policy_for(method: Vec<u8>) -> Option<pallet_rostro_rpc_method_policy::MethodPolicy> {
+			pallet_rostro_rpc_method_policy::Pallet::<Runtime>::policy_for(&method)
+		}
+
+		fn all_policies() -> Vec<(Vec<u8>, pallet_rostro_rpc_method_policy::MethodPolicy)> {
+			pallet_rostro_rpc_method_policy::Pallet::<Runtime>::all_policies()
 		}
 	}
 }
