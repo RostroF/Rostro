@@ -78,6 +78,7 @@ pub mod slot_worker;
 pub mod ticket_claim;
 pub mod ticket_generation;
 pub mod ticket_submission;
+pub mod ticket_worker;
 pub mod verifier;
 
 #[cfg(test)]

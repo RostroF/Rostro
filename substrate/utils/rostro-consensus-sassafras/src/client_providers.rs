@@ -184,29 +184,32 @@ where
 impl<Block, Client> TicketSubmitter<Block> for ClientProviders<Block, Client>
 where
 	Block: BlockT,
-	Client: ProvideRuntimeApi<Block> + Send + Sync + 'static,
+	Client: ProvideRuntimeApi<Block> + sp_blockchain::HeaderBackend<Block> + Send + Sync + 'static,
 	Client::Api: SassafrasApi<Block>,
 {
 	async fn submit_ticket(&self, envelope: TicketEnvelope) -> Result<(), ProviderError> {
-		// Submit via the runtime API at the chain head. The pallet's
-		// validate_unsigned only accepts Local + InBlock sources;
-		// when called via the runtime API from our own node, the
-		// resulting extrinsic is treated as Local.
-		let info = self.client.runtime_api();
-		// We need *some* parent hash for the runtime API call; use a
-		// sentinel approach — production wiring should pass the
-		// chain best hash explicitly. For now, the trait signature
-		// doesn't carry it, so we delegate the resolution to whatever
-		// parent the runtime API impl considers default. If the impl
-		// requires an explicit parent, swap this for a concrete one
-		// resolved via HeaderBackend::info().best_hash.
+		// Submit via the runtime API at the current best hash. The
+		// pallet's validate_unsigned only accepts Local + InBlock
+		// sources; when called via the runtime API from our own node,
+		// the resulting extrinsic is treated as Local.
 		//
-		// TODO: extend TicketSubmitter trait with an optional parent
-		// hint, or wrap this struct in a parent-resolving variant
-		// that pulls best_hash from HeaderBackend at call time.
-		let parent = Default::default();
+		// NOTE: this submission path traverses pallet-sassafras's
+		// `submit_tickets_unsigned_extrinsic`, which internally calls
+		// `sp_io::offchain::submit_transaction`. From a host-side
+		// runtime API call there is no offchain extension registered,
+		// so the host fn returns an error which the runtime maps to
+		// `false`. R3.5 step 2 will replace this submission path with
+		// direct transaction-pool insertion (bypassing the runtime API),
+		// which is the substrate idiom for host-side validators
+		// submitting their own unsigned extrinsics. For now this stub
+		// returns Err on every call; the cryptographic core (envelope
+		// generation) is correct and the full pipeline lights up once
+		// the submitter is rewired.
+		use sp_blockchain::HeaderBackend;
+		let best = self.client.info().best_hash;
+		let info = self.client.runtime_api();
 		let submitted = info
-			.submit_tickets_unsigned_extrinsic(parent, vec![envelope])
+			.submit_tickets_unsigned_extrinsic(best, vec![envelope])
 			.map_err(|e| map_runtime_err("submit_tickets_unsigned_extrinsic", e))?;
 		if !submitted {
 			return Err(ProviderError::Runtime(

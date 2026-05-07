@@ -20,7 +20,7 @@ use rc_service::{error::Error as ServiceError, Configuration, TaskManager, WarpS
 use rc_telemetry::{Telemetry, TelemetryWorker};
 use rc_transaction_pool_api::OffchainTransactionPoolFactory;
 use rostro_consensus_sassafras::{
-	start_sassafras, ClientProviders, SassafrasImportVerifier, StartSassafrasParams,
+	start_sassafras, ticket_worker, ClientProviders, SassafrasImportVerifier, StartSassafrasParams,
 };
 use sp_consensus_slots::SlotDuration;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
@@ -236,6 +236,31 @@ pub fn new_full<
 		client.clone(),
 		&task_manager.spawn_handle(),
 	);
+
+	// Phase Ring R3.5: ticket-generation worker. Validators only.
+	// Polls for epoch transitions and submits ring-VRF tickets to the
+	// pallet's `UnsortedSegments`. Without this the chain falls back
+	// to deterministic round-robin slot assignment from the active
+	// authority set — block production works, but Sassafras's
+	// anonymous-slot guarantee evaporates.
+	if role.is_authority() {
+		// The same ClientProviders instance built for the import-queue
+		// earlier in `new_partial` would be ideal, but it's owned by
+		// the verifier. Construct a fresh one — same client, same
+		// dispatch path, just a separate handle.
+		let ticket_submitter = Arc::new(
+			ClientProviders::<Block, _>::new(client.clone()),
+		);
+		task_manager.spawn_handle().spawn(
+			"sassafras-ticket-worker",
+			Some("rostro-consensus"),
+			ticket_worker::run::<_, Block, _>(
+				client.clone(),
+				keystore_container.keystore(),
+				ticket_submitter,
+			),
+		);
+	}
 
 	let force_authoring = config.force_authoring;
 	let backoff_authoring_blocks: Option<()> = None;

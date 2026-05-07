@@ -466,23 +466,29 @@ impl_runtime_apis! {
 
 	// Sassafras consensus runtime API — the load-bearing piece for
 	// rostro-consensus-sassafras's ClientProviders to bind against.
+	//
+	// Earlier commits hardened ring_context() and
+	// submit_tickets_unsigned_extrinsic() at the runtime level (Phase 5):
+	// they returned None / false to block F-NEW-2 + F-NEW-1 vectors. With
+	// Phase 6.1 the rostro-rpc-shield now reads the on-chain
+	// `pallet-rostro-rpc-method-policy` registry which classifies both
+	// methods as Deny — external state_call is rejected at the RPC
+	// middleware, before the runtime sees the call. The runtime stubs
+	// were redundant defense-in-depth that broke the LEGITIMATE
+	// offchain-context callers (ticket generation worker reads
+	// ring_context to build RingProver; the worker submits tickets via
+	// submit_tickets_unsigned_extrinsic). Reverted to upstream behaviour
+	// as part of Phase Ring R3.5 to unblock the offchain ticket worker.
+	// External callers remain shut out by the shield.
 	impl sp_consensus_sassafras::SassafrasApi<Block> for Runtime {
-		// HARDENED against F-NEW-2 (Phase 4 Fagan inspection):
-		// upstream pallet-sassafras exposes the entire ~580KB KZG SRS
-		// via this API unauthenticated. Returning None
-		// unconditionally; the RPC shield additionally denies
-		// state_call to this method (defense in depth).
 		fn ring_context() -> Option<sp_consensus_sassafras::vrf::RingContext> {
-			None
+			pallet_sassafras::RingContext::<Runtime>::get()
 		}
 
-		// HARDENED against F-NEW-1: this method panics on every external
-		// state_call (offchain-only host fn). Early-return false. The
-		// RPC shield additionally denies state_call to this method.
 		fn submit_tickets_unsigned_extrinsic(
-			_tickets: Vec<sp_consensus_sassafras::TicketEnvelope>,
+			tickets: Vec<sp_consensus_sassafras::TicketEnvelope>,
 		) -> bool {
-			false
+			Sassafras::submit_tickets_unsigned_extrinsic(tickets)
 		}
 
 		fn slot_ticket_id(slot: sp_consensus_sassafras::Slot) -> Option<sp_consensus_sassafras::TicketId> {
