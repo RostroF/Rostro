@@ -209,6 +209,13 @@ pub fn new_full<
 	}
 
 	let role = config.role;
+
+	// Phase 6 Layer 4: spawn the validator self-audit task.
+	// No-op for non-validator roles. Defense in depth against any path
+	// (current or future) that might bind a non-loopback listener
+	// while the node is acting as a validator.
+	crate::role::spawn_self_audit_if_validator(role, &task_manager.spawn_handle());
+
 	let force_authoring = config.force_authoring;
 	let backoff_authoring_blocks: Option<()> = None;
 	let name = config.network.node_name.clone();

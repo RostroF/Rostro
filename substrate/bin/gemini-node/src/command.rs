@@ -140,6 +140,11 @@ pub fn run() -> rc_cli::Result<()> {
 		None => {
 			let runner = cli.create_runner(&cli.run)?;
 			runner.run_node_until_exit(|config| async move {
+				// Phase 6 Layer 2: enforce role-based invariants
+				// before service construction. Validator role rejects
+				// non-loopback RPC bindings and the unsafe method set,
+				// no escape hatch.
+				crate::role::validate(&config).map_err(rc_cli::Error::Input)?;
 				service::new_full::<rc_network::NetworkWorker<_, _>>(config)
 					.map_err(rc_cli::Error::Service)
 			})
