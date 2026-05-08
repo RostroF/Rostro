@@ -261,7 +261,101 @@ pub mod pallet {
 				.map(|(k, v)| (k.into_inner(), v))
 				.collect()
 		}
+
+		/// Compute the canonical Merkle root over all registered
+		/// `(path, hash)` entries.
+		///
+		/// Used by the Phase 7b network-edge attestation flow: peers
+		/// compare their locally-computed root against this on-chain
+		/// canonical root in O(1) before drilling into per-file
+		/// diffs. A divergent root tells you *something* in your
+		/// foundation fileset is wrong; the leaf walk
+		/// (`hash_for` / `all_files`) localizes *which* file.
+		///
+		/// Empty registry returns `[0u8; 32]`.
+		///
+		/// Construction (see free fns `leaf_hash` / `node_hash`):
+		///
+		/// - Leaves are SCALE-encoded `(path, hash)` tuples, blake2_256
+		///   hashed under a `LEAF_TAG` byte.
+		/// - Internal nodes blake2_256 their two children under a
+		///   `NODE_TAG` byte.
+		/// - Domain separation between leaves and nodes prevents any
+		///   leaf from being structurally indistinguishable from an
+		///   internal node (closes the second-preimage class flagged
+		///   on naive Merkle constructions).
+		/// - Leaves are sorted lexicographically by path before
+		///   tree-building, so the root is purely a function of the
+		///   stored set, not insertion order.
+		/// - Odd-sized layers duplicate the last child. This is safe
+		///   here because the leaf set comes from on-chain storage
+		///   iteration; no attacker can append a phantom (n+1)-th
+		///   leaf to claim a different root.
+		pub fn canonical_root() -> [u8; 32] {
+			let mut entries: Vec<(Vec<u8>, [u8; 32])> = CanonicalFiles::<T>::iter()
+				.map(|(k, v)| (k.into_inner(), v))
+				.collect();
+			entries.sort_by(|a, b| a.0.cmp(&b.0));
+			merkle_root_of(&entries)
+		}
 	}
+}
+
+/// Domain-separation tag for leaf hashes in [`merkle_root_of`].
+const LEAF_TAG: u8 = 0x00;
+
+/// Domain-separation tag for internal-node hashes in [`merkle_root_of`].
+const NODE_TAG: u8 = 0x01;
+
+/// Hash a single `(path, hash)` leaf. SCALE-encodes the pair (so the
+/// length-prefix on `path` is part of the hash and a path of bytes
+/// `b"foo" || b"bar"` cannot collide with two paths `b"foo"` and
+/// `b"bar"`), then prefixes the encoded payload with [`LEAF_TAG`].
+pub fn leaf_hash(path: &[u8], file_hash: &[u8; 32]) -> [u8; 32] {
+	use codec::Encode;
+	let payload = (path, file_hash).encode();
+	let mut buf = alloc::vec::Vec::with_capacity(1 + payload.len());
+	buf.push(LEAF_TAG);
+	buf.extend_from_slice(&payload);
+	sp_io::hashing::blake2_256(&buf)
+}
+
+/// Hash a pair of children into their parent. Fixed 65-byte buffer
+/// (1 tag + 32 left + 32 right), no allocation.
+pub fn node_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+	let mut buf = [0u8; 65];
+	buf[0] = NODE_TAG;
+	buf[1..33].copy_from_slice(left);
+	buf[33..65].copy_from_slice(right);
+	sp_io::hashing::blake2_256(&buf)
+}
+
+/// Compute the Merkle root over an already-sorted slice of
+/// `(path, hash)` entries. Exposed at module level so the native
+/// verifier can call the same function over its locally-computed
+/// fileset and compare against `Pallet::canonical_root()` without
+/// pulling in `frame-system`.
+///
+/// Empty input returns `[0u8; 32]`.
+pub fn merkle_root_of(entries: &[(alloc::vec::Vec<u8>, [u8; 32])]) -> [u8; 32] {
+	if entries.is_empty() {
+		return [0u8; 32];
+	}
+	let mut layer: alloc::vec::Vec<[u8; 32]> = entries
+		.iter()
+		.map(|(p, h)| leaf_hash(p, h))
+		.collect();
+	while layer.len() > 1 {
+		if layer.len() % 2 == 1 {
+			let last = *layer.last().expect("len() > 1 above; qed");
+			layer.push(last);
+		}
+		layer = layer
+			.chunks(2)
+			.map(|pair| node_hash(&pair[0], &pair[1]))
+			.collect();
+	}
+	layer[0]
 }
 
 /// Runtime API exposed for the native node-side verifier to query
@@ -281,6 +375,13 @@ sp_api::decl_runtime_apis! {
 		/// entry count; intended for the verifier's startup
 		/// bootstrap of its local Merkle tree.
 		fn all_files() -> Vec<(Vec<u8>, [u8; 32])>;
+
+		/// The canonical Merkle root over all registered
+		/// `(path, hash)` entries. Phase 7b uses this for fast
+		/// peer-to-peer drift detection: peers compare local root
+		/// against canonical root in O(1) before walking the
+		/// per-file diff.
+		fn canonical_root() -> [u8; 32];
 	}
 }
 
@@ -545,5 +646,235 @@ mod tests {
 			let too_long = alloc::vec![b'x'; (MAX_FILE_PATH_LEN as usize) + 1];
 			assert_eq!(crate::pallet::Pallet::<Test>::hash_for(&too_long), None);
 		});
+	}
+
+	// ─── canonical_root / Merkle construction ─────────────────────────────
+
+	#[test]
+	fn canonical_root_empty_registry_is_zero() {
+		new_test_ext().execute_with(|| {
+			assert_eq!(crate::pallet::Pallet::<Test>::canonical_root(), [0u8; 32]);
+		});
+	}
+
+	#[test]
+	fn canonical_root_single_entry_equals_leaf_hash() {
+		new_test_ext().execute_with(|| {
+			let path = b"gemini-node".to_vec();
+			let hash = [0xAB; 32];
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				path.clone(),
+				hash,
+			));
+			let root = crate::pallet::Pallet::<Test>::canonical_root();
+			let expected = crate::leaf_hash(&path, &hash);
+			assert_eq!(root, expected);
+		});
+	}
+
+	#[test]
+	fn canonical_root_two_entries_is_node_of_sorted_leaves() {
+		new_test_ext().execute_with(|| {
+			// Register out of order; root must reflect lexicographic
+			// (path) ordering, not insertion order.
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"zzz".to_vec(),
+				[0x02; 32],
+			));
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"aaa".to_vec(),
+				[0x01; 32],
+			));
+			let root = crate::pallet::Pallet::<Test>::canonical_root();
+			let leaf_a = crate::leaf_hash(b"aaa", &[0x01; 32]);
+			let leaf_z = crate::leaf_hash(b"zzz", &[0x02; 32]);
+			let expected = crate::node_hash(&leaf_a, &leaf_z);
+			assert_eq!(root, expected);
+		});
+	}
+
+	#[test]
+	fn canonical_root_three_entries_duplicates_last_for_odd_layer() {
+		new_test_ext().execute_with(|| {
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"aaa".to_vec(),
+				[0x01; 32],
+			));
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"bbb".to_vec(),
+				[0x02; 32],
+			));
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"ccc".to_vec(),
+				[0x03; 32],
+			));
+			let root = crate::pallet::Pallet::<Test>::canonical_root();
+			let leaf_a = crate::leaf_hash(b"aaa", &[0x01; 32]);
+			let leaf_b = crate::leaf_hash(b"bbb", &[0x02; 32]);
+			let leaf_c = crate::leaf_hash(b"ccc", &[0x03; 32]);
+			// Layer 1: [ ab, cc ] (last duplicated).
+			let ab = crate::node_hash(&leaf_a, &leaf_b);
+			let cc = crate::node_hash(&leaf_c, &leaf_c);
+			let expected = crate::node_hash(&ab, &cc);
+			assert_eq!(root, expected);
+		});
+	}
+
+	#[test]
+	fn canonical_root_is_insertion_order_independent() {
+		// Registering the same set in two different orders must
+		// produce the same root.
+		let entries: alloc::vec::Vec<(alloc::vec::Vec<u8>, [u8; 32])> = alloc::vec![
+			(b"alpha".to_vec(), [0x01; 32]),
+			(b"beta".to_vec(), [0x02; 32]),
+			(b"gamma".to_vec(), [0x03; 32]),
+			(b"delta".to_vec(), [0x04; 32]),
+		];
+
+		let root_forward = new_test_ext().execute_with(|| {
+			for (p, h) in entries.iter() {
+				assert_ok!(CanonicalFiles::register_file(
+					frame_system::RawOrigin::Root.into(),
+					p.clone(),
+					*h,
+				));
+			}
+			crate::pallet::Pallet::<Test>::canonical_root()
+		});
+
+		let root_reverse = new_test_ext().execute_with(|| {
+			for (p, h) in entries.iter().rev() {
+				assert_ok!(CanonicalFiles::register_file(
+					frame_system::RawOrigin::Root.into(),
+					p.clone(),
+					*h,
+				));
+			}
+			crate::pallet::Pallet::<Test>::canonical_root()
+		});
+
+		assert_eq!(root_forward, root_reverse);
+	}
+
+	#[test]
+	fn canonical_root_changes_when_one_byte_of_one_hash_changes() {
+		// Tampering invariant: any change to any leaf must change the
+		// root.
+		let baseline = new_test_ext().execute_with(|| {
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"gemini-node".to_vec(),
+				[0xAA; 32],
+			));
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"gemini-runtime.wasm".to_vec(),
+				[0xBB; 32],
+			));
+			crate::pallet::Pallet::<Test>::canonical_root()
+		});
+		let tampered = new_test_ext().execute_with(|| {
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"gemini-node".to_vec(),
+				[0xAA; 32],
+			));
+			let mut bb = [0xBB; 32];
+			bb[31] ^= 0x01; // flip one bit
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"gemini-runtime.wasm".to_vec(),
+				bb,
+			));
+			crate::pallet::Pallet::<Test>::canonical_root()
+		});
+		assert_ne!(baseline, tampered);
+	}
+
+	#[test]
+	fn canonical_root_changes_when_two_paths_swap_hashes() {
+		// Hash-swap defense: A's hash registered against B's path,
+		// and vice versa, must produce a different root than the
+		// correct binding. This is the property that makes
+		// `(path, hash)` leaves rather than `hash`-only leaves
+		// meaningful.
+		let correct = new_test_ext().execute_with(|| {
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"gemini-node".to_vec(),
+				[0xAA; 32],
+			));
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"gemini-runtime.wasm".to_vec(),
+				[0xBB; 32],
+			));
+			crate::pallet::Pallet::<Test>::canonical_root()
+		});
+		let swapped = new_test_ext().execute_with(|| {
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"gemini-node".to_vec(),
+				[0xBB; 32],
+			));
+			assert_ok!(CanonicalFiles::register_file(
+				frame_system::RawOrigin::Root.into(),
+				b"gemini-runtime.wasm".to_vec(),
+				[0xAA; 32],
+			));
+			crate::pallet::Pallet::<Test>::canonical_root()
+		});
+		assert_ne!(correct, swapped);
+	}
+
+	#[test]
+	fn merkle_root_of_matches_canonical_root() {
+		// The free function `merkle_root_of` is what the native
+		// verifier will call against its locally-computed entry list.
+		// It must agree bit-for-bit with the on-chain
+		// `canonical_root()` over the same input set.
+		let entries: alloc::vec::Vec<(alloc::vec::Vec<u8>, [u8; 32])> = alloc::vec![
+			(b"alpha".to_vec(), [0x01; 32]),
+			(b"beta".to_vec(), [0x02; 32]),
+			(b"gamma".to_vec(), [0x03; 32]),
+		];
+		let on_chain = new_test_ext().execute_with(|| {
+			for (p, h) in entries.iter() {
+				assert_ok!(CanonicalFiles::register_file(
+					frame_system::RawOrigin::Root.into(),
+					p.clone(),
+					*h,
+				));
+			}
+			crate::pallet::Pallet::<Test>::canonical_root()
+		});
+
+		let mut sorted = entries.clone();
+		sorted.sort_by(|a, b| a.0.cmp(&b.0));
+		let standalone = crate::merkle_root_of(&sorted);
+
+		assert_eq!(on_chain, standalone);
+	}
+
+	#[test]
+	fn leaf_hash_is_distinct_from_node_hash_for_same_payload_bytes() {
+		// Domain separation invariant: a 65-byte payload that
+		// happens to match the node-tag layout must not produce the
+		// same hash as a leaf encoding with the same trailing
+		// bytes. Sanity-checks that LEAF_TAG ≠ NODE_TAG actually
+		// matters.
+		let bytes32 = [0x77u8; 32];
+		let leaf_with_payload_that_looks_like_node = crate::leaf_hash(
+			&[0u8; 32], // 32 bytes path
+			&bytes32,
+		);
+		let node = crate::node_hash(&[0u8; 32], &bytes32);
+		assert_ne!(leaf_with_payload_that_looks_like_node, node);
 	}
 }

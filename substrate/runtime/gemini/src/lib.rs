@@ -653,6 +653,10 @@ impl_runtime_apis! {
 		fn all_files() -> Vec<(Vec<u8>, [u8; 32])> {
 			pallet_rostro_canonical_files::Pallet::<Runtime>::all_files()
 		}
+
+		fn canonical_root() -> [u8; 32] {
+			pallet_rostro_canonical_files::Pallet::<Runtime>::canonical_root()
+		}
 	}
 }
 

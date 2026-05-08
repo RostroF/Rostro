@@ -1,0 +1,21 @@
+[package]
+name = "rostro-canonical-fetch"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Bytes-by-hash p2p protocol primitives for canonical-file fetch (Phase 7b step 3). SCALE-encoded request/response types, hash-verified client fetch helper, and a server-side request handler trait. Transport-agnostic: the actual libp2p binding lives in a follow-up step. Hash is authority — peers serve bytes best-effort, the receiver always verifies the blake2_256 of the response matches the requested hash before treating the bytes as canonical. Response size is capped to bound malicious peers' ability to OOM the receiver."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+sp-crypto-hashing = { workspace = true }
+
+[features]
+default = ["std"]
+std = ["codec/std", "sp-crypto-hashing/std"]

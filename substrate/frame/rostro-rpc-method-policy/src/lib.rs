@@ -169,6 +169,7 @@ pub const V0_WELL_KNOWN_POLICIES: &[(&[u8], MethodPolicy)] = &[
 	// verifiers + tooling.
 	(b"CanonicalFilesApi_hash_for", MethodPolicy::PublicGated),
 	(b"CanonicalFilesApi_all_files", MethodPolicy::PublicGated),
+	(b"CanonicalFilesApi_canonical_root", MethodPolicy::PublicGated),
 ];
 
 /// Runtime API exposed for the `rostro-rpc-shield` middleware to query

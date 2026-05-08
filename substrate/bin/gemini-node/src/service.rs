@@ -130,10 +130,18 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 }
 
 /// Builds a new service for a full client.
+///
+/// `canonical_files_dir` (Phase 7b): when `Some(dir)`, the boot-time
+/// file verifier uses a `LocalDirectoryFetchTransport` rooted at
+/// `dir` as its heal source. On hash mismatch, the verifier fetches
+/// canonical bytes from there, stages them at `<exe>.new`, and
+/// exits code 90 for `rostro-supervisor` to swap and restart. When
+/// `None`, hash mismatch is fail-stop (Phase 7a behavior).
 pub fn new_full<
 	N: rc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
 	config: Configuration,
+	canonical_files_dir: Option<std::path::PathBuf>,
 ) -> Result<TaskManager, ServiceError> {
 	let rc_service::PartialComponents {
 		client,
@@ -210,12 +218,15 @@ pub fn new_full<
 
 	let role = config.role;
 
-	// Phase 7a: foundation-file verification. Hashes our own binary,
-	// checks against the on-chain canonical-files registry, fail-stops
-	// the boot if a registered file's local hash doesn't match. Files
-	// not yet registered are skipped (no-op until SRT publishes).
-	crate::file_check::verify_at_boot(client.clone())
-		.map_err(|e| ServiceError::Other(e))?;
+	// Phase 7a + 7b: foundation-file verification, with optional
+	// heal-from-local-directory on mismatch. When --canonical-files-dir
+	// is set, the verifier consults that directory on boot-time hash
+	// mismatch and (if a matching file is found) stages it at
+	// <exe>.new, then exits code 90 for the supervisor to swap and
+	// restart. When unset, mismatch is fail-stop.
+	let heal_fetcher = build_heal_fetcher(canonical_files_dir.as_deref())?;
+	crate::file_check::verify_at_boot(client.clone(), heal_fetcher)
+		.map_err(ServiceError::Other)?;
 
 	// Phase 6 Layer 3: chain-state self-check. Reconciles the local
 	// bandersnatch keystore against the on-chain authority set.
@@ -394,4 +405,57 @@ pub fn new_full<
 	}
 
 	Ok(task_manager)
+}
+
+/// Construct the optional [`crate::file_check::HealFetcher`] from a
+/// `--canonical-files-dir` argument. Returns `Ok(None)` when no
+/// directory was supplied, `Ok(Some(_))` when scanning succeeded,
+/// or `Err` when the supplied directory could not be read (which is
+/// a configuration error worth surfacing immediately rather than
+/// silently downgrading to "no heal source").
+fn build_heal_fetcher(
+	dir: Option<&std::path::Path>,
+) -> Result<Option<Box<dyn crate::file_check::HealFetcher>>, ServiceError> {
+	let Some(dir) = dir else { return Ok(None) };
+	let transport =
+		rostro_canonical_fetch::local_dir::LocalDirectoryFetchTransport::scan(dir)
+			.map_err(|e| {
+				ServiceError::Other(format!(
+					"scanning --canonical-files-dir {}: {e}",
+					dir.display(),
+				))
+			})?;
+	log::info!(
+		target: "rostro-file-check",
+		"heal source ready: {} canonical file(s) indexed at {}",
+		transport.len(),
+		dir.display(),
+	);
+	Ok(Some(heal_fetcher_from_transport(transport)))
+}
+
+/// Adapt any [`rostro_canonical_fetch::FetchTransport`] into the
+/// [`crate::file_check::HealFetcher`] trait that the verifier
+/// consumes. Stringifies the transport's error type so the verifier
+/// can produce a uniform fail-stop message regardless of which
+/// transport is wired in.
+fn heal_fetcher_from_transport<T>(transport: T) -> Box<dyn crate::file_check::HealFetcher>
+where
+	T: rostro_canonical_fetch::FetchTransport + Send + Sync + 'static,
+	T::Error: core::fmt::Debug + 'static,
+{
+	struct Adapter<T> {
+		inner: T,
+	}
+	impl<T> crate::file_check::HealFetcher for Adapter<T>
+	where
+		T: rostro_canonical_fetch::FetchTransport + Send + Sync,
+		T::Error: core::fmt::Debug,
+	{
+		fn fetch(&mut self, hash: [u8; 32]) -> Result<Vec<u8>, String> {
+			rostro_canonical_fetch::fetch_and_verify(&mut self.inner, hash)
+				.map_err(|e| format!("{e:?}"))
+		}
+	}
+	Box::new(Adapter { inner: transport })
 }

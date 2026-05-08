@@ -11,6 +11,7 @@ resolver = "2"
 members = [
 	"substrate/bin/gemini-node",
 	"substrate/bin/rostro-node",
+	"substrate/bin/rostro-supervisor",
 	"substrate/bin/utils/chain-spec-builder",
 	"substrate/bin/utils/subkey",
 	"substrate/client/allocator",
@@ -280,6 +281,7 @@ members = [
 	"substrate/utils/frame/rpc/system",
 	"substrate/utils/merkle-mountain-range",
 	"substrate/utils/rns-ddns",
+	"substrate/utils/rostro-canonical-fetch",
 	"substrate/utils/rostro-canonicalize",
 	"substrate/utils/rostro-client",
 	"substrate/utils/rostro-consensus-sassafras",

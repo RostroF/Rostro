@@ -11,6 +11,17 @@ pub struct Cli {
 	#[command(subcommand)]
 	pub subcommand: Option<Subcommand>,
 
+	/// Directory containing locally-available canonical foundation
+	/// files, indexed by the blake2_256 of each file's contents.
+	/// When set, the Phase 7b heal flow consults this directory on
+	/// boot-time hash mismatch: if the directory contains bytes
+	/// matching the canonical hash from the on-chain registry, the
+	/// node stages those bytes at `<exe>.new` and exits with code 90
+	/// for `rostro-supervisor` to swap and restart. When unset, a
+	/// hash mismatch is fail-stop (Phase 7a behavior).
+	#[arg(long)]
+	pub canonical_files_dir: Option<std::path::PathBuf>,
+
 	#[clap(flatten)]
 	pub run: RunCmd,
 }

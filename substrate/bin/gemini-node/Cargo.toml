@@ -85,6 +85,11 @@ rostro-consensus-sassafras = { path = "../../utils/rostro-consensus-sassafras", 
 # so `policy_refresh` can use the same `MethodPolicy` enum.
 rostro-rpc-shield = { path = "../../utils/rostro-rpc-shield" }
 
+# Apache-2.0 canonical-fetch protocol primitives. `file_check` uses the
+# `LocalDirectoryFetchTransport` to drive the heal flow when
+# `--canonical-files-dir` is set; libp2p binding lands in a follow-up.
+rostro-canonical-fetch = { path = "../../utils/rostro-canonical-fetch" }
+
 # The runtime
 gemini-runtime = { workspace = true, default-features = true }
 
