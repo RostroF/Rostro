@@ -33,7 +33,10 @@ frame-system-rpc-runtime-api = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-grandpa = { workspace = true }
+pallet-rns-marketplace = { workspace = true }
 pallet-rns-registrar = { workspace = true }
+pallet-rns-resolvers = { workspace = true }
+rns-runtime-api = { workspace = true }
 pallet-rostro-bilateral-receipt = { workspace = true }
 pallet-rostro-canonical-files = { workspace = true }
 pallet-rostro-operator-state = { workspace = true }
@@ -78,7 +81,10 @@ std = [
 	"pallet-authorship/std",
 	"pallet-balances/std",
 	"pallet-grandpa/std",
+	"pallet-rns-marketplace/std",
 	"pallet-rns-registrar/std",
+	"pallet-rns-resolvers/std",
+	"rns-runtime-api/std",
 	"pallet-rostro-bilateral-receipt/std",
 	"pallet-rostro-canonical-files/std",
 	"pallet-rostro-operator-state/std",

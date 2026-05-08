@@ -163,5 +163,18 @@ fn testnet_genesis(
 		"canonicalFiles": {
 			"initialFiles": Vec::<(Vec<u8>, [u8; 32])>::new(),
 		},
+		// RNS reserved-list seed. SEED_RESERVED is the curated list
+		// from `pallet-rns-registrar/src/genesis_reserved.rs` —
+		// network family labels, DNS infra, RFC 2142 mailboxes,
+		// operational subdomains. Each label gets hashed against the
+		// runtime's BaseNode at genesis-build time and inserted into
+		// `ReservedList`. SRT can extend or shrink post-genesis via
+		// `add_reserved` / `remove_reserved` extrinsics.
+		"rnsRegistrar": {
+			"reservedNames": pallet_rns_registrar::genesis_reserved::SEED_RESERVED
+				.iter()
+				.map(|l| l.to_vec())
+				.collect::<Vec<Vec<u8>>>(),
+		},
 	})
 }

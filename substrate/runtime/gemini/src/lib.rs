@@ -160,6 +160,7 @@ pub const MILLISECS_PER_BLOCK: u64 = 6_000;
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 pub const MINUTES: BlockNumber = 60_000 / (MILLISECS_PER_BLOCK as BlockNumber);
 pub const HOURS: BlockNumber = MINUTES * 60;
+pub const DAYS: BlockNumber = HOURS * 24;
 
 /// Sassafras epoch length in slots. 600 slots × 6s = 60 minutes.
 pub const EPOCH_LENGTH_IN_SLOTS: u32 = 600;
@@ -376,63 +377,269 @@ impl pallet_rostro_canonical_files::Config for Runtime {
 	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
 }
 
-// ─── pallet_rostro_operator_state ──────────────────────────────────────────
+// ─── RNS — full wiring (registrar + registry + nft + price oracle ──────────
+//      + resolvers + marketplace) ────────────────────────────────────────
 //
-// On-chain operator state with RNS-rooted authorization. The
-// `T::RnsRegistry` consults the RNS pallet's `NameRegistry` trait
-// to look up the current registrant of a name; gemini-runtime
-// doesn't yet wire pallet-rns-registrar, so we plug in a no-op
-// [`StubRnsRegistry`] that always reports "no current registrant."
-// The pallet's storage is wired and types are checked, but every
-// `mint_object` will fail with `NamespaceNotOwnedBySigner` until
-// the real RNS pallet replaces this stub. This keeps the runtime
-// forward-compatible without pulling RNS in as a side-quest.
+// Identity primitive. Names live on chain, owned by AccountIds,
+// 1-year max lease (renewals top up to "1 year from now," cannot
+// exceed). Reserved-list seeded from
+// `pallet_rns_registrar::genesis_reserved::SEED_RESERVED` at chain
+// spec build time.
+//
+// PnsCustodian: temporary placeholder pointing at the sudo account.
+// The 50/50 treasury+burn split is a follow-up that requires
+// migrating PnsCustodian's Config item from `Get<AccountId>` to
+// `OnUnbalanced<NegativeImbalanceOf<...>>` and wiring a Treasury
+// pallet — tracked separately.
 
 parameter_types! {
-	/// Floor on per-object operator-state deposits. 1 ROSTO; can be
-	/// adjusted by governance once the deposit-vs-cleanup-cost
-	/// economics are calibrated against real gas usage.
+	/// Floor on per-object operator-state deposits.
 	pub const MinOperatorObjectDeposit: Balance = ROSTO;
+
+	/// RNS post-expiry grace period — name can be reclaimed by the
+	/// previous owner during this window before becoming
+	/// re-registrable by anyone.
+	pub const RnsGracePeriod: u64 = 30 * (DAYS as u64) * MILLISECS_PER_BLOCK;
+
+	/// RNS gift-name "offered" expiration. After this, an unaccepted
+	/// gift returns to the seller.
+	pub const RnsOfferWindow: u64 = 90 * (DAYS as u64) * MILLISECS_PER_BLOCK;
+
+	/// Subdomains per registered name.
+	pub const RnsDefaultCapacity: u32 = 10;
+
+	/// No meaningful minimum registration duration on Rostro — set
+	/// to 1 day, low enough that the parameter is effectively
+	/// non-binding without inviting millisecond-grade spam. Rostro
+	/// policy: max 365 days, renewal tops up to "365 days from
+	/// now," there is no real floor.
+	pub const RnsMinRegistrationDuration: u64 = (DAYS as u64) * MILLISECS_PER_BLOCK;
+
+	/// Rostro names cap at 1-year leases. Renewals top up the
+	/// remaining duration to a 365-days-from-now ceiling, never
+	/// exceed it.
+	pub const RnsMaxRegistrationDuration: u64 = 365 * (DAYS as u64) * MILLISECS_PER_BLOCK;
+
+	/// Maximum bytes per resolver record (TXT, AVATAR CID, RPC
+	/// endpoint, etc.). 1 KiB.
+	pub const RnsMaxContentLen: u32 = 1024;
+
+	/// Marketplace listing deposit — held on the seller while a
+	/// listing is active, refunded on cancellation, paid to the
+	/// cleanup caller after expiry-past-grace.
+	pub const RnsListingDeposit: Balance = ROSTO;
+
+	/// Marketplace listing grace period before cleanup eligibility.
+	pub const RnsListingGracePeriod: u64 = 7 * (DAYS as u64) * MILLISECS_PER_BLOCK;
+
+	/// Base namehash for Rostro (mainnet `rst` TLD). Gemini is the
+	/// testbed for this exact stack so it uses the production
+	/// basenode by design.
+	pub const RnsBaseNode: rns_types::DomainHash = rns_types::RST_BASENODE;
 }
 
-pub struct StubRnsRegistry;
-impl pallet_rns_registrar::traits::NameRegistry for StubRnsRegistry {
-	type AccountId = AccountId;
-	fn canonical_name(_: &Self::AccountId) -> Option<rns_types::DomainHash> {
-		None
+/// `EnsureRoot`-equivalent that satisfies `Success = AccountId`.
+/// RNS Config items expect this signature for their ManagerOrigin.
+pub struct EnsureRootAsAccountId;
+impl frame_support::traits::EnsureOrigin<RuntimeOrigin> for EnsureRootAsAccountId {
+	type Success = AccountId;
+	fn try_origin(o: RuntimeOrigin) -> Result<Self::Success, RuntimeOrigin> {
+		match <frame_system::EnsureRoot<AccountId>>::try_origin(o) {
+			Ok(_) => Ok(AccountId::new([0u8; 32])),
+			Err(o) => Err(o),
+		}
 	}
-	fn owner_of(_: rns_types::DomainHash) -> Option<Self::AccountId> {
-		None
-	}
-	fn transfer_name(
-		_: &Self::AccountId,
-		_: &Self::AccountId,
-		_: rns_types::DomainHash,
-	) -> sp_runtime::DispatchResult {
-		Err(DispatchError::Other("RNS not yet wired into gemini-runtime"))
-	}
-	fn offer_bought_name(
-		_: &Self::AccountId,
-		_: &Self::AccountId,
-		_: &Self::AccountId,
-		_: rns_types::DomainHash,
-	) -> sp_runtime::DispatchResult {
-		Err(DispatchError::Other("RNS not yet wired into gemini-runtime"))
-	}
-	fn is_name_useable(_: rns_types::DomainHash) -> bool {
-		false
-	}
-	fn charge_sale_fee(
-		_: &Self::AccountId,
-		_: rns_types::DomainHash,
-	) -> sp_runtime::DispatchResult {
-		Err(DispatchError::Other("RNS not yet wired into gemini-runtime"))
+	#[cfg(feature = "runtime-benchmarks")]
+	fn try_successful_origin() -> Result<RuntimeOrigin, ()> {
+		Ok(RuntimeOrigin::root())
 	}
 }
+
+/// PnsCustodian funding placeholder — receives the protocol-share
+/// of registration / renewal fees. Currently routes to whoever
+/// holds the sudo key. The proper 50% treasury / 50% burn split
+/// requires the rns-registrar pallet to migrate this Config item
+/// from `Get<AccountId>` to `OnUnbalanced<NegativeImbalance>` —
+/// tracked as a follow-up.
+pub struct PnsCustodianAccount;
+impl frame_support::traits::Get<AccountId> for PnsCustodianAccount {
+	fn get() -> AccountId {
+		pallet_sudo::Key::<Runtime>::get().unwrap_or_else(|| AccountId::new([0u8; 32]))
+	}
+}
+
+/// Block author for RNS fee distribution (40% of registration fee
+/// per the registrar's price oracle). Reads from
+/// `pallet_authorship::Author`, which is populated each block by
+/// the `SassafrasAuthorAdapter::find_author` lookup.
+pub struct PnsBlockAuthor;
+impl pallet_rns_registrar::traits::BlockAuthor for PnsBlockAuthor {
+	type AccountId = AccountId;
+	fn author() -> Option<AccountId> {
+		pallet_authorship::Pallet::<Runtime>::author()
+	}
+}
+
+/// Always-open registrar. Rostro doesn't shut people out of name
+/// registration. Could be governance-gated in a future revision
+/// if a registration-pause emergency action is ever needed.
+pub struct PnsIsOpen;
+impl pallet_rns_registrar::traits::IsRegistrarOpen for PnsIsOpen {
+	fn is_open() -> bool {
+		true
+	}
+}
+
+/// Bridge `registrar`/`marketplace` → `resolvers` for SS58 record
+/// updates. The registrar/marketplace mint or transfer a name; we
+/// echo the new owner into the resolvers' SS58 record so DNS-style
+/// lookups always reflect the current owner.
+pub struct PnsSs58Updater;
+impl pallet_rns_registrar::traits::Ss58Updater for PnsSs58Updater {
+	type AccountId = AccountId;
+	fn update_ss58(
+		node: rns_types::DomainHash,
+		owner: &AccountId,
+	) -> sp_runtime::DispatchResult {
+		pallet_rns_resolvers::resolvers::Pallet::<Runtime>::set_ss58_record(node, owner)
+	}
+}
+
+/// Bridge `registrar` → `resolvers` for ORIGIN record (block hash
+/// of the registration block). Pinned at initial registration,
+/// preserved across renewals.
+pub struct PnsOriginRecorder;
+impl pallet_rns_registrar::traits::OriginRecorder for PnsOriginRecorder {
+	fn record_origin(
+		node: rns_types::DomainHash,
+		block_hash: [u8; 32],
+	) -> sp_runtime::DispatchResult {
+		pallet_rns_resolvers::resolvers::Pallet::<Runtime>::set_origin_record(node, block_hash)
+	}
+}
+
+/// Bridge `registrar`/`marketplace` → `resolvers` for record
+/// cleanup on transfer/burn. SS58 update is paired separately so
+/// the new owner's SS58 lands before non-SS58 records get cleared.
+pub struct PnsRecordCleaner;
+impl pallet_rns_registrar::traits::RecordCleaner for PnsRecordCleaner {
+	fn clear_records_except_ss58(node: rns_types::DomainHash) {
+		pallet_rns_resolvers::resolvers::Pallet::<Runtime>::clear_records_except_ss58(node)
+	}
+	fn clear_all_records(node: rns_types::DomainHash) {
+		pallet_rns_resolvers::resolvers::Pallet::<Runtime>::clear_all_records(node)
+	}
+}
+
+/// Resolvers consult this when validating that a record-write
+/// targets a registered + useable name owned by the caller.
+pub struct PnsRegistryChecker;
+impl pallet_rns_resolvers::resolvers::RegistryChecker for PnsRegistryChecker {
+	type AccountId = AccountId;
+	fn check_node_useable(node: rns_types::DomainHash, owner: &AccountId) -> bool {
+		use pallet_rns_registrar::traits::Registrar as _;
+		if pallet_rns_registrar::registry::Pallet::<Runtime>::verify(owner, node).is_err() {
+			return false;
+		}
+		pallet_rns_registrar::registrar::Pallet::<Runtime>::get_info(node)
+			.map(|_| {
+				pallet_rns_registrar::registrar::Pallet::<Runtime>::check_expires_useable(node)
+					.is_ok()
+			})
+			.unwrap_or(true)
+	}
+	fn base_node() -> rns_types::DomainHash {
+		<RnsBaseNode as frame_support::traits::Get<rns_types::DomainHash>>::get()
+	}
+}
+
+impl pallet_rns_registrar::nft::Config for Runtime {
+	type ClassId = u32;
+	type TotalId = u128;
+	type TokenId = rns_types::DomainHash;
+	type ClassData = ();
+	type TokenData = rns_types::Record;
+	type MaxClassMetadata = ConstU32<0>;
+	type MaxTokenMetadata = ConstU32<0>;
+}
+
+impl pallet_rns_registrar::price_oracle::Config for Runtime {
+	type Currency = Balances;
+	type Moment = u64;
+	type ExchangeRate = pallet_rns_registrar::price_oracle::Pallet<Runtime>;
+	type WeightInfo = ();
+	type ManagerOrigin = EnsureRootAsAccountId;
+}
+
+impl pallet_rns_registrar::registry::Config for Runtime {
+	type WeightInfo = ();
+	type Registrar = pallet_rns_registrar::registrar::Pallet<Runtime>;
+	type ManagerOrigin = EnsureRootAsAccountId;
+	type Ss58Updater = PnsSs58Updater;
+	type RecordCleaner = PnsRecordCleaner;
+	type OriginRecorder = PnsOriginRecorder;
+}
+
+impl pallet_rns_registrar::registrar::Config for Runtime {
+	type Registry = pallet_rns_registrar::registry::Pallet<Runtime>;
+	type Currency = Balances;
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type Fungible = Balances;
+	type NowProvider = Timestamp;
+	type Moment = u64;
+	type GracePeriod = RnsGracePeriod;
+	type DefaultCapacity = RnsDefaultCapacity;
+	type BaseNode = RnsBaseNode;
+	type MinRegistrationDuration = RnsMinRegistrationDuration;
+	type MaxRegistrationDuration = RnsMaxRegistrationDuration;
+	type OfferWindow = RnsOfferWindow;
+	type WeightInfo = ();
+	type PriceOracle = pallet_rns_registrar::price_oracle::Pallet<Runtime>;
+	type ManagerOrigin = EnsureRootAsAccountId;
+	// TODO(srt): retarget at `pallet-rostro-security-response-team`
+	// when SRT lands. Stubbed to root until then.
+	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
+	type PnsCustodian = PnsCustodianAccount;
+	type BlockAuthor = PnsBlockAuthor;
+	type IsOpen = PnsIsOpen;
+	type Official = pallet_rns_registrar::registry::Pallet<Runtime>;
+	type Ss58Updater = PnsSs58Updater;
+	type OriginRecorder = PnsOriginRecorder;
+	type RecordCleaner = PnsRecordCleaner;
+}
+
+impl pallet_rns_resolvers::resolvers::Config for Runtime {
+	const OFFCHAIN_PREFIX: &'static [u8] = b"rns/";
+	type WeightInfo = ();
+	type MaxContentLen = RnsMaxContentLen;
+	type RegistryChecker = PnsRegistryChecker;
+}
+
+impl pallet_rns_marketplace::Config for Runtime {
+	type Currency = Balances;
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type Fungible = Balances;
+	type ListingDeposit = RnsListingDeposit;
+	type ListingGracePeriod = RnsListingGracePeriod;
+	type Moment = u64;
+	type NowProvider = Timestamp;
+	type NameRegistry = pallet_rns_registrar::registrar::Pallet<Runtime>;
+	type Ss58Updater = PnsSs58Updater;
+	type RecordCleaner = PnsRecordCleaner;
+	type OriginRecorder = PnsOriginRecorder;
+	type BaseNode = RnsBaseNode;
+	type WeightInfo = ();
+}
+
+// ─── pallet_rostro_operator_state ──────────────────────────────────────────
+//
+// RNS-rooted operator-private object storage. RnsRegistry now
+// points at the real `pallet_rns_registrar::registrar::Pallet` —
+// `mint_object` enforces real namespace ownership.
 
 impl pallet_rostro_operator_state::Config for Runtime {
 	type Currency = Balances;
-	type RnsRegistry = StubRnsRegistry;
+	type RnsRegistry = pallet_rns_registrar::registrar::Pallet<Runtime>;
 	type MinObjectDeposit = MinOperatorObjectDeposit;
 }
 
@@ -504,9 +711,21 @@ construct_runtime!(
 		// file hashes; native verifier reads at boot.
 		CanonicalFiles: pallet_rostro_canonical_files,
 
+		// RNS — Rostro's identity primitive. Six pallets cooperate:
+		// nft (NFT-backed name ownership), price_oracle (registration
+		// fee curve), registry (per-name records, transfers),
+		// registrar (registration / renewal / reserved-list, the
+		// outward-facing entry point), resolvers (DNS-style record
+		// reads + writes), marketplace (name listings + sales).
+		RnsNft: pallet_rns_registrar::nft,
+		RnsPriceOracle: pallet_rns_registrar::price_oracle,
+		RnsRegistry: pallet_rns_registrar::registry,
+		RnsRegistrar: pallet_rns_registrar::registrar,
+		RnsResolvers: pallet_rns_resolvers::resolvers,
+		RnsMarketplace: pallet_rns_marketplace,
+
 		// Operator state — RNS-rooted per-operator object storage
-		// (NFTs, tickets, custom records). NamespaceNotOwnedBySigner
-		// until pallet-rns-registrar replaces the StubRnsRegistry.
+		// (NFTs, tickets, custom records).
 		OperatorState: pallet_rostro_operator_state,
 
 		// Bilateral receipts — customer↔operator non-repudiation +
@@ -766,6 +985,94 @@ impl_runtime_apis! {
 
 		fn canonical_root() -> [u8; 32] {
 			pallet_rostro_canonical_files::Pallet::<Runtime>::canonical_root()
+		}
+	}
+
+	// RNS storage API surface — used by the snorkel and any
+	// external client doing name lookups over `state_call`. Each
+	// method has a corresponding entry in
+	// `V0_WELL_KNOWN_POLICIES` classified `PublicGated`, so the
+	// rostro-rpc-shield rate-limits queries but doesn't deny them.
+	impl rns_runtime_api::PnsStorageApi<Block, u64, Balance, AccountId> for Runtime {
+		fn get_info(
+			id: rns_types::DomainHash,
+		) -> Option<rns_types::NameRecord<AccountId, u64, Balance>> {
+			use frame_support::traits::Time;
+			let info = pallet_rns_registrar::registrar::Pallet::<Runtime>::get_info(id)?;
+			if pallet_timestamp::Pallet::<Runtime>::now() >= info.expire {
+				return None;
+			}
+			let token = pallet_rns_registrar::nft::Pallet::<Runtime>::tokens(0u32, id)?;
+			let for_sale = pallet_rns_marketplace::Listings::<Runtime>::contains_key(id);
+			Some(rns_types::NameRecord {
+				owner: token.owner,
+				expire: info.expire,
+				capacity: info.capacity,
+				register_fee: info.register_fee,
+				for_sale,
+				last_block: info.last_block,
+				read_block_number: 0,
+				read_block_hash: Default::default(),
+			})
+		}
+
+		fn lookup(
+			id: rns_types::DomainHash,
+			record_types: Vec<rns_types::ddns::codec_type::RecordType>,
+		) -> Vec<(rns_types::ddns::codec_type::RecordType, Vec<u8>)> {
+			pallet_rns_resolvers::resolvers::Pallet::<Runtime>::lookup(id, record_types)
+		}
+
+		fn resolve_name(
+			name: Vec<u8>,
+		) -> Option<rns_types::NameRecord<AccountId, u64, Balance>> {
+			use frame_support::traits::Time;
+			use pallet_rns_registrar::traits::Label;
+			let (label, _) = Label::new_with_len(&name)?;
+			let base_node = <RnsBaseNode as frame_support::traits::Get<rns_types::DomainHash>>::get();
+			let node = label.encode_with_node(&base_node);
+			let info = pallet_rns_registrar::registrar::Pallet::<Runtime>::get_info(node)?;
+			if pallet_timestamp::Pallet::<Runtime>::now() >= info.expire {
+				return None;
+			}
+			let token = pallet_rns_registrar::nft::Pallet::<Runtime>::tokens(0u32, node)?;
+			let for_sale = pallet_rns_marketplace::Listings::<Runtime>::contains_key(node);
+			Some(rns_types::NameRecord {
+				owner: token.owner,
+				expire: info.expire,
+				capacity: info.capacity,
+				register_fee: info.register_fee,
+				for_sale,
+				last_block: info.last_block,
+				read_block_number: 0,
+				read_block_hash: Default::default(),
+			})
+		}
+
+		fn get_listing(
+			name: Vec<u8>,
+		) -> Option<rns_types::ListingInfo<AccountId, Balance, u64>> {
+			use pallet_rns_registrar::traits::Label;
+			let (label, _) = Label::new_with_len(&name)?;
+			let base_node = <RnsBaseNode as frame_support::traits::Get<rns_types::DomainHash>>::get();
+			let node = label.encode_with_node(&base_node);
+			let l = pallet_rns_marketplace::Listings::<Runtime>::get(node)?;
+			Some(rns_types::ListingInfo {
+				seller: l.seller,
+				price: l.price,
+				expires_at: l.expires_at,
+				read_block_number: 0,
+				read_block_hash: Default::default(),
+			})
+		}
+
+		fn lookup_by_name(
+			name: Vec<u8>,
+			record_types: Vec<rns_types::ddns::codec_type::RecordType>,
+		) -> Vec<(rns_types::ddns::codec_type::RecordType, Vec<u8>)> {
+			let base_node = <RnsBaseNode as frame_support::traits::Get<rns_types::DomainHash>>::get();
+			let node = rns_types::parse_name_to_node(&name, &base_node).unwrap_or_default();
+			pallet_rns_resolvers::resolvers::Pallet::<Runtime>::lookup(node, record_types)
 		}
 	}
 }

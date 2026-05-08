@@ -170,6 +170,16 @@ pub const V0_WELL_KNOWN_POLICIES: &[(&[u8], MethodPolicy)] = &[
 	(b"CanonicalFilesApi_hash_for", MethodPolicy::PublicGated),
 	(b"CanonicalFilesApi_all_files", MethodPolicy::PublicGated),
 	(b"CanonicalFilesApi_canonical_root", MethodPolicy::PublicGated),
+	// ─── RNS — identity primitive ────────────────────────────────────
+	// Snorkel and external clients reach name records via these
+	// runtime APIs over state_call. PublicGated so the shield rate-
+	// limits and tracks repeat callers but doesn't deny — RNS data
+	// is public-by-design; the gating is about request-volume hygiene.
+	(b"PnsStorageApi_get_info", MethodPolicy::PublicGated),
+	(b"PnsStorageApi_lookup", MethodPolicy::PublicGated),
+	(b"PnsStorageApi_resolve_name", MethodPolicy::PublicGated),
+	(b"PnsStorageApi_get_listing", MethodPolicy::PublicGated),
+	(b"PnsStorageApi_lookup_by_name", MethodPolicy::PublicGated),
 ];
 
 /// Runtime API exposed for the `rostro-rpc-shield` middleware to query
