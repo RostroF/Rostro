@@ -8596,6 +8596,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-rostro-governance"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-rostro-operator-state"
 version = "0.1.0"
 dependencies = [

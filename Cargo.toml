@@ -162,6 +162,7 @@ members = [
 	"substrate/frame/root-testing",
 	"substrate/frame/rostro-bilateral-receipt",
 	"substrate/frame/rostro-canonical-files",
+	"substrate/frame/rostro-governance",
 	"substrate/frame/rostro-operator-state",
 	"substrate/frame/rostro-proof-anchor",
 	"substrate/frame/rostro-rpc-method-policy",
@@ -620,6 +621,7 @@ pallet-rns-registrar = { path = "substrate/frame/rns-registrar", default-feature
 pallet-rns-resolvers = { path = "substrate/frame/rns-resolvers", default-features = false }
 pallet-rostro-bilateral-receipt = { path = "substrate/frame/rostro-bilateral-receipt", default-features = false }
 pallet-rostro-canonical-files = { path = "substrate/frame/rostro-canonical-files", default-features = false }
+pallet-rostro-governance = { path = "substrate/frame/rostro-governance", default-features = false }
 pallet-rostro-operator-state = { path = "substrate/frame/rostro-operator-state", default-features = false }
 pallet-rostro-proof-anchor = { path = "substrate/frame/rostro-proof-anchor", default-features = false }
 pallet-rostro-rpc-method-policy = { path = "substrate/frame/rostro-rpc-method-policy", default-features = false }
