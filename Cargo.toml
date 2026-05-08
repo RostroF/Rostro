@@ -296,7 +296,6 @@ members = [
 	"substrate/utils/prometheus",
 	"substrate/utils/substrate-bip39",
 	"substrate/utils/wasm-builder",
-	"substrate/zombienet/zombienet-sdk",
 ]
 
 default-members = [
@@ -941,9 +940,6 @@ wasmtime = { version = "35.0.0", default-features = false }
 wat = { version = "1.0.0" }
 x25519-dalek = { version = "2.0" }
 zeroize = { version = "1.7.0", default-features = false }
-zombienet-configuration = { version = "0.4.7" }
-zombienet-orchestrator = { version = "0.4.7" }
-zombienet-sdk = { version = "0.4.7" }
 zstd = { version = "0.12.4", default-features = false }
 
 [profile.release]
