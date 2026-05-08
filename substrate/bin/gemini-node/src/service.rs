@@ -210,6 +210,13 @@ pub fn new_full<
 
 	let role = config.role;
 
+	// Phase 7a: foundation-file verification. Hashes our own binary,
+	// checks against the on-chain canonical-files registry, fail-stops
+	// the boot if a registered file's local hash doesn't match. Files
+	// not yet registered are skipped (no-op until SRT publishes).
+	crate::file_check::verify_at_boot(client.clone())
+		.map_err(|e| ServiceError::Other(e))?;
+
 	// Phase 6 Layer 3: chain-state self-check. Reconciles the local
 	// bandersnatch keystore against the on-chain authority set.
 	// Critical case: operator has been elected but binary isn't

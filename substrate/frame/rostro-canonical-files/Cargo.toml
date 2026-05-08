@@ -1,0 +1,58 @@
+[package]
+name = "pallet-rostro-canonical-files"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "On-chain registry of canonical foundation file hashes. The native node verifies its own foundation files at boot against the entries here; mismatches fail-stop. Storage shape is per-leaf (path → blake2_256 hash); the verifier composes its own Merkle tree locally and walks against on-chain leaves to localize divergent files. Per the strip-mall architecture: foundation files are enforced canonical, operator extensions live elsewhere with their own per-pallet state isolation (separate workstream)."
+publish = false
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { features = ["derive", "max-encoded-len"], workspace = true }
+log = { workspace = true }
+scale-info = { features = ["derive"], workspace = true }
+serde = { features = ["derive"], workspace = true, default-features = false }
+
+frame-benchmarking = { optional = true, workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+
+sp-api = { workspace = true }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"frame-benchmarking?/std",
+	"frame-support/std",
+	"frame-system/std",
+	"log/std",
+	"scale-info/std",
+	"serde/std",
+	"sp-api/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
+]
+runtime-benchmarks = [
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]

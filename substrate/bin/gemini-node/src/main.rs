@@ -9,6 +9,7 @@
 mod chain_spec;
 mod cli;
 mod command;
+mod file_check;
 mod policy_refresh;
 mod role;
 mod rpc;

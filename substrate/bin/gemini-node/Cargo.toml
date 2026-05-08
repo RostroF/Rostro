@@ -53,6 +53,7 @@ rc-transaction-pool-api = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true, features = ["derive"] }
 frame-support = { workspace = true, default-features = true }
 frame-system = { workspace = true, default-features = true }
+pallet-rostro-canonical-files = { workspace = true, default-features = true }
 pallet-rostro-rpc-method-policy = { workspace = true, default-features = true }
 pallet-sassafras = { workspace = true, default-features = true }
 pallet-transaction-payment = { workspace = true, default-features = true }

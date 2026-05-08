@@ -366,6 +366,16 @@ impl pallet_rostro_rpc_method_policy::Config for Runtime {
 	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
 }
 
+// ─── pallet_rostro_canonical_files ─────────────────────────────────────────
+//
+// On-chain registry of canonical foundation-file hashes. Native node
+// verifier reads at boot, fail-stops on mismatch (Phase 7a). Origin
+// stubbed at `EnsureRoot` until SRT lands.
+
+impl pallet_rostro_canonical_files::Config for Runtime {
+	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
+}
+
 // ─── construct_runtime ─────────────────────────────────────────────────────
 
 construct_runtime!(
@@ -388,6 +398,10 @@ construct_runtime!(
 		// Operational — on-chain RPC method access policy registry,
 		// consumed by the native rostro-rpc-shield middleware.
 		RpcMethodPolicy: pallet_rostro_rpc_method_policy,
+
+		// Operational — on-chain registry of canonical foundation
+		// file hashes; native verifier reads at boot.
+		CanonicalFiles: pallet_rostro_canonical_files,
 	}
 );
 
@@ -625,6 +639,19 @@ impl_runtime_apis! {
 
 		fn all_policies() -> Vec<(Vec<u8>, pallet_rostro_rpc_method_policy::MethodPolicy)> {
 			pallet_rostro_rpc_method_policy::Pallet::<Runtime>::all_policies()
+		}
+	}
+
+	// Canonical foundation-file registry surface, queried by the
+	// native node-side verifier at boot. See
+	// `pallet-rostro-canonical-files` for design rationale.
+	impl pallet_rostro_canonical_files::CanonicalFilesApi<Block> for Runtime {
+		fn hash_for(path: Vec<u8>) -> Option<[u8; 32]> {
+			pallet_rostro_canonical_files::Pallet::<Runtime>::hash_for(&path)
+		}
+
+		fn all_files() -> Vec<(Vec<u8>, [u8; 32])> {
+			pallet_rostro_canonical_files::Pallet::<Runtime>::all_files()
 		}
 	}
 }

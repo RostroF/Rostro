@@ -154,5 +154,14 @@ fn testnet_genesis(
 		"sudo": {
 			"key": Some(root_key),
 		},
+		// Phase 7a smoke / dev convenience: empty initial canonical-files
+		// set. The verifier finds no entry for "gemini-node", logs
+		// "skipping", and continues. The foundation populates real
+		// hashes post-genesis via SRT extrinsic. Override at chain-spec
+		// time with a non-empty initial_files Vec to test the mismatch
+		// fail-stop path.
+		"canonicalFiles": {
+			"initialFiles": Vec::<(Vec<u8>, [u8; 32])>::new(),
+		},
 	})
 }

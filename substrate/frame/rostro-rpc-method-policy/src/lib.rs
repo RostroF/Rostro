@@ -163,6 +163,12 @@ pub const V0_WELL_KNOWN_POLICIES: &[(&[u8], MethodPolicy)] = &[
 	// arbitrary rate even though entries are individually small.
 	(b"RpcMethodPolicyApi_policy_for", MethodPolicy::PublicGated),
 	(b"RpcMethodPolicyApi_all_policies", MethodPolicy::PublicGated),
+	// ─── Canonical-files registry (Phase 7a) ──────────────────────────
+	// Same gating rationale as the policy registry: PublicGated so a
+	// hostile caller can't mass-poll, but reachable by legitimate
+	// verifiers + tooling.
+	(b"CanonicalFilesApi_hash_for", MethodPolicy::PublicGated),
+	(b"CanonicalFilesApi_all_files", MethodPolicy::PublicGated),
 ];
 
 /// Runtime API exposed for the `rostro-rpc-shield` middleware to query
