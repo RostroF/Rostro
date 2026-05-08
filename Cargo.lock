@@ -8973,6 +8973,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-rostro-operator-state"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "pallet-rns-registrar",
+ "parity-scale-codec",
+ "rns-types",
+ "scale-info",
+ "sp-core 40.0.0",
+ "sp-io 45.0.0",
+ "sp-runtime 46.0.0",
+]
+
+[[package]]
 name = "pallet-rostro-proof-anchor"
 version = "0.1.0"
 dependencies = [

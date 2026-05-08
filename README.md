@@ -12,7 +12,7 @@ network family:
 
 ## Lineage
 
-Rostro is a fork of the Polkadot SDK with a deliberately reduced surface. The
+Rostro is a hard fork of the Polkadot SDK with a deliberately reduced surface. The
 relay-chain, parachain, bridge, and EVM-compatibility layers have been
 removed. What remains is the Substrate framework, FRAME, and the consensus
 and client primitives needed for a sovereign chain. Original Polkadot SDK
@@ -50,9 +50,23 @@ client layer.
 
 - **Sovereign chain only.** No relay chain, no parachain framework, no XCM,
   no Polkadot-Kusama or Snowbridge bridges. One chain.
-- **Strip-mall application layer.** Operators run their own application logic
-  in PolkaVM contracts on top of a shared, hash-attested canonical runtime.
-  Modify your shop, not the foundation.
+- **Strip-mall operator architecture.** Operators register an RNS name and
+  run their custom application logic in a private sidecar process hosting a
+  second WASM blob; only canonical state changes reach chain via the
+  `pallet-rostro-operator-state` pallet. Per-operator state is RNS-rooted and
+  cryptographically isolated by `(rns_name, operator_account_id)` — re-
+  registration of a lapsed name by anyone else cannot grant access to the
+  previous registrant's state. Modify your shop, not the foundation.
+- **Self-healing canonical binaries.** All Rostro nodes (validators, operators,
+  ordinary participants) run foundation-canonical binaries enforced both at
+  boot (hash check against the on-chain `pallet-rostro-canonical-files`
+  registry) and at the network edge (peer-to-peer attestation). Drift
+  triggers automatic heal — bytes-by-hash p2p fetch, atomic stage, exit-code
+  swap-and-restart via a cross-platform supervisor — so foundation upgrades
+  propagate without operator coordination and the Kusama-class "validators
+  forgot to upgrade" failure mode goes away. Hardware-rooted attestation
+  (TPM 2.0 / Strongbox) is the next layer that makes drift claims
+  cryptographically unforgeable.
 - **Hardware-attested proof of personhood.** Every economic and governance
   actor is bound to attested hardware (TPM 2.0 / Strongbox) and a verified
   identity document. One human, one certificate, one vote.
@@ -63,6 +77,11 @@ client layer.
   Ballot privacy is a cryptographic property, not a policy promise.
 - **Milestone-first treasury.** No upfront grants. Ever. Working code, then
   payment.
+- **State-rent + permissionless cleanup.** Every state-creating object carries
+  an operator-paid deposit. When the namespace's RNS registration lapses or
+  changes hands, anyone can call the permissionless `cleanup` extrinsic and
+  collect the deposit residue — a built-in economic role that prevents
+  RocksDB bloat without depending on any privileged janitor.
 
 The full architectural commitments and motivations are in the project
 whitepaper.
