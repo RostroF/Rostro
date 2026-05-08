@@ -50,6 +50,8 @@ extern crate alloc;
 #[cfg(feature = "std")]
 pub mod local_dir;
 
+pub mod attest;
+
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use sp_crypto_hashing::blake2_256;

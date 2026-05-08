@@ -3950,6 +3950,7 @@ dependencies = [
 name = "gemini-node"
 version = "0.1.0"
 dependencies = [
+ "async-channel 1.9.0",
  "async-trait",
  "clap",
  "frame-support",

@@ -174,6 +174,24 @@ pub fn new_full<
 		);
 	net_config.add_notification_protocol(grandpa_protocol_config);
 
+	// Phase 7b step 5: server-side handler for canonical-root
+	// attestation. Peers can query us with a nonce; we reply with our
+	// locally-computed `CanonicalFilesApi::canonical_root()` value
+	// echoing the nonce and our role hint. No-op until peers actually
+	// ask. Active mutual attestation on connect lands once Phase 6.9
+	// hardware-rooted measurement makes the claim unforgeable.
+	let (attest_protocol_config, attest_handler) =
+		crate::attest_protocol::build_attest_protocol::<N, _, _>(
+			client.clone(),
+			config.role.is_authority(),
+		);
+	net_config.add_request_response_protocol(attest_protocol_config);
+	task_manager.spawn_handle().spawn(
+		"rostro-attest-server",
+		Some("rostro"),
+		attest_handler,
+	);
+
 	let warp_sync = Arc::new(rc_consensus_grandpa::warp_proof::NetworkProvider::new(
 		backend.clone(),
 		grandpa_link.shared_authority_set().clone(),

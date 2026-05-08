@@ -6,6 +6,7 @@
 
 #![warn(missing_docs)]
 
+mod attest_protocol;
 mod chain_spec;
 mod cli;
 mod command;
