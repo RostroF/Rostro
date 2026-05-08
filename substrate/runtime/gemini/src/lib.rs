@@ -60,7 +60,7 @@ use sp_runtime::{
 		BlakeTwo256, Block as BlockT, ConvertInto, IdentifyAccount, NumberFor, Verify,
 	},
 	transaction_validity::{TransactionSource, TransactionValidity},
-	ApplyExtrinsicResult, MultiSignature,
+	ApplyExtrinsicResult, DispatchError, MultiSignature, MultiSigner,
 };
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
@@ -376,6 +376,107 @@ impl pallet_rostro_canonical_files::Config for Runtime {
 	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
 }
 
+// ─── pallet_rostro_operator_state ──────────────────────────────────────────
+//
+// On-chain operator state with RNS-rooted authorization. The
+// `T::RnsRegistry` consults the RNS pallet's `NameRegistry` trait
+// to look up the current registrant of a name; gemini-runtime
+// doesn't yet wire pallet-rns-registrar, so we plug in a no-op
+// [`StubRnsRegistry`] that always reports "no current registrant."
+// The pallet's storage is wired and types are checked, but every
+// `mint_object` will fail with `NamespaceNotOwnedBySigner` until
+// the real RNS pallet replaces this stub. This keeps the runtime
+// forward-compatible without pulling RNS in as a side-quest.
+
+parameter_types! {
+	/// Floor on per-object operator-state deposits. 1 ROSTO; can be
+	/// adjusted by governance once the deposit-vs-cleanup-cost
+	/// economics are calibrated against real gas usage.
+	pub const MinOperatorObjectDeposit: Balance = ROSTO;
+}
+
+pub struct StubRnsRegistry;
+impl pallet_rns_registrar::traits::NameRegistry for StubRnsRegistry {
+	type AccountId = AccountId;
+	fn canonical_name(_: &Self::AccountId) -> Option<rns_types::DomainHash> {
+		None
+	}
+	fn owner_of(_: rns_types::DomainHash) -> Option<Self::AccountId> {
+		None
+	}
+	fn transfer_name(
+		_: &Self::AccountId,
+		_: &Self::AccountId,
+		_: rns_types::DomainHash,
+	) -> sp_runtime::DispatchResult {
+		Err(DispatchError::Other("RNS not yet wired into gemini-runtime"))
+	}
+	fn offer_bought_name(
+		_: &Self::AccountId,
+		_: &Self::AccountId,
+		_: &Self::AccountId,
+		_: rns_types::DomainHash,
+	) -> sp_runtime::DispatchResult {
+		Err(DispatchError::Other("RNS not yet wired into gemini-runtime"))
+	}
+	fn is_name_useable(_: rns_types::DomainHash) -> bool {
+		false
+	}
+	fn charge_sale_fee(
+		_: &Self::AccountId,
+		_: rns_types::DomainHash,
+	) -> sp_runtime::DispatchResult {
+		Err(DispatchError::Other("RNS not yet wired into gemini-runtime"))
+	}
+}
+
+impl pallet_rostro_operator_state::Config for Runtime {
+	type Currency = Balances;
+	type RnsRegistry = StubRnsRegistry;
+	type MinObjectDeposit = MinOperatorObjectDeposit;
+}
+
+// ─── pallet_rostro_bilateral_receipt ───────────────────────────────────────
+//
+// Customer↔operator non-repudiation receipts + atomic operator-state
+// mint via the [`OperatorStateMintAdapter`]. The adapter calls
+// operator-state's `mint_object` extrinsic with a synthesized
+// `Signed(operator)` origin — the operator's signature on the
+// bilateral receipt bundle (which includes the mint parameters)
+// is what authorizes both the trade AND the mint atomically.
+
+pub struct OperatorStateMintAdapter;
+impl pallet_rostro_bilateral_receipt::AtomicMintHook<AccountId, Balance>
+	for OperatorStateMintAdapter
+{
+	fn mint(
+		operator: &AccountId,
+		namespace: sp_core::H256,
+		object_type: alloc::vec::Vec<u8>,
+		object_id: alloc::vec::Vec<u8>,
+		owner: AccountId,
+		blob: alloc::vec::Vec<u8>,
+		deposit: Balance,
+	) -> sp_runtime::DispatchResult {
+		pallet_rostro_operator_state::Pallet::<Runtime>::mint_object(
+			frame_system::RawOrigin::Signed(operator.clone()).into(),
+			namespace,
+			object_type,
+			object_id,
+			owner,
+			blob,
+			deposit,
+		)
+	}
+}
+
+impl pallet_rostro_bilateral_receipt::Config for Runtime {
+	type Currency = Balances;
+	type Signature = Signature;
+	type AccountPublic = MultiSigner;
+	type AtomicMintHook = OperatorStateMintAdapter;
+}
+
 // ─── construct_runtime ─────────────────────────────────────────────────────
 
 construct_runtime!(
@@ -402,6 +503,15 @@ construct_runtime!(
 		// Operational — on-chain registry of canonical foundation
 		// file hashes; native verifier reads at boot.
 		CanonicalFiles: pallet_rostro_canonical_files,
+
+		// Operator state — RNS-rooted per-operator object storage
+		// (NFTs, tickets, custom records). NamespaceNotOwnedBySigner
+		// until pallet-rns-registrar replaces the StubRnsRegistry.
+		OperatorState: pallet_rostro_operator_state,
+
+		// Bilateral receipts — customer↔operator non-repudiation +
+		// atomic operator-state mint via OperatorStateMintAdapter.
+		BilateralReceipt: pallet_rostro_bilateral_receipt,
 	}
 );
 
