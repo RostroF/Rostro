@@ -131,71 +131,77 @@ fn read_utf8_from_memory(
 mod tests {
 	use super::*;
 
-	/// A minimal WAT module that exports a `ping` function returning
-	/// a magic constant. No host calls.
-	const PING_WAT: &str = r#"
-		(module
-		  (func (export "ping") (result i32)
-		    i32.const 0x12345678))
-	"#;
+	// Pre-compiled WASM fixtures. Originally compiled from WAT via
+	// `wat::parse_str`, but the wat dep conflicted with the wasmer
+	// `wat = "=1.0.71"` exact pin pulled in by ark-circom in the
+	// zkpki vendoring. Embedding bytes directly resolves the
+	// conflict without touching either side. Source WAT for each
+	// fixture is reproduced as a comment above its byte array.
 
-	/// WAT module that imports `rostro::log`, calls it once, and
-	/// returns. Used to verify the host function is callable from
-	/// WASM without trapping.
-	const HELLO_WAT: &str = r#"
-		(module
-		  (import "rostro" "log" (func $log (param i32 i32)))
-		  (memory (export "memory") 1)
-		  (data (i32.const 0) "hello from wasm")
-		  (func (export "say_hello") (result i32)
-		    i32.const 0
-		    i32.const 15
-		    call $log
-		    i32.const 7))
-	"#;
+	// (module (func (export "ping") (result i32) i32.const 0x12345678))
+	const PING_WASM: &[u8] = &[
+		0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01,
+		0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x08, 0x01, 0x04, 0x70, 0x69, 0x6e, 0x67, 0x00,
+		0x00, 0x0a, 0x0a, 0x01, 0x08, 0x00, 0x41, 0xf8, 0xac, 0xd1, 0x91, 0x01, 0x0b,
+	];
 
-	/// WAT module without the expected export — exercises the
-	/// ExportMissing path.
-	const EMPTY_WAT: &str = r#"
-		(module)
-	"#;
+	// (module
+	//   (import "rostro" "log" (func $log (param i32 i32)))
+	//   (memory (export "memory") 1)
+	//   (data (i32.const 0) "hello from wasm")
+	//   (func (export "say_hello") (result i32)
+	//     i32.const 0
+	//     i32.const 15
+	//     call $log
+	//     i32.const 7))
+	const HELLO_WASM: &[u8] = &[
+		0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0a, 0x02, 0x60, 0x02, 0x7f,
+		0x7f, 0x00, 0x60, 0x00, 0x01, 0x7f, 0x02, 0x0e, 0x01, 0x06, 0x72, 0x6f, 0x73, 0x74,
+		0x72, 0x6f, 0x03, 0x6c, 0x6f, 0x67, 0x00, 0x00, 0x03, 0x02, 0x01, 0x01, 0x05, 0x03,
+		0x01, 0x00, 0x01, 0x07, 0x16, 0x02, 0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02,
+		0x00, 0x09, 0x73, 0x61, 0x79, 0x5f, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x01, 0x0a,
+		0x0c, 0x01, 0x0a, 0x00, 0x41, 0x00, 0x41, 0x0f, 0x10, 0x00, 0x41, 0x07, 0x0b, 0x0b,
+		0x15, 0x01, 0x00, 0x41, 0x00, 0x0b, 0x0f, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x66,
+		0x72, 0x6f, 0x6d, 0x20, 0x77, 0x61, 0x73, 0x6d, 0x00, 0x0d, 0x04, 0x6e, 0x61, 0x6d,
+		0x65, 0x01, 0x06, 0x01, 0x00, 0x03, 0x6c, 0x6f, 0x67,
+	];
 
-	/// WAT module whose export has the wrong signature — exercises
-	/// the WrongSignature path.
-	const BAD_SIG_WAT: &str = r#"
-		(module
-		  (func (export "ping") (param i32) (result i32)
-		    local.get 0))
-	"#;
+	// (module)
+	const EMPTY_WASM: &[u8] = &[
+		0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+	];
+
+	// (module (func (export "ping") (param i32) (result i32) local.get 0))
+	const BAD_SIG_WASM: &[u8] = &[
+		0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x01, 0x60, 0x01, 0x7f,
+		0x01, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x08, 0x01, 0x04, 0x70, 0x69, 0x6e, 0x67,
+		0x00, 0x00, 0x0a, 0x06, 0x01, 0x04, 0x00, 0x20, 0x00, 0x0b,
+	];
 
 	#[test]
 	fn invoke_no_args_returns_export_value() {
-		let bytes = wat::parse_str(PING_WAT).unwrap();
-		let mut rt = OperatorRuntime::from_bytes(&bytes).unwrap();
+		let mut rt = OperatorRuntime::from_bytes(PING_WASM).unwrap();
 		let v = rt.invoke_no_args("ping").unwrap();
 		assert_eq!(v, 0x12345678);
 	}
 
 	#[test]
 	fn invoke_no_args_calls_host_log_without_trapping() {
-		let bytes = wat::parse_str(HELLO_WAT).unwrap();
-		let mut rt = OperatorRuntime::from_bytes(&bytes).unwrap();
+		let mut rt = OperatorRuntime::from_bytes(HELLO_WASM).unwrap();
 		let v = rt.invoke_no_args("say_hello").unwrap();
 		assert_eq!(v, 7);
 	}
 
 	#[test]
 	fn invoke_returns_export_missing_error_for_unknown_method() {
-		let bytes = wat::parse_str(PING_WAT).unwrap();
-		let mut rt = OperatorRuntime::from_bytes(&bytes).unwrap();
+		let mut rt = OperatorRuntime::from_bytes(PING_WASM).unwrap();
 		let err = rt.invoke_no_args("does_not_exist").unwrap_err();
 		assert!(matches!(err, RuntimeError::ExportMissing(_)));
 	}
 
 	#[test]
 	fn invoke_returns_wrong_signature_error_for_mismatched_export() {
-		let bytes = wat::parse_str(BAD_SIG_WAT).unwrap();
-		let mut rt = OperatorRuntime::from_bytes(&bytes).unwrap();
+		let mut rt = OperatorRuntime::from_bytes(BAD_SIG_WASM).unwrap();
 		let err = rt.invoke_no_args("ping").unwrap_err();
 		assert!(matches!(err, RuntimeError::WrongSignature(_)));
 	}
@@ -213,8 +219,7 @@ mod tests {
 
 	#[test]
 	fn empty_module_has_no_exports() {
-		let bytes = wat::parse_str(EMPTY_WAT).unwrap();
-		let mut rt = OperatorRuntime::from_bytes(&bytes).unwrap();
+		let mut rt = OperatorRuntime::from_bytes(EMPTY_WASM).unwrap();
 		let err = rt.invoke_no_args("ping").unwrap_err();
 		assert!(matches!(err, RuntimeError::ExportMissing(_)));
 	}

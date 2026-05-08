@@ -204,6 +204,7 @@ members = [
 	"substrate/frame/utility",
 	"substrate/frame/verify-signature",
 	"substrate/frame/vesting",
+	"substrate/frame/zkpki-pallet-lab",
 	"substrate/primitives/api",
 	"substrate/primitives/api/proc-macro",
 	"substrate/primitives/api/test",
@@ -296,6 +297,7 @@ members = [
 	"substrate/utils/rostro-trace",
 	"substrate/utils/prometheus",
 	"substrate/utils/substrate-bip39",
+	"substrate/utils/zkpki-verifier-lab",
 	"substrate/utils/wasm-builder",
 ]
 
@@ -362,17 +364,23 @@ ark-bls12-377 = { version = "0.5.0", default-features = false }
 ark-bls12-377-ext = { version = "0.5.0", default-features = false }
 ark-bls12-381 = { version = "0.5.0", default-features = false }
 ark-bls12-381-ext = { version = "0.5.0", default-features = false }
+ark-bn254 = { version = "0.5.0", default-features = false }
 ark-bw6-761 = { version = "0.5.0", default-features = false }
 ark-bw6-761-ext = { version = "0.5.0", default-features = false }
+ark-circom = { version = "0.5.0", default-features = false }
 ark-ec = { version = "0.5.0", default-features = false }
 ark-ed-on-bls12-377 = { version = "0.5.0", default-features = false }
 ark-ed-on-bls12-377-ext = { version = "0.5.0", default-features = false }
 ark-ed-on-bls12-381-bandersnatch = { version = "0.5.0", default-features = false }
 ark-ed-on-bls12-381-bandersnatch-ext = { version = "0.5.0", default-features = false }
 ark-ff = { version = "0.5.0", default-features = false }
+ark-groth16 = { version = "0.5.0", default-features = false }
 ark-pallas = { version = "0.5.0", default-features = false }
 ark-pallas-ext = { version = "0.5.0", default-features = false }
+ark-relations = { version = "0.5.0", default-features = false }
 ark-scale = { version = "0.0.13", default-features = false }
+ark-serialize = { version = "0.5.0", default-features = false }
+ark-snark = { version = "0.5.0", default-features = false }
 ark-std = { version = "0.5.0", default-features = false }
 ark-vesta = { version = "0.5.0", default-features = false }
 ark-vesta-ext = { version = "0.5.0", default-features = false }

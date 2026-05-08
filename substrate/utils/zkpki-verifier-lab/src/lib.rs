@@ -1,0 +1,316 @@
+//! zkpki-verifier-lab — Stage 3 research for the on-chain Groth16
+//! verifier of the mime_wrap circuit.
+//!
+//! Standalone crate, not yet integrated into pns-node or pki. Goal:
+//! measure Groth16 verification cost on reference hardware for the
+//! 94k-constraint / 600-public-input mime_wrap circuit, extrapolate
+//! to a Substrate weight budget, and validate the API shape before
+//! committing the verifier to a production pallet.
+//!
+//! Two surfaces live here:
+//!
+//!   * [`verify_proof`] — the production-path verify. Takes a proof
+//!     + public inputs + prepared VK, returns bool. No file I/O, no
+//!     circom, no wasmer. This is the kernel the eventual pallet's
+//!     extrinsic will call. Kept deliberately minimal so porting
+//!     into `no_std` + Substrate is a copy-paste.
+//!
+//!   * [`generate_sample_proof`] — produces a valid proof end-to-end
+//!     using ark-circom + the fixtures from `zkpki-circuits/build/`.
+//!     std-only, uses wasmer, never ships into a runtime. Exists
+//!     solely so tests and benchmarks can exercise `verify_proof`
+//!     with fresh valid inputs without shuttling JSON across tools.
+
+// ────────────────────────────────────────────────────────────────────
+// WORKAROUND: wasmer-vm (via ark-circom → wasmer_compiler_cranelift)
+// references `__rust_probestack` in its generated code. Rust 1.82+
+// removed this symbol from compiler-builtins on x86_64-unknown-linux-gnu,
+// so linking the host test binary fails with
+// `undefined symbol: __rust_probestack`. Android cross-compile targets
+// still export the symbol, so dotwave's aarch64-linux-android build
+// works fine.
+//
+// An empty stub is safe because `__rust_probestack` is only called
+// when a Rust stack frame exceeds PAGE_SIZE (4KB). Our verify path
+// allocates far less than that, and the ark-circom witness-gen path
+// is dominated by heap allocations, not stack.
+//
+// Strictly a test/bench host-build fix — this code never ships into
+// a Substrate runtime (the production verify pallet won't include
+// ark-circom or wasmer at all).
+#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn __rust_probestack() {}
+
+use std::fs::File;
+use std::path::Path;
+
+use ark_bn254::{Bn254, Fr};
+use ark_circom::{CircomBuilder, CircomConfig, read_zkey};
+use ark_groth16::{
+    Groth16, PreparedVerifyingKey, Proof, ProvingKey, VerifyingKey,
+    prepare_verifying_key,
+};
+use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_snark::SNARK;
+use sha2::{Digest, Sha256};
+
+// ── Production-path verifier ────────────────────────────────────────
+
+/// Verify a `mime_wrap` Groth16 proof against its public inputs using
+/// a prepared verifying key.
+///
+/// This is the function the eventual Substrate pallet calls inside
+/// an extrinsic. Intentionally `no_std`-shaped:
+///   * no file I/O
+///   * no ark-circom (which drags in wasmer)
+///   * no heap-allocation beyond the proof deserialization
+///   * uses only ark-groth16 + ark-bn254 + ark-serialize
+///
+/// Returns `Ok(true)` if the proof verifies, `Ok(false)` if it
+/// doesn't, and `Err` only for malformed proof bytes (not for
+/// cryptographically-invalid-but-well-formed proofs — those return
+/// `Ok(false)`).
+pub fn verify_proof(
+    proof_bytes: &[u8],
+    public_inputs: &[Fr],
+    pvk: &PreparedVerifyingKey<Bn254>,
+) -> anyhow::Result<bool> {
+    let proof = Proof::<Bn254>::deserialize_compressed(proof_bytes)
+        .map_err(|e| anyhow::anyhow!("proof deserialize failed: {e:?}"))?;
+    Ok(Groth16::<Bn254>::verify_with_processed_vk(pvk, public_inputs, &proof)?)
+}
+
+/// Serialize a verifying key to compressed bytes. The production
+/// pallet would hold a VK in storage (or as a compile-time constant);
+/// this helper is how you'd produce those bytes from an ark VK.
+pub fn serialize_vk(vk: &VerifyingKey<Bn254>) -> anyhow::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    vk.serialize_compressed(&mut buf)?;
+    Ok(buf)
+}
+
+/// Inverse of [`serialize_vk`]. Useful for the pallet's
+/// "load VK from storage / constants" path.
+pub fn deserialize_vk(bytes: &[u8]) -> anyhow::Result<VerifyingKey<Bn254>> {
+    let vk = VerifyingKey::<Bn254>::deserialize_compressed(bytes)
+        .map_err(|e| anyhow::anyhow!("vk deserialize failed: {e:?}"))?;
+    Ok(vk)
+}
+
+// ── Fixture generation (std-only) ───────────────────────────────────
+
+/// Output of [`generate_sample_proof`] — a complete matching triple
+/// of (proof bytes, public inputs, vk) suitable for feeding into
+/// [`verify_proof`].
+///
+/// `vk` here is the raw (not-yet-prepared) verifying key — the caller
+/// runs `prepare_verifying_key` to produce a `PreparedVerifyingKey`
+/// that verify_proof accepts. The raw form is kept so the caller can
+/// also round-trip it via [`serialize_vk`] / [`deserialize_vk`] to
+/// test the pallet's storage-to-memory path.
+///
+/// `constraints_satisfied` is a diagnostic: true if the witness
+/// generated by ark-circom actually satisfies all the r1cs
+/// constraints. When this is false, Groth16::prove will still
+/// produce a 128-byte proof, but verify will reject it — so a
+/// false value here is the tell for "ark-circom witness broken
+/// against this r1cs".
+pub struct SampleProof {
+    pub proof_bytes: Vec<u8>,
+    pub public_inputs: Vec<Fr>,
+    pub vk: VerifyingKey<Bn254>,
+    pub constraints_satisfied: bool,
+    pub num_constraints: usize,
+}
+
+/// Generate a valid mime_wrap proof end-to-end using ark-circom.
+///
+/// Requires the Stage 1 circuit artifacts — wasm (witness calc),
+/// r1cs (constraint structure), zkey (proving key). Paths are passed
+/// as arguments so tests and benches can point at the symlinks in
+/// `fixtures/`.
+///
+/// This function is slow (~5-15s on a laptop, dominated by the zkey
+/// parse + wasm witness generation). Not called from hot paths —
+/// only by tests and the benchmark-setup phase.
+pub fn generate_sample_proof(
+    wasm_path: impl AsRef<Path>,
+    r1cs_path: impl AsRef<Path>,
+    zkey_path: impl AsRef<Path>,
+) -> anyhow::Result<SampleProof> {
+    // ark-circom → wasmer → `tokio::runtime::Handle::current()`
+    // internally. Enter a runtime so the builder works.
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let _guard = rt.enter();
+
+    // Parse snarkjs zkey for metadata comparison, but don't use it
+    // for proving. Snarkjs + circom 2.2.x + ark-circom 0.5 has a
+    // known cross-tool drift: the zkey's IC ordering doesn't match
+    // ark-circom's witness numbering, so a proof generated via
+    // ark-circom + snarkjs-zkey won't verify. Workaround below
+    // (in-Rust setup) produces a pk/vk pair that's guaranteed to
+    // match what ark-circom's generate_constraints produces.
+    //
+    // Kept the zkey load so we can surface it in the result struct
+    // — useful for diagnostics if the drift ever gets fixed and we
+    // want to re-test snarkjs zkey compatibility.
+    let _snarkjs_pk = load_proving_key(&zkey_path)?;
+
+    // ── Build fixture inputs (mirrors zkpki-circuits/scripts/smoke.js) ──
+    let seed = random_bytes(32);
+    let ec_key_pub = random_bytes(32);
+    let bucket_u64: u64 = 0x0000_0000_0387_d660;
+    let bucket_be = bucket_u64.to_be_bytes();
+
+    // C1 expected: commitment = SHA256(ecKeyPub || seed)
+    let commitment = sha256_concat(&[&ec_key_pub, &seed]);
+    // C2 expected: otp = low 24 bits of SHA256(seed || bucket_be)
+    let c2_hash = sha256_concat(&[&seed, &bucket_be]);
+    let c2_bits_full = bits_from_bytes_be(&c2_hash);
+    let otp_bits = &c2_bits_full[(256 - 24)..];
+
+    // ── Witness generation ────────────────────────────────────────
+    let wasm_str = wasm_path
+        .as_ref()
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("wasm_path not valid UTF-8"))?;
+    let r1cs_str = r1cs_path
+        .as_ref()
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("r1cs_path not valid UTF-8"))?;
+
+    let cfg = CircomConfig::<Fr>::new(wasm_str, r1cs_str)
+        .map_err(|e| anyhow::anyhow!("CircomConfig: {e:?}"))?;
+    let mut builder = CircomBuilder::new(cfg);
+    for bit in bits_from_bytes_be(&commitment) {
+        builder.push_input("commitmentC", bit as u64);
+    }
+    for bit in bits_from_bytes_be(&ec_key_pub) {
+        builder.push_input("ecKeyPub", bit as u64);
+    }
+    for bit in bits_from_bytes_be(&bucket_be) {
+        builder.push_input("bucket", bit as u64);
+    }
+    for &bit in otp_bits {
+        builder.push_input("userOtp", bit as u64);
+    }
+    for bit in bits_from_bytes_be(&seed) {
+        builder.push_input("seed", bit as u64);
+    }
+
+    let circom = builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("CircomBuilder build: {e:?}"))?;
+
+    // get_public_inputs() returns Some(Vec<Fr>) when witness is present.
+    let public_inputs = circom
+        .get_public_inputs()
+        .ok_or_else(|| anyhow::anyhow!("no public inputs on built circuit"))?;
+
+    // ── Diagnostic: check that the witness actually satisfies the
+    //    r1cs constraints via a plain ark-relations ConstraintSystem.
+    //    If this is false, ark-circom's witness generation is
+    //    incompatible with the r1cs as loaded — typical cause is a
+    //    circom version that emits a newer r1cs format than the
+    //    running ark-circom knows how to parse. When satisfaction
+    //    is false, Groth16::prove still succeeds and produces a
+    //    well-formed 128-byte proof; but that proof will fail
+    //    verification because the witness it's claiming to prove
+    //    knowledge of doesn't actually satisfy the constraints.
+    let circom_for_check = circom.clone();
+    let cs = ConstraintSystem::<Fr>::new_ref();
+    circom_for_check
+        .generate_constraints(cs.clone())
+        .map_err(|e| anyhow::anyhow!("generate_constraints failed: {e:?}"))?;
+    let num_constraints = cs.num_constraints();
+    let constraints_satisfied = cs
+        .is_satisfied()
+        .map_err(|e| anyhow::anyhow!("is_satisfied check errored: {e:?}"))?;
+
+    // ── In-Rust trusted setup (bypasses snarkjs zkey drift) ───────
+    //
+    // Circom 2.2.x + snarkjs + ark-circom 0.5 has a cross-tool
+    // variable-ordering mismatch: constraints satisfy locally, but
+    // the snarkjs-generated zkey's IC array maps to different
+    // witness positions than ark-circom produces. Solution for the
+    // lab: generate pk/vk in Rust using the exact CircomCircuit
+    // we'll later prove over, so setup and prove share the same
+    // interpretation.
+    //
+    // For the actual pallet deployment, we'll either:
+    //   - Run a real multi-party setup ceremony in Rust (production
+    //     path — avoids snarkjs entirely and avoids the drift), or
+    //   - Upgrade to a newer ark-circom + circom pair that eliminates
+    //     the drift.
+    //
+    // PoC uses deterministic-but-insecure test entropy — NOT for
+    // production.
+    let mut rng = ark_std::rand::thread_rng();
+    let circom_for_setup = circom.clone();
+    let (pk, vk) = Groth16::<Bn254>::circuit_specific_setup(circom_for_setup, &mut rng)
+        .map_err(|e| anyhow::anyhow!("circuit_specific_setup failed: {e:?}"))?;
+
+    // ── Groth16 prove ─────────────────────────────────────────────
+    let proof = Groth16::<Bn254>::prove(&pk, circom, &mut rng)
+        .map_err(|e| anyhow::anyhow!("Groth16 prove: {e:?}"))?;
+
+    let mut proof_bytes = Vec::new();
+    proof.serialize_compressed(&mut proof_bytes)?;
+
+    Ok(SampleProof {
+        proof_bytes,
+        public_inputs,
+        vk,
+        constraints_satisfied,
+        num_constraints,
+    })
+}
+
+pub fn load_proving_key(path: impl AsRef<Path>) -> anyhow::Result<ProvingKey<Bn254>> {
+    let mut f = File::open(path.as_ref())?;
+    let (pk, _matrices) = read_zkey(&mut f)?;
+    Ok(pk)
+}
+
+/// Convenience: build a prepared VK directly from a raw VK. The
+/// preparation step precomputes pairing elements so verify is fast.
+/// The pallet does this once (at genesis or at a VK-update extrinsic)
+/// and caches the prepared form.
+pub fn prepare_vk(vk: &VerifyingKey<Bn254>) -> PreparedVerifyingKey<Bn254> {
+    prepare_verifying_key(vk)
+}
+
+// ── helpers ──────────────────────────────────────────────────────────
+
+fn random_bytes(n: usize) -> Vec<u8> {
+    use ark_std::rand::RngCore;
+    let mut rng = ark_std::rand::thread_rng();
+    let mut out = vec![0u8; n];
+    rng.fill_bytes(&mut out);
+    out
+}
+
+fn sha256_concat(parts: &[&[u8]]) -> Vec<u8> {
+    let mut h = Sha256::new();
+    for p in parts {
+        h.update(p);
+    }
+    h.finalize().to_vec()
+}
+
+/// Byte → bit, MSB-first within each byte. Matches both
+/// `zkpki-circuits/scripts/smoke.js`'s `bytesToBitsBE` and the
+/// convention of circomlib's Sha256.
+fn bits_from_bytes_be(bytes: &[u8]) -> Vec<u8> {
+    let mut bits = Vec::with_capacity(bytes.len() * 8);
+    for &byte in bytes {
+        for i in (0..8).rev() {
+            bits.push((byte >> i) & 1);
+        }
+    }
+    bits
+}

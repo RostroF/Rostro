@@ -1,0 +1,32 @@
+[package]
+name = "zkpki-verifier-lab"
+version = "0.1.0-poc"
+edition = "2024"
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license = "Apache-2.0"
+description = "Stage 3 research environment for the mime-wrap Groth16 on-chain verifier. Vendored into Rostro from the working primitive at ~/Polkadot/zkpki-verifier-lab. Sources unchanged; only Cargo.toml adjusted to use Rostro workspace dependencies. Two surfaces share the crate root: the production verify_proof path (no ark-circom, no_std-portable in spirit) and the fixture-generation generate_sample_proof path (ark-circom + std-only, never ships into a runtime)."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true, default-features = true }
+ark-bn254 = { workspace = true, default-features = true }
+ark-circom = { workspace = true, default-features = true }
+ark-groth16 = { workspace = true, default-features = true }
+ark-relations = { workspace = true, default-features = true }
+ark-serialize = { workspace = true, default-features = true }
+ark-snark = { workspace = true, default-features = true }
+ark-std = { workspace = true, default-features = true }
+sha2 = { workspace = true, default-features = true }
+tokio = { workspace = true, features = ["rt"] }
+
+[dev-dependencies]
+criterion = { workspace = true, features = ["html_reports"] }
+
+[[bench]]
+name = "verify"
+harness = false

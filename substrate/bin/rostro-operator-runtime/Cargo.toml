@@ -22,13 +22,35 @@ codec = { features = ["derive"], workspace = true, default-features = true }
 env_logger = { workspace = true }
 log = { workspace = true, default-features = true }
 thiserror = { workspace = true }
-wasmtime = { workspace = true, default-features = true }
+# wasmtime — explicitly enable every default feature EXCEPT `wat`. The
+# wat feature pulls wat ^1.235.0; wasmer 4.4 (transitively pulled by
+# ark-circom in the zkpki vendoring) pins `wat = "=1.0.71"` exactly.
+# Same major version family, mutually exclusive constraints — Cargo
+# can't unify. Disabling wasmtime's wat feature drops it from the
+# graph; we don't actually use wasmtime's WAT parser here (test
+# fixtures are pre-compiled byte arrays in runtime.rs).
+wasmtime = { workspace = true, default-features = false, features = [
+	"addr2line",
+	"async",
+	"cache",
+	"component-model",
+	"coredump",
+	"cranelift",
+	"debug-builtins",
+	"demangle",
+	"gc",
+	"gc-drc",
+	"gc-null",
+	"parallel-compilation",
+	"pooling-allocator",
+	"profiling",
+	"runtime",
+	"stack-switching",
+	"std",
+	"threads",
+] }
 
 [dev-dependencies]
-# wasmtime 35 requires wat ^1.235; the workspace's wat alias is pinned at
-# 1.0.x for sc-executor's older wasmtime stack. Use a direct version here
-# to avoid bumping the shared workspace pin.
-wat = "1.235"
 
 [features]
 default = []

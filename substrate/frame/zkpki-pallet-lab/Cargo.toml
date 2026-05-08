@@ -1,0 +1,67 @@
+[package]
+name = "zkpki-pallet-lab"
+version = "0.1.0-poc"
+edition = "2024"
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license = "Apache-2.0"
+description = "Stage 4a PoC: standalone FRAME pallet for Groth16 verification of the mime-wrap circuit. Vendored into Rostro from the working primitive at ~/Polkadot/zkpki-pallet-lab. Sources unchanged; only Cargo.toml adjusted to use Rostro workspace dependencies. Subsequent integration into Rostro's personhood + governance flows lives in follow-up commits."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+scale-info = { features = ["derive"], workspace = true }
+
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+
+# Groth16 verification — no_std-shaped (same crates as verifier-lab).
+ark-bn254 = { workspace = true }
+ark-ff = { workspace = true }
+ark-groth16 = { workspace = true }
+ark-serialize = { workspace = true }
+ark-snark = { workspace = true }
+
+[dev-dependencies]
+# Proof generation for integration tests. ark-circom pulls wasmer which
+# only runs in std — kept out of the main dep tree so the pallet itself
+# remains no_std-portable.
+ark-circom = { workspace = true, default-features = true }
+ark-std = { workspace = true, default-features = true }
+sha2 = { workspace = true, default-features = true }
+tokio = { workspace = true, features = ["rt"] }
+
+[features]
+default = ["std"]
+std = [
+	"ark-bn254/std",
+	"ark-ff/std",
+	"ark-groth16/std",
+	"ark-serialize/std",
+	"codec/std",
+	"frame-support/std",
+	"frame-system/std",
+	"scale-info/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
+	"sp-std/std",
+]
+runtime-benchmarks = [
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]
