@@ -11,6 +11,7 @@ resolver = "2"
 members = [
 	"substrate/bin/gemini-node",
 	"substrate/bin/rostro-node",
+	"substrate/bin/rostro-operator-runtime",
 	"substrate/bin/rostro-supervisor",
 	"substrate/bin/utils/chain-spec-builder",
 	"substrate/bin/utils/subkey",

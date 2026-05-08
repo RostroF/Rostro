@@ -1,0 +1,34 @@
+[package]
+name = "rostro-operator-runtime"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Sidecar process that hosts an operator's private WASM blob alongside gemini-node. Loaded from a local file path at startup, executes operator-defined methods via wasmtime, exposes a small set of host functions, and speaks a SCALE-framed request/response protocol over stdin/stdout (so a parent process — gemini-node, an installer, a test harness — can drive it without any platform-specific socket plumbing). v1 minimum: Ping smoke test + invoking a no-arg WASM export, with `log` as the only host function. Richer ABI (typed args/results, storage, signature requests, http) lands in subsequent versions. Apache-2.0; no Substrate-client dependencies — the sidecar is intentionally a small portable artifact independent of the chain client."
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "rostro-operator-runtime"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+codec = { features = ["derive"], workspace = true, default-features = true }
+env_logger = { workspace = true }
+log = { workspace = true, default-features = true }
+thiserror = { workspace = true }
+wasmtime = { workspace = true, default-features = true }
+
+[dev-dependencies]
+# wasmtime 35 requires wat ^1.235; the workspace's wat alias is pinned at
+# 1.0.x for sc-executor's older wasmtime stack. Use a direct version here
+# to avoid bumping the shared workspace pin.
+wat = "1.235"
+
+[features]
+default = []
