@@ -160,6 +160,7 @@ members = [
 	"substrate/frame/rns-types",
 	"substrate/frame/root-offences",
 	"substrate/frame/root-testing",
+	"substrate/frame/rostro-bilateral-receipt",
 	"substrate/frame/rostro-canonical-files",
 	"substrate/frame/rostro-operator-state",
 	"substrate/frame/rostro-proof-anchor",
@@ -618,6 +619,7 @@ pallet-proof-verifier = { path = "substrate/frame/proof-verifier", default-featu
 pallet-rns-marketplace = { path = "substrate/frame/rns-marketplace", default-features = false }
 pallet-rns-registrar = { path = "substrate/frame/rns-registrar", default-features = false }
 pallet-rns-resolvers = { path = "substrate/frame/rns-resolvers", default-features = false }
+pallet-rostro-bilateral-receipt = { path = "substrate/frame/rostro-bilateral-receipt", default-features = false }
 pallet-rostro-canonical-files = { path = "substrate/frame/rostro-canonical-files", default-features = false }
 pallet-rostro-operator-state = { path = "substrate/frame/rostro-operator-state", default-features = false }
 pallet-rostro-proof-anchor = { path = "substrate/frame/rostro-proof-anchor", default-features = false }
