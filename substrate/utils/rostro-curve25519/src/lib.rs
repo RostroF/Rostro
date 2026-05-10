@@ -72,6 +72,7 @@ pub mod field_sub_air;
 pub mod point;
 pub mod point_add_air;
 pub mod point_double_air;
+pub mod ristretto;
 pub mod scalar_mul_air;
 
 #[cfg(test)]
@@ -103,3 +104,6 @@ mod bus_composition_integration_tests;
 
 #[cfg(test)]
 mod scalar_mul_air_tests;
+
+#[cfg(test)]
+mod ristretto_tests;
