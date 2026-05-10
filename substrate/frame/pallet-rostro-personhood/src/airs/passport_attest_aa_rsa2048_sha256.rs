@@ -73,6 +73,7 @@
 
 use p3_air::{Air, AirBuilder, BaseAir, WindowAccess};
 use p3_field::{Field, PrimeCharacteristicRing};
+use p3_lookup::InteractionBuilder;
 
 // ─── Public input column layout (shared shape across all AA algorithms) ────
 //
@@ -406,19 +407,104 @@ pub const MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS: [u32; 8] = {
 	out
 };
 
-/// Total trace columns for this AIR. Currently includes: PI block, RSA
-/// witness block (modulus + exponent + signature + EM), MRZ canonical
-/// bytes, DG2 hash + salt. Grows when modexp + SHA-256 intermediate
-/// columns land.
-///
-/// **Inlined Poseidon2 perm columns removed 2026-05-10.** Both Poseidon2
-/// hashes (MRZ commitment, DG2 commitment) are now consumed via cross-AIR
-/// lookup buses backed by `rostro-poseidon-air` instances. The AIR's eval
-/// emits `push_interaction(input_bus, prev_state ⊕ rate_chunk, +1, 1)` per
-/// absorb and `push_interaction(output_bus, post_state, -1, 1)` per
-/// absorb; the harness AIR composition lives at the prove/verify
-/// orchestration layer, not here.
-pub const NUM_COLS: usize = COL_DG2_SALT + HASH_LIMBS;
+// ─── Post-absorb state vectors (witnessed; consumed via lookup bus) ─────────
+//
+// One 8-cell post-state vector per Poseidon2 absorb. The trace generator
+// computes the sponge step-by-step off-circuit and writes the resulting
+// state after each absorb into these columns. The AIR's eval pushes a
+// `recv` interaction on the output bus for each post_state, balanced by a
+// matching `send` from the corresponding `rostro-poseidon-air` AIR
+// instance in the same batch.
+//
+// The FINAL post_state of each hash is the squeezed commitment value.
+// `eval` constrains:
+//   COL_MRZ_STATE_AFTER_ABSORB_5[0..8]  ==  COL_MRZ_COMMITMENT[0..8]
+//   COL_DG2_STATE_AFTER_ABSORB_3[0..8]  ==  COL_DG2_COMMITMENT[0..8]
+// closing the loop between the bus-received hash output and the public
+// input the pallet binds against.
+
+/// Width of one post-absorb state vector (Poseidon2 WIDTH = 8).
+pub const STATE_WIDTH: usize = 8;
+
+/// Starting column of the state vector witnessed AFTER MRZ absorb i,
+/// for i in 0..POSEIDON2_NUM_MRZ_PERMS. Each holds 8 u32 limbs.
+pub const COL_MRZ_STATE_AFTER_ABSORB_0: usize = COL_DG2_SALT + HASH_LIMBS;
+pub const COL_MRZ_STATE_AFTER_ABSORB_1: usize = COL_MRZ_STATE_AFTER_ABSORB_0 + STATE_WIDTH;
+pub const COL_MRZ_STATE_AFTER_ABSORB_2: usize = COL_MRZ_STATE_AFTER_ABSORB_1 + STATE_WIDTH;
+pub const COL_MRZ_STATE_AFTER_ABSORB_3: usize = COL_MRZ_STATE_AFTER_ABSORB_2 + STATE_WIDTH;
+pub const COL_MRZ_STATE_AFTER_ABSORB_4: usize = COL_MRZ_STATE_AFTER_ABSORB_3 + STATE_WIDTH;
+pub const COL_MRZ_STATE_AFTER_ABSORB_5: usize = COL_MRZ_STATE_AFTER_ABSORB_4 + STATE_WIDTH;
+
+/// Starting column of the state vector witnessed AFTER DG2 absorb i,
+/// for i in 0..POSEIDON2_NUM_DG2_PERMS. Each holds 8 u32 limbs.
+pub const COL_DG2_STATE_AFTER_ABSORB_0: usize = COL_MRZ_STATE_AFTER_ABSORB_5 + STATE_WIDTH;
+pub const COL_DG2_STATE_AFTER_ABSORB_1: usize = COL_DG2_STATE_AFTER_ABSORB_0 + STATE_WIDTH;
+pub const COL_DG2_STATE_AFTER_ABSORB_2: usize = COL_DG2_STATE_AFTER_ABSORB_1 + STATE_WIDTH;
+pub const COL_DG2_STATE_AFTER_ABSORB_3: usize = COL_DG2_STATE_AFTER_ABSORB_2 + STATE_WIDTH;
+
+// ─── Lookup bus names (algorithm-scoped) ────────────────────────────────────
+//
+// Per-algorithm AA AIRs are siloed by `feedback_no_cross_purpose_files.md`
+// and `pop_algorithm_coverage_zkpassport_mirror.md`. Each (sig_alg,
+// hash_alg) AIR file gets its own bus namespace so when multiple
+// algorithm AIRs deploy in the same batch they don't crosstalk.
+//
+// Within this AIR, MRZ-commitment and DG2-commitment hashes share the
+// same bus pair across all 6/4 absorbs respectively — LogUp matches
+// (input, output) message pairs by content, so 6 MRZ Poseidon2-hash
+// instances on a shared output bus pair up correctly with the caller's
+// 6 receive operations.
+
+/// Bus carrying the input message of each MRZ-commitment Poseidon2 absorb
+/// (state with rate_chunk added). Caller sends; rostro-poseidon-air
+/// (External-Initial) on this bus receives.
+pub const BUS_MRZ_INPUT: &str = "rostro-pop-aa-rsa2048-sha256-mrz-input";
+
+/// Bus carrying the output message of each MRZ-commitment Poseidon2 absorb
+/// (post-state). rostro-poseidon-air (External-Terminal) on this bus
+/// sends; caller receives.
+pub const BUS_MRZ_OUTPUT: &str = "rostro-pop-aa-rsa2048-sha256-mrz-output";
+
+/// Bus carrying the input message of each DG2-commitment Poseidon2 absorb.
+pub const BUS_DG2_INPUT: &str = "rostro-pop-aa-rsa2048-sha256-dg2-input";
+
+/// Bus carrying the output message of each DG2-commitment Poseidon2 absorb.
+pub const BUS_DG2_OUTPUT: &str = "rostro-pop-aa-rsa2048-sha256-dg2-output";
+
+/// Map MRZ-commitment absorb index `i in 0..6` to its post_state's
+/// starting column. Pure const lookup — keeps the eval body readable.
+#[inline]
+const fn mrz_state_col(absorb: usize) -> usize {
+	match absorb {
+		0 => COL_MRZ_STATE_AFTER_ABSORB_0,
+		1 => COL_MRZ_STATE_AFTER_ABSORB_1,
+		2 => COL_MRZ_STATE_AFTER_ABSORB_2,
+		3 => COL_MRZ_STATE_AFTER_ABSORB_3,
+		4 => COL_MRZ_STATE_AFTER_ABSORB_4,
+		5 => COL_MRZ_STATE_AFTER_ABSORB_5,
+		_ => panic!("mrz_state_col: absorb out of range; qed"),
+	}
+}
+
+/// Map DG2-commitment absorb index `i in 0..4` to its post_state's
+/// starting column.
+#[inline]
+const fn dg2_state_col(absorb: usize) -> usize {
+	match absorb {
+		0 => COL_DG2_STATE_AFTER_ABSORB_0,
+		1 => COL_DG2_STATE_AFTER_ABSORB_1,
+		2 => COL_DG2_STATE_AFTER_ABSORB_2,
+		3 => COL_DG2_STATE_AFTER_ABSORB_3,
+		_ => panic!("dg2_state_col: absorb out of range; qed"),
+	}
+}
+
+/// Total trace columns for this AIR after phase 3b. Includes: PI block,
+/// RSA witness block (modulus + exponent + signature + EM), MRZ canonical
+/// bytes, DG2 hash + salt, 6 MRZ post-absorb state vectors, 4 DG2
+/// post-absorb state vectors. Grows further when modexp + SHA-256
+/// intermediate columns land in phase 3c.
+pub const NUM_COLS: usize = COL_DG2_STATE_AFTER_ABSORB_3 + STATE_WIDTH;
 
 // ─── Limb-encoding helpers (siloed to this AIR) ────────────────────────────
 //
@@ -480,7 +566,7 @@ impl<F: Field> BaseAir<F> for PassportAttestAaRsa2048Sha256Air {
 	}
 }
 
-impl<AB: AirBuilder> Air<AB> for PassportAttestAaRsa2048Sha256Air
+impl<AB: InteractionBuilder> Air<AB> for PassportAttestAaRsa2048Sha256Air
 where
 	AB::F: Field,
 {
@@ -619,25 +705,164 @@ where
 		// PI digest. SHA-256-in-AIR still needed for DG-list inclusion in
 		// SOD; no longer a precondition for the chip-sig binding.
 
-		// TODO(PoP-AA-RSA2048, phase 3b): mrz_commitment ==
-		// Poseidon2(canonical_mrz, ROSTRO_MRZ_COMMIT_DOMAIN-via-capacity).
-		// Hash primitive lives in `rostro-poseidon-air`, consumed via
-		// cross-AIR lookup buses.
+		// ─── MRZ-commitment Poseidon2 bus interactions ─────────────────
 		//
-		// Per absorb i (POSEIDON2_NUM_MRZ_PERMS = 6 total):
-		//   1. Form bus-input message = state[i-1][0..4] + rate_chunk_i,
-		//      state[i-1][4..8]  (8 cells; 4 rate + 4 capacity).
-		//   2. Send to per-absorb input bus with multiplicity = 1.
-		//   3. Receive post_state from per-absorb output bus, multiplicity
-		//      -1; store as state[i].
+		// The 22-element canonical_mrz absorbs into a Goldilocks-Poseidon2
+		// WIDTH=8 sponge (RATE=4, CAPACITY=4) over POSEIDON2_NUM_MRZ_PERMS
+		// = 6 absorb steps. State after each absorb is witnessed at
+		// COL_MRZ_STATE_AFTER_ABSORB_i; the harness AIR composition runs
+		// 3 rostro-poseidon-air round AIRs per absorb on these buses to
+		// prove each (input → output) transformation.
 		//
-		// state[0]'s capacity half = MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS,
-		// rate half = 0. state[6] is the squeezed hash output; constrain
-		// state[6][0..8] == local[COL_MRZ_COMMITMENT..COL_MRZ_COMMITMENT + 8].
+		// Per absorb i, eval emits two interactions:
+		//   send (count=+1) on BUS_MRZ_INPUT  with input_message_i
+		//        = pre_state[i] with rate_chunk_i added to first 4 cells
+		//   recv (count=-1) on BUS_MRZ_OUTPUT with post_state[i]
 		//
-		// Plus: u16 range checks on every u32 limb of canonical_mrz +
-		// state vectors via the rostro-range-check bus. See
-		// pop_lookup_integration_next_work.md for the harness composition.
+		// pre_state[0]: rate half = 0, capacity half = MRZ capacity init
+		// pre_state[i>0] = post_state[i-1]
+		//
+		// LogUp matches each (input, output) pair by content; six
+		// rostro-poseidon-air composed-hash instances on the same buses
+		// pair up correctly with the six caller emissions because the
+		// permutation is deterministic.
+		//
+		// MRZ rate-chunk schedule (RATE=4, 22 elements, last absorb has
+		// 2 inputs + 2-element 10*-padding):
+		//   absorb 0: canonical_mrz[ 0..4]
+		//   absorb 1: canonical_mrz[ 4..8]
+		//   absorb 2: canonical_mrz[ 8..12]
+		//   absorb 3: canonical_mrz[12..16]
+		//   absorb 4: canonical_mrz[16..20]
+		//   absorb 5: canonical_mrz[20..22] || [1, 0]   (10*-pad)
+
+		let mrz_capacity_init: [AB::Expr; 4] = core::array::from_fn(|i| {
+			AB::Expr::from_u32(MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS[i])
+		});
+
+		for absorb in 0..POSEIDON2_NUM_MRZ_PERMS {
+			let pre_rate: [AB::Expr; 4] = if absorb == 0 {
+				core::array::from_fn(|_| AB::Expr::ZERO)
+			} else {
+				let prev = mrz_state_col(absorb - 1);
+				core::array::from_fn(|i| local[prev + i].clone().into())
+			};
+			let pre_capacity: [AB::Expr; 4] = if absorb == 0 {
+				mrz_capacity_init.clone()
+			} else {
+				let prev = mrz_state_col(absorb - 1);
+				core::array::from_fn(|i| local[prev + 4 + i].clone().into())
+			};
+
+			let rate_chunk: [AB::Expr; 4] = match absorb {
+				5 => [
+					local[COL_CANONICAL_MRZ + 20].clone().into(),
+					local[COL_CANONICAL_MRZ + 21].clone().into(),
+					AB::Expr::ONE,
+					AB::Expr::ZERO,
+				],
+				_ => core::array::from_fn(|i| {
+					local[COL_CANONICAL_MRZ + absorb * 4 + i].clone().into()
+				}),
+			};
+
+			let input_message: [AB::Expr; STATE_WIDTH] = core::array::from_fn(|i| {
+				if i < 4 {
+					pre_rate[i].clone() + rate_chunk[i].clone()
+				} else {
+					pre_capacity[i - 4].clone()
+				}
+			});
+
+			builder.push_interaction(BUS_MRZ_INPUT, input_message, AB::Expr::ONE, 1);
+
+			let post = mrz_state_col(absorb);
+			let output_message: [AB::Var; STATE_WIDTH] =
+				core::array::from_fn(|i| local[post + i]);
+			builder.push_interaction(
+				BUS_MRZ_OUTPUT,
+				output_message,
+				AB::Expr::ZERO - AB::Expr::ONE,
+				1,
+			);
+		}
+
+		// MRZ-commitment squeeze: the final post_state IS the public
+		// `mrz_commitment` value. Constrain equality (8 limbs).
+		for i in 0..STATE_WIDTH {
+			builder.assert_eq(
+				local[COL_MRZ_STATE_AFTER_ABSORB_5 + i].clone(),
+				local[COL_MRZ_COMMITMENT + i].clone(),
+			);
+		}
+
+		// ─── DG2-commitment Poseidon2 bus interactions ─────────────────
+		//
+		// 16 input elements (dg2_hash[0..8] || salt[0..8]) absorb cleanly
+		// into 4 absorbs, no padding. Different domain init
+		// (DG2_COMMIT_DOMAIN_CAPACITY_LIMBS) so the hash space is disjoint
+		// from MRZ's. Same bus convention (separate bus pair).
+		//
+		// Rate-chunk schedule:
+		//   absorb 0: dg2_hash[0..4]
+		//   absorb 1: dg2_hash[4..8]
+		//   absorb 2: dg2_salt[0..4]
+		//   absorb 3: dg2_salt[4..8]
+
+		let dg2_capacity_init: [AB::Expr; 4] = core::array::from_fn(|i| {
+			AB::Expr::from_u32(DG2_COMMIT_DOMAIN_CAPACITY_LIMBS[i])
+		});
+
+		for absorb in 0..POSEIDON2_NUM_DG2_PERMS {
+			let pre_rate: [AB::Expr; 4] = if absorb == 0 {
+				core::array::from_fn(|_| AB::Expr::ZERO)
+			} else {
+				let prev = dg2_state_col(absorb - 1);
+				core::array::from_fn(|i| local[prev + i].clone().into())
+			};
+			let pre_capacity: [AB::Expr; 4] = if absorb == 0 {
+				dg2_capacity_init.clone()
+			} else {
+				let prev = dg2_state_col(absorb - 1);
+				core::array::from_fn(|i| local[prev + 4 + i].clone().into())
+			};
+
+			let rate_chunk: [AB::Expr; 4] = match absorb {
+				0 => core::array::from_fn(|i| local[COL_DG2_HASH + i].clone().into()),
+				1 => core::array::from_fn(|i| local[COL_DG2_HASH + 4 + i].clone().into()),
+				2 => core::array::from_fn(|i| local[COL_DG2_SALT + i].clone().into()),
+				_ => core::array::from_fn(|i| local[COL_DG2_SALT + 4 + i].clone().into()),
+			};
+
+			let input_message: [AB::Expr; STATE_WIDTH] = core::array::from_fn(|i| {
+				if i < 4 {
+					pre_rate[i].clone() + rate_chunk[i].clone()
+				} else {
+					pre_capacity[i - 4].clone()
+				}
+			});
+
+			builder.push_interaction(BUS_DG2_INPUT, input_message, AB::Expr::ONE, 1);
+
+			let post = dg2_state_col(absorb);
+			let output_message: [AB::Var; STATE_WIDTH] =
+				core::array::from_fn(|i| local[post + i]);
+			builder.push_interaction(
+				BUS_DG2_OUTPUT,
+				output_message,
+				AB::Expr::ZERO - AB::Expr::ONE,
+				1,
+			);
+		}
+
+		// DG2-commitment squeeze: final post_state IS the public
+		// `dg2_commitment` value.
+		for i in 0..STATE_WIDTH {
+			builder.assert_eq(
+				local[COL_DG2_STATE_AFTER_ABSORB_3 + i].clone(),
+				local[COL_DG2_COMMITMENT + i].clone(),
+			);
+		}
 
 		// TODO(PoP-AA-RSA2048): DG15 inclusion in SOD. Hash witnessed
 		// DG15 bytes, prove the hash appears in the SOD's DG hash list
@@ -808,12 +1033,11 @@ mod tests {
 
 	#[test]
 	fn rsa2048_witness_layout_is_contiguous() {
-		// Pin the witness column ordering after the 2026-05-10 strip of
-		// inlined Poseidon2 perm columns. Layout: PI block → RSA modulus
-		// → exponent → signature → decoded EM → canonical MRZ → DG2 hash
-		// → DG2 salt. Both Poseidon2 hashes (MRZ commitment, DG2
-		// commitment) are now bus-based; their state lives in the
-		// `rostro-poseidon-air` AIRs in the same batch, not here.
+		// Pin the witness column ordering after the 2026-05-10 strip
+		// (phase 3a) and bus-interaction wiring (phase 3b). Layout:
+		// PI block → RSA modulus → exponent → signature → decoded EM →
+		// canonical MRZ → DG2 hash → DG2 salt → 6 MRZ post-absorb state
+		// vectors → 4 DG2 post-absorb state vectors.
 		assert_eq!(COL_RSA_MODULUS_N, NUM_PI_COLS);
 		assert_eq!(COL_RSA_EXPONENT_E, COL_RSA_MODULUS_N + RSA2048_LIMBS);
 		assert_eq!(COL_RSA_SIGNATURE_S, COL_RSA_EXPONENT_E + 1);
@@ -821,11 +1045,50 @@ mod tests {
 		assert_eq!(COL_CANONICAL_MRZ, COL_RSA_DECODED_EM + RSA2048_LIMBS);
 		assert_eq!(COL_DG2_HASH, COL_CANONICAL_MRZ + CANONICAL_MRZ_LIMBS);
 		assert_eq!(COL_DG2_SALT, COL_DG2_HASH + HASH_LIMBS);
-		assert_eq!(NUM_COLS, COL_DG2_SALT + HASH_LIMBS);
+		// Six MRZ post-absorb state vectors, contiguous, 8 cells each.
+		assert_eq!(COL_MRZ_STATE_AFTER_ABSORB_0, COL_DG2_SALT + HASH_LIMBS);
+		assert_eq!(COL_MRZ_STATE_AFTER_ABSORB_1, COL_MRZ_STATE_AFTER_ABSORB_0 + STATE_WIDTH);
+		assert_eq!(COL_MRZ_STATE_AFTER_ABSORB_2, COL_MRZ_STATE_AFTER_ABSORB_1 + STATE_WIDTH);
+		assert_eq!(COL_MRZ_STATE_AFTER_ABSORB_3, COL_MRZ_STATE_AFTER_ABSORB_2 + STATE_WIDTH);
+		assert_eq!(COL_MRZ_STATE_AFTER_ABSORB_4, COL_MRZ_STATE_AFTER_ABSORB_3 + STATE_WIDTH);
+		assert_eq!(COL_MRZ_STATE_AFTER_ABSORB_5, COL_MRZ_STATE_AFTER_ABSORB_4 + STATE_WIDTH);
+		// Four DG2 post-absorb state vectors, contiguous, 8 cells each.
+		assert_eq!(COL_DG2_STATE_AFTER_ABSORB_0, COL_MRZ_STATE_AFTER_ABSORB_5 + STATE_WIDTH);
+		assert_eq!(COL_DG2_STATE_AFTER_ABSORB_1, COL_DG2_STATE_AFTER_ABSORB_0 + STATE_WIDTH);
+		assert_eq!(COL_DG2_STATE_AFTER_ABSORB_2, COL_DG2_STATE_AFTER_ABSORB_1 + STATE_WIDTH);
+		assert_eq!(COL_DG2_STATE_AFTER_ABSORB_3, COL_DG2_STATE_AFTER_ABSORB_2 + STATE_WIDTH);
+		assert_eq!(NUM_COLS, COL_DG2_STATE_AFTER_ABSORB_3 + STATE_WIDTH);
 		// Breakdown: 76 PI + 64 modulus + 1 exponent + 64 sig + 64 EM
-		// + 22 MRZ + 8 dg2_hash + 8 dg2_salt = 307 cols. ~89% reduction
-		// from the pre-strip total of 2787.
-		assert_eq!(NUM_COLS, 307);
+		// + 22 MRZ + 8 dg2_hash + 8 dg2_salt + 6×8 MRZ post-absorb
+		// + 4×8 DG2 post-absorb = 307 + 80 = 387 cols.
+		assert_eq!(NUM_COLS, 387);
+	}
+
+	#[test]
+	fn poseidon2_state_columns_match_locked_width() {
+		// State width is fixed by the Goldilocks-Poseidon2-WIDTH=8
+		// instance. If this changes, every post-absorb column shifts and
+		// every bus message has the wrong arity.
+		assert_eq!(STATE_WIDTH, 8);
+	}
+
+	#[test]
+	fn bus_names_are_algorithm_scoped_and_distinct() {
+		// Per-algorithm AA AIRs share no buses. The names embed
+		// "rsa2048-sha256" so future per-algorithm AIR files
+		// (passport_attest_aa_p256, ...) get their own namespaces.
+		assert_eq!(BUS_MRZ_INPUT,  "rostro-pop-aa-rsa2048-sha256-mrz-input");
+		assert_eq!(BUS_MRZ_OUTPUT, "rostro-pop-aa-rsa2048-sha256-mrz-output");
+		assert_eq!(BUS_DG2_INPUT,  "rostro-pop-aa-rsa2048-sha256-dg2-input");
+		assert_eq!(BUS_DG2_OUTPUT, "rostro-pop-aa-rsa2048-sha256-dg2-output");
+		// All 4 buses must be distinct — same-name buses on a batch
+		// would silently merge LogUp accounts.
+		let buses = [BUS_MRZ_INPUT, BUS_MRZ_OUTPUT, BUS_DG2_INPUT, BUS_DG2_OUTPUT];
+		for i in 0..buses.len() {
+			for j in (i + 1)..buses.len() {
+				assert_ne!(buses[i], buses[j]);
+			}
+		}
 	}
 
 	#[test]
@@ -930,5 +1193,167 @@ mod tests {
 		// nullifier becomes unreachable.
 		assert_eq!(CANONICAL_MRZ_LIMBS, 22);
 		assert_eq!(CANONICAL_MRZ_LIMBS * 4, 88);
+	}
+
+	// ─── Bus interaction structural tests ───────────────────────────────
+	//
+	// Recording builder: drives `eval` and captures every push_interaction
+	// call. Verifies that the AIR emits exactly 20 bus messages (10
+	// MRZ pair + 10 DG2... wait, 6+4 = 10 absorbs × 2 messages each = 20)
+	// across the four expected buses, in the expected order, with the
+	// expected sign convention (+1 for sends, -1 for receives).
+
+	use alloc::string::String;
+	use p3_air::RowWindow;
+	use p3_field::Field;
+	use p3_goldilocks::Goldilocks;
+	use p3_lookup::InteractionBuilder as InteractionBuilderTrait;
+
+	struct RecordingInteractionBuilder<'a> {
+		main_window: RowWindow<'a, Goldilocks>,
+		preprocessed_window: RowWindow<'a, Goldilocks>,
+		pushed: Vec<(String, Goldilocks, usize, u32)>,
+	}
+
+	impl<'a> p3_air::AirBuilder for RecordingInteractionBuilder<'a> {
+		type F = Goldilocks;
+		type Expr = Goldilocks;
+		type Var = Goldilocks;
+		type MainWindow = RowWindow<'a, Goldilocks>;
+		type PreprocessedWindow = RowWindow<'a, Goldilocks>;
+		type PublicVar = Goldilocks;
+		type PeriodicVar = Goldilocks;
+
+		fn main(&self) -> Self::MainWindow {
+			self.main_window
+		}
+		fn preprocessed(&self) -> &Self::PreprocessedWindow {
+			&self.preprocessed_window
+		}
+		fn is_first_row(&self) -> Self::Expr {
+			Goldilocks::ONE
+		}
+		fn is_last_row(&self) -> Self::Expr {
+			Goldilocks::ONE
+		}
+		fn is_transition_window(&self, _: usize) -> Self::Expr {
+			Goldilocks::ZERO
+		}
+		// Don't enforce constraints — recording is the only purpose.
+		fn assert_zero<I: Into<Self::Expr>>(&mut self, _x: I) {}
+	}
+
+	impl<'a> InteractionBuilderTrait for RecordingInteractionBuilder<'a> {
+		fn push_interaction<E: Into<Self::Expr>>(
+			&mut self,
+			bus_name: &str,
+			fields: impl IntoIterator<Item = E>,
+			count: impl Into<Self::Expr>,
+			count_weight: u32,
+		) {
+			let multiplicity: Goldilocks = count.into();
+			let collected: Vec<Goldilocks> = fields.into_iter().map(Into::into).collect();
+			self.pushed
+				.push((String::from(bus_name), multiplicity, collected.len(), count_weight));
+		}
+
+		fn push_local_interaction(
+			&mut self,
+			tuples: impl IntoIterator<Item = (Vec<Self::Expr>, Self::Expr)>,
+		) {
+			tuples.into_iter().for_each(drop);
+		}
+	}
+
+	#[test]
+	fn eval_emits_expected_bus_interactions() {
+		let air = PassportAttestAaRsa2048Sha256Air;
+		// Single all-zero row is enough — we're counting structure, not
+		// verifying constraint values.
+		let main: Vec<Goldilocks> = (0..NUM_COLS).map(|_| Goldilocks::ZERO).collect();
+		let main_next = main.clone();
+		let pp: Vec<Goldilocks> = Vec::new();
+		let pp_next: Vec<Goldilocks> = Vec::new();
+
+		let mut builder = RecordingInteractionBuilder {
+			main_window: RowWindow::from_two_rows(&main, &main_next),
+			preprocessed_window: RowWindow::from_two_rows(&pp, &pp_next),
+			pushed: Vec::new(),
+		};
+		<PassportAttestAaRsa2048Sha256Air as Air<RecordingInteractionBuilder>>::eval(
+			&air,
+			&mut builder,
+		);
+
+		// 6 MRZ absorbs × 2 (send + recv) + 4 DG2 absorbs × 2 = 20.
+		assert_eq!(
+			builder.pushed.len(),
+			20,
+			"expected exactly 20 bus interactions; got {}",
+			builder.pushed.len(),
+		);
+
+		// Tally by (bus_name, sign). Sends carry +1; receives carry
+		// 0 - 1 = -1 in Goldilocks (= p - 1).
+		let one = Goldilocks::ONE;
+		let neg_one = Goldilocks::ZERO - Goldilocks::ONE;
+		let mut mrz_sends = 0;
+		let mut mrz_recvs = 0;
+		let mut dg2_sends = 0;
+		let mut dg2_recvs = 0;
+		for (bus, mult, arity, weight) in &builder.pushed {
+			assert_eq!(*arity, STATE_WIDTH, "every bus message is exactly WIDTH=8 cells");
+			assert_eq!(*weight, 1, "all caller-side messages carry count_weight 1");
+			match (bus.as_str(), *mult) {
+				(BUS_MRZ_INPUT, m) if m == one => mrz_sends += 1,
+				(BUS_MRZ_OUTPUT, m) if m == neg_one => mrz_recvs += 1,
+				(BUS_DG2_INPUT, m) if m == one => dg2_sends += 1,
+				(BUS_DG2_OUTPUT, m) if m == neg_one => dg2_recvs += 1,
+				other => panic!("unexpected bus interaction: {:?}", other),
+			}
+		}
+		assert_eq!(mrz_sends, POSEIDON2_NUM_MRZ_PERMS);
+		assert_eq!(mrz_recvs, POSEIDON2_NUM_MRZ_PERMS);
+		assert_eq!(dg2_sends, POSEIDON2_NUM_DG2_PERMS);
+		assert_eq!(dg2_recvs, POSEIDON2_NUM_DG2_PERMS);
+	}
+
+	#[test]
+	fn eval_bus_messages_alternate_send_then_recv_per_absorb() {
+		// Pin the per-absorb interaction order: each absorb emits a send
+		// to the input bus immediately followed by a receive from the
+		// output bus. Holds for MRZ (6 absorbs) followed by DG2 (4).
+		// Catches accidental reordering that could let a malicious AIR
+		// instance pair up the wrong (input, output) by timing.
+		let air = PassportAttestAaRsa2048Sha256Air;
+		let main: Vec<Goldilocks> = (0..NUM_COLS).map(|_| Goldilocks::ZERO).collect();
+		let main_next = main.clone();
+		let pp: Vec<Goldilocks> = Vec::new();
+		let pp_next: Vec<Goldilocks> = Vec::new();
+		let mut builder = RecordingInteractionBuilder {
+			main_window: RowWindow::from_two_rows(&main, &main_next),
+			preprocessed_window: RowWindow::from_two_rows(&pp, &pp_next),
+			pushed: Vec::new(),
+		};
+		<PassportAttestAaRsa2048Sha256Air as Air<RecordingInteractionBuilder>>::eval(
+			&air,
+			&mut builder,
+		);
+
+		// First 12 entries: 6 MRZ absorb pairs (input then output).
+		for absorb in 0..POSEIDON2_NUM_MRZ_PERMS {
+			let send_idx = absorb * 2;
+			let recv_idx = absorb * 2 + 1;
+			assert_eq!(builder.pushed[send_idx].0, BUS_MRZ_INPUT);
+			assert_eq!(builder.pushed[recv_idx].0, BUS_MRZ_OUTPUT);
+		}
+		// Next 8: 4 DG2 absorb pairs.
+		let mrz_block = POSEIDON2_NUM_MRZ_PERMS * 2;
+		for absorb in 0..POSEIDON2_NUM_DG2_PERMS {
+			let send_idx = mrz_block + absorb * 2;
+			let recv_idx = mrz_block + absorb * 2 + 1;
+			assert_eq!(builder.pushed[send_idx].0, BUS_DG2_INPUT);
+			assert_eq!(builder.pushed[recv_idx].0, BUS_DG2_OUTPUT);
+		}
 	}
 }

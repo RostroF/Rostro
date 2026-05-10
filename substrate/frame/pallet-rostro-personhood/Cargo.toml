@@ -48,6 +48,7 @@ ark-snark     = { workspace = true }
 p3-air        = { workspace = true }
 p3-field      = { workspace = true }
 p3-goldilocks = { workspace = true }
+p3-lookup     = { workspace = true }
 p3-poseidon2  = { workspace = true }
 
 # Hardware Integrity Proof types from zkpki. The personhood pallet
