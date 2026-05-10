@@ -13333,11 +13333,14 @@ version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "hex-literal",
+ "num-bigint",
+ "num-traits",
  "p3-air",
  "p3-field",
  "p3-goldilocks",
  "p3-lookup",
  "p3-matrix",
+ "rand 0.8.5",
 ]
 
 [[package]]

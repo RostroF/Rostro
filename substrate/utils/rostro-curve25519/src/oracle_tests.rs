@@ -12,8 +12,11 @@
 //! `field.rs` drifts, a test here fails and points at the wrong limb.
 
 use crate::field::{
-	bytes_to_limbs, is_canonical, limbs_to_bytes, FIELD_NUM_LIMBS, P_LIMBS, P_MINUS_ONE_LIMBS,
+	add, bytes_to_limbs, is_canonical, is_zero, limbs_to_bytes, neg, reduce, sub,
+	FIELD_NUM_LIMBS, P_LIMBS, P_MINUS_ONE_LIMBS,
 };
+use num_bigint::BigUint;
+use num_traits::Num;
 
 /// `p = 2^255 - 19` in little-endian bytes, taken from RFC 7748 § 4.1.
 /// This is the source-of-truth byte sequence we encode into limbs.
@@ -141,4 +144,219 @@ fn p_minus_one_is_canonical_and_p_is_not() {
 	// future refactor flips the equality direction, this test catches it.
 	assert!(is_canonical(&P_MINUS_ONE_LIMBS));
 	assert!(!is_canonical(&P_LIMBS));
+}
+
+// ─── Modular arithmetic oracle tests (num-bigint reference) ────────────────
+//
+// num-bigint with explicit modulus `2^255 - 19` is the pure-Rust oracle.
+// curve25519-dalek's FieldElement is private (internal type), so it
+// can't be used directly for raw field-arithmetic comparison. num-bigint
+// is well-audited and gives us byte-for-byte ground truth for `mod p`.
+
+/// `p = 2^255 - 19` as a BigUint, computed from RFC 7748 hex.
+fn p_biguint() -> BigUint {
+	BigUint::from_str_radix(
+		"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed",
+		16,
+	)
+	.unwrap()
+}
+
+fn limbs_to_biguint(limbs: &[u32; FIELD_NUM_LIMBS]) -> BigUint {
+	BigUint::from_bytes_le(&limbs_to_bytes(limbs))
+}
+
+fn biguint_to_limbs(v: &BigUint) -> [u32; FIELD_NUM_LIMBS] {
+	let mut bytes = v.to_bytes_le();
+	bytes.resize(32, 0);
+	let mut arr = [0u8; 32];
+	arr.copy_from_slice(&bytes[..32]);
+	bytes_to_limbs(&arr)
+}
+
+fn random_canonical(rng: &mut rand::rngs::StdRng) -> [u32; FIELD_NUM_LIMBS] {
+	use rand::RngCore;
+	loop {
+		let mut bytes = [0u8; 32];
+		rng.fill_bytes(&mut bytes);
+		// Clear the top bit to keep values < 2^255 (close to but not
+		// guaranteed below p); reject the few values ≥ p.
+		bytes[31] &= 0x7F;
+		let limbs = bytes_to_limbs(&bytes);
+		if is_canonical(&limbs) {
+			return limbs;
+		}
+	}
+}
+
+#[test]
+fn add_zero_is_identity() {
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	assert_eq!(add(&P_MINUS_ONE_LIMBS, &zero), P_MINUS_ONE_LIMBS);
+	assert_eq!(add(&zero, &P_MINUS_ONE_LIMBS), P_MINUS_ONE_LIMBS);
+	assert_eq!(add(&zero, &zero), zero);
+}
+
+#[test]
+fn add_p_minus_one_plus_one_is_zero() {
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	let result = add(&P_MINUS_ONE_LIMBS, &one);
+	assert_eq!(result, [0u32; FIELD_NUM_LIMBS], "(p-1) + 1 mod p must equal 0");
+}
+
+#[test]
+fn add_p_minus_one_plus_p_minus_one_is_p_minus_two() {
+	let result = add(&P_MINUS_ONE_LIMBS, &P_MINUS_ONE_LIMBS);
+	// (p - 1) + (p - 1) mod p = 2p - 2 mod p = p - 2.
+	let expected: [u32; FIELD_NUM_LIMBS] = {
+		let mut limbs = P_LIMBS;
+		// Subtract 2 from the lowest limb (no borrow since limb[0] = 0xFFFFFFED >> 1).
+		limbs[0] -= 2;
+		limbs
+	};
+	assert_eq!(result, expected);
+}
+
+#[test]
+fn add_commutative_random() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0xdead_beef_cafe_babe);
+	for _ in 0..100 {
+		let a = random_canonical(&mut rng);
+		let b = random_canonical(&mut rng);
+		assert_eq!(add(&a, &b), add(&b, &a), "a + b must equal b + a");
+	}
+}
+
+#[test]
+fn add_matches_bigint_oracle_random() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0x1234_5678_9abc_def0);
+	let p = p_biguint();
+	for _ in 0..200 {
+		let a = random_canonical(&mut rng);
+		let b = random_canonical(&mut rng);
+		let actual = add(&a, &b);
+		let a_big = limbs_to_biguint(&a);
+		let b_big = limbs_to_biguint(&b);
+		let expected_big = (&a_big + &b_big) % &p;
+		let expected = biguint_to_limbs(&expected_big);
+		assert_eq!(actual, expected, "add diverges from bigint oracle\n  a = {:?}\n  b = {:?}", a, b);
+		assert!(is_canonical(&actual), "add output not canonical");
+	}
+}
+
+#[test]
+fn sub_self_is_zero() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0x0123_4567_89ab_cdef);
+	for _ in 0..50 {
+		let a = random_canonical(&mut rng);
+		assert_eq!(sub(&a, &a), [0u32; FIELD_NUM_LIMBS]);
+	}
+}
+
+#[test]
+fn sub_zero_is_identity() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0xfedc_ba98_7654_3210);
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	for _ in 0..50 {
+		let a = random_canonical(&mut rng);
+		assert_eq!(sub(&a, &zero), a);
+	}
+}
+
+#[test]
+fn sub_zero_minus_one_is_p_minus_one() {
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	assert_eq!(sub(&zero, &one), P_MINUS_ONE_LIMBS);
+}
+
+#[test]
+fn sub_matches_bigint_oracle_random() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0xaaaa_bbbb_cccc_dddd);
+	let p = p_biguint();
+	for _ in 0..200 {
+		let a = random_canonical(&mut rng);
+		let b = random_canonical(&mut rng);
+		let actual = sub(&a, &b);
+		let a_big = limbs_to_biguint(&a);
+		let b_big = limbs_to_biguint(&b);
+		// num-bigint won't subtract directly if a < b — use the
+		// (p + a - b) % p formula explicitly.
+		let expected_big = ((&a_big + &p) - &b_big) % &p;
+		let expected = biguint_to_limbs(&expected_big);
+		assert_eq!(actual, expected, "sub diverges from bigint oracle\n  a = {:?}\n  b = {:?}", a, b);
+		assert!(is_canonical(&actual), "sub output not canonical");
+	}
+}
+
+#[test]
+fn add_then_sub_round_trips() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0x1111_2222_3333_4444);
+	for _ in 0..100 {
+		let a = random_canonical(&mut rng);
+		let b = random_canonical(&mut rng);
+		// (a + b) - b == a (mod p)
+		let sum = add(&a, &b);
+		let back = sub(&sum, &b);
+		assert_eq!(back, a, "(a + b) - b round-trip failed");
+		// (a - b) + b == a (mod p)
+		let diff = sub(&a, &b);
+		let restored = add(&diff, &b);
+		assert_eq!(restored, a, "(a - b) + b round-trip failed");
+	}
+}
+
+#[test]
+fn neg_zero_is_zero() {
+	assert_eq!(neg(&[0u32; FIELD_NUM_LIMBS]), [0u32; FIELD_NUM_LIMBS]);
+}
+
+#[test]
+fn neg_one_is_p_minus_one() {
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	assert_eq!(neg(&one), P_MINUS_ONE_LIMBS);
+}
+
+#[test]
+fn neg_plus_value_is_zero_random() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0x5555_6666_7777_8888);
+	for _ in 0..50 {
+		let a = random_canonical(&mut rng);
+		let neg_a = neg(&a);
+		assert_eq!(add(&a, &neg_a), [0u32; FIELD_NUM_LIMBS], "a + (-a) must be zero");
+	}
+}
+
+#[test]
+fn reduce_already_canonical_is_identity() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0x9999_aaaa_bbbb_cccc);
+	for _ in 0..50 {
+		let a = random_canonical(&mut rng);
+		assert_eq!(reduce(&a), a);
+	}
+}
+
+#[test]
+fn reduce_p_is_zero() {
+	assert_eq!(reduce(&P_LIMBS), [0u32; FIELD_NUM_LIMBS]);
+}
+
+#[test]
+fn is_zero_pin() {
+	assert!(is_zero(&[0u32; FIELD_NUM_LIMBS]));
+	assert!(!is_zero(&P_MINUS_ONE_LIMBS));
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	assert!(!is_zero(&one));
 }
