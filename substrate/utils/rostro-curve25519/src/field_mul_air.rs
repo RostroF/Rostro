@@ -13,14 +13,15 @@
 //!   Goldilocks range (~2^36 max vs `p_G ≈ 2^64`). Includes u16
 //!   range-check lookups on every prover-controlled half so the
 //!   schoolbook trace is sound modulo "no reduction" gap.
-//! - **M2 (next):** Barrett reduction. Witness `q` (quotient) and
-//!   `c` (remainder); constrain `wide_product == q * p + c` (via a
+//! - **M2:** Barrett reduction. Witness `q` (quotient) and `c`
+//!   (remainder); constrain `wide_product == q * p + c` (via a
 //!   second schoolbook for `q * p`) + canonical-form check on `c`.
-//! - **M3 (after):** u16 range-check lookups for the Barrett-step
-//!   witnesses (q, c, c_complement, q*p schoolbook).
+//! - **M3 (current):** u16 range-check lookups for every M2 prover-
+//!   controlled u32 cell, on the shared `BUS_U16_RANGE`. 144 lookups
+//!   added (M1's 128 + M3's 144 = 272 total per multiply).
 //!
-//! After M3, `FieldMulAir` is production-ready modulo caller-supplied
-//! range correctness on inputs a, b.
+//! After M3, `FieldMulAir` is **soundness-complete** modulo caller-
+//! supplied range correctness on inputs a, b.
 //!
 //! ## Why u16 sub-limbs
 //!
@@ -576,10 +577,43 @@ where
 		}
 		builder.assert_zero(c_complement_borrow[FIELD_NUM_LIMBS - 1]);
 
-		// TODO(M3): u16 range-check lookups for q_lo, q_hi, qp_wide_lo,
-		// qp_wide_hi, qp_carry_lo, qp_carry_hi, c_lo, c_hi, c_comp_lo,
-		// c_comp_hi. Total ~144 additional u16 lookups per multiply
-		// (M1's 128 + M2's 144 = 272 total).
+		// ─── M3: u16 range-check lookups for M2 witnesses ─────────────
+		//
+		// Closes the last soundness gap. Without these, the prover
+		// could put non-u32-shaped Goldilocks values in M2 cells and
+		// satisfy the M2 constraints via mod-p_G wraparound. With
+		// these lookups, every prover-controlled u32 cell is forced
+		// into [0, 2^32) via its u16 halves.
+		//
+		// c_complement_borrow and qp_borrow are NOT range-checked: they
+		// are constrained to {0, 1} by the boolean checks above; the
+		// boolean polynomial `x * (1 - x) == 0` forces u8 shape
+		// without needing a lookup.
+		//
+		// 144 lookups added here (M1's 128 + M3's 144 = 272 total per
+		// multiply on BUS_U16_RANGE):
+		// - q_lo / q_hi: 16
+		// - qp_wide_lo / qp_wide_hi: 32
+		// - qp_carry_lo / qp_carry_hi: 64
+		// - c_lo / c_hi: 16
+		// - c_comp_lo / c_comp_hi: 16
+
+		for i in 0..FIELD_NUM_LIMBS {
+			builder.push_interaction(BUS_U16_RANGE, [q_lo[i]], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [q_hi[i]], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [c_lo[i]], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [c_hi[i]], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [c_comp_lo[i]], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [c_comp_hi[i]], AB::Expr::ONE, 1);
+		}
+		for m in 0..WIDE_NUM_LIMBS {
+			builder.push_interaction(BUS_U16_RANGE, [qp_wide_lo[m]], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [qp_wide_hi[m]], AB::Expr::ONE, 1);
+		}
+		for k in 0..NUM_COLS_SCHOOLBOOK {
+			builder.push_interaction(BUS_U16_RANGE, [qp_carry_lo[k]], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [qp_carry_hi[k]], AB::Expr::ONE, 1);
+		}
 	}
 }
 

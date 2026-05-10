@@ -511,7 +511,7 @@ fn air_m2_rejects_nonzero_top_qp_borrow() {
 }
 
 #[test]
-fn air_emits_128_u16_range_lookups_per_multiply() {
+fn air_emits_272_u16_range_lookups_per_multiply() {
 	let zero = [0u32; FIELD_NUM_LIMBS];
 	let row = build_field_mul_trace_row(&zero, &zero);
 	let trace = row.to_trace_vec::<Goldilocks>();
@@ -524,7 +524,9 @@ fn air_emits_128_u16_range_lookups_per_multiply() {
 	};
 	let air = FieldMulAir::new();
 	<FieldMulAir as Air<RecordingBuilder>>::eval(&air, &mut builder);
-	// Expected: 16 (a halves) + 16 (b halves) + 32 (wide halves) +
-	// 64 (carry halves) = 128.
-	assert_eq!(builder.pushed_count, 128);
+	// Expected:
+	//   M1: 16 (a halves) + 16 (b halves) + 32 (wide halves) + 64 (carry) = 128
+	//   M3: 16 (q) + 32 (qp_wide) + 64 (qp_carry) + 16 (c) + 16 (c_comp) = 144
+	//   Total: 272
+	assert_eq!(builder.pushed_count, 272);
 }
