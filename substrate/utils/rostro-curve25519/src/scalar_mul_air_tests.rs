@@ -29,8 +29,8 @@ use crate::point_add_air::BUS_POINT_ADD;
 use crate::point_double_air::BUS_POINT_DOUBLE;
 use crate::scalar_mul_air::{
 	build_scalar_mul_trace, read_result_from_trace, ScalarMulAir, COL_ACC_IN_X, COL_ACC_IN_Y,
-	COL_ACC_IN_Z, COL_ACC_OUT_T, COL_ACC_OUT_X, COL_BIT, COL_CAND_X, COL_P_X, COL_TMP_X,
-	SCALAR_MUL_HEIGHT, SCALAR_MUL_NUM_COLS,
+	COL_ACC_OUT_X, COL_BIT, COL_CAND_X, COL_P_X, COL_TMP_X, SCALAR_MUL_HEIGHT,
+	SCALAR_MUL_NUM_COLS,
 };
 
 // ─── Constraint-asserting builder (per-row evaluator) ─────────────────────

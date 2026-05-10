@@ -39,8 +39,11 @@ use crate::field_air::{build_field_add_trace_row, FieldAddAir, BUS_FIELD_ADD};
 use crate::field_mul_air::{build_field_mul_trace_row, FieldMulAir, BUS_FIELD_MUL};
 use crate::field_sub_air::{build_field_sub_trace_row, FieldSubAir, BUS_FIELD_SUB};
 use crate::point::{double as point_double, EdwardsPoint};
-use crate::point_add_air::{build_point_add_trace_row, PointAddAir};
-use crate::point_double_air::{build_point_double_trace_row, PointDoubleAir};
+use crate::point_add_air::{build_point_add_trace_row, PointAddAir, BUS_POINT_ADD};
+use crate::point_double_air::{build_point_double_trace_row, PointDoubleAir, BUS_POINT_DOUBLE};
+use crate::scalar_mul_air::{
+	build_scalar_mul_trace_matrix, ScalarMulAir, SCALAR_MUL_HEIGHT, SCALAR_MUL_NUM_COLS,
+};
 
 // ─── Generic recording builder ─────────────────────────────────────────────
 //
@@ -380,4 +383,137 @@ fn point_add_then_double_chain_balances() {
 	// (silence unused-warning in test build).
 	let _ = field_add;
 	let _ = field_sub;
+}
+
+// ─── S4: ScalarMulAir end-to-end point-bus balance ─────────────────────────
+//
+// ScalarMulAir pushes 256 consumer queries each on rostro-point-double
+// and rostro-point-add. For balance, each consumer (acc_in.xyz, tmp)
+// or (tmp, p, cand) tuple must be answered by exactly one provider
+// emit from a PointDoubleAir / PointAddAir instance respectively.
+//
+// We don't run the full 256-instance batch (that's tens of seconds of
+// witness time). Instead, we deduplicate the consumer queries by their
+// payload, instantiate ONE matching provider per unique payload, and
+// require an EXACT 1-to-1 match between consumer and provider tuples.
+// LogUp tolerates only matching counts; if even one consumer query
+// has no provider answer the proof rejects. A 1:1 instantiation is
+// the minimal sufficient witness.
+
+fn point_bus_payloads(
+	pushes: &[(String, Goldilocks, Vec<Goldilocks>, u32)],
+	bus: &str,
+) -> Vec<Vec<Goldilocks>> {
+	pushes
+		.iter()
+		.filter(|(b, _, _, _)| b == bus)
+		.map(|(_, _, p, _)| p.clone())
+		.collect()
+}
+
+/// Decode a `(X, Y, Z, T)` slice (offset, length 32) into an
+/// `EdwardsPoint`.
+fn point_from_payload(payload: &[Goldilocks], offset: usize) -> EdwardsPoint {
+	let mut x = [0u32; FIELD_NUM_LIMBS];
+	let mut y = [0u32; FIELD_NUM_LIMBS];
+	let mut z = [0u32; FIELD_NUM_LIMBS];
+	let mut t = [0u32; FIELD_NUM_LIMBS];
+	for i in 0..FIELD_NUM_LIMBS {
+		x[i] = payload[offset + i].as_canonical_u64() as u32;
+		y[i] = payload[offset + FIELD_NUM_LIMBS + i].as_canonical_u64() as u32;
+		z[i] = payload[offset + 2 * FIELD_NUM_LIMBS + i].as_canonical_u64() as u32;
+		t[i] = payload[offset + 3 * FIELD_NUM_LIMBS + i].as_canonical_u64() as u32;
+	}
+	EdwardsPoint { x, y, z, t }
+}
+
+#[test]
+fn scalar_mul_air_point_buses_balance_against_point_providers() {
+	// Use scalar = 7 (binary 0b111) so the early bits exercise both
+	// double-and-add paths (bit=1) without making the test long.
+	let mut scalar = [0u8; 32];
+	scalar[0] = 7;
+	let p = basepoint();
+
+	// Run ScalarMulAir against the recording builder by stepping through
+	// each row's (current, next) window and accumulating all pushes.
+	let trace_matrix = build_scalar_mul_trace_matrix::<Goldilocks>(&scalar, &p);
+	let trace = trace_matrix.values;
+	let mut all_pushes: Vec<(String, Goldilocks, Vec<Goldilocks>, u32)> = Vec::new();
+	let air = ScalarMulAir::new();
+	for row in 0..SCALAR_MUL_HEIGHT {
+		let next = (row + 1) % SCALAR_MUL_HEIGHT;
+		let cur_slice = &trace[row * SCALAR_MUL_NUM_COLS..(row + 1) * SCALAR_MUL_NUM_COLS];
+		let next_slice =
+			&trace[next * SCALAR_MUL_NUM_COLS..(next + 1) * SCALAR_MUL_NUM_COLS];
+		let pp: Vec<Goldilocks> = Vec::new();
+		let pp_next: Vec<Goldilocks> = Vec::new();
+		let mut b = RecordingBuilder {
+			main_window: RowWindow::from_two_rows(cur_slice, next_slice),
+			preprocessed_window: RowWindow::from_two_rows(&pp, &pp_next),
+			pushed: Vec::new(),
+		};
+		<ScalarMulAir as Air<RecordingBuilder>>::eval(&air, &mut b);
+		all_pushes.extend(b.pushed.into_iter());
+	}
+
+	// ScalarMulAir's only buses are point-double + point-add.
+	let pd_payloads = point_bus_payloads(&all_pushes, BUS_POINT_DOUBLE);
+	let pa_payloads = point_bus_payloads(&all_pushes, BUS_POINT_ADD);
+	assert_eq!(pd_payloads.len(), SCALAR_MUL_HEIGHT, "1 double query / row");
+	assert_eq!(pa_payloads.len(), SCALAR_MUL_HEIGHT, "1 add query / row");
+
+	// For each consumer payload, instantiate ONE matching provider and
+	// confirm its provider emit produces an identical 56/96-cell
+	// payload. Equality of payloads + opposite count = +1 vs -1 means
+	// LogUp balances by construction.
+	for payload in &pd_payloads {
+		// rostro-point-double payload: (X1, Y1, Z1, X3, Y3, Z3, T3).
+		// X3, Y3, Z3, T3 are at offsets 24, 32, 40, 48 (limbs 24..56).
+		let mut x1 = [0u32; FIELD_NUM_LIMBS];
+		let mut y1 = [0u32; FIELD_NUM_LIMBS];
+		let mut z1 = [0u32; FIELD_NUM_LIMBS];
+		for i in 0..FIELD_NUM_LIMBS {
+			x1[i] = payload[i].as_canonical_u64() as u32;
+			y1[i] = payload[FIELD_NUM_LIMBS + i].as_canonical_u64() as u32;
+			z1[i] = payload[2 * FIELD_NUM_LIMBS + i].as_canonical_u64() as u32;
+		}
+		// Recover T1 from the curve invariant T1 = X1·Y1/Z1 is wrong
+		// because acc_in has T1; we don't have it in the bus payload.
+		// PointDoubleAir's witness builder constructs its own T1 too —
+		// just feed (x1, y1, z1, 0) as p1 and let `build_point_double_
+		// trace_row` recompute the formula (it doesn't read T1 anyway).
+		let p1 = EdwardsPoint { x: x1, y: y1, z: z1, t: [0u32; FIELD_NUM_LIMBS] };
+		let row = build_point_double_trace_row(&p1);
+		let trace = row.to_trace_vec::<Goldilocks>();
+		let provider_pushes = run_air(&PointDoubleAir::new(), &trace);
+		let provider_emit = provider_pushes
+			.iter()
+			.find(|(b, _, _, _)| b == BUS_POINT_DOUBLE)
+			.expect("PointDoubleAir provider push present");
+		assert_eq!(
+			&provider_emit.2, payload,
+			"PointDoubleAir provider payload diverges from ScalarMulAir consumer query",
+		);
+		// Provider multiplicity is -1; consumer is +1; net = 0.
+		assert_eq!(provider_emit.1, Goldilocks::ZERO - Goldilocks::ONE);
+	}
+
+	for payload in &pa_payloads {
+		// rostro-point-add payload: (p1, p2, p3) — each 32 cells.
+		let p1 = point_from_payload(payload, 0);
+		let p2 = point_from_payload(payload, 32);
+		let row = build_point_add_trace_row(&p1, &p2);
+		let trace = row.to_trace_vec::<Goldilocks>();
+		let provider_pushes = run_air(&PointAddAir::new(), &trace);
+		let provider_emit = provider_pushes
+			.iter()
+			.find(|(b, _, _, _)| b == BUS_POINT_ADD)
+			.expect("PointAddAir provider push present");
+		assert_eq!(
+			&provider_emit.2, payload,
+			"PointAddAir provider payload diverges from ScalarMulAir consumer query",
+		);
+		assert_eq!(provider_emit.1, Goldilocks::ZERO - Goldilocks::ONE);
+	}
 }
