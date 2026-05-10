@@ -12,8 +12,8 @@
 //! `field.rs` drifts, a test here fails and points at the wrong limb.
 
 use crate::field::{
-	add, bytes_to_limbs, is_canonical, is_zero, limbs_to_bytes, neg, reduce, sub,
-	FIELD_NUM_LIMBS, P_LIMBS, P_MINUS_ONE_LIMBS,
+	add, bytes_to_limbs, inv, is_canonical, is_zero, limbs_to_bytes, mul, neg, reduce, square,
+	sub, FIELD_NUM_LIMBS, P_LIMBS, P_MINUS_ONE_LIMBS,
 };
 use num_bigint::BigUint;
 use num_traits::Num;
@@ -346,4 +346,146 @@ fn is_zero_pin() {
 	let mut one = [0u32; FIELD_NUM_LIMBS];
 	one[0] = 1;
 	assert!(!is_zero(&one));
+}
+
+// ─── Modular multiplication / squaring / inversion oracle tests ────────────
+
+#[test]
+fn mul_zero_is_zero() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0x4040_5050_6060_7070);
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	for _ in 0..20 {
+		let a = random_canonical(&mut rng);
+		assert_eq!(mul(&a, &zero), zero, "a * 0 == 0");
+		assert_eq!(mul(&zero, &a), zero, "0 * a == 0");
+	}
+}
+
+#[test]
+fn mul_one_is_identity() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0x9090_a0a0_b0b0_c0c0);
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	for _ in 0..20 {
+		let a = random_canonical(&mut rng);
+		assert_eq!(mul(&a, &one), a, "a * 1 == a");
+		assert_eq!(mul(&one, &a), a, "1 * a == a");
+	}
+}
+
+#[test]
+fn mul_commutative_random() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0xd0d0_e0e0_f0f0_0101);
+	for _ in 0..50 {
+		let a = random_canonical(&mut rng);
+		let b = random_canonical(&mut rng);
+		assert_eq!(mul(&a, &b), mul(&b, &a), "a * b == b * a");
+	}
+}
+
+#[test]
+fn mul_matches_bigint_oracle_random() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0x1357_2468_aceb_df02);
+	let p = p_biguint();
+	for _ in 0..100 {
+		let a = random_canonical(&mut rng);
+		let b = random_canonical(&mut rng);
+		let actual = mul(&a, &b);
+		let a_big = limbs_to_biguint(&a);
+		let b_big = limbs_to_biguint(&b);
+		let expected_big = (&a_big * &b_big) % &p;
+		let expected = biguint_to_limbs(&expected_big);
+		assert_eq!(actual, expected, "mul diverges from bigint oracle");
+		assert!(is_canonical(&actual), "mul output not canonical");
+	}
+}
+
+#[test]
+fn mul_distributive_over_add_random() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0x7777_8888_9999_aaaa);
+	for _ in 0..50 {
+		let a = random_canonical(&mut rng);
+		let b = random_canonical(&mut rng);
+		let c = random_canonical(&mut rng);
+		// a * (b + c) == a*b + a*c (mod p)
+		let lhs = mul(&a, &add(&b, &c));
+		let rhs = add(&mul(&a, &b), &mul(&a, &c));
+		assert_eq!(lhs, rhs, "distributive law violated");
+	}
+}
+
+#[test]
+fn square_matches_self_mul() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0xbbbb_cccc_dddd_eeee);
+	for _ in 0..50 {
+		let a = random_canonical(&mut rng);
+		assert_eq!(square(&a), mul(&a, &a), "square != mul-with-self");
+	}
+}
+
+#[test]
+fn inv_of_zero_is_zero() {
+	// Documented behavior: inv(0) returns 0 (no inverse exists).
+	assert_eq!(inv(&[0u32; FIELD_NUM_LIMBS]), [0u32; FIELD_NUM_LIMBS]);
+}
+
+#[test]
+fn inv_of_one_is_one() {
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	assert_eq!(inv(&one), one, "inv(1) == 1");
+}
+
+#[test]
+fn inv_times_v_is_one_random() {
+	use rand::SeedableRng;
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0xffff_eeee_dddd_cccc);
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	// 20 random non-zero values; verify v * inv(v) == 1 (mod p).
+	for _ in 0..20 {
+		let v = random_canonical(&mut rng);
+		if is_zero(&v) {
+			continue; // skip the negligible-probability zero draw
+		}
+		let v_inv = inv(&v);
+		let product = mul(&v, &v_inv);
+		assert_eq!(product, one, "v * inv(v) != 1 mod p");
+	}
+}
+
+#[test]
+fn inv_matches_bigint_oracle_random() {
+	use num_bigint::BigUint;
+	use num_traits::One;
+	use rand::SeedableRng;
+
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0xeeee_ffff_0000_1111);
+	let p = p_biguint();
+	let p_minus_two = &p - BigUint::from(2u32);
+	for _ in 0..10 {
+		// Fewer iterations: inv is O(255 * mul) = O(255 * 8^2) = slow
+		// at the oracle level.
+		let v = random_canonical(&mut rng);
+		if is_zero(&v) {
+			continue;
+		}
+		let actual = inv(&v);
+		let v_big = limbs_to_biguint(&v);
+		// num-bigint inv via modpow(p - 2, p).
+		let expected_big = v_big.modpow(&p_minus_two, &p);
+		let expected = biguint_to_limbs(&expected_big);
+		assert_eq!(actual, expected, "inv diverges from bigint oracle");
+		assert!(is_canonical(&actual));
+		// Sanity: v * actual == 1.
+		let mut one = [0u32; FIELD_NUM_LIMBS];
+		one[0] = 1;
+		assert_eq!(mul(&v, &actual), one);
+	}
 }

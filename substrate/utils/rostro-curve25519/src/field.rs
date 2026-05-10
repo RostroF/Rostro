@@ -315,3 +315,229 @@ pub fn neg(v: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
 pub fn is_zero(v: &[u32; FIELD_NUM_LIMBS]) -> bool {
 	v.iter().all(|&x| x == 0)
 }
+
+// ─── Modular multiplication / squaring / inversion (witness-side) ──────────
+//
+// These functions compute `(a op b) mod p` in pure Rust for any of:
+// `mul(a, b) = (a * b) mod p`, `square(a) = (a * a) mod p`, and
+// `inv(v) = v^(p-2) mod p` (Fermat's little theorem inversion).
+//
+// The implementation uses schoolbook multiplication on u32 limbs to
+// produce a 16-limb wide product, then a simple long-division reduction
+// modulo p. This is the OBLIVIOUS oracle path: not optimized for speed,
+// just for clarity + correctness. The AIR's witness builder will use
+// this same helper to generate trace values, and the production
+// `FieldMulAir` (when it lands) uses Barrett or Montgomery reduction
+// constraints to enforce the same `wide == q * p + c` algebraic relation.
+
+/// Schoolbook multiplication: returns the 16-limb wide product as
+/// 16 × u32 limbs (LE). No reduction. Used as an oracle for the AIR.
+pub(crate) fn wide_mul(
+	a: &[u32; FIELD_NUM_LIMBS],
+	b: &[u32; FIELD_NUM_LIMBS],
+) -> [u32; 2 * FIELD_NUM_LIMBS] {
+	let mut out = [0u32; 2 * FIELD_NUM_LIMBS];
+	// Column-major schoolbook. Each (i, j) partial product a[i] * b[j]
+	// lands at column position i + j with carry into i + j + 1.
+	for i in 0..FIELD_NUM_LIMBS {
+		let mut carry: u64 = 0;
+		for j in 0..FIELD_NUM_LIMBS {
+			let pos = i + j;
+			let product = u64::from(a[i]) * u64::from(b[j]);
+			let acc = u64::from(out[pos]) + (product & 0xFFFF_FFFFu64) + carry;
+			out[pos] = acc as u32;
+			carry = (acc >> 32) + (product >> 32);
+		}
+		// Propagate the final carry into out[i + FIELD_NUM_LIMBS] and beyond.
+		let mut pos = i + FIELD_NUM_LIMBS;
+		while carry != 0 {
+			let acc = u64::from(out[pos]) + carry;
+			out[pos] = acc as u32;
+			carry = acc >> 32;
+			pos += 1;
+		}
+	}
+	out
+}
+
+/// Reduce a 16-limb wide value modulo `p` using long division.
+///
+/// Oracle-only: O(limb_count^2) instead of the O(limb_count) Barrett
+/// reduction the AIR will use. Suitable for tests; not for production
+/// hot paths.
+fn reduce_wide_mod_p(wide: &[u32; 2 * FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
+	// Convert to bytes and use a portable big-integer reduction. This is
+	// the simplest correct path; the production AIR computes the
+	// reduction differently (witnessed quotient + Barrett constraints).
+	let mut bytes = [0u8; 4 * 2 * FIELD_NUM_LIMBS];
+	for (i, limb) in wide.iter().enumerate() {
+		bytes[i * 4..(i + 1) * 4].copy_from_slice(&limb.to_le_bytes());
+	}
+	// Compute `wide mod p` by repeated subtraction of `p << k`. The wide
+	// value is at most ~2^512; p is ~2^255; so worst case ~256 iterations
+	// of subtraction. Plenty fast for tests.
+	let mut acc = bytes;
+	loop {
+		// Find the highest bit of acc.
+		let mut hi_byte = 4 * 2 * FIELD_NUM_LIMBS;
+		while hi_byte > 0 && acc[hi_byte - 1] == 0 {
+			hi_byte -= 1;
+		}
+		if hi_byte == 0 {
+			// acc is zero; return.
+			return [0u32; FIELD_NUM_LIMBS];
+		}
+		let hi_bit_in_byte = 7 - acc[hi_byte - 1].leading_zeros() as usize;
+		let total_bits = (hi_byte - 1) * 8 + hi_bit_in_byte + 1;
+		if total_bits < 256 {
+			break;
+		}
+		// Shift p up to align with the top bit of acc, then subtract.
+		let shift = total_bits - 256;
+		let p_bytes = {
+			let mut pb = [0u8; 4 * 2 * FIELD_NUM_LIMBS];
+			let p_le = limbs_to_bytes(&P_LIMBS);
+			pb[..32].copy_from_slice(&p_le);
+			pb
+		};
+		let shifted = shift_left_bytes(&p_bytes, shift);
+		// If shifted > acc, drop down one position (we overshot).
+		if cmp_bytes_le(&shifted, &acc) == core::cmp::Ordering::Greater {
+			let lower = shift_left_bytes(&p_bytes, shift - 1);
+			acc = sub_bytes_le(&acc, &lower);
+		} else {
+			acc = sub_bytes_le(&acc, &shifted);
+		}
+	}
+	// Final step: ensure acc < p.
+	let mut out = [0u32; FIELD_NUM_LIMBS];
+	for (i, limb) in out.iter_mut().enumerate() {
+		let chunk = &acc[i * 4..(i + 1) * 4];
+		*limb = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+	}
+	if !is_canonical(&out) {
+		out = wide_sub_no_borrow(&out, &P_LIMBS);
+	}
+	out
+}
+
+/// Shift a little-endian byte buffer left by `bits` bits.
+fn shift_left_bytes(
+	bytes: &[u8; 4 * 2 * FIELD_NUM_LIMBS],
+	bits: usize,
+) -> [u8; 4 * 2 * FIELD_NUM_LIMBS] {
+	let mut out = [0u8; 4 * 2 * FIELD_NUM_LIMBS];
+	let byte_shift = bits / 8;
+	let bit_shift = bits % 8;
+	for i in 0..(4 * 2 * FIELD_NUM_LIMBS) {
+		if i + byte_shift >= 4 * 2 * FIELD_NUM_LIMBS {
+			break;
+		}
+		let lo = u16::from(bytes[i]) << bit_shift;
+		out[i + byte_shift] |= lo as u8;
+		if i + byte_shift + 1 < 4 * 2 * FIELD_NUM_LIMBS {
+			out[i + byte_shift + 1] |= (lo >> 8) as u8;
+		}
+	}
+	out
+}
+
+/// Compare two LE byte buffers as integers.
+fn cmp_bytes_le(
+	a: &[u8; 4 * 2 * FIELD_NUM_LIMBS],
+	b: &[u8; 4 * 2 * FIELD_NUM_LIMBS],
+) -> core::cmp::Ordering {
+	for i in (0..(4 * 2 * FIELD_NUM_LIMBS)).rev() {
+		match a[i].cmp(&b[i]) {
+			core::cmp::Ordering::Equal => {}
+			other => return other,
+		}
+	}
+	core::cmp::Ordering::Equal
+}
+
+/// Subtract two LE byte buffers (assumes a >= b).
+fn sub_bytes_le(
+	a: &[u8; 4 * 2 * FIELD_NUM_LIMBS],
+	b: &[u8; 4 * 2 * FIELD_NUM_LIMBS],
+) -> [u8; 4 * 2 * FIELD_NUM_LIMBS] {
+	let mut out = [0u8; 4 * 2 * FIELD_NUM_LIMBS];
+	let mut borrow: i16 = 0;
+	for i in 0..(4 * 2 * FIELD_NUM_LIMBS) {
+		let d: i16 = i16::from(a[i]) - i16::from(b[i]) - borrow;
+		if d < 0 {
+			out[i] = (d + 256) as u8;
+			borrow = 1;
+		} else {
+			out[i] = d as u8;
+			borrow = 0;
+		}
+	}
+	out
+}
+
+/// Modular multiplication over `F_p`: returns `(a * b) mod p` in
+/// canonical form. Both inputs must be canonical.
+pub fn mul(a: &[u32; FIELD_NUM_LIMBS], b: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
+	let wide = wide_mul(a, b);
+	reduce_wide_mod_p(&wide)
+}
+
+/// Modular squaring over `F_p`: `(a * a) mod p`.
+pub fn square(a: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
+	mul(a, a)
+}
+
+/// Modular inverse via Fermat's little theorem: `v^(p-2) mod p`.
+///
+/// Returns `0` if `v == 0` (no inverse exists; documented behavior).
+/// Otherwise returns the multiplicative inverse such that
+/// `v * inv(v) == 1 (mod p)`.
+///
+/// Implementation: square-and-multiply over the 254 set bits of
+/// `p - 2`. `p - 2 = 2^255 - 21`, binary `0111...11101011` with the
+/// low bit pattern `...1011` from the `-21` correction.
+pub fn inv(v: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
+	if is_zero(v) {
+		return [0u32; FIELD_NUM_LIMBS];
+	}
+	// p - 2 = 2^255 - 21. Compute its bits, MSB to LSB, and run
+	// square-and-multiply.
+	let p_minus_two_bits = p_minus_two_bits_msb_first();
+	let mut result_init = false;
+	let mut result = [0u32; FIELD_NUM_LIMBS];
+	for bit in p_minus_two_bits {
+		if result_init {
+			result = square(&result);
+		}
+		if bit {
+			if !result_init {
+				result = *v;
+				result_init = true;
+			} else {
+				result = mul(&result, v);
+			}
+		}
+	}
+	result
+}
+
+/// Bits of `p - 2 = 2^255 - 21` from MSB to LSB. 255 bits total; the
+/// MSB is bit position 254 (since p < 2^255 so bit 255 is 0).
+///
+/// `bits[0]` = bit 254 (= 1), `bits[1]` = bit 253 (= 1), ...,
+/// `bits[254]` = bit 0 (= 1, since 0xEB has its low bit set).
+fn p_minus_two_bits_msb_first() -> [bool; 255] {
+	// p - 2 = 2^255 - 21, LE bytes: [0xEB, 0xFF * 30, 0x7F]
+	let mut bytes = limbs_to_bytes(&P_LIMBS);
+	bytes[0] -= 2;
+	let mut bits = [false; 255];
+	for i in 0..255 {
+		// MSB at index 0 corresponds to bit position 254 (= 2^254).
+		let bit_position = 254 - i;
+		let byte_idx = bit_position / 8;
+		let bit_in_byte = bit_position % 8;
+		bits[i] = (bytes[byte_idx] >> bit_in_byte) & 1 == 1;
+	}
+	bits
+}
