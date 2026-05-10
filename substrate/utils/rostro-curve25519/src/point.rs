@@ -154,6 +154,41 @@ pub fn add(p1: &EdwardsPoint, p2: &EdwardsPoint) -> EdwardsPoint {
 	}
 }
 
+/// Bit width of canonical Ristretto255 scalars (group order
+/// `ell = 2^252 + 27742317777372353535851937790883648493`, so bit 252
+/// is the high bit of any in-range scalar).
+pub const SCALAR_NUM_BITS: usize = 253;
+
+/// Left-to-right double-and-add scalar multiplication on Edwards25519.
+///
+/// Computes `scalar · point` over the 253 high-to-low bits of
+/// `scalar`. Iterates **exactly 253 times regardless of scalar**:
+/// uniform per-bit work is what lets the corresponding AIR (P-tier
+/// commits S2-S4) have a uniform per-row structure and avoids any
+/// early-exit branch that would leak the scalar's bit length.
+///
+/// `scalar` is little-endian (matches `curve25519-dalek::Scalar`'s
+/// 32-byte canonical form). Bit `i` is `(scalar[i/8] >> (i % 8)) & 1`.
+/// Bytes 31's top 3 bits MUST be zero for any in-range Ristretto255
+/// scalar — caller's responsibility (a scalar produced by
+/// `Scalar::from_bytes_mod_order` satisfies this).
+///
+/// Returns the neutral element when `scalar == 0`. For `scalar == 1`,
+/// returns a point equal to `point` (up to extended-coord aliasing —
+/// compare via `compress`).
+pub fn scalar_mul(scalar: &[u8; 32], point: &EdwardsPoint) -> EdwardsPoint {
+	let mut acc = neutral();
+	for i in (0..SCALAR_NUM_BITS).rev() {
+		acc = double(&acc);
+		let byte = scalar[i / 8];
+		let bit = (byte >> (i % 8)) & 1;
+		if bit == 1 {
+			acc = add(&acc, point);
+		}
+	}
+	acc
+}
+
 /// Edwards25519 point doubling in extended coordinates.
 ///
 /// Implements the HWCD 2008 doubling formula:

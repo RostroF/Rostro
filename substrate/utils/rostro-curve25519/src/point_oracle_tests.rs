@@ -22,9 +22,12 @@ use alloc::format;
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::EdwardsPoint as DalekEdwards;
+use curve25519_dalek::scalar::Scalar as DalekScalar;
 
 use crate::field::{add as field_add, inv, limbs_to_bytes, mul as field_mul, FIELD_NUM_LIMBS};
-use crate::point::{add, double, is_on_curve, neutral, EdwardsPoint, ED25519_2D_LIMBS, ED25519_D_LIMBS};
+use crate::point::{
+	add, double, is_on_curve, neutral, scalar_mul, EdwardsPoint, ED25519_2D_LIMBS, ED25519_D_LIMBS,
+};
 
 /// Compress one of our `EdwardsPoint`s to the standard 32-byte
 /// Edwards25519 encoding. Verifies against `dalek.compress().to_bytes()`
@@ -241,4 +244,126 @@ fn hex_string(bytes: &[u8; 32]) -> alloc::string::String {
 		s.push_str(&format!("{:02x}", b));
 	}
 	s
+}
+
+// ─── Scalar multiplication oracle tests ────────────────────────────────────
+
+#[test]
+fn scalar_mul_zero_is_neutral() {
+	let zero = [0u8; 32];
+	let bp = basepoint();
+	let result = scalar_mul(&zero, &bp);
+	assert_eq!(
+		compress(&result),
+		compress(&neutral()),
+		"0 · G must compress to neutral",
+	);
+}
+
+#[test]
+fn scalar_mul_one_is_identity() {
+	let mut one = [0u8; 32];
+	one[0] = 1;
+	let bp = basepoint();
+	let result = scalar_mul(&one, &bp);
+	assert_eq!(
+		compress(&result),
+		compress(&bp),
+		"1 · G must compress to G",
+	);
+}
+
+#[test]
+fn scalar_mul_two_matches_double() {
+	let mut two = [0u8; 32];
+	two[0] = 2;
+	let bp = basepoint();
+	let via_scalar_mul = scalar_mul(&two, &bp);
+	let via_double = double(&bp);
+	assert_eq!(
+		compress(&via_scalar_mul),
+		compress(&via_double),
+		"2 · G must compress to double(G)",
+	);
+}
+
+#[test]
+fn scalar_mul_small_values_match_dalek() {
+	// 1..=10 each cross-checked against dalek.
+	let bp = basepoint();
+	for n in 1u8..=10 {
+		let mut scalar_bytes = [0u8; 32];
+		scalar_bytes[0] = n;
+		let our = scalar_mul(&scalar_bytes, &bp);
+		let dalek = DalekScalar::from(n) * ED25519_BASEPOINT_POINT;
+		assert_eq!(
+			compress(&our),
+			dalek.compress().to_bytes(),
+			"{} · G mismatch:\n  ours:  {}\n  dalek: {}",
+			n,
+			hex_string(&compress(&our)),
+			hex_string(&dalek.compress().to_bytes()),
+		);
+	}
+}
+
+#[test]
+fn scalar_mul_bit_252_matches_dalek() {
+	// Scalar = 2^252 (bit 252 set, all others 0). Exercises the
+	// high-bit branch of the 253-bit iteration.
+	let mut scalar_bytes = [0u8; 32];
+	scalar_bytes[31] = 0x10; // 2^252 = bit 4 of byte 31
+	let bp = basepoint();
+	let our = scalar_mul(&scalar_bytes, &bp);
+
+	let dalek_scalar = DalekScalar::from_bytes_mod_order(scalar_bytes);
+	let dalek_result = dalek_scalar * ED25519_BASEPOINT_POINT;
+	assert_eq!(
+		compress(&our),
+		dalek_result.compress().to_bytes(),
+		"2^252 · G mismatch",
+	);
+}
+
+#[test]
+fn scalar_mul_random_matches_dalek() {
+	// Random in-range Ristretto255 scalars: round-trip through dalek's
+	// canonical reduction to get bytes in [0, ell), then feed those
+	// bytes into our scalar_mul. Compare compressed outputs.
+	use rand::{rngs::StdRng, RngCore, SeedableRng};
+	let mut rng = StdRng::seed_from_u64(0xfe1c_0ffe_e003_1337);
+	let bp = basepoint();
+
+	for _ in 0..5 {
+		let mut raw = [0u8; 32];
+		rng.fill_bytes(&mut raw);
+		let dalek_scalar = DalekScalar::from_bytes_mod_order(raw);
+		let scalar_bytes = dalek_scalar.to_bytes();
+
+		let our = scalar_mul(&scalar_bytes, &bp);
+		let dalek_result = dalek_scalar * ED25519_BASEPOINT_POINT;
+		assert_eq!(
+			compress(&our),
+			dalek_result.compress().to_bytes(),
+			"random scalar mismatch:\n  scalar: {}\n  ours:   {}\n  dalek:  {}",
+			hex_string(&scalar_bytes),
+			hex_string(&compress(&our)),
+			hex_string(&dalek_result.compress().to_bytes()),
+		);
+	}
+}
+
+#[test]
+fn scalar_mul_distributive_over_point_doubling() {
+	// k · (2P) == 2 · (k · P) for an arbitrary scalar and the basepoint.
+	let mut scalar_bytes = [0u8; 32];
+	scalar_bytes[0] = 17;
+	scalar_bytes[1] = 42;
+	scalar_bytes[2] = 99;
+
+	let bp = basepoint();
+	let two_bp = double(&bp);
+	let lhs = scalar_mul(&scalar_bytes, &two_bp);
+	let rhs = double(&scalar_mul(&scalar_bytes, &bp));
+	assert_eq!(compress(&lhs), compress(&rhs));
 }
