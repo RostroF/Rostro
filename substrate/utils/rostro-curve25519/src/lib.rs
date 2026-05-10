@@ -74,6 +74,7 @@ pub mod point;
 pub mod point_add_air;
 pub mod point_double_air;
 pub mod ristretto;
+pub mod ristretto_compress_air;
 pub mod scalar_mul_air;
 pub mod sqrt_ratio_m1_air;
 
@@ -115,3 +116,6 @@ mod field_pow_p58_air_tests;
 
 #[cfg(test)]
 mod sqrt_ratio_m1_air_tests;
+
+#[cfg(test)]
+mod ristretto_compress_air_tests;
