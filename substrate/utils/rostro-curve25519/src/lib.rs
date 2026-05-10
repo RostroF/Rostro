@@ -70,6 +70,8 @@ pub mod field_air;
 pub mod field_mul_air;
 pub mod field_sub_air;
 pub mod point;
+pub mod point_add_air;
+pub mod point_double_air;
 
 #[cfg(test)]
 mod oracle_tests_helpers;
@@ -88,3 +90,12 @@ mod field_sub_air_tests;
 
 #[cfg(test)]
 mod point_oracle_tests;
+
+#[cfg(test)]
+mod point_add_air_tests;
+
+#[cfg(test)]
+mod point_double_air_tests;
+
+#[cfg(test)]
+mod bus_composition_integration_tests;

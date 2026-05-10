@@ -318,11 +318,13 @@ fn mul_uses_same_u16_range_bus_as_add_sub() {
 	assert_eq!(BUS_U16_RANGE, "rostro-u16-range");
 }
 
-/// Recording builder for verifying bus interactions.
+/// Recording builder for verifying bus interactions. Captures bus
+/// name, multiplicity, payload arity, and weight per push so callers
+/// can assert the full shape of every emit.
 struct RecordingBuilder<'a> {
 	main_window: RowWindow<'a, Goldilocks>,
 	preprocessed_window: RowWindow<'a, Goldilocks>,
-	pushed_count: usize,
+	pushed: Vec<(alloc::string::String, Goldilocks, usize, u32)>,
 }
 
 impl<'a> AirBuilder for RecordingBuilder<'a> {
@@ -356,13 +358,17 @@ impl<'a> InteractionBuilder for RecordingBuilder<'a> {
 		&mut self,
 		bus_name: &str,
 		fields: impl IntoIterator<Item = E>,
-		_count: impl Into<Self::Expr>,
-		_count_weight: u32,
+		count: impl Into<Self::Expr>,
+		count_weight: u32,
 	) {
-		assert_eq!(bus_name, BUS_U16_RANGE);
-		let collected: Vec<_> = fields.into_iter().map(Into::into).collect();
-		assert_eq!(collected.len(), 1, "u16 lookups are single-field");
-		self.pushed_count += 1;
+		let multiplicity: Goldilocks = count.into();
+		let collected: Vec<Goldilocks> = fields.into_iter().map(Into::into).collect();
+		self.pushed.push((
+			alloc::string::String::from(bus_name),
+			multiplicity,
+			collected.len(),
+			count_weight,
+		));
 	}
 	fn push_local_interaction(
 		&mut self,
@@ -511,7 +517,7 @@ fn air_m2_rejects_nonzero_top_qp_borrow() {
 }
 
 #[test]
-fn air_emits_272_u16_range_lookups_per_multiply() {
+fn air_emits_272_range_lookups_plus_one_service_emit_per_multiply() {
 	let zero = [0u32; FIELD_NUM_LIMBS];
 	let row = build_field_mul_trace_row(&zero, &zero);
 	let trace = row.to_trace_vec::<Goldilocks>();
@@ -520,13 +526,40 @@ fn air_emits_272_u16_range_lookups_per_multiply() {
 	let mut builder = RecordingBuilder {
 		main_window: RowWindow::from_two_rows(&trace, &trace),
 		preprocessed_window: RowWindow::from_two_rows(&pp, &pp_next),
-		pushed_count: 0,
+		pushed: Vec::new(),
 	};
 	let air = FieldMulAir::new();
 	<FieldMulAir as Air<RecordingBuilder>>::eval(&air, &mut builder);
 	// Expected:
 	//   M1: 16 (a halves) + 16 (b halves) + 32 (wide halves) + 64 (carry) = 128
 	//   M3: 16 (q) + 32 (qp_wide) + 64 (qp_carry) + 16 (c) + 16 (c_comp) = 144
-	//   Total: 272
-	assert_eq!(builder.pushed_count, 272);
+	//   Service-bus emit: 1 push on BUS_FIELD_MUL
+	//   Total: 273
+	assert_eq!(builder.pushed.len(), 273);
+
+	// First 272 are u16 range queries on BUS_U16_RANGE, count = +1, arity = 1.
+	for (bus, mult, arity, weight) in &builder.pushed[..272] {
+		assert_eq!(bus, BUS_U16_RANGE, "first 272 should be on the u16 range bus");
+		assert_eq!(*mult, Goldilocks::ONE);
+		assert_eq!(*arity, 1);
+		assert_eq!(*weight, 1);
+	}
+
+	// Last is the service-bus emit on BUS_FIELD_MUL, count = -1, arity = 24.
+	let (bus, mult, arity, weight) = &builder.pushed[272];
+	assert_eq!(
+		bus,
+		crate::field_mul_air::BUS_FIELD_MUL,
+		"service-bus emit on rostro-field-mul",
+	);
+	assert_eq!(*mult, Goldilocks::ZERO - Goldilocks::ONE, "provider count = -1");
+	assert_eq!(*arity, 24, "service payload = a (8) + b (8) + c (8) = 24 cells");
+	assert_eq!(*weight, 1);
+}
+
+#[test]
+fn mul_service_bus_name_is_pinned() {
+	// Service-bus pin: PointAddAir / PointDoubleAir must push on this
+	// exact name to be answered by FieldMulAir.
+	assert_eq!(crate::field_mul_air::BUS_FIELD_MUL, "rostro-field-mul");
 }

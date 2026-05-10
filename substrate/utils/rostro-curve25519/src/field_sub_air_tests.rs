@@ -19,9 +19,9 @@ use rand::SeedableRng;
 
 use crate::field::{sub, FIELD_NUM_LIMBS, P_MINUS_ONE_LIMBS};
 use crate::field_sub_air::{
-	build_field_sub_trace_row, FieldSubAir, COL_SUB_A, COL_SUB_B, COL_SUB_C, COL_SUB_CARRY,
-	COL_SUB_C_COMP, COL_SUB_C_COMP_BORROW, COL_SUB_C_COMP_HI, COL_SUB_C_COMP_LO, COL_SUB_C_HI,
-	COL_SUB_C_LO, COL_SUB_T, FIELD_SUB_NUM_COLS,
+	build_field_sub_trace_row, FieldSubAir, BUS_FIELD_SUB, COL_SUB_A, COL_SUB_B, COL_SUB_C,
+	COL_SUB_CARRY, COL_SUB_C_COMP, COL_SUB_C_COMP_BORROW, COL_SUB_C_COMP_HI, COL_SUB_C_COMP_LO,
+	COL_SUB_C_HI, COL_SUB_C_LO, COL_SUB_T, FIELD_SUB_NUM_COLS,
 };
 use crate::field_air::BUS_U16_RANGE;
 use crate::oracle_tests_helpers::random_canonical;
@@ -276,6 +276,103 @@ fn sub_uses_same_u16_range_bus_as_add() {
 	// (Compile-time check: BUS_U16_RANGE is the only bus name
 	// referenced by either AIR.)
 	assert_eq!(BUS_U16_RANGE, "rostro-u16-range");
+}
+
+#[test]
+fn sub_service_bus_name_is_pinned() {
+	// Service-bus pin: PointAddAir / PointDoubleAir must push on this
+	// exact name to be answered by FieldSubAir.
+	assert_eq!(BUS_FIELD_SUB, "rostro-field-sub");
+}
+
+// ─── Recording-builder lookup-count test ───────────────────────────────────
+
+struct RecordingBuilder<'a> {
+	main_window: RowWindow<'a, Goldilocks>,
+	preprocessed_window: RowWindow<'a, Goldilocks>,
+	pushed: Vec<(alloc::string::String, Goldilocks, usize, u32)>,
+}
+
+impl<'a> AirBuilder for RecordingBuilder<'a> {
+	type F = Goldilocks;
+	type Expr = Goldilocks;
+	type Var = Goldilocks;
+	type MainWindow = RowWindow<'a, Goldilocks>;
+	type PreprocessedWindow = RowWindow<'a, Goldilocks>;
+	type PublicVar = Goldilocks;
+	type PeriodicVar = Goldilocks;
+	fn main(&self) -> Self::MainWindow {
+		self.main_window
+	}
+	fn preprocessed(&self) -> &Self::PreprocessedWindow {
+		&self.preprocessed_window
+	}
+	fn is_first_row(&self) -> Self::Expr {
+		Goldilocks::ONE
+	}
+	fn is_last_row(&self) -> Self::Expr {
+		Goldilocks::ONE
+	}
+	fn is_transition_window(&self, _: usize) -> Self::Expr {
+		Goldilocks::ZERO
+	}
+	fn assert_zero<I: Into<Self::Expr>>(&mut self, _x: I) {}
+}
+
+impl<'a> InteractionBuilder for RecordingBuilder<'a> {
+	fn push_interaction<E: Into<Self::Expr>>(
+		&mut self,
+		bus_name: &str,
+		fields: impl IntoIterator<Item = E>,
+		count: impl Into<Self::Expr>,
+		count_weight: u32,
+	) {
+		let multiplicity: Goldilocks = count.into();
+		let collected: Vec<Goldilocks> = fields.into_iter().map(Into::into).collect();
+		self.pushed.push((
+			alloc::string::String::from(bus_name),
+			multiplicity,
+			collected.len(),
+			count_weight,
+		));
+	}
+	fn push_local_interaction(
+		&mut self,
+		tuples: impl IntoIterator<Item = (Vec<Self::Expr>, Self::Expr)>,
+	) {
+		tuples.into_iter().for_each(drop);
+	}
+}
+
+#[test]
+fn sub_air_emits_32_range_lookups_plus_one_service_emit() {
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	let row = build_field_sub_trace_row(&zero, &zero);
+	let trace = row.to_trace_vec::<Goldilocks>();
+	let next_row = trace.clone();
+	let pp: Vec<Goldilocks> = Vec::new();
+	let pp_next: Vec<Goldilocks> = Vec::new();
+	let mut builder = RecordingBuilder {
+		main_window: RowWindow::from_two_rows(&trace, &next_row),
+		preprocessed_window: RowWindow::from_two_rows(&pp, &pp_next),
+		pushed: Vec::new(),
+	};
+	let air = FieldSubAir::new();
+	<FieldSubAir as Air<RecordingBuilder>>::eval(&air, &mut builder);
+
+	// 32 u16 range-check lookups + 1 service-bus emit = 33 total.
+	assert_eq!(builder.pushed.len(), 33, "expected 32 range + 1 service push");
+	for (bus, mult, arity, weight) in &builder.pushed[..32] {
+		assert_eq!(bus, BUS_U16_RANGE, "first 32 should be on the u16 range bus");
+		assert_eq!(*mult, Goldilocks::ONE);
+		assert_eq!(*arity, 1);
+		assert_eq!(*weight, 1);
+	}
+	let (bus, mult, arity, weight) = &builder.pushed[32];
+	assert_eq!(bus, BUS_FIELD_SUB, "service-bus emit on rostro-field-sub");
+	assert_eq!(*mult, Goldilocks::ZERO - Goldilocks::ONE, "provider count = -1");
+	assert_eq!(*arity, 24, "service payload = a + b + c = 24 cells");
+	assert_eq!(*weight, 1);
 }
 
 #[test]

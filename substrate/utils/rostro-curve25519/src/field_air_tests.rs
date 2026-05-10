@@ -374,7 +374,7 @@ impl<'a> InteractionBuilder for RecordingBuilder<'a> {
 }
 
 #[test]
-fn air_emits_32_u16_range_lookups_per_add() {
+fn air_emits_32_u16_range_lookups_plus_one_service_emit_per_add() {
 	let zero = [0u32; FIELD_NUM_LIMBS];
 	let row = build_field_add_trace_row(&zero, &zero);
 	let trace = row.to_trace_vec::<Goldilocks>();
@@ -389,15 +389,24 @@ fn air_emits_32_u16_range_lookups_per_add() {
 	let air = FieldAddAir::new();
 	<FieldAddAir as Air<RecordingBuilder>>::eval(&air, &mut builder);
 
-	// 8 limbs × 4 halves per limb (c_lo, c_hi, c_comp_lo, c_comp_hi)
-	// = 32 lookup pushes.
-	assert_eq!(builder.pushed.len(), 32, "expected exactly 32 u16 range-check pushes");
-	for (bus, mult, arity, weight) in &builder.pushed {
-		assert_eq!(bus, BUS_U16_RANGE, "all pushes should be on the u16 range bus");
+	// 32 u16 range-check lookups (8 limbs × 4 halves per limb) plus
+	// 1 service-bus emit on BUS_FIELD_ADD = 33 total pushes.
+	assert_eq!(builder.pushed.len(), 33, "expected 32 range + 1 service push");
+
+	// First 32 are u16 range queries (count = +1, arity = 1).
+	for (bus, mult, arity, weight) in &builder.pushed[..32] {
+		assert_eq!(bus, BUS_U16_RANGE, "first 32 should be on the u16 range bus");
 		assert_eq!(*mult, Goldilocks::ONE, "queries carry count = +1");
 		assert_eq!(*arity, 1, "u16 lookups have exactly one field per message");
 		assert_eq!(*weight, 1, "queries carry weight = 1");
 	}
+
+	// Last is the service-bus emit (count = -1, arity = 24).
+	let (bus, mult, arity, weight) = &builder.pushed[32];
+	assert_eq!(bus, crate::field_air::BUS_FIELD_ADD, "service-bus emit on rostro-field-add");
+	assert_eq!(*mult, Goldilocks::ZERO - Goldilocks::ONE, "provider count = -1");
+	assert_eq!(*arity, 24, "service payload = a (8) + b (8) + c (8) = 24 cells");
+	assert_eq!(*weight, 1, "service emit weight = 1");
 }
 
 // ─── Canonical-form check rejection tests (commit 2) ───────────────────────

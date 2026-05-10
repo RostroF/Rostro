@@ -118,6 +118,14 @@ pub const FIELD_ADD_NUM_COLS: usize = COL_ADD_C_COMP_HI + FIELD_NUM_LIMBS;
 /// `U16RangeTableAir::new(BUS_U16_RANGE)` per batch.
 pub const BUS_U16_RANGE: &str = "rostro-u16-range";
 
+/// Service-bus name for FieldAddAir. Each FieldAddAir invocation
+/// emits its `(a[0..8], b[0..8], c[0..8])` tuple on this bus with
+/// count = -1; consumers (PointAddAir, etc.) emit the same shape
+/// with count = +1 to query "compute c = (a + b) mod p". LogUp
+/// balances: every consumer query is answered by exactly one
+/// FieldAddAir instance in the batch.
+pub const BUS_FIELD_ADD: &str = "rostro-field-add";
+
 /// `2^16` as a u32. Used as the radix for the u16 limb split.
 pub const RADIX_U16: u32 = 1u32 << 16;
 
@@ -315,6 +323,25 @@ where
 			builder.push_interaction(BUS_U16_RANGE, [c_comp_lo[i]], AB::Expr::ONE, 1);
 			builder.push_interaction(BUS_U16_RANGE, [c_comp_hi[i]], AB::Expr::ONE, 1);
 		}
+
+		// ─── Service-bus emit (P2 of Edwards25519 point-ops plan) ─────
+		//
+		// Expose this AIR's (a, b, c) tuple on BUS_FIELD_ADD with
+		// count = -1 (provider side). Consumer AIRs (PointAddAir,
+		// PointDoubleAir) push the same shape with count = +1 to query
+		// "verify c = (a + b) mod p". LogUp balances when every
+		// consumer query has exactly one provider response.
+		//
+		// 24 cells per message (a + b + c, each 8 limbs). Provider
+		// count = -1 encoded as `ZERO - ONE` (Goldilocks-modular -1).
+		let service_payload: alloc::vec::Vec<AB::Var> =
+			a.iter().chain(b.iter()).chain(c.iter()).copied().collect();
+		builder.push_interaction(
+			BUS_FIELD_ADD,
+			service_payload,
+			AB::Expr::ZERO - AB::Expr::ONE,
+			1,
+		);
 	}
 }
 

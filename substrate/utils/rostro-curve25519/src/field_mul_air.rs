@@ -114,6 +114,14 @@ use crate::field::{
 };
 use crate::field_air::{BUS_U16_RANGE, RADIX_LIMB, RADIX_U16};
 
+/// Service-bus name for FieldMulAir. Each FieldMulAir invocation
+/// emits its `(a[0..8], b[0..8], c[0..8])` tuple on this bus with
+/// count = -1; consumers (PointAddAir, PointDoubleAir, etc.) emit the
+/// same shape with count = +1 to query "compute c = (a * b) mod p".
+/// LogUp balances: every consumer query is answered by exactly one
+/// FieldMulAir instance in the batch.
+pub const BUS_FIELD_MUL: &str = "rostro-field-mul";
+
 /// Number of u32 limbs in the wide product (16 = 2 × FIELD_NUM_LIMBS).
 pub const WIDE_NUM_LIMBS: usize = 2 * FIELD_NUM_LIMBS;
 
@@ -614,6 +622,20 @@ where
 			builder.push_interaction(BUS_U16_RANGE, [qp_carry_lo[k]], AB::Expr::ONE, 1);
 			builder.push_interaction(BUS_U16_RANGE, [qp_carry_hi[k]], AB::Expr::ONE, 1);
 		}
+
+		// ─── Service-bus emit (P2 of Edwards25519 point-ops plan) ─────
+		//
+		// Expose this AIR's (a, b, c) tuple on BUS_FIELD_MUL with
+		// count = -1 (provider side). Consumer AIRs push the same
+		// shape with count = +1 to query "verify c = (a * b) mod p".
+		let service_payload: alloc::vec::Vec<AB::Var> =
+			a.iter().chain(b.iter()).chain(c.iter()).copied().collect();
+		builder.push_interaction(
+			BUS_FIELD_MUL,
+			service_payload,
+			AB::Expr::ZERO - AB::Expr::ONE,
+			1,
+		);
 	}
 }
 

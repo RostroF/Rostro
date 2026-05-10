@@ -41,6 +41,14 @@ use p3_matrix::dense::RowMajorMatrix;
 use crate::field::{FIELD_NUM_LIMBS, P_LIMBS, P_MINUS_ONE_LIMBS};
 use crate::field_air::{BUS_U16_RANGE, RADIX_LIMB, RADIX_U16};
 
+/// Service-bus name for FieldSubAir. Each FieldSubAir invocation
+/// emits its `(a[0..8], b[0..8], c[0..8])` tuple on this bus with
+/// count = -1; consumers (PointAddAir, etc.) emit the same shape
+/// with count = +1 to query "compute c = (a - b) mod p". LogUp
+/// balances: every consumer query is answered by exactly one
+/// FieldSubAir instance in the batch.
+pub const BUS_FIELD_SUB: &str = "rostro-field-sub";
+
 /// Column index of `a[0]` (8 limbs, input — caller's responsibility to range-check).
 pub const COL_SUB_A: usize = 0;
 /// Column index of `b[0]` (8 limbs, input).
@@ -184,6 +192,20 @@ where
 			builder.push_interaction(BUS_U16_RANGE, [c_comp_lo[i]], AB::Expr::ONE, 1);
 			builder.push_interaction(BUS_U16_RANGE, [c_comp_hi[i]], AB::Expr::ONE, 1);
 		}
+
+		// ─── Service-bus emit (P2 of Edwards25519 point-ops plan) ─────
+		//
+		// Expose this AIR's (a, b, c) tuple on BUS_FIELD_SUB with
+		// count = -1 (provider side). Consumer AIRs push the same
+		// shape with count = +1 to query "verify c = (a - b) mod p".
+		let service_payload: alloc::vec::Vec<AB::Var> =
+			a.iter().chain(b.iter()).chain(c.iter()).copied().collect();
+		builder.push_interaction(
+			BUS_FIELD_SUB,
+			service_payload,
+			AB::Expr::ZERO - AB::Expr::ONE,
+			1,
+		);
 	}
 }
 
