@@ -2,7 +2,9 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::unnecessary_mut_passed)]
 
-use rns_types::{ddns::codec_type::RecordType, DomainHash, ListingInfo, NameRecord};
+use rns_types::{
+    ddns::codec_type::RecordType, AccountDashboard, DomainHash, ListingInfo, NameRecord,
+};
 use sp_runtime::traits::MaybeSerialize;
 use codec::{Decode, Encode};
 
@@ -23,5 +25,9 @@ sp_api::decl_runtime_apis! {
         /// Return all DNS records for a plain label or dotted name (e.g. b"alice" or b"sub.alice").
         /// Equivalent to calling name_to_hash then `lookup`, but in a single round-trip.
         fn lookup_by_name(name: sp_std::vec::Vec<u8>, record_types: sp_std::vec::Vec<RecordType>) -> sp_std::vec::Vec<(RecordType, sp_std::vec::Vec<u8>)>;
+        /// Aggregate name-related state for an account: primary name, active subnames,
+        /// pending subname offers, pending name-gift offers. Single round-trip
+        /// for an inbox/dashboard view that would otherwise require N storage walks.
+        fn account_dashboard(owner: AccountId) -> AccountDashboard;
     }
 }

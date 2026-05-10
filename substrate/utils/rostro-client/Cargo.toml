@@ -17,7 +17,9 @@ codec = { workspace = true, default-features = true, features = ["derive"] }
 frame-metadata = { workspace = true, default-features = true, features = ["current"] }
 jsonrpsee = { workspace = true, features = ["ws-client"] }
 rostro-canonicalize = { path = "../rostro-canonicalize" }
+scale-decode = { workspace = true, default-features = true }
 scale-info = { workspace = true, default-features = true, features = ["derive"] }
+scale-value = { workspace = true, default-features = true }
 serde = { workspace = true, default-features = true, features = ["derive"] }
 sp-core = { workspace = true, default-features = true }
 thiserror = { workspace = true }

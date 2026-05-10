@@ -121,6 +121,18 @@ pub struct OfferedNameRecord<AccountId, Moment> {
     pub offered_at: Moment,
 }
 
+/// Account-level summary returned by `account_dashboard`. Aggregates
+/// every name-related state for an account in a single call so a wallet
+/// rendering an inbox view does not need N round-trips to learn what
+/// the account holds and what is waiting on it.
+#[derive(Serialize, Deserialize, Encode, Decode, PartialEq, Eq, Clone, TypeInfo, Debug)]
+pub struct AccountDashboard {
+	pub primary_name: Option<DomainHash>,
+	pub subnames: sp_std::vec::Vec<DomainHash>,
+	pub pending_subname_offers: sp_std::vec::Vec<DomainHash>,
+	pub pending_name_offers: sp_std::vec::Vec<DomainHash>,
+}
+
 pub type DomainHash = sp_core::H256;
 
 // Per-network basenode constants. Each Rostro runtime selects one via its

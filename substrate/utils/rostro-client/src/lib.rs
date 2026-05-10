@@ -41,6 +41,7 @@ mod recognizer;
 mod role;
 mod rpc;
 mod storage;
+mod storage_query;
 
 #[cfg(test)]
 mod tests;
@@ -58,4 +59,7 @@ pub use role::WellKnownRole;
 pub use rpc::{RostroClient, RpcError};
 pub use storage::{
 	decode_role_from_storage_key, well_known_fingerprints_prefix, PALLET_NAME, STORAGE_NAME,
+};
+pub use storage_query::{
+	build_storage_key, decode_runtime_api_return, decode_storage_value, StorageQueryError,
 };

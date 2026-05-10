@@ -12,6 +12,9 @@ use crate::{
 	storage::{
 		decode_role_from_storage_key, well_known_fingerprints_prefix, PALLET_NAME, STORAGE_NAME,
 	},
+	storage_query::{
+		build_storage_key, decode_runtime_api_return, decode_storage_value, StorageQueryError,
+	},
 	Recognizer,
 };
 use rostro_canonicalize::CanonicalizeError;
@@ -39,6 +42,8 @@ pub enum RpcError {
 	NoWellKnownFingerprints,
 	#[error("canonicalize: {0:?}")]
 	Canonicalize(CanonicalizeError),
+	#[error("storage query: {0}")]
+	StorageQuery(#[from] StorageQueryError),
 }
 
 /// Async chain client. Holds an open WebSocket session.
@@ -56,17 +61,22 @@ impl RostroClient {
 		Ok(Self { ws })
 	}
 
-	/// Fetch the chain's runtime metadata, decoded into `frame_metadata`'s
-	/// strongly-typed form. Only V14 and V15 are supported in v0; older
-	/// metadata versions don't carry a `PortableRegistry`.
+	/// Fetch the chain's runtime metadata at V15. V15 is required because
+	/// the storage + runtime-API decode paths in `storage_query` introspect
+	/// V15-shaped types (`apis: Vec<RuntimeApiMetadata>` is V15+ only).
+	/// `state_getMetadata` returns whatever the runtime declares as
+	/// default (often V14); we explicitly call `Metadata_metadata_at_version(15)`
+	/// to force V15.
 	pub async fn metadata(&self) -> Result<RuntimeMetadata, RpcError> {
-		let hex_blob: String = self
-			.ws
-			.request("state_getMetadata", rpc_params![])
-			.await
-			.map_err(|e| RpcError::Call(e.to_string()))?;
-		let bytes = decode_hex(&hex_blob)?;
-		let prefixed = RuntimeMetadataPrefixed::decode(&mut &bytes[..])
+		use codec::Encode;
+		let args = 15u32.encode();
+		let raw = self.state_call("Metadata_metadata_at_version", &args).await?;
+		let opaque: Option<Vec<u8>> = Decode::decode(&mut &raw[..])
+			.map_err(|e| RpcError::MetadataDecode(e.to_string()))?;
+		let opaque = opaque.ok_or_else(|| {
+			RpcError::MetadataDecode("runtime does not expose metadata at V15".into())
+		})?;
+		let prefixed = RuntimeMetadataPrefixed::decode(&mut &opaque[..])
 			.map_err(|e| RpcError::MetadataDecode(e.to_string()))?;
 		Ok(prefixed.1)
 	}
@@ -129,6 +139,82 @@ impl RostroClient {
 			return Err(RpcError::NoWellKnownFingerprints);
 		}
 		Ok(run_recognize(&registry, &fingerprints))
+	}
+
+	/// Fetch a raw storage value at the latest block. Returns `None` if
+	/// the entry is absent.
+	pub async fn state_get_storage(&self, key: &[u8]) -> Result<Option<Vec<u8>>, RpcError> {
+		let key_hex = format!("0x{}", hex_encode(key));
+		let value_hex: Option<String> = self
+			.ws
+			.request("state_getStorage", rpc_params![key_hex])
+			.await
+			.map_err(|e| RpcError::Call(e.to_string()))?;
+		match value_hex {
+			Some(s) => Ok(Some(decode_hex(&s)?)),
+			None => Ok(None),
+		}
+	}
+
+	/// Invoke a runtime API method via `state_call` at the latest block.
+	/// `method` is the substrate-conventional `"TraitName_method_name"`,
+	/// e.g. `"PnsStorageApi_resolve_name"`. `args` is the SCALE-encoded
+	/// concatenation of the inputs.
+	pub async fn state_call(&self, method: &str, args: &[u8]) -> Result<Vec<u8>, RpcError> {
+		let args_hex = format!("0x{}", hex_encode(args));
+		let result_hex: String = self
+			.ws
+			.request("state_call", rpc_params![method, args_hex])
+			.await
+			.map_err(|e| RpcError::Call(e.to_string()))?;
+		decode_hex(&result_hex)
+	}
+
+	/// Fetch a typed storage entry at the latest block, decoded as a
+	/// `scale_value::Value` against the metadata. `keys` holds one
+	/// SCALE-encoded byte slice per hasher (empty for `StorageValue`).
+	/// Returns `Ok(None)` for `Optional`-modifier entries that are absent.
+	pub async fn fetch_storage(
+		&self,
+		metadata: &RuntimeMetadata,
+		pallet: &str,
+		item: &str,
+		keys: &[&[u8]],
+	) -> Result<Option<scale_value::Value<()>>, RpcError> {
+		let key = build_storage_key(metadata, pallet, item, keys)?;
+		let raw = match self.state_get_storage(&key).await? {
+			Some(b) => b,
+			None => return Ok(None),
+		};
+		let value = decode_storage_value(metadata, pallet, item, &raw)?;
+		Ok(Some(value))
+	}
+
+	/// Invoke a runtime API method and decode its return value against
+	/// the runtime API's declared output type. `args` is the
+	/// SCALE-encoded concatenation of the method's inputs.
+	pub async fn call_runtime_api(
+		&self,
+		metadata: &RuntimeMetadata,
+		trait_name: &str,
+		method: &str,
+		args: &[u8],
+	) -> Result<scale_value::Value<()>, RpcError> {
+		let method_name = format!("{trait_name}_{method}");
+		let raw = self.state_call(&method_name, args).await?;
+		let value = decode_runtime_api_return(metadata, trait_name, method, &raw)?;
+		Ok(value)
+	}
+
+	/// Generic JSON-RPC escape hatch — for methods this client doesn't
+	/// wrap (e.g. `system_accountNextIndex` for best-block nonce reads
+	/// during extrinsic submission).
+	pub async fn request<R: serde::de::DeserializeOwned>(
+		&self,
+		method: &str,
+		params: jsonrpsee::core::params::ArrayParams,
+	) -> Result<R, RpcError> {
+		self.ws.request(method, params).await.map_err(|e| RpcError::Call(e.to_string()))
 	}
 }
 
