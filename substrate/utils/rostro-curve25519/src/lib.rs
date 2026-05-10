@@ -69,6 +69,7 @@ pub mod field;
 pub mod field_air;
 pub mod field_mul_air;
 pub mod field_sub_air;
+pub mod point;
 
 #[cfg(test)]
 mod oracle_tests_helpers;
@@ -84,3 +85,6 @@ mod field_mul_air_tests;
 
 #[cfg(test)]
 mod field_sub_air_tests;
+
+#[cfg(test)]
+mod point_oracle_tests;
