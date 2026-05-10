@@ -274,6 +274,7 @@ members = [
 	"substrate/utils/frame/rpc/system",
 	"substrate/utils/merkle-mountain-range",
 	"substrate/utils/rns-ddns",
+	"substrate/utils/rostro-vm-bench",
 	"substrate/utils/prometheus",
 	"substrate/utils/substrate-bip39",
 	"substrate/utils/wasm-builder",

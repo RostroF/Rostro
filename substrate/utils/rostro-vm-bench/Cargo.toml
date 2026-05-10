@@ -1,0 +1,15 @@
+[package]
+name = "rostro-vm-bench"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "A/B benchmark harness for PVM-family VMs (javm vs polkavm) on Rostro-shop-shaped workloads"
+authors = ["Rostro Foundation"]
+publish = false
+
+[dependencies]
+javm = { path = "/home/coder/jar/grey/crates/javm" }
+polkavm = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
