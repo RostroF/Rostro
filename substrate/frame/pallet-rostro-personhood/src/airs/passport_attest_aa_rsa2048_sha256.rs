@@ -50,15 +50,26 @@
 //!   set lands — likely 100s more columns for binary-exponentiation
 //!   square-and-multiply intermediate states)
 //!
-//! ## Status
+//! ## Status (2026-05-10)
 //!
-//! **First per-algorithm scaffold (2026-05-09).** PI column layout +
-//! limb encoders + outer RSA witness columns laid down. NUM_COLS reflects
-//! the outer column count (260 = 52 PI + 8 challenge + 64 modulus + 1
-//! exponent + 64 sig + 64 EM + 8 sha256 digest); modexp intermediate
-//! columns will grow this when the actual constraint set lands.
-//! `assert_bool(adult)` retained as the first concrete constraint;
-//! everything algorithm-specific is TODO.
+//! - **Inlined Poseidon2 perm columns stripped** (was ~2480 cols across
+//!   6 MRZ + 4 DG2 absorbs). Both Poseidon2 hashes now consumed via
+//!   cross-AIR lookup buses backed by `rostro-poseidon-air`. NUM_COLS
+//!   dropped 2787 → 307 (~89% reduction).
+//! - **PI column layout + limb encoders + outer RSA witness block locked.**
+//!   307 cols = 76 PI + 64 modulus + 1 exponent + 64 sig + 64 EM + 22
+//!   canonical MRZ + 8 dg2_hash + 8 dg2_salt.
+//! - **First concrete constraints:** `assert_bool(adult)`, RSA exponent
+//!   pinned to 65537, full PKCS#1 v1.5 EM padding structure check, and
+//!   the digest-binding equality EM[224..256] == COL_SHA256_DIGEST_OF_CHALLENGE.
+//! - **TODO (phase 3b):** push bus interactions for the 6 MRZ-commitment
+//!   + 4 DG2-commitment absorbs (10 absorb pairs total). Each absorb
+//!   sends pre_state⊕rate_chunk to its input bus and receives post_state
+//!   from its output bus; the hash AIR composition runs in the same
+//!   batch and balances each bus.
+//! - **TODO (phase 3c):** RSA modular exponentiation `s^e mod N == EM`
+//!   (the heavy lift), DG15 inclusion in SOD, DSC chain → CSCA membership
+//!   merkle proof, u16 range checks on every u32 limb via rostro-range-check.
 
 use p3_air::{Air, AirBuilder, BaseAir, WindowAccess};
 use p3_field::{Field, PrimeCharacteristicRing};
@@ -271,89 +282,18 @@ pub const CANONICAL_MRZ_LIMBS: usize = 22;
 // estimate that assumed unsafe paired-u64 packing. Per the packing
 // convention memo, this is the right safety/columns tradeoff.
 
-// ─── Poseidon2 instance lock (siloed) ──────────────────────────────────────
-//
-// The nullifier hash is `Poseidon2(canonical_mrz, ROSTRO_POP_DOMAIN)` over
-// Goldilocks. We pin the permutation parameters to the canonical
-// `Poseidon2Goldilocks<8>` instance from `p3-goldilocks` — those are
-// the parameters Plonky3's reference impl ships with audited constants.
-// Pinning them here means a future commit that authors the in-AIR round
-// constraints lifts the round-constant tables + linear-layer matrices
-// from `p3-goldilocks` directly rather than re-deriving them.
-//
-// Per the no-cross-purpose-files rule these constants live inside this
-// AIR file. If another AIR (e.g. `passport_attest_ca_*`) needs Poseidon2
-// it will redeclare its own copy in its own file — duplication beats
-// shared-helper risk for cryptographic constants.
-pub mod poseidon2_instance {
-	/// Poseidon2 state width — number of Goldilocks elements per round.
-	/// 4 of these are absorption rate, 4 are capacity (standard split).
-	pub const WIDTH: usize = 8;
-
-	/// Number of full rounds at start AND at end (so total full rounds = 8).
-	/// Mirrors `p3_goldilocks::GOLDILOCKS_POSEIDON2_HALF_FULL_ROUNDS`.
-	pub const HALF_FULL_ROUNDS: usize = 4;
-
-	/// Total full rounds across the permutation (4 initial + 4 final).
-	pub const ROUNDS_F: usize = 2 * HALF_FULL_ROUNDS;
-
-	/// Internal partial rounds for the WIDTH=8 instance. Mirrors
-	/// `p3_goldilocks::GOLDILOCKS_POSEIDON2_PARTIAL_ROUNDS_8`.
-	pub const ROUNDS_P: usize = 22;
-
-	/// Total rounds per permutation invocation = 8 + 22 = 30.
-	pub const TOTAL_ROUNDS: usize = ROUNDS_F + ROUNDS_P;
-
-	/// S-box exponent: `x^7`. The standard Goldilocks-Poseidon2 D parameter.
-	pub const SBOX_DEGREE: u64 = 7;
-
-	/// Sponge rate (elements absorbed per permutation), conventionally
-	/// `WIDTH / 2`. Half the state is rate, half is capacity.
-	pub const RATE: usize = WIDTH / 2;
-
-	/// Sponge capacity. Inverse of rate.
-	pub const CAPACITY: usize = WIDTH - RATE;
-}
-
 /// Starting column of the witnessed canonical MRZ bytes (22 u32 limbs).
 /// Sits immediately after the RSA witness block (modulus + exponent +
 /// signature + EM); the SHA-256 digest column was promoted to PI on
 /// 2026-05-09 so canonical MRZ no longer follows it in the witness block.
 pub const COL_CANONICAL_MRZ: usize = COL_RSA_DECODED_EM + RSA2048_LIMBS;
 
-// ─── Poseidon2 permutation column blocks ──────────────────────────────────
-//
-// Per the sponge schedule above, three Poseidon2 permutation invocations
-// are needed to hash (canonical_mrz | ROSTRO_POP_DOMAIN-via-capacity)
-// → 8-limb nullifier. Each invocation reserves a contiguous block of
-// trace columns wide enough to hold the state across every round.
-
-/// Trace columns per Poseidon2 permutation invocation:
-/// `WIDTH × (TOTAL_ROUNDS + 1)` = 8 × 31 = 248. Each "row" of state
-/// (WIDTH columns) holds the post-round state for one of the 30 rounds,
-/// plus the initial pre-round state.
-pub const POSEIDON2_PERM_COLS: usize =
-	poseidon2_instance::WIDTH * (poseidon2_instance::TOTAL_ROUNDS + 1);
-
-/// First column of the absorb-0 permutation state block.
-pub const COL_POSEIDON2_MRZ_PERM_0: usize = COL_CANONICAL_MRZ + CANONICAL_MRZ_LIMBS;
-/// First column of the absorb-1 permutation state block.
-pub const COL_POSEIDON2_MRZ_PERM_1: usize = COL_POSEIDON2_MRZ_PERM_0 + POSEIDON2_PERM_COLS;
-/// First column of the absorb-2 permutation state block.
-pub const COL_POSEIDON2_MRZ_PERM_2: usize = COL_POSEIDON2_MRZ_PERM_1 + POSEIDON2_PERM_COLS;
-/// First column of the absorb-3 permutation state block.
-pub const COL_POSEIDON2_MRZ_PERM_3: usize = COL_POSEIDON2_MRZ_PERM_2 + POSEIDON2_PERM_COLS;
-/// First column of the absorb-4 permutation state block.
-pub const COL_POSEIDON2_MRZ_PERM_4: usize = COL_POSEIDON2_MRZ_PERM_3 + POSEIDON2_PERM_COLS;
-/// First column of the absorb-5 (final) permutation state block.
-/// The squeeze taps state[0..WIDTH] (= 8 Goldilocks elements = 8 u32
-/// limbs = 32 bytes) from the LAST row of this block, becoming the
-/// `mrz_commitment` PI value.
-pub const COL_POSEIDON2_MRZ_PERM_5: usize = COL_POSEIDON2_MRZ_PERM_4 + POSEIDON2_PERM_COLS;
-
-/// Number of Poseidon2 permutation invocations in the MRZ-commitment hash.
-/// Per the locked Goldilocks packing convention (one u32 per element),
-/// canonical_mrz packs as 22 elements; with RATE=4 this needs 6 absorbs.
+/// Number of Poseidon2 permutation invocations needed to absorb the
+/// canonical MRZ (22 elements / RATE 4 = 6 absorbs, last with 2-element
+/// 10*-padding). The hash primitive lives in `rostro-poseidon-air`; this
+/// constant is consumed by the trace generator to size the bus message
+/// stream + by the harness orchestrator to allocate that many AIR
+/// instances. Per `pop_air_goldilocks_packing_convention.md`.
 pub const POSEIDON2_NUM_MRZ_PERMS: usize = 6;
 
 // ─── DG2 commitment witness columns (chip photo hash + per-mint salt) ──────
@@ -371,53 +311,18 @@ pub const POSEIDON2_NUM_MRZ_PERMS: usize = 6;
 // is constrained elsewhere (see TODO at end of eval).
 
 /// Starting column of the witnessed DG2 hash (8 u32 limbs = 32 bytes).
-pub const COL_DG2_HASH: usize = COL_POSEIDON2_MRZ_PERM_5 + POSEIDON2_PERM_COLS;
+pub const COL_DG2_HASH: usize = COL_CANONICAL_MRZ + CANONICAL_MRZ_LIMBS;
 /// Starting column of the witnessed DG2 salt (8 u32 limbs = 32 bytes).
 /// Fresh-randomness per mint; never appears on chain.
 pub const COL_DG2_SALT: usize = COL_DG2_HASH + HASH_LIMBS;
 
-// ─── DG2 commitment Poseidon2 sponge schedule ──────────────────────────────
-//
-// Same Poseidon2-Goldilocks-8 instance as the MRZ-commitment sponge
-// (`poseidon2_instance` mod above). Different DOMAIN separator
-// (ROSTRO_DG2_COMMIT_DOMAIN) for cross-protocol attack defense — even
-// if (dg2_hash, salt) somehow equals (canonical_mrz_chunk, padding) for
-// some attacker-controlled inputs, the capacity-init differs so the
-// hash spaces don't collide.
-//
-// **Input encoding.** Per the locked one-u32-per-element packing
-// convention: dg2_hash (8 u32 limbs) + salt (8 u32 limbs) = 16
-// Goldilocks elements input. ROSTRO_DG2_COMMIT_DOMAIN
-// = b"rostro-dg2-commit-v1" (20 bytes) initializes the CAPACITY half
-// at sponge start, NOT mixed into rate stream.
-//
-// **Absorb schedule.** WIDTH=8, RATE=4. 16 input elements split
-// cleanly into 4 full absorbs (no padding):
-//   absorb 0 → elements [0..4]   (dg2_hash limbs [0..4])
-//   absorb 1 → elements [4..8]   (dg2_hash limbs [4..8])
-//   absorb 2 → elements [8..12]  (salt limbs [0..4])
-//   absorb 3 → elements [12..16] (salt limbs [4..8])
-//
-// **Squeeze.** After the final absorb, take the first 8 Goldilocks
-// elements of state (`state[0..WIDTH]`) as 8 u32 limbs = 32 bytes
-// = the public-input dg2_commitment columns at COL_DG2_COMMITMENT.
-//
-// **Cost.** 4 permutations × 248 trace columns = 992 columns dedicated
-// to the DG2 sponge.
-
-/// First column of the absorb-0 (dg2_hash[0..4]) DG2-perm state block.
-pub const COL_POSEIDON2_DG2_PERM_0: usize = COL_DG2_SALT + HASH_LIMBS;
-/// First column of the absorb-1 (dg2_hash[4..8]) DG2-perm state block.
-pub const COL_POSEIDON2_DG2_PERM_1: usize = COL_POSEIDON2_DG2_PERM_0 + POSEIDON2_PERM_COLS;
-/// First column of the absorb-2 (salt[0..4]) DG2-perm state block.
-pub const COL_POSEIDON2_DG2_PERM_2: usize = COL_POSEIDON2_DG2_PERM_1 + POSEIDON2_PERM_COLS;
-/// First column of the absorb-3 (salt[4..8]) DG2-perm state block — final;
-/// state[0..WIDTH] of the LAST row taps to dg2_commitment PI columns.
-pub const COL_POSEIDON2_DG2_PERM_3: usize = COL_POSEIDON2_DG2_PERM_2 + POSEIDON2_PERM_COLS;
-
 /// Number of Poseidon2 permutation invocations in the DG2-commitment hash.
-/// Per the locked Goldilocks packing convention, dg2_hash (8) + salt (8) =
-/// 16 elements; with RATE=4 this needs exactly 4 absorbs (no padding).
+/// dg2_hash (8 u32 limbs) + salt (8 u32 limbs) = 16 elements / RATE 4 =
+/// exactly 4 absorbs (no padding). Different DOMAIN separator
+/// (ROSTRO_DG2_COMMIT_DOMAIN) from the MRZ sponge — cross-protocol attack
+/// defense even if (dg2_hash, salt) somehow equals (canonical_mrz_chunk,
+/// padding) for adversarial inputs. The hash primitive lives in
+/// `rostro-poseidon-air`.
 pub const POSEIDON2_NUM_DG2_PERMS: usize = 4;
 
 // ─── Domain capacity-init constants for the Poseidon2 DG2-commitment sponge ─
@@ -501,12 +406,19 @@ pub const MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS: [u32; 8] = {
 	out
 };
 
-/// Total trace columns for this AIR. Grows further when modexp + SHA-256
-/// intermediate columns land. Currently includes: PI block, AA challenge,
-/// RSA witness block, MRZ canonical bytes, MRZ-commitment Poseidon2 perms (×6),
-/// DG2 hash + salt witness, DG2-commitment Poseidon2 perms (×4).
-pub const NUM_COLS: usize =
-	COL_POSEIDON2_DG2_PERM_3 + POSEIDON2_PERM_COLS;
+/// Total trace columns for this AIR. Currently includes: PI block, RSA
+/// witness block (modulus + exponent + signature + EM), MRZ canonical
+/// bytes, DG2 hash + salt. Grows when modexp + SHA-256 intermediate
+/// columns land.
+///
+/// **Inlined Poseidon2 perm columns removed 2026-05-10.** Both Poseidon2
+/// hashes (MRZ commitment, DG2 commitment) are now consumed via cross-AIR
+/// lookup buses backed by `rostro-poseidon-air` instances. The AIR's eval
+/// emits `push_interaction(input_bus, prev_state ⊕ rate_chunk, +1, 1)` per
+/// absorb and `push_interaction(output_bus, post_state, -1, 1)` per
+/// absorb; the harness AIR composition lives at the prove/verify
+/// orchestration layer, not here.
+pub const NUM_COLS: usize = COL_DG2_SALT + HASH_LIMBS;
 
 // ─── Limb-encoding helpers (siloed to this AIR) ────────────────────────────
 //
@@ -707,26 +619,25 @@ where
 		// PI digest. SHA-256-in-AIR still needed for DG-list inclusion in
 		// SOD; no longer a precondition for the chip-sig binding.
 
-		// TODO(PoP-AA-RSA2048): nullifier == Poseidon2(canonical_mrz,
-		// ROSTRO_POP_DOMAIN). Instance LOCKED to `Poseidon2Goldilocks<8>`
-		// per the `poseidon2_instance` mod above (matches p3-goldilocks's
-		// audited constants). canonical_mrz witness columns reserved at
-		// COL_CANONICAL_MRZ (22 u32 limbs = 11 Goldilocks elements at
-		// 8 bytes each).
+		// TODO(PoP-AA-RSA2048, phase 3b): mrz_commitment ==
+		// Poseidon2(canonical_mrz, ROSTRO_MRZ_COMMIT_DOMAIN-via-capacity).
+		// Hash primitive lives in `rostro-poseidon-air`, consumed via
+		// cross-AIR lookup buses.
 		//
-		// Concrete next steps:
-		// 1. Reserve trace columns for the 30-round permutation state:
-		//    `WIDTH × (TOTAL_ROUNDS + 1) = 8 × 31 = 248 cols per permutation`.
-		// 2. With 11 input elements + ROSTRO_POP_DOMAIN prefix at RATE=4
-		//    elements per absorb, sponge needs ~3 permutation invocations
-		//    (3 × 248 = 744 columns for the full hash AIR section).
-		// 3. Add round-transition constraints per p3-goldilocks's
-		//    GOLDILOCKS_POSEIDON2_RC_8_EXTERNAL_{INITIAL,FINAL} +
-		//    GOLDILOCKS_POSEIDON2_RC_8_INTERNAL round-constant tables
-		//    + MATRIX_DIAG_8_GOLDILOCKS internal-layer diagonal matrix.
-		// 4. Squeeze 4 Goldilocks elements from final state's rate slot,
-		//    repack as 8 u32 limbs, constrain equal to
-		//    `local[COL_NULLIFIER..COL_NULLIFIER + HASH_LIMBS]`.
+		// Per absorb i (POSEIDON2_NUM_MRZ_PERMS = 6 total):
+		//   1. Form bus-input message = state[i-1][0..4] + rate_chunk_i,
+		//      state[i-1][4..8]  (8 cells; 4 rate + 4 capacity).
+		//   2. Send to per-absorb input bus with multiplicity = 1.
+		//   3. Receive post_state from per-absorb output bus, multiplicity
+		//      -1; store as state[i].
+		//
+		// state[0]'s capacity half = MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS,
+		// rate half = 0. state[6] is the squeezed hash output; constrain
+		// state[6][0..8] == local[COL_MRZ_COMMITMENT..COL_MRZ_COMMITMENT + 8].
+		//
+		// Plus: u16 range checks on every u32 limb of canonical_mrz +
+		// state vectors via the rostro-range-check bus. See
+		// pop_lookup_integration_next_work.md for the harness composition.
 
 		// TODO(PoP-AA-RSA2048): DG15 inclusion in SOD. Hash witnessed
 		// DG15 bytes, prove the hash appears in the SOD's DG hash list
@@ -897,39 +808,24 @@ mod tests {
 
 	#[test]
 	fn rsa2048_witness_layout_is_contiguous() {
-		// Pin the witness column ordering. Both COL_AA_CHALLENGE and
-		// COL_SHA256_DIGEST_OF_CHALLENGE moved into PI block on 2026-05-09
-		// — verified in `pi_column_layout_matches_field_declaration_order`.
-		// Witness block now: RSA modulus → exponent → signature → decoded
-		// EM → canonical MRZ → MRZ-Poseidon2 perms → DG2 hash → DG2 salt →
-		// DG2-Poseidon2 perms.
+		// Pin the witness column ordering after the 2026-05-10 strip of
+		// inlined Poseidon2 perm columns. Layout: PI block → RSA modulus
+		// → exponent → signature → decoded EM → canonical MRZ → DG2 hash
+		// → DG2 salt. Both Poseidon2 hashes (MRZ commitment, DG2
+		// commitment) are now bus-based; their state lives in the
+		// `rostro-poseidon-air` AIRs in the same batch, not here.
 		assert_eq!(COL_RSA_MODULUS_N, NUM_PI_COLS);
 		assert_eq!(COL_RSA_EXPONENT_E, COL_RSA_MODULUS_N + RSA2048_LIMBS);
 		assert_eq!(COL_RSA_SIGNATURE_S, COL_RSA_EXPONENT_E + 1);
 		assert_eq!(COL_RSA_DECODED_EM, COL_RSA_SIGNATURE_S + RSA2048_LIMBS);
 		assert_eq!(COL_CANONICAL_MRZ, COL_RSA_DECODED_EM + RSA2048_LIMBS);
-		assert_eq!(COL_POSEIDON2_MRZ_PERM_0, COL_CANONICAL_MRZ + CANONICAL_MRZ_LIMBS);
-		assert_eq!(COL_POSEIDON2_MRZ_PERM_1, COL_POSEIDON2_MRZ_PERM_0 + POSEIDON2_PERM_COLS);
-		assert_eq!(COL_POSEIDON2_MRZ_PERM_2, COL_POSEIDON2_MRZ_PERM_1 + POSEIDON2_PERM_COLS);
-		assert_eq!(COL_POSEIDON2_MRZ_PERM_3, COL_POSEIDON2_MRZ_PERM_2 + POSEIDON2_PERM_COLS);
-		assert_eq!(COL_POSEIDON2_MRZ_PERM_4, COL_POSEIDON2_MRZ_PERM_3 + POSEIDON2_PERM_COLS);
-		assert_eq!(COL_POSEIDON2_MRZ_PERM_5, COL_POSEIDON2_MRZ_PERM_4 + POSEIDON2_PERM_COLS);
-		// DG2-commitment block: witnesses + 4 Poseidon2 perms.
-		assert_eq!(COL_DG2_HASH, COL_POSEIDON2_MRZ_PERM_5 + POSEIDON2_PERM_COLS);
+		assert_eq!(COL_DG2_HASH, COL_CANONICAL_MRZ + CANONICAL_MRZ_LIMBS);
 		assert_eq!(COL_DG2_SALT, COL_DG2_HASH + HASH_LIMBS);
-		assert_eq!(COL_POSEIDON2_DG2_PERM_0, COL_DG2_SALT + HASH_LIMBS);
-		assert_eq!(COL_POSEIDON2_DG2_PERM_1, COL_POSEIDON2_DG2_PERM_0 + POSEIDON2_PERM_COLS);
-		assert_eq!(COL_POSEIDON2_DG2_PERM_2, COL_POSEIDON2_DG2_PERM_1 + POSEIDON2_PERM_COLS);
-		assert_eq!(COL_POSEIDON2_DG2_PERM_3, COL_POSEIDON2_DG2_PERM_2 + POSEIDON2_PERM_COLS);
-		assert_eq!(NUM_COLS, COL_POSEIDON2_DG2_PERM_3 + POSEIDON2_PERM_COLS);
-		// Sanity-check the total. PI grew 68→76 (+8 from SHA-256 digest
-		// promotion) but a witness column shrunk by the same 8 (the old
-		// COL_SHA256_DIGEST_OF_CHALLENGE witness slot disappeared), so
-		// NUM_COLS is unchanged at 2787.
+		assert_eq!(NUM_COLS, COL_DG2_SALT + HASH_LIMBS);
 		// Breakdown: 76 PI + 64 modulus + 1 exponent + 64 sig + 64 EM
-		// + 22 MRZ = 291 working columns + 6 × 248 = 1488 MRZ-Poseidon2
-		// + 16 DG2 witness + 4 × 248 = 992 DG2-Poseidon2 = 2787.
-		assert_eq!(NUM_COLS, 2787);
+		// + 22 MRZ + 8 dg2_hash + 8 dg2_salt = 307 cols. ~89% reduction
+		// from the pre-strip total of 2787.
+		assert_eq!(NUM_COLS, 307);
 	}
 
 	#[test]
@@ -969,28 +865,15 @@ mod tests {
 	}
 
 	#[test]
-	fn poseidon2_perm_block_size_matches_instance_constants() {
-		// Per-permutation column count must equal WIDTH × (TOTAL_ROUNDS + 1).
-		// Pin against the locked instance constants — if WIDTH or
-		// TOTAL_ROUNDS changes, the block size must change with it (and
-		// the layout test above must be updated to match).
-		assert_eq!(POSEIDON2_PERM_COLS, 8 * 31);
-		assert_eq!(POSEIDON2_PERM_COLS, 248);
-		assert_eq!(
-			POSEIDON2_PERM_COLS,
-			poseidon2_instance::WIDTH * (poseidon2_instance::TOTAL_ROUNDS + 1),
-		);
-		// Six permutations per MRZ-commitment hash per the locked sponge
-		// schedule (22 elements / RATE 4 = 6 absorbs, last with 2-element
-		// padding). Per `pop_air_goldilocks_packing_convention.md`.
+	fn poseidon2_absorb_counts_match_locked_sponge_schedule() {
+		// Six absorbs per MRZ-commitment hash: 22 elements / RATE 4 = 6
+		// absorbs, last with 2-element 10*-padding. Per
+		// `pop_air_goldilocks_packing_convention.md`.
 		assert_eq!(POSEIDON2_NUM_MRZ_PERMS, 6);
-		assert_eq!(POSEIDON2_NUM_MRZ_PERMS * POSEIDON2_PERM_COLS, 1488);
-
-		// Four permutations per DG2-commitment hash: dg2_hash (8 limbs)
-		// + salt (8 limbs) = 16 elements / RATE 4 = exactly 4 absorbs
-		// (no padding). Same Poseidon2 instance, different domain.
+		// Four absorbs per DG2-commitment hash: dg2_hash (8 limbs) + salt
+		// (8 limbs) = 16 elements / RATE 4 = exactly 4 absorbs (no
+		// padding). Same Poseidon2 instance, different domain.
 		assert_eq!(POSEIDON2_NUM_DG2_PERMS, 4);
-		assert_eq!(POSEIDON2_NUM_DG2_PERMS * POSEIDON2_PERM_COLS, 992);
 	}
 
 	#[test]
@@ -1036,35 +919,6 @@ mod tests {
 			DG2_COMMIT_DOMAIN_CAPACITY_LIMBS,
 			MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS,
 		);
-	}
-
-	#[test]
-	fn poseidon2_instance_constants_match_p3_goldilocks_canonical() {
-		// Pin our Poseidon2 instance constants against p3-goldilocks's
-		// canonical Goldilocks-Poseidon2 parameters. If p3-goldilocks
-		// changes its parameters in a future version (or we accidentally
-		// bump our own constants), this test fails and tells us the AIR's
-		// nullifier hash is no longer aligned with the audited reference.
-		assert_eq!(
-			poseidon2_instance::HALF_FULL_ROUNDS,
-			p3_goldilocks::GOLDILOCKS_POSEIDON2_HALF_FULL_ROUNDS,
-		);
-		assert_eq!(
-			poseidon2_instance::ROUNDS_P,
-			p3_goldilocks::GOLDILOCKS_POSEIDON2_PARTIAL_ROUNDS_8,
-		);
-		// WIDTH and SBOX_DEGREE aren't exported as named constants from
-		// p3-goldilocks (they're encoded in the Poseidon2Goldilocks<WIDTH>
-		// type and the underlying impl's S-box exponent), so the pin is
-		// directly to the standard values: WIDTH=8 (capacity+rate split),
-		// D=7 (Goldilocks-friendly degree).
-		assert_eq!(poseidon2_instance::WIDTH, 8);
-		assert_eq!(poseidon2_instance::SBOX_DEGREE, 7);
-		// Derived consts.
-		assert_eq!(poseidon2_instance::ROUNDS_F, 8);
-		assert_eq!(poseidon2_instance::TOTAL_ROUNDS, 30);
-		assert_eq!(poseidon2_instance::RATE, 4);
-		assert_eq!(poseidon2_instance::CAPACITY, 4);
 	}
 
 	#[test]
