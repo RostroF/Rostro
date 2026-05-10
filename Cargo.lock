@@ -9776,7 +9776,6 @@ dependencies = [
  "p3-air",
  "p3-field",
  "p3-goldilocks",
- "p3-lookup",
  "p3-poseidon2",
  "parity-scale-codec",
  "scale-info",
