@@ -17,6 +17,28 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 //! Defines the compiled Wasm runtime that uses Wasmtime internally.
+//!
+//! # Strip-mall isolation
+//!
+//! This executor runs the canonical Rostro chain runtime inside the
+//! `gemini-node` process. Operator-supplied "shop" code runs in a separate
+//! sandboxed process (the "shop sidecar") and never instantiates a runtime
+//! via this executor. The two roles are isolated at the **process** boundary,
+//! not the engine boundary:
+//!
+//! - Shops cannot reach this executor's `Engine`, `Module`, or pool — they
+//!   live in a different binary.
+//! - Shops communicate with the chain only via IPC to `gemini-node`, which
+//!   submits transactions on the shop's behalf; gas is paid in local Rostro
+//!   currency.
+//! - Shop binary integrity is enforced by the on-chain hash commitment plus
+//!   a p2p challenge protocol; tampering with infrastructure binaries is
+//!   detected and disconnects the operator.
+//!
+//! Design intent: Minecraft-style creative freedom inside the sandbox, zero
+//! tolerance for tampering with infrastructure. Do **not** collapse this
+//! isolation by adding a shop-execution path to this executor; shop execution
+//! (whether wasmtime or PolkaVM) lives in the shop sidecar binary, not here.
 
 use crate::{
 	host::HostState,
