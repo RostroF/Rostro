@@ -88,48 +88,61 @@ use p3_field::{Field, PrimeCharacteristicRing};
 /// Number of u32 limbs per 32-byte hash / AccountId field.
 pub const HASH_LIMBS: usize = 8;
 
-// Public-input layout per `pop_design_section1c_oprf_nullifier.md` (§1c
-// revision 2026-05-09). Removed `ttl_block` (privacy: passport expiry
-// was a quasi-identifier; now chain-imposed via FIXED_POP_TTL).
-// Renamed `dg2_hash` → `dg2_commitment` (privacy: random-salted commitment
-// instead of raw photo hash). Added `oprf_key_version` (chain matches
-// against `OprfKeyVersion`). Added `mrz_commitment` (Poseidon2 of
-// canonical_mrz; OPRF input fed to validator federation off-chain;
-// nullifier comes back from federation as a separate PI).
+// Public-input layout (2026-05-10 redesign post-revert of phase 3b).
+// Mirrors zkpassport's disclosure-circuit PI shape: `comm_in` is the
+// salted-commitment chain anchor binding to private witnesses across
+// subproofs; `scoped_nullifier` is the OPRF-protected nullifier the
+// chain dedups against; `nullifier_type` discriminates production-OPRF
+// vs fallback / mock variants; `oprf_pk_hash` commits to the federation
+// pubkey used. NO MRZ commitment, NO DG2 commitment — both replaced by
+// the salted-comm_in chain since both prior values were government-
+// recomputable from passport data alone (the locked OPRF design hides
+// the input under threshold-shared K, but only if no government-
+// computable function of the input touches the chain). See
+// `pop_zkpassport_oprf_pattern.md` for the threat-model reasoning.
+//
+// Field order MUST match `crate::PassportPublicInputs` declaration order.
+// The on-chain pallet's `passport_public_inputs(...)` Goldilocks encoder
+// emits values in exactly this order; mismatched ordering would silently
+// validate against the wrong fields.
 
-/// Starting column of the `nullifier` field (8 limbs follow). The AIR
-/// does NOT constrain this value — the pallet verifies the OPRF proof
-/// that binds nullifier = OPRF(mrz_commitment, K) using the on-chain
-/// `OprfFederationPublicKey`. The AIR just exposes the value the prover
-/// supplies; the binding to passport identity comes via mrz_commitment.
-pub const COL_NULLIFIER: usize = 0;
-/// Column index of `oprf_key_version` (single u32 limb). Pallet matches
-/// against on-chain `OprfKeyVersion` — rejects if mismatch.
-pub const COL_OPRF_KEY_VERSION: usize = 8;
-/// Starting column of the `mrz_commitment` field (8 limbs follow).
-/// Computed in this AIR via Poseidon2 over witnessed canonical_mrz +
-/// ROSTRO_MRZ_COMMIT_DOMAIN. Becomes the OPRF input the federation
-/// processes off-chain.
-pub const COL_MRZ_COMMITMENT: usize = 9;
+/// Starting column of the salted-commitment chain anchor `comm_in`
+/// (8 limbs follow). The AIR computes `comm_in = Poseidon2(salted_dg1,
+/// salted_expiry, salted_dg2_hash, salted_dg2_hash_type,
+/// salted_private_nullifier)` over private witnesses; this PI exposes
+/// the commitment for cross-proof binding with `liveness_facematch`.
+pub const COL_COMM_IN: usize = 0;
+/// Starting column of the OPRF-protected `scoped_nullifier`
+/// (8 limbs follow). The AIR computes `scoped_nullifier =
+/// Poseidon2(salted_private_nullifier.value, service_scope,
+/// service_subscope, nullifier_secret)` where `nullifier_secret =
+/// verified_oprf(...)`. Pallet stores this in [`Nullifiers`]; second
+/// mint with the same value rejected.
+pub const COL_SCOPED_NULLIFIER: usize = 8;
+/// Column index of `nullifier_type` (single limb; encodes the
+/// `crate::NullifierType` enum: 0=Salted, 1=NonSalted, 2=SaltedMock,
+/// 3=NonSaltedMock). Mainnet runtimes reject NonSalted + Mock variants;
+/// testnet (Camino) accepts the mock variants.
+pub const COL_NULLIFIER_TYPE: usize = 16;
+/// Starting column of `oprf_pk_hash` (8 limbs follow). Poseidon2 hash
+/// of the federation pubkey point used in `verified_oprf`. Pallet
+/// matches against the current federation pubkey hash (storage TBD)
+/// and rejects proofs against a stale federation.
+pub const COL_OPRF_PK_HASH: usize = 17;
 /// Starting column of the `bound_account` field (8 limbs follow).
-pub const COL_BOUND_ACCOUNT: usize = 17;
+pub const COL_BOUND_ACCOUNT: usize = 25;
 /// Column index of `adult` (single limb, must be 0 or 1).
-pub const COL_ADULT: usize = 25;
+pub const COL_ADULT: usize = 33;
 /// Column index of `seat_id` (single u16 limb).
-pub const COL_SEAT_ID: usize = 26;
+pub const COL_SEAT_ID: usize = 34;
 /// Column index of `anchor.block` (single u32 limb).
-pub const COL_ANCHOR_BLOCK: usize = 27;
+pub const COL_ANCHOR_BLOCK: usize = 35;
 /// Starting column of the `anchor.hash` field (8 limbs follow).
-pub const COL_ANCHOR_HASH: usize = 28;
+pub const COL_ANCHOR_HASH: usize = 36;
 /// Starting column of the `csca_root` field (8 limbs follow).
-pub const COL_CSCA_ROOT: usize = 36;
+pub const COL_CSCA_ROOT: usize = 44;
 /// Starting column of the `seats_root` field (8 limbs follow).
-pub const COL_SEATS_ROOT: usize = 44;
-/// Starting column of the `dg2_commitment` field (8 limbs follow).
-/// Random-salted commitment to dg2_hash per §1c privacy review.
-/// Cross-proof binding: liveness_facematch AIR computes the same
-/// commitment from the same (dg2_hash, salt) pair.
-pub const COL_DG2_COMMITMENT: usize = 52;
+pub const COL_SEATS_ROOT: usize = 52;
 /// Starting column of the `aa_challenge` PI field (8 limbs follow).
 ///
 /// **Promoted from witness to PI 2026-05-09.** The pallet computes
@@ -167,7 +180,7 @@ pub const AA_CHALLENGE_LIMBS: usize = HASH_LIMBS;
 pub const COL_SHA256_DIGEST_OF_CHALLENGE: usize = COL_AA_CHALLENGE + AA_CHALLENGE_LIMBS;
 /// Number of u32 limbs in a SHA-256 digest (32 bytes).
 pub const SHA256_DIGEST_LIMBS: usize = HASH_LIMBS;
-/// Total public-input columns (76 = 8+1+8+8+1+1+1+8+8+8+8+8+8).
+/// Total public-input columns (76 = 8+8+1+8+8+1+1+1+8+8+8+8+8).
 pub const NUM_PI_COLS: usize = 76;
 
 // ─── RSA-2048 + SHA-256 chip-sig witness columns ───────────────────────────
@@ -207,218 +220,31 @@ pub const COL_RSA_SIGNATURE_S: usize = COL_RSA_EXPONENT_E + 1;
 pub const COL_RSA_DECODED_EM: usize = COL_RSA_SIGNATURE_S + RSA2048_LIMBS;
 
 // COL_SHA256_DIGEST_OF_CHALLENGE + SHA256_DIGEST_LIMBS were promoted
-// to the PI block on 2026-05-09 (see top-of-file PI section). Witness
-// block now ends at COL_RSA_DECODED_EM + RSA2048_LIMBS; the next
-// witness section (canonical MRZ) starts there.
-
-// ─── Canonical MRZ witness columns (for nullifier derivation) ──────────────
+// to the PI block on 2026-05-09 (see top-of-file PI section). The
+// witness section currently stops here at COL_RSA_DECODED_EM +
+// RSA2048_LIMBS.
 //
-// ICAO 9303 Type 3 (passport) MRZ canonical form is `dg1[0..88]` per
-// zkpassport's reference pattern — 88 ASCII bytes, two 44-character lines
-// concatenated. Packs as 22 u32 limbs (88 / 4). The witnessed bytes feed
-// the Poseidon2 nullifier hash whose output must equal the public-input
-// `nullifier` columns.
+// **Removed 2026-05-10:** the canonical_mrz / dg2_hash / dg2_salt
+// witness columns and their associated *_COMMIT_DOMAIN_CAPACITY_*
+// constants and POSEIDON2_NUM_*_PERMS counters. Those were scaffolding
+// for the wrong OPRF flow (Poseidon2(MRZ) → mrz_commitment as a PI;
+// see `pop_zkpassport_oprf_pattern.md` for why that breaks the threat
+// model). The correct OPRF flow witnesses DG1, eContent, sod_sig, and
+// salts privately and computes `private_nullifier` + `comm_in` +
+// `scoped_nullifier` per the zkpassport pattern. Those witness columns
+// land when Ristretto255-over-Goldilocks curve primitives are scaffolded
+// (see `pop_lookup_integration_next_work.md` for the unblocking work).
 
-/// Number of u32 limbs in the canonical MRZ slice (88 bytes / 4).
-pub const CANONICAL_MRZ_LIMBS: usize = 22;
-
-// ─── Poseidon2 MRZ-commitment sponge schedule ──────────────────────────────
-//
-// **Repurposed 2026-05-09 per §1c.** Was the nullifier hash; now computes
-// the MRZ commitment that gets fed to the OPRF federation. The nullifier
-// itself is OPRF-derived off-chain (federation holds threshold-shared K,
-// pallet verifies the federation's proof against on-chain K_pub) — the
-// AIR no longer hashes to a nullifier directly.
-//
-// The MRZ commitment is `Poseidon2(canonical_mrz, ROSTRO_MRZ_COMMIT_DOMAIN)`
-// over Goldilocks. Same sponge shape as before; different OUTPUT binding
-// (squeeze lands at COL_MRZ_COMMITMENT instead of COL_NULLIFIER) and
-// different DOMAIN separator (ROSTRO_MRZ_COMMIT_DOMAIN, NOT ROSTRO_POP_DOMAIN
-// which is now reserved for HIP challenge derivation).
-//
-// **Input encoding.** Per `pop_air_goldilocks_packing_convention.md`
-// (locked 2026-05-09): one u32 per Goldilocks element, no paired
-// packing. canonical_mrz (88 bytes) packs as **22 Goldilocks elements**
-// (one per u32 limb). The 20-byte `ROSTRO_MRZ_COMMIT_DOMAIN =
-// b"rostro-mrz-commit-v1"` is NOT mixed into the rate stream — it's
-// used as an init tweak to the state's CAPACITY half. Standard "domain
-// separation via capacity initialization":
-// `state[RATE..WIDTH] = mrz_commit_domain_capacity_init`,
-// `state[0..RATE] = 0`. Closes the byte-shifting attack across the
-// domain/message boundary AND keeps the MRZ commitment hash space
-// separate from any other Poseidon2 use of the same input bytes
-// (cross-protocol attack defense).
-//
-// **Absorb schedule.** WIDTH=8, RATE=4. **22 input elements split into
-// 6 absorbs:**
-//   absorb 0 → elements [0..4]
-//   absorb 1 → elements [4..8]
-//   absorb 2 → elements [8..12]
-//   absorb 3 → elements [12..16]
-//   absorb 4 → elements [16..20]
-//   absorb 5 → elements [20..22] + 2 padding elements (10*-pad to RATE)
-// Six absorb permutations total. Each permutation runs the full
-// 30-round (4 + 22 + 4) Poseidon2 schedule.
-//
-// **Squeeze.** After the final absorb, take the first 4 Goldilocks
-// elements of state (`state[0..RATE]`) as the hash output. Each is a
-// Goldilocks element holding values up to ~p; for the public-input
-// `mrz_commitment` representation we'll constrain the squeezed elements
-// to fit in u32 form too (i.e., 4 elements give 4 u32 limbs = 16
-// bytes, NOT the full 32 bytes a u64-packing would give).
-//
-// Wait: 4 Goldilocks elements × 32 bits each = 128 bits = 16 bytes,
-// only HALF the COL_MRZ_COMMITMENT (8 limbs = 32 bytes). So the squeeze
-// extracts 8 elements (= 8 u32 limbs = 32 bytes) which means we squeeze
-// the FULL state (`state[0..WIDTH]`), not just the rate slot. Standard
-// sponge protocol: tap-and-permute again if more output is needed,
-// but here taking the WIDTH=8 state as 8-element output is fine
-// because it follows the final absorb (no further input to leak via
-// state extraction). Output: state[0..8] → 8 u32 limbs = 32 bytes
-// = COL_MRZ_COMMITMENT.
-//
-// **Cost.** 6 permutations × 248 trace columns each = 1488 columns
-// dedicated to Poseidon2 in this AIR. ~2× the previous (3-perm)
-// estimate that assumed unsafe paired-u64 packing. Per the packing
-// convention memo, this is the right safety/columns tradeoff.
-
-/// Starting column of the witnessed canonical MRZ bytes (22 u32 limbs).
-/// Sits immediately after the RSA witness block (modulus + exponent +
-/// signature + EM); the SHA-256 digest column was promoted to PI on
-/// 2026-05-09 so canonical MRZ no longer follows it in the witness block.
-pub const COL_CANONICAL_MRZ: usize = COL_RSA_DECODED_EM + RSA2048_LIMBS;
-
-/// Number of Poseidon2 permutation invocations needed to absorb the
-/// canonical MRZ (22 elements / RATE 4 = 6 absorbs, last with 2-element
-/// 10*-padding). The hash primitive lives in `rostro-poseidon-air`; this
-/// constant is consumed by the trace generator to size the bus message
-/// stream + by the harness orchestrator to allocate that many AIR
-/// instances. Per `pop_air_goldilocks_packing_convention.md`.
-pub const POSEIDON2_NUM_MRZ_PERMS: usize = 6;
-
-// ─── DG2 commitment witness columns (chip photo hash + per-mint salt) ──────
-//
-// Per `pop_design_section1c_oprf_nullifier.md` privacy review: replace
-// raw `dg2_hash` PI with `dg2_commitment = Poseidon2(dg2_hash, salt)` so
-// possessing the user's photo elsewhere can no longer link to a chain
-// account. The salt is fresh per mint, witnessed never on chain.
-// Cross-proof binding with `liveness_facematch`: same (dg2_hash, salt)
-// pair → same dg2_commitment in both circuits.
-//
-// AIR doesn't witness raw DG2 photo bytes — those would be megabytes
-// per passport. Caller hashes DG2 → 32-byte dg2_hash off-circuit; the
-// AIR witnesses the hash. SOD inclusion (DG-list contains this dg2_hash)
-// is constrained elsewhere (see TODO at end of eval).
-
-/// Starting column of the witnessed DG2 hash (8 u32 limbs = 32 bytes).
-pub const COL_DG2_HASH: usize = COL_CANONICAL_MRZ + CANONICAL_MRZ_LIMBS;
-/// Starting column of the witnessed DG2 salt (8 u32 limbs = 32 bytes).
-/// Fresh-randomness per mint; never appears on chain.
-pub const COL_DG2_SALT: usize = COL_DG2_HASH + HASH_LIMBS;
-
-/// Number of Poseidon2 permutation invocations in the DG2-commitment hash.
-/// dg2_hash (8 u32 limbs) + salt (8 u32 limbs) = 16 elements / RATE 4 =
-/// exactly 4 absorbs (no padding). Different DOMAIN separator
-/// (ROSTRO_DG2_COMMIT_DOMAIN) from the MRZ sponge — cross-protocol attack
-/// defense even if (dg2_hash, salt) somehow equals (canonical_mrz_chunk,
-/// padding) for adversarial inputs. The hash primitive lives in
-/// `rostro-poseidon-air`.
-pub const POSEIDON2_NUM_DG2_PERMS: usize = 4;
-
-// ─── Domain capacity-init constants for the Poseidon2 DG2-commitment sponge ─
-//
-// `crate::ROSTRO_DG2_COMMIT_DOMAIN` (b"rostro-dg2-commit-v1", 20 bytes)
-// right-padded with zeros to 32 bytes. Pinned at compile time so the
-// constants are auditable from this file.
-
-/// `crate::ROSTRO_DG2_COMMIT_DOMAIN` right-padded with zeros to 32 bytes.
-pub const DG2_COMMIT_DOMAIN_CAPACITY_PADDED: [u8; 32] = {
-	let mut out = [0u8; 32];
-	let domain: &[u8; 20] = b"rostro-dg2-commit-v1";
-	let mut i = 0;
-	while i < 20 {
-		out[i] = domain[i];
-		i += 1;
-	}
-	out
-};
-
-/// `DG2_COMMIT_DOMAIN_CAPACITY_PADDED` packed as 8 big-endian u32 limbs
-/// (= 4 Goldilocks elements at 2 limbs each — the AIR's DG2-sponge
-/// capacity-init target value).
-pub const DG2_COMMIT_DOMAIN_CAPACITY_LIMBS: [u32; 8] = {
-	let bytes = DG2_COMMIT_DOMAIN_CAPACITY_PADDED;
-	let mut out = [0u32; 8];
-	let mut i = 0;
-	while i < 8 {
-		out[i] = u32::from_be_bytes([
-			bytes[4 * i],
-			bytes[4 * i + 1],
-			bytes[4 * i + 2],
-			bytes[4 * i + 3],
-		]);
-		i += 1;
-	}
-	out
-};
-
-// ─── Domain capacity-init constants for the Poseidon2 MRZ-commitment sponge ─
-//
-// The sponge initializes its CAPACITY half (`state[RATE..WIDTH]` =
-// `state[4..8]`) from `crate::ROSTRO_MRZ_COMMIT_DOMAIN` (= b"rostro-mrz-commit-v1",
-// 20 bytes), right-padded with zeros to 32 bytes (= 4 Goldilocks
-// elements at 8 bytes each). Pinned at compile time so the constants
-// are auditable directly from this file.
-//
-// The actual `state[4..8] == capacity_init` constraint in `eval()` is
-// deferred — it depends on the u32-limbs ↔ Goldilocks-element packing
-// convention. When that lands, this constant is what the constraint
-// asserts equality to.
-
-/// `crate::ROSTRO_MRZ_COMMIT_DOMAIN` right-padded with zeros to 32 bytes.
-pub const MRZ_COMMIT_DOMAIN_CAPACITY_PADDED: [u8; 32] = {
-	let mut out = [0u8; 32];
-	let domain: &[u8; 20] = b"rostro-mrz-commit-v1";
-	let mut i = 0;
-	while i < 20 {
-		out[i] = domain[i];
-		i += 1;
-	}
-	out
-};
-
-/// `MRZ_COMMIT_DOMAIN_CAPACITY_PADDED` packed as 8 big-endian u32 limbs
-/// (= 4 Goldilocks elements at 2 limbs each — the AIR's capacity-init
-/// target value for the MRZ-commitment sponge).
-pub const MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS: [u32; 8] = {
-	let bytes = MRZ_COMMIT_DOMAIN_CAPACITY_PADDED;
-	let mut out = [0u32; 8];
-	let mut i = 0;
-	while i < 8 {
-		out[i] = u32::from_be_bytes([
-			bytes[4 * i],
-			bytes[4 * i + 1],
-			bytes[4 * i + 2],
-			bytes[4 * i + 3],
-		]);
-		i += 1;
-	}
-	out
-};
-
-/// Total trace columns for this AIR. Currently includes: PI block, RSA
-/// witness block (modulus + exponent + signature + EM), MRZ canonical
-/// bytes, DG2 hash + salt. Grows when modexp + SHA-256 intermediate
-/// columns land.
+/// Total trace columns for this AIR. Phase 3a-stripped + 2026-05-10 PI
+/// redesign baseline. Includes: PI block (76 cols), RSA witness block
+/// (modulus + exponent + signature + EM = 193 cols).
 ///
-/// **Inlined Poseidon2 perm columns removed 2026-05-10.** Both Poseidon2
-/// hashes (MRZ commitment, DG2 commitment) are now consumed via cross-AIR
-/// lookup buses backed by `rostro-poseidon-air` instances. The AIR's eval
-/// emits `push_interaction(input_bus, prev_state ⊕ rate_chunk, +1, 1)` per
-/// absorb and `push_interaction(output_bus, post_state, -1, 1)` per
-/// absorb; the harness AIR composition lives at the prove/verify
-/// orchestration layer, not here.
-pub const NUM_COLS: usize = COL_DG2_SALT + HASH_LIMBS;
+/// Grows when (a) Ristretto255 curve-arithmetic AIR primitives land and
+/// witness columns for DG1 / eContent / sod_sig / salts / OPRF artifacts
+/// are added; (b) modular exponentiation `s^65537 mod N == EM` constraint
+/// set lands with its square-and-multiply intermediate witness columns;
+/// (c) DG-list inclusion in SOD lands.
+pub const NUM_COLS: usize = COL_RSA_DECODED_EM + RSA2048_LIMBS;
 
 // ─── Limb-encoding helpers (siloed to this AIR) ────────────────────────────
 //
@@ -689,22 +515,24 @@ mod tests {
 
 	#[test]
 	fn pi_column_layout_matches_field_declaration_order() {
-		// PI layout per §1c (revised 2026-05-09):
-		// nullifier(8) || oprf_key_version(1) || mrz_commitment(8) ||
-		// bound_account(8) || adult(1) || seat_id(1) || anchor.block(1) ||
-		// anchor.hash(8) || csca_root(8) || seats_root(8) || dg2_commitment(8)
-		assert_eq!(COL_NULLIFIER, 0);
-		assert_eq!(COL_OPRF_KEY_VERSION, COL_NULLIFIER + HASH_LIMBS);
-		assert_eq!(COL_MRZ_COMMITMENT, COL_OPRF_KEY_VERSION + 1);
-		assert_eq!(COL_BOUND_ACCOUNT, COL_MRZ_COMMITMENT + HASH_LIMBS);
+		// PI layout (2026-05-10 redesign post-revert of phase 3b) — mirrors
+		// the field order in `crate::PassportPublicInputs`:
+		// comm_in(8) || scoped_nullifier(8) || nullifier_type(1) ||
+		// oprf_pk_hash(8) || bound_account(8) || adult(1) || seat_id(1) ||
+		// anchor.block(1) || anchor.hash(8) || csca_root(8) || seats_root(8) ||
+		// aa_challenge(8) || sha256_digest_of_challenge(8)
+		assert_eq!(COL_COMM_IN, 0);
+		assert_eq!(COL_SCOPED_NULLIFIER, COL_COMM_IN + HASH_LIMBS);
+		assert_eq!(COL_NULLIFIER_TYPE, COL_SCOPED_NULLIFIER + HASH_LIMBS);
+		assert_eq!(COL_OPRF_PK_HASH, COL_NULLIFIER_TYPE + 1);
+		assert_eq!(COL_BOUND_ACCOUNT, COL_OPRF_PK_HASH + HASH_LIMBS);
 		assert_eq!(COL_ADULT, COL_BOUND_ACCOUNT + HASH_LIMBS);
 		assert_eq!(COL_SEAT_ID, COL_ADULT + 1);
 		assert_eq!(COL_ANCHOR_BLOCK, COL_SEAT_ID + 1);
 		assert_eq!(COL_ANCHOR_HASH, COL_ANCHOR_BLOCK + 1);
 		assert_eq!(COL_CSCA_ROOT, COL_ANCHOR_HASH + HASH_LIMBS);
 		assert_eq!(COL_SEATS_ROOT, COL_CSCA_ROOT + HASH_LIMBS);
-		assert_eq!(COL_DG2_COMMITMENT, COL_SEATS_ROOT + HASH_LIMBS);
-		assert_eq!(COL_AA_CHALLENGE, COL_DG2_COMMITMENT + HASH_LIMBS);
+		assert_eq!(COL_AA_CHALLENGE, COL_SEATS_ROOT + HASH_LIMBS);
 		assert_eq!(
 			COL_SHA256_DIGEST_OF_CHALLENGE,
 			COL_AA_CHALLENGE + AA_CHALLENGE_LIMBS,
@@ -713,7 +541,7 @@ mod tests {
 			NUM_PI_COLS,
 			COL_SHA256_DIGEST_OF_CHALLENGE + SHA256_DIGEST_LIMBS,
 		);
-		// Sanity total: 8+1+8+8+1+1+1+8+8+8+8+8+8 = 76.
+		// Sanity total: 8+8+1+8+8+1+1+1+8+8+8+8+8 = 76.
 		assert_eq!(NUM_PI_COLS, 76);
 	}
 
@@ -808,127 +636,17 @@ mod tests {
 
 	#[test]
 	fn rsa2048_witness_layout_is_contiguous() {
-		// Pin the witness column ordering after the 2026-05-10 strip of
-		// inlined Poseidon2 perm columns. Layout: PI block → RSA modulus
-		// → exponent → signature → decoded EM → canonical MRZ → DG2 hash
-		// → DG2 salt. Both Poseidon2 hashes (MRZ commitment, DG2
-		// commitment) are now bus-based; their state lives in the
-		// `rostro-poseidon-air` AIRs in the same batch, not here.
+		// Pin the witness column ordering. Layout (post 2026-05-10
+		// redesign): PI block (76) → RSA modulus → exponent → signature
+		// → decoded EM. The MRZ / DG2 / OPRF / sponge witness columns
+		// land later when Ristretto255-over-Goldilocks curve primitives
+		// are scaffolded. NUM_COLS will grow at that point.
 		assert_eq!(COL_RSA_MODULUS_N, NUM_PI_COLS);
 		assert_eq!(COL_RSA_EXPONENT_E, COL_RSA_MODULUS_N + RSA2048_LIMBS);
 		assert_eq!(COL_RSA_SIGNATURE_S, COL_RSA_EXPONENT_E + 1);
 		assert_eq!(COL_RSA_DECODED_EM, COL_RSA_SIGNATURE_S + RSA2048_LIMBS);
-		assert_eq!(COL_CANONICAL_MRZ, COL_RSA_DECODED_EM + RSA2048_LIMBS);
-		assert_eq!(COL_DG2_HASH, COL_CANONICAL_MRZ + CANONICAL_MRZ_LIMBS);
-		assert_eq!(COL_DG2_SALT, COL_DG2_HASH + HASH_LIMBS);
-		assert_eq!(NUM_COLS, COL_DG2_SALT + HASH_LIMBS);
-		// Breakdown: 76 PI + 64 modulus + 1 exponent + 64 sig + 64 EM
-		// + 22 MRZ + 8 dg2_hash + 8 dg2_salt = 307 cols. ~89% reduction
-		// from the pre-strip total of 2787.
-		assert_eq!(NUM_COLS, 307);
-	}
-
-	#[test]
-	fn mrz_commit_domain_capacity_init_matches_be_packing() {
-		// First half: padded form's first 20 bytes equal the source
-		// domain string; remaining 12 bytes are zero padding.
-		assert_eq!(
-			&MRZ_COMMIT_DOMAIN_CAPACITY_PADDED[0..20],
-			crate::ROSTRO_MRZ_COMMIT_DOMAIN,
-		);
-		assert_eq!(&MRZ_COMMIT_DOMAIN_CAPACITY_PADDED[20..32], &[0u8; 12][..]);
-
-		// Second half: u32-limb packing matches big-endian byte chunks.
-		// "rostro-mrz-commit-v1" laid out 4 bytes per limb, big-endian:
-		//   limb[0] = "rost" = 0x726F7374
-		//   limb[1] = "ro-m" = 0x726F2D6D
-		//   limb[2] = "rz-c" = 0x727A2D63
-		//   limb[3] = "ommi" = 0x6F6D6D69
-		//   limb[4] = "t-v1" = 0x742D7631
-		//   limb[5..8] = zero padding
-		assert_eq!(MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS[0], 0x726F_7374); // "rost"
-		assert_eq!(MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS[1], 0x726F_2D6D); // "ro-m"
-		assert_eq!(MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS[2], 0x727A_2D63); // "rz-c"
-		assert_eq!(MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS[3], 0x6F6D_6D69); // "ommi"
-		assert_eq!(MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS[4], 0x742D_7631); // "t-v1"
-		assert_eq!(MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS[5], 0);
-		assert_eq!(MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS[6], 0);
-		assert_eq!(MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS[7], 0);
-
-		// Round-trip cross-check: the const-fn packing matches the
-		// runtime `bytes_to_u32_limbs` implementation. If either drifts,
-		// this fails.
-		assert_eq!(
-			MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS,
-			bytes_to_u32_limbs(&MRZ_COMMIT_DOMAIN_CAPACITY_PADDED),
-		);
-	}
-
-	#[test]
-	fn poseidon2_absorb_counts_match_locked_sponge_schedule() {
-		// Six absorbs per MRZ-commitment hash: 22 elements / RATE 4 = 6
-		// absorbs, last with 2-element 10*-padding. Per
-		// `pop_air_goldilocks_packing_convention.md`.
-		assert_eq!(POSEIDON2_NUM_MRZ_PERMS, 6);
-		// Four absorbs per DG2-commitment hash: dg2_hash (8 limbs) + salt
-		// (8 limbs) = 16 elements / RATE 4 = exactly 4 absorbs (no
-		// padding). Same Poseidon2 instance, different domain.
-		assert_eq!(POSEIDON2_NUM_DG2_PERMS, 4);
-	}
-
-	#[test]
-	fn dg2_commit_domain_capacity_init_matches_be_packing() {
-		// Padding shape: first 20 bytes equal source domain string;
-		// remaining 12 bytes are zero padding.
-		assert_eq!(
-			&DG2_COMMIT_DOMAIN_CAPACITY_PADDED[0..20],
-			crate::ROSTRO_DG2_COMMIT_DOMAIN,
-		);
-		assert_eq!(&DG2_COMMIT_DOMAIN_CAPACITY_PADDED[20..32], &[0u8; 12][..]);
-
-		// "rostro-dg2-commit-v1" packed as 4-byte big-endian limbs:
-		//   limb[0] = "rost" = 0x726F7374
-		//   limb[1] = "ro-d" = 0x726F2D64
-		//   limb[2] = "g2-c" = 0x67322D63
-		//   limb[3] = "ommi" = 0x6F6D6D69
-		//   limb[4] = "t-v1" = 0x742D7631
-		//   limb[5..8] = zero padding
-		assert_eq!(DG2_COMMIT_DOMAIN_CAPACITY_LIMBS[0], 0x726F_7374); // "rost"
-		assert_eq!(DG2_COMMIT_DOMAIN_CAPACITY_LIMBS[1], 0x726F_2D64); // "ro-d"
-		assert_eq!(DG2_COMMIT_DOMAIN_CAPACITY_LIMBS[2], 0x6732_2D63); // "g2-c"
-		assert_eq!(DG2_COMMIT_DOMAIN_CAPACITY_LIMBS[3], 0x6F6D_6D69); // "ommi"
-		assert_eq!(DG2_COMMIT_DOMAIN_CAPACITY_LIMBS[4], 0x742D_7631); // "t-v1"
-		assert_eq!(DG2_COMMIT_DOMAIN_CAPACITY_LIMBS[5], 0);
-		assert_eq!(DG2_COMMIT_DOMAIN_CAPACITY_LIMBS[6], 0);
-		assert_eq!(DG2_COMMIT_DOMAIN_CAPACITY_LIMBS[7], 0);
-
-		// Round-trip cross-check.
-		assert_eq!(
-			DG2_COMMIT_DOMAIN_CAPACITY_LIMBS,
-			bytes_to_u32_limbs(&DG2_COMMIT_DOMAIN_CAPACITY_PADDED),
-		);
-	}
-
-	#[test]
-	fn dg2_commit_domain_distinct_from_mrz_commit_domain() {
-		// Cross-protocol attack defense: the two capacity-init values
-		// MUST differ so DG2 hashes never collide with MRZ hashes even
-		// for adversarial inputs. Catches a copy-paste error that would
-		// homogenize the domain separators.
-		assert_ne!(
-			DG2_COMMIT_DOMAIN_CAPACITY_LIMBS,
-			MRZ_COMMIT_DOMAIN_CAPACITY_LIMBS,
-		);
-	}
-
-	#[test]
-	fn canonical_mrz_size_matches_icao_type3_passport() {
-		// ICAO 9303 Type 3 (passport) MRZ is 88 chars: two 44-character
-		// lines. Each char is one ASCII byte. 88 / 4 = 22 u32 limbs.
-		// If anyone changes CANONICAL_MRZ_LIMBS without justification,
-		// the nullifier hash inputs change shape and every existing
-		// nullifier becomes unreachable.
-		assert_eq!(CANONICAL_MRZ_LIMBS, 22);
-		assert_eq!(CANONICAL_MRZ_LIMBS * 4, 88);
+		assert_eq!(NUM_COLS, COL_RSA_DECODED_EM + RSA2048_LIMBS);
+		// Breakdown: 76 PI + 64 modulus + 1 exponent + 64 sig + 64 EM = 269 cols.
+		assert_eq!(NUM_COLS, 269);
 	}
 }

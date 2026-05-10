@@ -18,7 +18,7 @@
 
 use crate as pallet_personhood;
 use crate::{
-	ChainAnchor, CircuitId, LivenessPublicInputs, PassportPublicInputs, PopCert,
+	ChainAnchor, CircuitId, LivenessPublicInputs, NullifierType, PassportPublicInputs, PopCert,
 	ProofVerifier, VkRecord, ZkPkiError, ZkPkiInterface, ROSTRO_POP_DOMAIN,
 };
 use codec::Encode;
@@ -57,10 +57,15 @@ impl frame_system::Config for Test {
 
 parameter_types! {
 	pub const TestMaxProofAge: u64 = 600;
+	/// Mock TTL: enough that no test runs past the cert's expiry. The
+	/// chain-side semantics of `FixedPopTtl` are exercised by checking
+	/// `PopCert.ttl_block == minted_at + TestFixedPopTtl`.
+	pub const TestFixedPopTtl: u64 = 100_000;
 }
 
 impl pallet_personhood::Config for Test {
 	type MaxProofAge = TestMaxProofAge;
+	type FixedPopTtl = TestFixedPopTtl;
 	type ZkPki = MockZkPki;
 	type ProofVerifier = MockProofVerifier;
 	type SrtOrigin = frame_system::EnsureRoot<AccountId>;
@@ -200,10 +205,16 @@ const CHARLIE: AccountId = 3;
 const HW_CERT_THUMB_1: H256 = H256([0xAA; 32]);
 const HW_CERT_THUMB_2: H256 = H256([0xBB; 32]);
 
-const NULL_1: [u8; 32] = [0x11; 32];
-const NULL_2: [u8; 32] = [0x22; 32];
-const DG2_1: [u8; 32] = [0x33; 32];
-const DG2_2: [u8; 32] = [0x44; 32];
+/// Mock scoped_nullifiers for the two ALICE/BOB test passports.
+const SCOPED_NULL_1: H256 = H256([0x11; 32]);
+const SCOPED_NULL_2: H256 = H256([0x22; 32]);
+/// Mock comm_in values — the salted-commitment chain anchors that
+/// tie passport_attest to liveness_facematch. Different per passport.
+const COMM_IN_1: H256 = H256([0x33; 32]);
+const COMM_IN_2: H256 = H256([0x44; 32]);
+/// Mock OPRF federation pubkey hash. Same value across all tests since
+/// only one federation pubkey is current at any time.
+const OPRF_PK_HASH: H256 = H256([0x77; 32]);
 const CSCA_ROOT_GOOD: H256 = H256([0x55; 32]);
 const SEATS_ROOT_GOOD: H256 = H256([0x66; 32]);
 
@@ -234,33 +245,35 @@ fn anchor() -> ChainAnchor<u64> {
 
 fn passport_inputs(
 	caller: AccountId,
-	nullifier: [u8; 32],
-	dg2: [u8; 32],
+	scoped_nullifier: H256,
+	comm_in: H256,
 	csca_root: H256,
 	seats_root: H256,
-	ttl_block: u64,
 	anchor: ChainAnchor<u64>,
 ) -> PassportPublicInputs<AccountId, u64> {
 	PassportPublicInputs {
-		nullifier,
+		comm_in,
+		scoped_nullifier,
+		nullifier_type: NullifierType::Salted,
+		oprf_pk_hash: OPRF_PK_HASH,
 		bound_account: caller,
-		ttl_block,
 		adult: true,
 		seat_id: 42,
 		anchor,
 		csca_root,
 		seats_root,
-		dg2_hash: dg2,
+		aa_challenge: [0u8; 32],
+		sha256_digest_of_challenge: [0u8; 32],
 	}
 }
 
 fn liveness_inputs(
 	caller: AccountId,
-	dg2: [u8; 32],
+	comm_in: H256,
 	anchor: ChainAnchor<u64>,
 ) -> LivenessPublicInputs<AccountId, u64> {
 	LivenessPublicInputs {
-		dg2_hash: dg2,
+		comm_in,
 		bound_account: caller,
 		liveness_passed: true,
 		anchor,
@@ -319,17 +332,19 @@ fn mint_pop_happy_path_works() {
 	new_test_ext().execute_with(|| {
 		good_setup(ALICE, HW_CERT_THUMB_1);
 		let a = anchor();
-		let pin = passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone());
-		let lin = liveness_inputs(ALICE, DG2_1, a);
+		let pin = passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone());
+		let lin = liveness_inputs(ALICE, COMM_IN_1, a);
 		assert_ok!(submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin));
 		// Storage post-conditions
 		assert!(pallet_personhood::PopCerts::<Test>::contains_key(ALICE));
-		assert!(pallet_personhood::Nullifiers::<Test>::contains_key(NULL_1));
+		assert!(pallet_personhood::Nullifiers::<Test>::contains_key(SCOPED_NULL_1));
 		let cert = pallet_personhood::PopCerts::<Test>::get(ALICE).unwrap();
-		assert_eq!(cert.nullifier, NULL_1);
+		assert_eq!(cert.scoped_nullifier, SCOPED_NULL_1);
+		assert_eq!(cert.nullifier_type, NullifierType::Salted);
 		assert_eq!(cert.seat_id, 42);
 		assert!(cert.adult);
-		assert_eq!(cert.ttl_block, 10_000);
+		// Cert TTL is chain-assigned: minted_at + FixedPopTtl.
+		assert_eq!(cert.ttl_block, cert.minted_at + 100_000);
 	});
 }
 
@@ -349,14 +364,14 @@ fn two_accounts_can_mint_with_different_passports() {
 		assert_ok!(submit_mint(
 			ALICE,
 			HW_CERT_THUMB_1,
-			passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-			liveness_inputs(ALICE, DG2_1, a.clone()),
+			passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+			liveness_inputs(ALICE, COMM_IN_1, a.clone()),
 		));
 		assert_ok!(submit_mint(
 			BOB,
 			HW_CERT_THUMB_2,
-			passport_inputs(BOB, NULL_2, DG2_2, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-			liveness_inputs(BOB, DG2_2, a),
+			passport_inputs(BOB, SCOPED_NULL_2, COMM_IN_2, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+			liveness_inputs(BOB, COMM_IN_2, a),
 		));
 	});
 }
@@ -368,8 +383,8 @@ fn mint_already_has_pop_cert_rejected() {
 	new_test_ext().execute_with(|| {
 		good_setup(ALICE, HW_CERT_THUMB_1);
 		let a = anchor();
-		let pin = passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone());
-		let lin = liveness_inputs(ALICE, DG2_1, a.clone());
+		let pin = passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone());
+		let lin = liveness_inputs(ALICE, COMM_IN_1, a.clone());
 		assert_ok!(submit_mint(ALICE, HW_CERT_THUMB_1, pin.clone(), lin.clone()));
 		assert_noop!(
 			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
@@ -392,8 +407,8 @@ fn mint_no_zkpki_cert_rejected() {
 			submit_mint(
 				ALICE,
 				HW_CERT_THUMB_1,
-				passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-				liveness_inputs(ALICE, DG2_1, a),
+				passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(ALICE, COMM_IN_1, a),
 			),
 			pallet_personhood::Error::<Test>::HwCertNotFound
 		);
@@ -417,8 +432,8 @@ fn mint_zkpki_cert_not_owned_rejected() {
 			submit_mint(
 				ALICE,
 				HW_CERT_THUMB_1,
-				passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-				liveness_inputs(ALICE, DG2_1, a),
+				passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(ALICE, COMM_IN_1, a),
 			),
 			pallet_personhood::Error::<Test>::HwCertNotOwned
 		);
@@ -437,8 +452,8 @@ fn mint_zkpki_cert_not_good_rejected() {
 			submit_mint(
 				ALICE,
 				HW_CERT_THUMB_1,
-				passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-				liveness_inputs(ALICE, DG2_1, a),
+				passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(ALICE, COMM_IN_1, a),
 			),
 			pallet_personhood::Error::<Test>::HwCertNotGood
 		);
@@ -457,8 +472,8 @@ fn mint_hip_failed_rejected() {
 			submit_mint(
 				ALICE,
 				HW_CERT_THUMB_1,
-				passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-				liveness_inputs(ALICE, DG2_1, a),
+				passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(ALICE, COMM_IN_1, a),
 			),
 			pallet_personhood::Error::<Test>::HipFailed
 		);
@@ -471,8 +486,8 @@ fn mint_proof_bound_to_other_account_rejected() {
 		good_setup(ALICE, HW_CERT_THUMB_1);
 		let a = anchor();
 		// Passport proof bound to BOB but submitted by ALICE.
-		let pin = passport_inputs(BOB, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone());
-		let lin = liveness_inputs(ALICE, DG2_1, a);
+		let pin = passport_inputs(BOB, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone());
+		let lin = liveness_inputs(ALICE, COMM_IN_1, a);
 		assert_noop!(
 			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
 			pallet_personhood::Error::<Test>::ProofBoundToOther
@@ -485,9 +500,9 @@ fn mint_dg2_hash_mismatch_rejected() {
 	new_test_ext().execute_with(|| {
 		good_setup(ALICE, HW_CERT_THUMB_1);
 		let a = anchor();
-		let pin = passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone());
+		let pin = passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone());
 		// Liveness uses different DG2.
-		let lin = liveness_inputs(ALICE, DG2_2, a);
+		let lin = liveness_inputs(ALICE, COMM_IN_2, a);
 		assert_noop!(
 			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
 			pallet_personhood::Error::<Test>::ProofMismatch
@@ -500,11 +515,11 @@ fn mint_anchor_mismatch_between_proofs_rejected() {
 	new_test_ext().execute_with(|| {
 		good_setup(ALICE, HW_CERT_THUMB_1);
 		let a = anchor();
-		let pin = passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a);
+		let pin = passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a);
 		// Liveness anchored to a different block.
 		let lin = liveness_inputs(
 			ALICE,
-			DG2_1,
+			COMM_IN_1,
 			ChainAnchor { block: 50, hash: System::block_hash(50) },
 		);
 		assert_noop!(
@@ -519,8 +534,8 @@ fn mint_liveness_failed_rejected() {
 	new_test_ext().execute_with(|| {
 		good_setup(ALICE, HW_CERT_THUMB_1);
 		let a = anchor();
-		let pin = passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone());
-		let mut lin = liveness_inputs(ALICE, DG2_1, a);
+		let pin = passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone());
+		let mut lin = liveness_inputs(ALICE, COMM_IN_1, a);
 		lin.liveness_passed = false;
 		assert_noop!(
 			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
@@ -539,14 +554,13 @@ fn mint_proof_too_old_rejected() {
 		let stale_anchor = ChainAnchor { block: 50, hash: System::block_hash(50) };
 		let pin = passport_inputs(
 			ALICE,
-			NULL_1,
-			DG2_1,
+			SCOPED_NULL_1,
+			COMM_IN_1,
 			CSCA_ROOT_GOOD,
 			SEATS_ROOT_GOOD,
-			10_000,
 			stale_anchor.clone(),
 		);
-		let lin = liveness_inputs(ALICE, DG2_1, stale_anchor);
+		let lin = liveness_inputs(ALICE, COMM_IN_1, stale_anchor);
 		assert_noop!(
 			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
 			pallet_personhood::Error::<Test>::ProofTooOld
@@ -561,14 +575,13 @@ fn mint_anchor_hash_mismatch_rejected() {
 		let bad_anchor = ChainAnchor { block: System::block_number(), hash: H256([0xFF; 32]) };
 		let pin = passport_inputs(
 			ALICE,
-			NULL_1,
-			DG2_1,
+			SCOPED_NULL_1,
+			COMM_IN_1,
 			CSCA_ROOT_GOOD,
 			SEATS_ROOT_GOOD,
-			10_000,
 			bad_anchor.clone(),
 		);
-		let lin = liveness_inputs(ALICE, DG2_1, bad_anchor);
+		let lin = liveness_inputs(ALICE, COMM_IN_1, bad_anchor);
 		assert_noop!(
 			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
 			pallet_personhood::Error::<Test>::AnchorMismatch
@@ -582,8 +595,8 @@ fn mint_csca_root_rotated_rejected() {
 		good_setup(ALICE, HW_CERT_THUMB_1);
 		let a = anchor();
 		let stale_csca = H256([0x99; 32]);
-		let pin = passport_inputs(ALICE, NULL_1, DG2_1, stale_csca, SEATS_ROOT_GOOD, 10_000, a.clone());
-		let lin = liveness_inputs(ALICE, DG2_1, a);
+		let pin = passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, stale_csca, SEATS_ROOT_GOOD, a.clone());
+		let lin = liveness_inputs(ALICE, COMM_IN_1, a);
 		assert_noop!(
 			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
 			pallet_personhood::Error::<Test>::CscaRootRotated
@@ -597,8 +610,8 @@ fn mint_seats_root_rotated_rejected() {
 		good_setup(ALICE, HW_CERT_THUMB_1);
 		let a = anchor();
 		let stale_seats = H256([0x88; 32]);
-		let pin = passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, stale_seats, 10_000, a.clone());
-		let lin = liveness_inputs(ALICE, DG2_1, a);
+		let pin = passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, stale_seats, a.clone());
+		let lin = liveness_inputs(ALICE, COMM_IN_1, a);
 		assert_noop!(
 			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
 			pallet_personhood::Error::<Test>::SeatsRootRotated
@@ -606,20 +619,12 @@ fn mint_seats_root_rotated_rejected() {
 	});
 }
 
-#[test]
-fn mint_passport_expired_rejected() {
-	new_test_ext().execute_with(|| {
-		good_setup(ALICE, HW_CERT_THUMB_1);
-		let a = anchor();
-		// TTL is in the past.
-		let pin = passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 50, a.clone());
-		let lin = liveness_inputs(ALICE, DG2_1, a);
-		assert_noop!(
-			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
-			pallet_personhood::Error::<Test>::PassportExpired
-		);
-	});
-}
+// `mint_passport_expired_rejected` removed in the 2026-05-10 PI redesign:
+// passport expiry is no longer carried as a PI (privacy: it's a quasi-
+// identifier, low cardinality + correlated with date-of-birth). The chain
+// uses a uniform `FixedPopTtl` per cert instead. The "PassportExpired"
+// rejection path no longer exists; the cert TTL is chain-assigned and
+// always equals minted_at + FixedPopTtl.
 
 #[test]
 fn mint_nullifier_consumed_rejected() {
@@ -639,16 +644,16 @@ fn mint_nullifier_consumed_rejected() {
 		assert_ok!(submit_mint(
 			ALICE,
 			HW_CERT_THUMB_1,
-			passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-			liveness_inputs(ALICE, DG2_1, a.clone()),
+			passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+			liveness_inputs(ALICE, COMM_IN_1, a.clone()),
 		));
 		assert_noop!(
 			submit_mint(
 				BOB,
 				HW_CERT_THUMB_2,
 				// Same nullifier as Alice's mint = same passport.
-				passport_inputs(BOB, NULL_1, DG2_2, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-				liveness_inputs(BOB, DG2_2, a),
+				passport_inputs(BOB, SCOPED_NULL_1, COMM_IN_2, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(BOB, COMM_IN_2, a),
 			),
 			pallet_personhood::Error::<Test>::NullifierConsumed
 		);
@@ -665,8 +670,8 @@ fn mint_passport_proof_invalid_rejected() {
 			submit_mint(
 				ALICE,
 				HW_CERT_THUMB_1,
-				passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-				liveness_inputs(ALICE, DG2_1, a),
+				passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(ALICE, COMM_IN_1, a),
 			),
 			pallet_personhood::Error::<Test>::PassportProofInvalid
 		);
@@ -683,8 +688,8 @@ fn mint_liveness_proof_invalid_rejected() {
 			submit_mint(
 				ALICE,
 				HW_CERT_THUMB_1,
-				passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-				liveness_inputs(ALICE, DG2_1, a),
+				passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(ALICE, COMM_IN_1, a),
 			),
 			pallet_personhood::Error::<Test>::LivenessProofInvalid
 		);
@@ -709,8 +714,8 @@ fn mint_passport_vk_not_set_rejected() {
 			submit_mint(
 				ALICE,
 				HW_CERT_THUMB_1,
-				passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-				liveness_inputs(ALICE, DG2_1, a),
+				passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(ALICE, COMM_IN_1, a),
 			),
 			pallet_personhood::Error::<Test>::PassportVkNotSet
 		);
@@ -740,8 +745,8 @@ fn mint_liveness_vk_not_set_rejected() {
 			submit_mint(
 				ALICE,
 				HW_CERT_THUMB_1,
-				passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-				liveness_inputs(ALICE, DG2_1, a),
+				passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(ALICE, COMM_IN_1, a),
 			),
 			pallet_personhood::Error::<Test>::LivenessVkNotSet
 		);
@@ -758,12 +763,12 @@ fn discard_pop_works() {
 		assert_ok!(submit_mint(
 			ALICE,
 			HW_CERT_THUMB_1,
-			passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-			liveness_inputs(ALICE, DG2_1, a),
+			passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+			liveness_inputs(ALICE, COMM_IN_1, a),
 		));
 		assert_ok!(Personhood::discard_pop(RuntimeOrigin::signed(ALICE)));
 		assert!(!pallet_personhood::PopCerts::<Test>::contains_key(ALICE));
-		assert!(!pallet_personhood::Nullifiers::<Test>::contains_key(NULL_1));
+		assert!(!pallet_personhood::Nullifiers::<Test>::contains_key(SCOPED_NULL_1));
 	});
 }
 
@@ -784,8 +789,8 @@ fn remint_after_discard_works() {
 	new_test_ext().execute_with(|| {
 		good_setup(ALICE, HW_CERT_THUMB_1);
 		let a = anchor();
-		let pin = passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone());
-		let lin = liveness_inputs(ALICE, DG2_1, a);
+		let pin = passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone());
+		let lin = liveness_inputs(ALICE, COMM_IN_1, a);
 		assert_ok!(submit_mint(ALICE, HW_CERT_THUMB_1, pin.clone(), lin.clone()));
 		assert_ok!(Personhood::discard_pop(RuntimeOrigin::signed(ALICE)));
 		assert_ok!(submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin));
@@ -814,15 +819,15 @@ fn discard_then_other_account_can_use_same_passport() {
 		assert_ok!(submit_mint(
 			ALICE,
 			HW_CERT_THUMB_1,
-			passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-			liveness_inputs(ALICE, DG2_1, a.clone()),
+			passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+			liveness_inputs(ALICE, COMM_IN_1, a.clone()),
 		));
 		assert_ok!(Personhood::discard_pop(RuntimeOrigin::signed(ALICE)));
 		assert_ok!(submit_mint(
 			BOB,
 			HW_CERT_THUMB_2,
-			passport_inputs(BOB, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-			liveness_inputs(BOB, DG2_1, a),
+			passport_inputs(BOB, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+			liveness_inputs(BOB, COMM_IN_1, a),
 		));
 	});
 }
@@ -890,8 +895,8 @@ fn mint_csca_root_not_set_rejected() {
 			submit_mint(
 				ALICE,
 				HW_CERT_THUMB_1,
-				passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-				liveness_inputs(ALICE, DG2_1, a),
+				passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(ALICE, COMM_IN_1, a),
 			),
 			pallet_personhood::Error::<Test>::CscaRootNotSet
 		);
@@ -927,8 +932,8 @@ fn mint_seats_root_not_set_rejected() {
 			submit_mint(
 				ALICE,
 				HW_CERT_THUMB_1,
-				passport_inputs(ALICE, NULL_1, DG2_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, 10_000, a.clone()),
-				liveness_inputs(ALICE, DG2_1, a),
+				passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(ALICE, COMM_IN_1, a),
 			),
 			pallet_personhood::Error::<Test>::SeatsRootNotSet
 		);
@@ -1015,7 +1020,8 @@ fn rostro_pop_domain_constant_is_stable() {
 #[test]
 fn pop_cert_round_trips_through_codec() {
 	let cert = PopCert {
-		nullifier: NULL_1,
+		scoped_nullifier: SCOPED_NULL_1,
+		nullifier_type: NullifierType::Salted,
 		ttl_block: 12345u64,
 		adult: true,
 		seat_id: 99,
@@ -1023,7 +1029,8 @@ fn pop_cert_round_trips_through_codec() {
 	};
 	let bytes = cert.encode();
 	let decoded: PopCert<u64> = codec::Decode::decode(&mut &bytes[..]).unwrap();
-	assert_eq!(decoded.nullifier, cert.nullifier);
+	assert_eq!(decoded.scoped_nullifier, cert.scoped_nullifier);
+	assert_eq!(decoded.nullifier_type, cert.nullifier_type);
 	assert_eq!(decoded.ttl_block, cert.ttl_block);
 	assert_eq!(decoded.adult, cert.adult);
 	assert_eq!(decoded.seat_id, cert.seat_id);

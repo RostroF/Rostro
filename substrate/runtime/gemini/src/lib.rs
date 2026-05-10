@@ -779,6 +779,11 @@ impl zk_pki_pallet::Config for Runtime {
 
 parameter_types! {
 	pub const PopMaxProofAge: BlockNumber = 600;
+	/// PoP cert TTL: 5 years aligned with the OPRF K rotation cycle per
+	/// `pop_design_section1c_oprf_nullifier.md`. Computed as
+	/// `5 years * 365 days * 24 hours * 60 minutes * 10 blocks/min`
+	/// at 6s block time = 5 * 365 * 24 * 600 = 26_280_000 blocks.
+	pub const PopFixedTtl: BlockNumber = 26_280_000;
 }
 
 /// Adapter that delegates `pallet_rostro_personhood::ZkPkiInterface`
@@ -834,6 +839,7 @@ impl pallet_rostro_personhood::ZkPkiInterface<AccountId, BlockNumber>
 
 impl pallet_rostro_personhood::Config for Runtime {
 	type MaxProofAge = PopMaxProofAge;
+	type FixedPopTtl = PopFixedTtl;
 	type ZkPki = ZkPkiPersonhoodAdapter;
 	// Production Groth16 verifier (ark-groth16 over BN254). Same
 	// stack zk-pki uses for mime_wrap.

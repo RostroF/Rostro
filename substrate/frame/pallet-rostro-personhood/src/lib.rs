@@ -106,27 +106,19 @@ use zk_pki_primitives::hip::CanonicalHipProof;
 /// Domain separator for the AA challenge derivation in `hip_challenge_nonce`.
 /// Prevents cross-chain replay of HIP attestations bound to passport mints.
 ///
-/// **Note (2026-05-09):** previously also used as the nullifier salt in the
-/// AIR's Poseidon2 hash of canonical_mrz. That role is GONE per §1c — the
-/// nullifier is now OPRF-derived (federation holds threshold-shared K, AIR
-/// no longer computes the nullifier directly). For the MRZ commitment that
-/// the AIR DOES compute and feed to the OPRF, see `ROSTRO_MRZ_COMMIT_DOMAIN`.
+/// Used for: `aa_challenge = SHA-256(ROSTRO_POP_DOMAIN || anchor.hash || bound_account.encode())`.
+/// The AIR receives `aa_challenge` and `sha256_digest_of_challenge` as PIs;
+/// the pallet pre-computes both and asserts equality with the proof's PIs
+/// before running the AIR verifier.
 pub const ROSTRO_POP_DOMAIN: &[u8] = b"rostro-pop-v1";
 
-/// Domain separator for the in-circuit MRZ commitment (Poseidon2 hash of
-/// canonical_mrz computed by the passport_attest AIRs and exposed as a
-/// public input). The federation's OPRF input is this commitment, not the
-/// raw MRZ — keeps raw MRZ off the wire to validators while binding the
-/// OPRF output to the AIR-attested passport. See `pop_design_section1c_oprf_nullifier.md`.
-pub const ROSTRO_MRZ_COMMIT_DOMAIN: &[u8] = b"rostro-mrz-commit-v1";
-
-/// Domain separator for the in-circuit DG2 commitment (Poseidon2 hash of
-/// `(dg2_hash, salt)` per §1c privacy review — random-salted commitment
-/// to the chip's photo replaces raw dg2_hash on chain so possessing the
-/// photo elsewhere can no longer link to a chain account). Cross-proof
-/// binding: liveness_facematch AIR computes the same commitment from the
-/// same (dg2_hash, salt) pair.
-pub const ROSTRO_DG2_COMMIT_DOMAIN: &[u8] = b"rostro-dg2-commit-v1";
+/// Service-scope domain for the OPRF-protected scoped nullifier.
+///
+/// `scoped_nullifier = Poseidon2(salted_private_nullifier.value, service_scope, service_subscope, nullifier_secret)`
+/// where `service_scope = Poseidon2(SCOPED_NULLIFIER_SERVICE_DOMAIN)`. Wrapping the
+/// domain in a Poseidon2 hash gives a Goldilocks-field-element scope value
+/// the AIR can consume directly without limb decomposition.
+pub const SCOPED_NULLIFIER_SERVICE_DOMAIN: &[u8] = b"rostro-pop-cert-v1";
 
 /// Chain-side anchor reference. The user's circuit witnesses a
 /// recent chain block hash; the pallet checks the witnessed hash
@@ -148,10 +140,49 @@ pub struct ChainAnchor<BlockNumber> {
 	pub hash: H256,
 }
 
-/// Public-input bundle for the `passport_attest` circuit. The
-/// pallet decodes this, encodes it into the BN254 field-element
-/// vector matching the circuit's public-input layout, and runs
-/// Groth16 verification.
+/// Discriminant on which OPRF protection mode produced a `scoped_nullifier`.
+///
+/// Mirrors zkpassport's nullifier_type pattern: `Salted` is the production
+/// path with the validator-federation OPRF applied, so the nullifier hides
+/// behind the threshold-shared K and is not government-recomputable.
+/// `NonSalted` is the fallback for environments without the federation —
+/// nullifier is `Poseidon2(private_nullifier, scope, subscope)` with no
+/// secret, so it IS recomputable from passport data and the issuing
+/// government can deanonymize. Mainnet must reject NonSalted.
+///
+/// `*Mock` variants are reserved for testnet documents (Camino) issued
+/// against the ZKR mock country code, so chain code can distinguish
+/// devnet certs from real-passport certs without re-verifying the doc.
+#[derive(
+	Clone,
+	Copy,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	TypeInfo,
+	MaxEncodedLen,
+	Debug,
+	PartialEq,
+	Eq,
+)]
+pub enum NullifierType {
+	/// Production OPRF-protected nullifier. Government cannot recompute.
+	Salted,
+	/// No OPRF applied (legacy/fallback). Nullifier is government-recomputable.
+	/// Mainnet runtimes should reject this.
+	NonSalted,
+	/// Testnet/devnet OPRF-protected (mock country code).
+	SaltedMock,
+	/// Testnet/devnet no-OPRF (mock country code).
+	NonSaltedMock,
+}
+
+/// Public-input bundle for the `passport_attest` circuit.
+///
+/// Field order MUST match the AIR's PI column declaration order in
+/// `airs/passport_attest_aa_*::COL_*` constants. The AIR's PI columns
+/// are populated in this exact order; mismatched ordering would silently
+/// pass validation against the wrong fields.
 #[derive(
 	Clone,
 	Encode,
@@ -164,15 +195,33 @@ pub struct ChainAnchor<BlockNumber> {
 	Eq,
 )]
 pub struct PassportPublicInputs<AccountId, BlockNumber> {
-	/// `Poseidon(MRZ_canonical, ROSTRO_POP_DOMAIN)`. Deterministic
-	/// per passport. Pallet stores this; second mint with same
-	/// nullifier rejected.
-	pub nullifier: [u8; 32],
+	/// Salted-commitment chain anchor. The AIR computes
+	/// `comm_in = Poseidon2(salted_dg1, salted_expiry, salted_dg2_hash, salted_dg2_hash_type, salted_private_nullifier)`
+	/// over private witnesses. The same value appears as a PI on the
+	/// paired `liveness_facematch` proof — pallet asserts equality to
+	/// cross-bind the two proofs to the same passport. Replaces the
+	/// previous `dg2_hash` cross-binding (which was government-
+	/// recomputable from chip photos).
+	pub comm_in: H256,
+	/// Output of the OPRF flow + scope binding:
+	/// `scoped_nullifier = Poseidon2(private_nullifier, service_scope,
+	/// service_subscope, nullifier_secret)` where `nullifier_secret`
+	/// is the verified OPRF output `H2C(private_nullifier)^K`. Pallet
+	/// stores this in [`Nullifiers`]; second mint with the same
+	/// scoped_nullifier rejected.
+	pub scoped_nullifier: H256,
+	/// Discriminant on which OPRF mode produced `scoped_nullifier`.
+	/// Mainnet rejects `NonSalted` and `*Mock` variants; testnet
+	/// (Camino) accepts the mock variants.
+	pub nullifier_type: NullifierType,
+	/// `Poseidon2(federation_pubkey.x, federation_pubkey.y)` — commits
+	/// to which OPRF federation pubkey was used. Pallet checks against
+	/// `CurrentOprfFederationPubkeyHash` (not yet wired); rejects if
+	/// the proof was generated against an old federation pubkey.
+	pub oprf_pk_hash: H256,
 	/// SS58 the proof is intended for. Pallet checks
 	/// `caller == bound_account`.
 	pub bound_account: AccountId,
-	/// Passport expiry in chain block-number form.
-	pub ttl_block: BlockNumber,
 	/// True iff `(anchor_block - dob_block) >= 18_years_in_blocks`.
 	pub adult: bool,
 	/// Country resolved through the seats merkle tree. Country code
@@ -187,13 +236,22 @@ pub struct PassportPublicInputs<AccountId, BlockNumber> {
 	/// Merkle root of the seats mapping. Pallet rejects if not
 	/// equal to current `CurrentSeatsRoot`.
 	pub seats_root: H256,
-	/// Hash of DG2 (chip's photo). Bridge to the
-	/// `liveness_facematch` circuit, which must witness the same
-	/// DG2 hash.
-	pub dg2_hash: [u8; 32],
+	/// `aa_challenge = SHA-256(ROSTRO_POP_DOMAIN || anchor.hash || bound_account.encode())`.
+	/// Pallet pre-computes from `anchor` + `bound_account` and asserts
+	/// equality with this PI before AIR verification. The AIR then uses
+	/// it as the message that the chip's RSA-2048-SHA256 signature was
+	/// computed over.
+	pub aa_challenge: [u8; 32],
+	/// `SHA-256(aa_challenge)`. Pallet pre-computes and asserts equality.
+	/// AIR uses this as the digest its PKCS#1 v1.5 EM bytes must contain.
+	pub sha256_digest_of_challenge: [u8; 32],
 }
 
 /// Public-input bundle for the `liveness_facematch` circuit.
+///
+/// Cross-bound to the paired `passport_attest` proof via `comm_in`. Both
+/// proofs must commit to the same comm_in over the same private witnesses
+/// (DG1, expiry, DG2 hash, DG2 hash type, private_nullifier — all salted).
 #[derive(
 	Clone,
 	Encode,
@@ -206,9 +264,9 @@ pub struct PassportPublicInputs<AccountId, BlockNumber> {
 	Eq,
 )]
 pub struct LivenessPublicInputs<AccountId, BlockNumber> {
-	/// Must equal the `dg2_hash` on the paired passport_attest
-	/// proof. Cross-proof binding.
-	pub dg2_hash: [u8; 32],
+	/// Must equal `passport_inputs.comm_in`. Cross-proof binding.
+	/// Replaces the previous `dg2_hash` cross-binding.
+	pub comm_in: H256,
 	/// SS58 the proof is intended for. Same anti-frontrun as
 	/// passport_attest.
 	pub bound_account: AccountId,
@@ -226,12 +284,19 @@ pub struct LivenessPublicInputs<AccountId, BlockNumber> {
 /// account has no PoP cert.
 #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, Debug, PartialEq, Eq)]
 pub struct PopCert<BlockNumber> {
-	/// The deterministic passport nullifier. Same value also lives
-	/// in [`Nullifiers`] as the dedup gate.
-	pub nullifier: [u8; 32],
-	/// Passport expiry in chain block-number form. After this
-	/// block, the cert is expired (still on chain as historical
-	/// record, but invalid for any operation).
+	/// The OPRF-protected scoped nullifier. Same value also lives in
+	/// [`Nullifiers`] as the dedup gate. Government cannot recompute
+	/// this from passport data alone (validator-federation K is hidden).
+	pub scoped_nullifier: H256,
+	/// OPRF protection mode used for `scoped_nullifier`. Stored so
+	/// downstream queries can reason about the nullifier's privacy
+	/// guarantee without re-verifying the proof.
+	pub nullifier_type: NullifierType,
+	/// Cert expiry in chain block-number form, computed at mint as
+	/// `minted_at + FIXED_POP_TTL`. Passport expiry itself is no longer
+	/// a PI (privacy: passport expiry is a quasi-identifier); the chain
+	/// uses a uniform per-cert TTL aligned with the OPRF K rotation
+	/// cycle (5 years per `pop_design_section1c_oprf_nullifier.md`).
 	pub ttl_block: BlockNumber,
 	/// Adult bool at the time of mint. Once true, never flips.
 	pub adult: bool,
@@ -382,6 +447,17 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxProofAge: Get<BlockNumberFor<Self>>;
 
+		/// Per-cert TTL applied at mint: `cert.ttl_block = minted_at + FixedPopTtl`.
+		/// Replaces the previous design where each proof carried its
+		/// own `ttl_block` PI derived from passport expiry — passport
+		/// expiry is a quasi-identifier (low-cardinality, often correlated
+		/// with date-of-birth), so leaking it on chain reduces the
+		/// anonymity set. The chain instead uses a uniform per-cert
+		/// horizon aligned with the OPRF K rotation cycle (5 years per
+		/// `pop_design_section1c_oprf_nullifier.md`).
+		#[pallet::constant]
+		type FixedPopTtl: Get<BlockNumberFor<Self>>;
+
 		/// Adapter to the `pallet-zk-pki` instance in the same
 		/// runtime. Used to verify HW cert + HIP at mint time.
 		type ZkPki: ZkPkiInterface<Self::AccountId, BlockNumberFor<Self>>;
@@ -416,13 +492,14 @@ pub mod pallet {
 		OptionQuery,
 	>;
 
-	/// Set of consumed mint nullifiers. Insertion blocks any second
-	/// mint with the same passport. Removed only by
-	/// [`Pallet::discard_pop`]. Grows monotonically; bounded only by
-	/// the global adult population that ever mints on Rostro.
+	/// Set of consumed scoped nullifiers. Insertion blocks any second
+	/// mint with the same passport (under the same OPRF K era).
+	/// Removed only by [`Pallet::discard_pop`]. Grows monotonically;
+	/// bounded only by the global adult population that ever mints
+	/// on Rostro.
 	#[pallet::storage]
 	pub type Nullifiers<T: Config> =
-		StorageMap<_, Blake2_128Concat, [u8; 32], (), OptionQuery>;
+		StorageMap<_, Blake2_128Concat, H256, (), OptionQuery>;
 
 	/// Current CSCA bundle merkle root. Rotated by SRT. Hard
 	/// cutover on rotation — proofs against the previous root are
@@ -465,11 +542,11 @@ pub mod pallet {
 		/// A PoP cert was minted for `who` with the given
 		/// `seat_id` and TTL.
 		PopMinted { who: T::AccountId, seat_id: u16, ttl_block: BlockNumberFor<T> },
-		/// `who` discarded their PoP cert. The freed nullifier may
-		/// be re-minted from the same passport (after passport
-		/// renewal produces a new MRZ → new nullifier; or on a
-		/// different SS58).
-		PopDiscarded { who: T::AccountId, nullifier_freed: [u8; 32] },
+		/// `who` discarded their PoP cert. The freed scoped_nullifier
+		/// may be re-minted from the same passport (passport renewal
+		/// produces a new SOD signature → new private_nullifier → new
+		/// scoped_nullifier; or after K rotation; or on a different SS58).
+		PopDiscarded { who: T::AccountId, nullifier_freed: H256 },
 		/// SRT rotated the CSCA root. `old` is `None` on first
 		/// publication post-genesis.
 		CscaRootRotated { old: Option<H256>, new: H256 },
@@ -615,7 +692,12 @@ pub mod pallet {
 			// chain-block timestamp, freshness is enforced via the
 			// challenge_nonce binding to anchor_hash above.)
 
-			// 3. Cross-proof binding.
+			// 3. Cross-proof binding via comm_in. Both proofs commit
+			//    to the same salted-private-witness chain (DG1, expiry,
+			//    DG2 hash, DG2 hash type, private_nullifier — all
+			//    salted) so they must match. Replaces the previous
+			//    dg2_hash cross-binding (which was government-
+			//    recomputable from chip photos).
 			ensure!(
 				passport_inputs.bound_account == caller,
 				Error::<T>::ProofBoundToOther,
@@ -625,7 +707,7 @@ pub mod pallet {
 				Error::<T>::ProofBoundToOther,
 			);
 			ensure!(
-				passport_inputs.dg2_hash == liveness_inputs.dg2_hash,
+				passport_inputs.comm_in == liveness_inputs.comm_in,
 				Error::<T>::ProofMismatch,
 			);
 			ensure!(
@@ -659,12 +741,16 @@ pub mod pallet {
 				Error::<T>::SeatsRootRotated,
 			);
 
-			// 6. Passport expiry.
-			ensure!(passport_inputs.ttl_block > now, Error::<T>::PassportExpired);
+			// 6. Cert TTL is chain-assigned at mint (passport expiry no
+			//    longer carried as PI for privacy). No per-mint expiry
+			//    check beyond the chain-anchor freshness above.
 
-			// 7. Nullifier uniqueness.
+			// 7. Scoped nullifier uniqueness. The OPRF protection means
+			//    the same passport produces the same scoped_nullifier
+			//    under a given K era; chain rejects re-mint without an
+			//    intervening discard.
 			ensure!(
-				!Nullifiers::<T>::contains_key(passport_inputs.nullifier),
+				!Nullifiers::<T>::contains_key(passport_inputs.scoped_nullifier),
 				Error::<T>::NullifierConsumed,
 			);
 
@@ -689,13 +775,15 @@ pub mod pallet {
 			)
 			.map_err(|_| Error::<T>::LivenessProofInvalid)?;
 
-			// 9. Commit.
-			Nullifiers::<T>::insert(passport_inputs.nullifier, ());
+			// 9. Commit. Cert TTL is chain-assigned: now + FixedPopTtl.
+			let ttl_block = now.saturating_add(T::FixedPopTtl::get());
+			Nullifiers::<T>::insert(passport_inputs.scoped_nullifier, ());
 			PopCerts::<T>::insert(
 				&caller,
 				PopCert {
-					nullifier: passport_inputs.nullifier,
-					ttl_block: passport_inputs.ttl_block,
+					scoped_nullifier: passport_inputs.scoped_nullifier,
+					nullifier_type: passport_inputs.nullifier_type,
+					ttl_block,
 					adult: passport_inputs.adult,
 					seat_id: passport_inputs.seat_id,
 					minted_at: now,
@@ -704,7 +792,7 @@ pub mod pallet {
 			Self::deposit_event(Event::PopMinted {
 				who: caller,
 				seat_id: passport_inputs.seat_id,
-				ttl_block: passport_inputs.ttl_block,
+				ttl_block,
 			});
 			Ok(())
 		}
@@ -719,10 +807,10 @@ pub mod pallet {
 		pub fn discard_pop(origin: OriginFor<T>) -> DispatchResult {
 			let caller = ensure_signed(origin)?;
 			let cert = PopCerts::<T>::take(&caller).ok_or(Error::<T>::AlreadyHasPopCert)?;
-			Nullifiers::<T>::remove(cert.nullifier);
+			Nullifiers::<T>::remove(cert.scoped_nullifier);
 			Self::deposit_event(Event::PopDiscarded {
 				who: caller,
-				nullifier_freed: cert.nullifier,
+				nullifier_freed: cert.scoped_nullifier,
 			});
 			Ok(())
 		}
