@@ -21,6 +21,7 @@ use p3_goldilocks::{
 	Goldilocks,
 };
 use p3_goldilocks::{GOLDILOCKS_POSEIDON2_RC_8_INTERNAL, MATRIX_DIAG_8_GOLDILOCKS};
+use p3_lookup::InteractionBuilder;
 use p3_poseidon2::{
 	MDSMat4, add_rc_and_sbox_generic, external_terminal_permute_state, internal_permute_state,
 	matmul_internal,
@@ -139,6 +140,31 @@ impl<'a> AirBuilder for ExpectZeroBuilder<'a> {
 	}
 }
 
+/// No-op [`InteractionBuilder`] impl for [`ExpectZeroBuilder`]. Tests in
+/// this file only check the local round-transition constraints; bus
+/// interactions are verified separately through symbolic builders or
+/// against a real prover. Drain the iterators so any side effects in the
+/// caller (e.g., `state.iter().copied()`) still fire — matches the
+/// upstream `DebugConstraintBuilder` semantics.
+impl<'a> InteractionBuilder for ExpectZeroBuilder<'a> {
+	fn push_interaction<E: Into<Self::Expr>>(
+		&mut self,
+		_bus_name: &str,
+		fields: impl IntoIterator<Item = E>,
+		_count: impl Into<Self::Expr>,
+		_count_weight: u32,
+	) {
+		fields.into_iter().for_each(drop);
+	}
+
+	fn push_local_interaction(
+		&mut self,
+		tuples: impl IntoIterator<Item = (Vec<Self::Expr>, Self::Expr)>,
+	) {
+		tuples.into_iter().for_each(drop);
+	}
+}
+
 fn run_eval_for_pair(
 	air: &ExternalRoundAir,
 	witness: &[Goldilocks],
@@ -222,14 +248,14 @@ fn external_round_constants_widths_match() {
 
 #[test]
 fn base_air_width_reports_correctly() {
-	let air = ExternalRoundAir::new(ExternalRoundKind::Initial);
+	let air = ExternalRoundAir::new(ExternalRoundKind::Initial, "test-bus-ext-init-in", "test-bus-ext-init-out");
 	let w = <ExternalRoundAir as BaseAir<Goldilocks>>::width(&air);
 	assert_eq!(w, EXTERNAL_ROUND_NUM_COLS);
 }
 
 #[test]
 fn preprocessed_trace_initial_matches_constants_table() {
-	let air = ExternalRoundAir::new(ExternalRoundKind::Initial);
+	let air = ExternalRoundAir::new(ExternalRoundKind::Initial, "test-bus-ext-init-in", "test-bus-ext-init-out");
 	let pre =
 		<ExternalRoundAir as BaseAir<Goldilocks>>::preprocessed_trace(&air).expect("Some");
 	assert_eq!(pre.values.len(), TRACE_HEIGHT * PREPROCESSED_NUM_COLS);
@@ -251,7 +277,7 @@ fn preprocessed_trace_initial_matches_constants_table() {
 
 #[test]
 fn preprocessed_trace_terminal_matches_constants_table() {
-	let air = ExternalRoundAir::new(ExternalRoundKind::Terminal);
+	let air = ExternalRoundAir::new(ExternalRoundKind::Terminal, "test-bus-ext-term-in", "test-bus-ext-term-out");
 	let pre =
 		<ExternalRoundAir as BaseAir<Goldilocks>>::preprocessed_trace(&air).expect("Some");
 	for round in 0..HALF_FULL_ROUNDS {
@@ -305,13 +331,13 @@ fn ref_step_matches_p3_poseidon2_terminal_constants() {
 
 #[test]
 fn air_eval_accepts_honest_initial_block_zero_input() {
-	let air = ExternalRoundAir::new(ExternalRoundKind::Initial);
+	let air = ExternalRoundAir::new(ExternalRoundKind::Initial, "test-bus-ext-init-in", "test-bus-ext-init-out");
 	let _output = check_trace(&air, [Goldilocks::ZERO; WIDTH]);
 }
 
 #[test]
 fn air_eval_accepts_honest_initial_block_seq_input() {
-	let air = ExternalRoundAir::new(ExternalRoundKind::Initial);
+	let air = ExternalRoundAir::new(ExternalRoundKind::Initial, "test-bus-ext-init-in", "test-bus-ext-init-out");
 	let output = check_trace(&air, input_vector_seq());
 
 	let mut expected = input_vector_seq();
@@ -326,7 +352,7 @@ fn air_eval_accepts_honest_initial_block_seq_input() {
 
 #[test]
 fn air_eval_accepts_honest_terminal_block_arbitrary_input() {
-	let air = ExternalRoundAir::new(ExternalRoundKind::Terminal);
+	let air = ExternalRoundAir::new(ExternalRoundKind::Terminal, "test-bus-ext-term-in", "test-bus-ext-term-out");
 	let output = check_trace(&air, input_vector_arbitrary());
 
 	let mut expected = input_vector_arbitrary();
@@ -342,7 +368,7 @@ fn air_eval_accepts_honest_terminal_block_arbitrary_input() {
 #[test]
 #[should_panic(expected = "constraint failed")]
 fn air_eval_rejects_corrupted_x_squared() {
-	let air = ExternalRoundAir::new(ExternalRoundKind::Initial);
+	let air = ExternalRoundAir::new(ExternalRoundKind::Initial, "test-bus-ext-init-in", "test-bus-ext-init-out");
 	let rc_table = air.round_constants();
 	let (mut witness, preprocessed) = build_traces(input_vector_seq(), rc_table);
 
@@ -358,7 +384,7 @@ fn air_eval_rejects_corrupted_x_squared() {
 #[test]
 #[should_panic(expected = "constraint failed")]
 fn air_eval_rejects_corrupted_x_to_4() {
-	let air = ExternalRoundAir::new(ExternalRoundKind::Initial);
+	let air = ExternalRoundAir::new(ExternalRoundKind::Initial, "test-bus-ext-init-in", "test-bus-ext-init-out");
 	let rc_table = air.round_constants();
 	let (mut witness, preprocessed) = build_traces(input_vector_seq(), rc_table);
 
@@ -374,7 +400,7 @@ fn air_eval_rejects_corrupted_x_to_4() {
 #[test]
 #[should_panic(expected = "constraint failed")]
 fn air_eval_rejects_corrupted_next_state_cell() {
-	let air = ExternalRoundAir::new(ExternalRoundKind::Initial);
+	let air = ExternalRoundAir::new(ExternalRoundKind::Initial, "test-bus-ext-init-in", "test-bus-ext-init-out");
 	let rc_table = air.round_constants();
 	let (mut witness, preprocessed) = build_traces(input_vector_seq(), rc_table);
 
@@ -508,14 +534,14 @@ fn internal_round_constants_widths_match() {
 
 #[test]
 fn internal_base_air_width_reports_correctly() {
-	let air = InternalRoundAir::new();
+	let air = InternalRoundAir::new("test-bus-int-in", "test-bus-int-out");
 	let w = <InternalRoundAir as BaseAir<Goldilocks>>::width(&air);
 	assert_eq!(w, INTERNAL_ROUND_NUM_COLS);
 }
 
 #[test]
 fn internal_preprocessed_trace_matches_constants_table() {
-	let air = InternalRoundAir::new();
+	let air = InternalRoundAir::new("test-bus-int-in", "test-bus-int-out");
 	let pre =
 		<InternalRoundAir as BaseAir<Goldilocks>>::preprocessed_trace(&air).expect("Some");
 	assert_eq!(pre.values.len(), TRACE_HEIGHT_INTERNAL * PREPROCESSED_NUM_COLS_INTERNAL);
@@ -570,13 +596,13 @@ fn ref_internal_step_matches_p3_poseidon2_arbitrary_input() {
 
 #[test]
 fn internal_air_eval_accepts_honest_zero_input() {
-	let air = InternalRoundAir::new();
+	let air = InternalRoundAir::new("test-bus-int-in", "test-bus-int-out");
 	let _output = check_trace_internal(&air, [Goldilocks::ZERO; WIDTH]);
 }
 
 #[test]
 fn internal_air_eval_accepts_honest_seq_input() {
-	let air = InternalRoundAir::new();
+	let air = InternalRoundAir::new("test-bus-int-in", "test-bus-int-out");
 	let output = check_trace_internal(&air, input_vector_seq());
 
 	let mut expected = input_vector_seq();
@@ -590,7 +616,7 @@ fn internal_air_eval_accepts_honest_seq_input() {
 
 #[test]
 fn internal_air_eval_accepts_honest_arbitrary_input() {
-	let air = InternalRoundAir::new();
+	let air = InternalRoundAir::new("test-bus-int-in", "test-bus-int-out");
 	let output = check_trace_internal(&air, input_vector_arbitrary());
 
 	let mut expected = input_vector_arbitrary();
@@ -605,7 +631,7 @@ fn internal_air_eval_accepts_honest_arbitrary_input() {
 #[test]
 #[should_panic(expected = "constraint failed")]
 fn internal_air_eval_rejects_corrupted_x_squared() {
-	let air = InternalRoundAir::new();
+	let air = InternalRoundAir::new("test-bus-int-in", "test-bus-int-out");
 	let (mut witness, preprocessed) = build_traces_internal(input_vector_seq());
 
 	witness[COL_INT_X_SQUARED] = witness[COL_INT_X_SQUARED] + Goldilocks::ONE;
@@ -619,7 +645,7 @@ fn internal_air_eval_rejects_corrupted_x_squared() {
 #[test]
 #[should_panic(expected = "constraint failed")]
 fn internal_air_eval_rejects_corrupted_x_to_4() {
-	let air = InternalRoundAir::new();
+	let air = InternalRoundAir::new("test-bus-int-in", "test-bus-int-out");
 	let (mut witness, preprocessed) = build_traces_internal(input_vector_seq());
 
 	witness[COL_INT_X_TO_4] = witness[COL_INT_X_TO_4] + Goldilocks::ONE;
@@ -648,7 +674,7 @@ fn full_permutation_composition_matches_p3_default() {
 	let mut state = input;
 	mds_light_permutation::<Goldilocks, MDSMat4, WIDTH>(&mut state, &MDSMat4);
 
-	let initial_air = ExternalRoundAir::new(ExternalRoundKind::Initial);
+	let initial_air = ExternalRoundAir::new(ExternalRoundKind::Initial, "test-bus-ext-init-in", "test-bus-ext-init-out");
 	for round in 0..HALF_FULL_ROUNDS {
 		let (next, _xs, _x4) = ref_step_external_round(state, initial_air.round_constants()[round]);
 		state = next;
@@ -660,7 +686,7 @@ fn full_permutation_composition_matches_p3_default() {
 		state = next;
 	}
 
-	let terminal_air = ExternalRoundAir::new(ExternalRoundKind::Terminal);
+	let terminal_air = ExternalRoundAir::new(ExternalRoundKind::Terminal, "test-bus-ext-term-in", "test-bus-ext-term-out");
 	for round in 0..HALF_FULL_ROUNDS {
 		let (next, _xs, _x4) =
 			ref_step_external_round(state, terminal_air.round_constants()[round]);
@@ -677,7 +703,7 @@ fn full_permutation_composition_matches_p3_default() {
 #[test]
 #[should_panic(expected = "constraint failed")]
 fn internal_air_eval_rejects_corrupted_state_cell_5() {
-	let air = InternalRoundAir::new();
+	let air = InternalRoundAir::new("test-bus-int-in", "test-bus-int-out");
 	let (mut witness, preprocessed) = build_traces_internal(input_vector_seq());
 
 	let next_row_state_5 = INTERNAL_ROUND_NUM_COLS + COL_INT_STATE + 5;
@@ -687,4 +713,217 @@ fn internal_air_eval_rejects_corrupted_state_cell_5() {
 		let is_last_pair = row == TRACE_HEIGHT_INTERNAL - 2;
 		run_eval_for_pair_internal(&air, &witness, &preprocessed, row, is_last_pair);
 	}
+}
+
+// ─── Bus-interaction structural tests ──────────────────────────────────────
+//
+// These tests don't run a full prover; they record every push_interaction
+// call the AIR makes during a single eval and assert the right buses got
+// the right messages with the right signs. Soundness of the lookup
+// argument itself is the responsibility of the proof system — these tests
+// just verify the AIR ↔ bus contract is wired correctly.
+
+/// Records every push_interaction call. `(bus_name, multiplicity, fields, weight)`
+/// for each invocation, in order.
+struct RecordingInteractionBuilder<'a> {
+	main_window: RowWindow<'a, Goldilocks>,
+	preprocessed_window: RowWindow<'a, Goldilocks>,
+	is_first: Goldilocks,
+	is_last: Goldilocks,
+	is_trans: Goldilocks,
+	pushed: Vec<(alloc::string::String, Goldilocks, Vec<Goldilocks>, u32)>,
+}
+
+impl<'a> AirBuilder for RecordingInteractionBuilder<'a> {
+	type F = Goldilocks;
+	type Expr = Goldilocks;
+	type Var = Goldilocks;
+	type MainWindow = RowWindow<'a, Goldilocks>;
+	type PreprocessedWindow = RowWindow<'a, Goldilocks>;
+	type PublicVar = Goldilocks;
+	type PeriodicVar = Goldilocks;
+
+	fn main(&self) -> Self::MainWindow {
+		self.main_window
+	}
+	fn preprocessed(&self) -> &Self::PreprocessedWindow {
+		&self.preprocessed_window
+	}
+	fn is_first_row(&self) -> Self::Expr {
+		self.is_first
+	}
+	fn is_last_row(&self) -> Self::Expr {
+		self.is_last
+	}
+	fn is_transition_window(&self, _: usize) -> Self::Expr {
+		self.is_trans
+	}
+	// Don't enforce constraints — recording is the only purpose.
+	fn assert_zero<I: Into<Self::Expr>>(&mut self, _x: I) {}
+}
+
+impl<'a> InteractionBuilder for RecordingInteractionBuilder<'a> {
+	fn push_interaction<E: Into<Self::Expr>>(
+		&mut self,
+		bus_name: &str,
+		fields: impl IntoIterator<Item = E>,
+		count: impl Into<Self::Expr>,
+		count_weight: u32,
+	) {
+		let multiplicity: Goldilocks = count.into();
+		let collected: Vec<Goldilocks> = fields.into_iter().map(Into::into).collect();
+		self.pushed
+			.push((alloc::string::String::from(bus_name), multiplicity, collected, count_weight));
+	}
+
+	fn push_local_interaction(
+		&mut self,
+		tuples: impl IntoIterator<Item = (Vec<Self::Expr>, Self::Expr)>,
+	) {
+		// rostro-poseidon-air doesn't currently emit local interactions; drain to be safe.
+		tuples.into_iter().for_each(drop);
+	}
+}
+
+/// At row 0 of an ExternalRoundAir, the bus_in receive should fire with
+/// multiplicity = -1 and the bus_out send should be inactive (0).
+#[test]
+fn external_air_emits_bus_in_receive_on_first_row() {
+	let bus_in = "rostro-poseidon-test-input";
+	let bus_out = "rostro-poseidon-test-output";
+	let air = ExternalRoundAir::new(ExternalRoundKind::Initial, bus_in, bus_out);
+	let (witness, preprocessed) = build_traces(input_vector_seq(), air.round_constants());
+
+	let main_curr = &witness[0..EXTERNAL_ROUND_NUM_COLS];
+	let main_next = &witness[EXTERNAL_ROUND_NUM_COLS..2 * EXTERNAL_ROUND_NUM_COLS];
+	let pre_curr = &preprocessed[0..PREPROCESSED_NUM_COLS];
+	let pre_next = &preprocessed[PREPROCESSED_NUM_COLS..2 * PREPROCESSED_NUM_COLS];
+
+	let mut builder = RecordingInteractionBuilder {
+		main_window: RowWindow::from_two_rows(main_curr, main_next),
+		preprocessed_window: RowWindow::from_two_rows(pre_curr, pre_next),
+		is_first: Goldilocks::ONE,
+		is_last: Goldilocks::ZERO,
+		is_trans: Goldilocks::ONE,
+		pushed: Vec::new(),
+	};
+	air.eval(&mut builder);
+
+	assert_eq!(builder.pushed.len(), 2, "exactly 2 push_interaction calls expected");
+
+	let (in_name, in_mult, in_fields, in_weight) = &builder.pushed[0];
+	assert_eq!(in_name, bus_in);
+	assert_eq!(*in_mult, -Goldilocks::ONE, "bus_in count should be -is_first = -1 on row 0");
+	assert_eq!(in_fields.len(), WIDTH, "8 state cells should be on the bus");
+	assert_eq!(*in_weight, 1);
+
+	let (out_name, out_mult, _, out_weight) = &builder.pushed[1];
+	assert_eq!(out_name, bus_out);
+	assert_eq!(*out_mult, Goldilocks::ZERO, "bus_out count should be is_last = 0 on row 0");
+	assert_eq!(*out_weight, 1);
+}
+
+/// At the last row of an ExternalRoundAir, bus_out send should fire with
+/// multiplicity = +1 and bus_in receive should be inactive.
+#[test]
+fn external_air_emits_bus_out_send_on_last_row() {
+	let bus_in = "rostro-poseidon-test-input";
+	let bus_out = "rostro-poseidon-test-output";
+	let air = ExternalRoundAir::new(ExternalRoundKind::Terminal, bus_in, bus_out);
+	let (witness, preprocessed) = build_traces(input_vector_seq(), air.round_constants());
+
+	let last = TRACE_HEIGHT - 1;
+	let main_curr = &witness[last * EXTERNAL_ROUND_NUM_COLS..(last + 1) * EXTERNAL_ROUND_NUM_COLS];
+	// "next" row doesn't exist on the last row in production; reuse curr to satisfy
+	// the window. The recorder ignores the next row anyway.
+	let main_next = main_curr;
+	let pre_curr = &preprocessed[last * PREPROCESSED_NUM_COLS..(last + 1) * PREPROCESSED_NUM_COLS];
+	let pre_next = pre_curr;
+
+	let mut builder = RecordingInteractionBuilder {
+		main_window: RowWindow::from_two_rows(main_curr, main_next),
+		preprocessed_window: RowWindow::from_two_rows(pre_curr, pre_next),
+		is_first: Goldilocks::ZERO,
+		is_last: Goldilocks::ONE,
+		is_trans: Goldilocks::ZERO,
+		pushed: Vec::new(),
+	};
+	air.eval(&mut builder);
+
+	assert_eq!(builder.pushed.len(), 2);
+
+	let (in_name, in_mult, _, _) = &builder.pushed[0];
+	assert_eq!(in_name, bus_in);
+	assert_eq!(*in_mult, Goldilocks::ZERO, "bus_in count should be -is_first = 0 on last row");
+
+	let (out_name, out_mult, _, _) = &builder.pushed[1];
+	assert_eq!(out_name, bus_out);
+	assert_eq!(*out_mult, Goldilocks::ONE, "bus_out count should be is_last = +1 on last row");
+}
+
+/// InternalRoundAir mirrors the same bus contract — receive on row 0,
+/// send on the last row (row 22).
+#[test]
+fn internal_air_bus_contract_matches_external() {
+	let bus_in = "stage1-out";
+	let bus_out = "stage2-out";
+	let air = InternalRoundAir::new(bus_in, bus_out);
+	let (witness, preprocessed) = build_traces_internal(input_vector_seq());
+
+	// Row 0 — bus_in should fire with -1.
+	{
+		let main_curr = &witness[0..INTERNAL_ROUND_NUM_COLS];
+		let main_next = &witness[INTERNAL_ROUND_NUM_COLS..2 * INTERNAL_ROUND_NUM_COLS];
+		let pre_curr = &preprocessed[0..PREPROCESSED_NUM_COLS_INTERNAL];
+		let pre_next = &preprocessed[PREPROCESSED_NUM_COLS_INTERNAL..2 * PREPROCESSED_NUM_COLS_INTERNAL];
+
+		let mut builder = RecordingInteractionBuilder {
+			main_window: RowWindow::from_two_rows(main_curr, main_next),
+			preprocessed_window: RowWindow::from_two_rows(pre_curr, pre_next),
+			is_first: Goldilocks::ONE,
+			is_last: Goldilocks::ZERO,
+			is_trans: Goldilocks::ONE,
+			pushed: Vec::new(),
+		};
+		air.eval(&mut builder);
+		assert_eq!(builder.pushed.len(), 2);
+		assert_eq!(&builder.pushed[0].0, bus_in);
+		assert_eq!(builder.pushed[0].1, -Goldilocks::ONE);
+		assert_eq!(builder.pushed[1].1, Goldilocks::ZERO);
+	}
+
+	// Row 22 (last) — bus_out should fire with +1.
+	{
+		let last = TRACE_HEIGHT_INTERNAL - 1;
+		let main_curr = &witness[last * INTERNAL_ROUND_NUM_COLS..(last + 1) * INTERNAL_ROUND_NUM_COLS];
+		let main_next = main_curr;
+		let pre_curr = &preprocessed
+			[last * PREPROCESSED_NUM_COLS_INTERNAL..(last + 1) * PREPROCESSED_NUM_COLS_INTERNAL];
+		let pre_next = pre_curr;
+
+		let mut builder = RecordingInteractionBuilder {
+			main_window: RowWindow::from_two_rows(main_curr, main_next),
+			preprocessed_window: RowWindow::from_two_rows(pre_curr, pre_next),
+			is_first: Goldilocks::ZERO,
+			is_last: Goldilocks::ONE,
+			is_trans: Goldilocks::ZERO,
+			pushed: Vec::new(),
+		};
+		air.eval(&mut builder);
+		assert_eq!(builder.pushed.len(), 2);
+		assert_eq!(builder.pushed[0].1, Goldilocks::ZERO);
+		assert_eq!(&builder.pushed[1].0, bus_out);
+		assert_eq!(builder.pushed[1].1, Goldilocks::ONE);
+	}
+}
+
+/// Independent bus instances must be addressable. Two AIRs sharing the same
+/// kind but different bus names should record different bus identifiers.
+#[test]
+fn external_air_distinguishes_bus_instances() {
+	let air_a = ExternalRoundAir::new(ExternalRoundKind::Initial, "bus-a-in", "bus-a-out");
+	let air_b = ExternalRoundAir::new(ExternalRoundKind::Initial, "bus-b-in", "bus-b-out");
+
+	assert_ne!(air_a.bus_in, air_b.bus_in);
+	assert_ne!(air_a.bus_out, air_b.bus_out);
 }

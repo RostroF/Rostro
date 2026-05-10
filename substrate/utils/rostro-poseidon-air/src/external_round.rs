@@ -41,6 +41,7 @@ use p3_goldilocks::{
 	GOLDILOCKS_POSEIDON2_RC_8_EXTERNAL_FINAL, GOLDILOCKS_POSEIDON2_RC_8_EXTERNAL_INITIAL,
 	Goldilocks,
 };
+use p3_lookup::InteractionBuilder;
 use p3_matrix::dense::RowMajorMatrix;
 
 /// Width of the Poseidon2 state for Goldilocks (8 field elements).
@@ -76,14 +77,28 @@ pub enum ExternalRoundKind {
 }
 
 /// AIR for one half-block (4 external rounds) of Goldilocks-Poseidon2 WIDTH=8.
+///
+/// Each instance is bound to two named buses at construction:
+/// - `bus_in`  — state[0..WIDTH] is RECEIVED from this bus on row 0.
+/// - `bus_out` — state[0..WIDTH] is SENT to this bus on the last row.
+///
+/// Bus names are construction-time parameters so that one caller AIR can
+/// instantiate multiple Poseidon2 invocations within a single batch each
+/// with its own input/output buses.
 #[derive(Clone, Debug)]
 pub struct ExternalRoundAir {
 	pub kind: ExternalRoundKind,
+	pub bus_in: &'static str,
+	pub bus_out: &'static str,
 }
 
 impl ExternalRoundAir {
-	pub const fn new(kind: ExternalRoundKind) -> Self {
-		Self { kind }
+	pub const fn new(
+		kind: ExternalRoundKind,
+		bus_in: &'static str,
+		bus_out: &'static str,
+	) -> Self {
+		Self { kind, bus_in, bus_out }
 	}
 
 	pub const fn round_constants(&self) -> &'static [[Goldilocks; WIDTH]; HALF_FULL_ROUNDS] {
@@ -115,7 +130,7 @@ impl<F: PrimeCharacteristicRing + Send + Sync> BaseAir<F> for ExternalRoundAir {
 	}
 }
 
-impl<AB: AirBuilder> Air<AB> for ExternalRoundAir
+impl<AB: InteractionBuilder> Air<AB> for ExternalRoundAir
 where
 	AB::F: Send,
 {
@@ -123,7 +138,8 @@ where
 		let main = builder.main();
 		let preprocessed = builder.preprocessed().clone();
 		let is_transition = builder.is_transition();
-		let mut tb = builder.when(is_transition);
+		let is_first = builder.is_first_row();
+		let is_last = builder.is_last_row();
 
 		let local = main.current_slice();
 		let next = main.next_slice();
@@ -136,6 +152,16 @@ where
 		let rc: [AB::Var; WIDTH] = core::array::from_fn(|i| pre[i]);
 
 		let x: [AB::Expr; WIDTH] = core::array::from_fn(|i| state[i] + rc[i]);
+
+		// Bus interactions. Sign convention per p3-lookup: positive count =
+		// send, negative = receive. State columns at row 0 carry the input
+		// (received from upstream); at the last row they carry the output
+		// (sent downstream). Multiplicity selects which row activates.
+		builder.push_interaction(self.bus_in, state, -is_first, 1);
+		builder.push_interaction(self.bus_out, state, is_last, 1);
+
+		// Round-transition constraints (degree ≤ 3).
+		let mut tb = builder.when(is_transition);
 
 		for i in 0..WIDTH {
 			tb.assert_eq(x[i].clone() * x[i].clone(), x_squared[i]);

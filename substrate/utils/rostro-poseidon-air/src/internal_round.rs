@@ -50,6 +50,7 @@ use p3_field::{PrimeCharacteristicRing, PrimeField64};
 use p3_goldilocks::{
 	GOLDILOCKS_POSEIDON2_RC_8_INTERNAL, Goldilocks, MATRIX_DIAG_8_GOLDILOCKS,
 };
+use p3_lookup::InteractionBuilder;
 use p3_matrix::dense::RowMajorMatrix;
 
 use crate::external_round::WIDTH;
@@ -73,22 +74,23 @@ pub const PREPROCESSED_NUM_COLS_INTERNAL: usize = 1;
 pub const TRACE_HEIGHT_INTERNAL: usize = PARTIAL_ROUNDS + 1;
 
 /// AIR for the 22 internal (partial) rounds of Goldilocks-Poseidon2 WIDTH=8.
+///
+/// Each instance is bound to two named buses at construction:
+/// - `bus_in`  — state[0..WIDTH] is RECEIVED from this bus on row 0.
+/// - `bus_out` — state[0..WIDTH] is SENT to this bus on the last row (22).
 #[derive(Clone, Debug)]
-pub struct InternalRoundAir;
+pub struct InternalRoundAir {
+	pub bus_in: &'static str,
+	pub bus_out: &'static str,
+}
 
 impl InternalRoundAir {
-	pub const fn new() -> Self {
-		Self
+	pub const fn new(bus_in: &'static str, bus_out: &'static str) -> Self {
+		Self { bus_in, bus_out }
 	}
 
 	pub const fn round_constants(&self) -> &'static [Goldilocks; PARTIAL_ROUNDS] {
 		&GOLDILOCKS_POSEIDON2_RC_8_INTERNAL
-	}
-}
-
-impl Default for InternalRoundAir {
-	fn default() -> Self {
-		Self::new()
 	}
 }
 
@@ -108,7 +110,7 @@ impl<F: PrimeCharacteristicRing + Send + Sync> BaseAir<F> for InternalRoundAir {
 	}
 }
 
-impl<AB: AirBuilder> Air<AB> for InternalRoundAir
+impl<AB: InteractionBuilder> Air<AB> for InternalRoundAir
 where
 	AB::F: Send,
 {
@@ -116,7 +118,8 @@ where
 		let main = builder.main();
 		let preprocessed = builder.preprocessed().clone();
 		let is_transition = builder.is_transition();
-		let mut tb = builder.when(is_transition);
+		let is_first = builder.is_first_row();
+		let is_last = builder.is_last_row();
 
 		let local = main.current_slice();
 		let next = main.next_slice();
@@ -129,6 +132,13 @@ where
 		let rc: AB::Var = pre[0];
 
 		let x: AB::Expr = state[0] + rc;
+
+		// Bus interactions. Row 0 receives the state coming in from upstream;
+		// last row sends the state going out to downstream.
+		builder.push_interaction(self.bus_in, state, -is_first, 1);
+		builder.push_interaction(self.bus_out, state, is_last, 1);
+
+		let mut tb = builder.when(is_transition);
 
 		tb.assert_eq(x.clone() * x.clone(), x_squared);
 		tb.assert_eq(x_squared * x_squared, x_to_4);
