@@ -1,29 +1,29 @@
 [package]
 name = "p3-matrix"
 description = "A matrix library providing common matrix operations and traits for finite field elements."
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-homepage.workspace = true
-keywords.workspace = true
-categories.workspace = true
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
 
 [dependencies]
 
-itertools.workspace = true
-p3-field.workspace = true
-p3-maybe-rayon.workspace = true
-p3-util.workspace = true
-rand.workspace = true
-serde = { workspace = true, features = ["derive"] }
-tracing.workspace = true
+itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+p3-field = { path = "../field", version = "0.5.1" }
+p3-maybe-rayon = { path = "../maybe-rayon", version = "0.5.1" }
+p3-util = { path = "../util", version = "0.5.1" }
+rand = { version = "0.10.0", default-features = false }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+tracing = { version = "0.1.44", default-features = false, features = ["attributes"] }
 
 [dev-dependencies]
 
-criterion.workspace = true
+criterion = "0.8"
 p3-goldilocks = { path = "../goldilocks" }
-proptest.workspace = true
+proptest = "1.10"
 
 [[bench]]
 name = "transpose_benchmark"

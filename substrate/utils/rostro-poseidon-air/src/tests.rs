@@ -105,6 +105,7 @@ impl<'a> AirBuilder for ExpectZeroBuilder<'a> {
 	type MainWindow = RowWindow<'a, Goldilocks>;
 	type PreprocessedWindow = RowWindow<'a, Goldilocks>;
 	type PublicVar = Goldilocks;
+	type PeriodicVar = Goldilocks;
 
 	fn main(&self) -> Self::MainWindow {
 		self.main_window

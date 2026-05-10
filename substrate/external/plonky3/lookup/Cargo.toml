@@ -1,25 +1,25 @@
 [package]
 name = "p3-lookup"
 description = "LogUp: Logarithmic lookup arguments and multiset equality checks with multiplicities support."
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-keywords.workspace = true
-categories.workspace = true
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
 
 [dependencies]
-hashbrown = { workspace = true }
-p3-air = { workspace = true }
-p3-field = { workspace = true }
-p3-matrix = { workspace = true }
-p3-maybe-rayon = { workspace = true }
-p3-uni-stark = { workspace = true }
-serde = { workspace = true, features = ["derive", "alloc"] }
-tracing = { workspace = true }
+hashbrown = { version = "0.17.0" }
+p3-air = { path = "../air", version = "0.5.1" }
+p3-field = { path = "../field", version = "0.5.1" }
+p3-matrix = { path = "../matrix", version = "0.5.1" }
+p3-maybe-rayon = { path = "../maybe-rayon", version = "0.5.1" }
+p3-uni-stark = { path = "../uni-stark", version = "0.5.1" }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+tracing = { version = "0.1.44", default-features = false, features = ["attributes"] }
 
 [dev-dependencies]
-criterion.workspace = true
+criterion = "0.8"
 p3-challenger = { path = "../challenger" }
 p3-commit = { path = "../commit" }
 p3-dft = { path = "../dft" }
@@ -27,7 +27,7 @@ p3-fri = { path = "../fri" }
 p3-goldilocks = { path = "../goldilocks" }
 p3-merkle-tree = { path = "../merkle-tree" }
 p3-symmetric = { path = "../symmetric" }
-rand = { workspace = true }
+rand = { version = "0.10.0", default-features = false }
 
 [features]
 default = []

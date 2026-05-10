@@ -724,6 +724,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "p3-mds"
+version = "0.5.1"
+dependencies = [
+ "criterion",
+ "p3-dft",
+ "p3-field",
+ "p3-goldilocks",
+ "p3-symmetric",
+ "p3-util",
+ "proptest",
+ "rand 0.10.1",
+]
+
+[[package]]
 name = "p3-merkle-tree"
 version = "0.5.1"
 dependencies = [
@@ -739,6 +753,29 @@ dependencies = [
  "rand 0.10.1",
  "serde",
  "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "p3-monty-31"
+version = "0.5.1"
+dependencies = [
+ "itertools 0.14.0",
+ "num-bigint",
+ "p3-dft",
+ "p3-field",
+ "p3-matrix",
+ "p3-maybe-rayon",
+ "p3-mds",
+ "p3-poseidon1",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "p3-util",
+ "paste",
+ "proptest",
+ "rand 0.10.1",
+ "serde",
+ "spin",
  "tracing",
 ]
 

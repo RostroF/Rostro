@@ -1,0 +1,40 @@
+[package]
+name = "p3-multilinear-util"
+description = "A collection of utility functions and tools for multilinear operations."
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+p3-field = { path = "../field", version = "0.5.1" }
+p3-matrix = { path = "../matrix", version = "0.5.1" }
+p3-maybe-rayon = { path = "../maybe-rayon", version = "0.5.1" }
+p3-util = { path = "../util", version = "0.5.1" }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+tracing = { version = "0.1.44", default-features = false, features = ["attributes"] }
+
+rand = { version = "0.10.0", default-features = false }
+
+[dev-dependencies]
+criterion = "0.8"
+
+proptest = "1.10"
+
+[features]
+parallel = ["p3-maybe-rayon/parallel"]
+
+[[bench]]
+name = "evaleq_batched"
+harness = false
+
+[[bench]]
+name = "compress_kernels"
+harness = false
+
+[lints]
+workspace = true

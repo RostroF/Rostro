@@ -1,26 +1,26 @@
 [package]
 name = "p3-util"
 description = "A collection of utility functions and tools for low-level operations, such as bit manipulation and array transformations."
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-homepage.workspace = true
-keywords.workspace = true
-categories.workspace = true
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
 
 [dependencies]
-rayon = { workspace = true, optional = true }
-serde.workspace = true
+rayon = { version = "1.11.0", optional = true }
+serde = { version = "1.0", default-features = false }
 transpose = "0.2"
 
 [dev-dependencies]
-criterion.workspace = true
+criterion = "0.8"
 p3-field = { path = "../field" }
 p3-goldilocks = { path = "../goldilocks" }
-proptest.workspace = true
-rand.workspace = true
-serde_json.workspace = true
+proptest = "1.10"
+rand = { version = "0.10.0", default-features = false }
+serde_json = "1.0.149"
 
 [features]
 parallel = ["rayon"]

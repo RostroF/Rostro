@@ -1,23 +1,23 @@
 [package]
 name = "p3-symmetric"
 description = "A modular framework for symmetric cryptographic primitives."
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-homepage.workspace = true
-keywords.workspace = true
-categories.workspace = true
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
 
 [dependencies]
-p3-field.workspace = true
-p3-util.workspace = true
+p3-field = { path = "../field", version = "0.5.1" }
+p3-util = { path = "../util", version = "0.5.1" }
 
-itertools.workspace = true
-serde = { workspace = true, features = ["alloc"] }
+itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+serde = { version = "1.0", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
-proptest.workspace = true
+proptest = "1.10"
 
 [lints]
 workspace = true

@@ -695,22 +695,31 @@ p384 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 
 # Plonky3 — FRI-based STARK proof system, post-quantum-secure.
 # License: MIT OR Apache-2.0. Audited by Least Authority.
-# Used by Rostro for execution proofs, BEEFY-equivalent aggregation, and validator-side hip-check.
-p3-air = { version = "0.5", default-features = false }
-p3-challenger = { version = "0.5", default-features = false }
-p3-commit = { version = "0.5", default-features = false }
-p3-dft = { version = "0.5", default-features = false }
-p3-field = { version = "0.5", default-features = false }
-p3-fri = { version = "0.5", default-features = false }
-p3-goldilocks = { version = "0.5", default-features = false }
-p3-keccak = { version = "0.5", default-features = false }
-p3-matrix = { version = "0.5", default-features = false }
-p3-maybe-rayon = { version = "0.5", default-features = false }
-p3-merkle-tree = { version = "0.5", default-features = false }
-p3-poseidon2 = { version = "0.5", default-features = false }
-p3-symmetric = { version = "0.5", default-features = false }
-p3-uni-stark = { version = "0.5", default-features = false }
-p3-util = { version = "0.5", default-features = false }
+# Vendored from rev b638013 (2026-05-07) at substrate/external/plonky3/. The
+# inner workspace there resolves its own dep tree (edition 2024, sha2 0.11,
+# hashbrown 0.17, etc.) so the two stacks don't collide. See
+# substrate/external/plonky3/VENDOR.md for re-vendor procedure.
+p3-air            = { path = "substrate/external/plonky3/air", default-features = false }
+p3-batch-stark    = { path = "substrate/external/plonky3/batch-stark", default-features = false }
+p3-challenger     = { path = "substrate/external/plonky3/challenger", default-features = false }
+p3-commit         = { path = "substrate/external/plonky3/commit", default-features = false }
+p3-dft            = { path = "substrate/external/plonky3/dft", default-features = false }
+p3-field          = { path = "substrate/external/plonky3/field", default-features = false }
+p3-fri            = { path = "substrate/external/plonky3/fri", default-features = false }
+p3-goldilocks     = { path = "substrate/external/plonky3/goldilocks", default-features = false }
+p3-lookup         = { path = "substrate/external/plonky3/lookup", default-features = false }
+p3-matrix         = { path = "substrate/external/plonky3/matrix", default-features = false }
+p3-maybe-rayon    = { path = "substrate/external/plonky3/maybe-rayon", default-features = false }
+p3-mds            = { path = "substrate/external/plonky3/mds", default-features = false }
+p3-merkle-tree    = { path = "substrate/external/plonky3/merkle-tree", default-features = false }
+p3-monty-31       = { path = "substrate/external/plonky3/monty-31", default-features = false }
+p3-multilinear-util = { path = "substrate/external/plonky3/multilinear-util", default-features = false }
+p3-poseidon1      = { path = "substrate/external/plonky3/poseidon1", default-features = false }
+p3-poseidon2      = { path = "substrate/external/plonky3/poseidon2", default-features = false }
+p3-poseidon2-air  = { path = "substrate/external/plonky3/poseidon2-air", default-features = false }
+p3-symmetric      = { path = "substrate/external/plonky3/symmetric", default-features = false }
+p3-uni-stark      = { path = "substrate/external/plonky3/uni-stark", default-features = false }
+p3-util           = { path = "substrate/external/plonky3/util", default-features = false }
 pbkdf2 = { version = "0.12.2", default-features = false }
 pin-project = { version = "1.1.3" }
 polkavm = { version = "0.31.0", default-features = false }
