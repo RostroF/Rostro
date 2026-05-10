@@ -174,20 +174,7 @@ fn biguint_to_limbs(v: &BigUint) -> [u32; FIELD_NUM_LIMBS] {
 	bytes_to_limbs(&arr)
 }
 
-fn random_canonical(rng: &mut rand::rngs::StdRng) -> [u32; FIELD_NUM_LIMBS] {
-	use rand::RngCore;
-	loop {
-		let mut bytes = [0u8; 32];
-		rng.fill_bytes(&mut bytes);
-		// Clear the top bit to keep values < 2^255 (close to but not
-		// guaranteed below p); reject the few values ≥ p.
-		bytes[31] &= 0x7F;
-		let limbs = bytes_to_limbs(&bytes);
-		if is_canonical(&limbs) {
-			return limbs;
-		}
-	}
-}
+use crate::oracle_tests_helpers::random_canonical;
 
 #[test]
 fn add_zero_is_identity() {
