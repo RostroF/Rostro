@@ -45,24 +45,24 @@
 //!   `c <= p - 1` — if c > p - 1, the subtraction would underflow,
 //!   requiring a borrow at the top, which this constraint forbids.
 //!
-//! ## Remaining soundness gap (closed in commit 3)
+//! - **u16 range-check via limb split** (commit 3 of 3): each prover-
+//!   controlled u32 limb (`c[i]`, `c_complement[i]`) is split into two
+//!   u16 halves via the constraint `limb == lo + hi * 2^16`. Each half
+//!   is then looked up against the shared [`BUS_U16_RANGE`] table bus.
+//!   Input columns `a` and `b` are NOT range-checked here — their range
+//!   correctness is the caller's responsibility (the AIR that produced
+//!   them). 32 lookup pushes per add (8 limbs × 4 halves: c_lo, c_hi,
+//!   c_comp_lo, c_comp_hi).
 //!
-//! **No u32 range-check on trace cells.** Each of `a[i]`, `b[i]`,
-//! `c[i]`, `c_complement[i]` is treated as a Goldilocks field element
-//! by the AIR, which allows values up to `p_G ≈ 2^64`. A malicious
-//! prover could smuggle limbs ≥ `2^32`, breaking the limb-decomposition
-//! invariant. The canonical-form check above is SOUND ASSUMING the
-//! limb values are in [0, 2^32); without that assumption, the prover
-//! can construct trickery in the canonical-balance equation that mod-
-//! wraps in Goldilocks. Commit 3 pushes `lookup_key` interactions into
-//! the `rostro-range-check` bus (one lookup per u16 half of each
-//! prover-controlled u32 cell).
+//! ## Production readiness
 //!
-//! Until commit 3 closes the range-check gap, **THIS AIR MUST NOT BE
-//! USED IN PRODUCTION** — the field-add primitive is structurally
-//! correct but not soundness-complete. Tests exercise corruption
-//! patterns the current constraints DO catch; commit 3 adds tests for
-//! corruption patterns that smuggle values >= 2^32.
+//! All three soundness gaps from commit 1 are now closed. The AIR is
+//! soundness-complete for the field-addition operation **assuming** the
+//! caller produces canonical, range-correct `a` and `b` inputs (or
+//! routes them through their own range-check sub-AIRs). In production
+//! batches, instantiate ONE [`rostro_range_check::U16RangeTableAir`]
+//! on [`BUS_U16_RANGE`] to provide the table side of the lookup; LogUp
+//! balances the bus across all consumer AIRs in the batch.
 
 extern crate alloc;
 
@@ -93,9 +93,33 @@ pub const COL_ADD_C_COMP: usize = COL_ADD_CARRY + FIELD_NUM_LIMBS;
 /// `complement_borrow[7] = 0` pinned by top-borrow closure). Limb-wise
 /// borrow chain of the subtraction `p - 1 - c`.
 pub const COL_ADD_C_COMP_BORROW: usize = COL_ADD_C_COMP + FIELD_NUM_LIMBS;
+/// Column index of `c_lo[0]` — low u16 half of each `c[i]` (8 cells,
+/// each ∈ [0, 2^16)). Range-checked via `BUS_U16_RANGE`.
+pub const COL_ADD_C_LO: usize = COL_ADD_C_COMP_BORROW + FIELD_NUM_LIMBS;
+/// Column index of `c_hi[0]` — high u16 half of each `c[i]` (8 cells).
+pub const COL_ADD_C_HI: usize = COL_ADD_C_LO + FIELD_NUM_LIMBS;
+/// Column index of `c_comp_lo[0]` — low u16 half of each `c_complement[i]`.
+pub const COL_ADD_C_COMP_LO: usize = COL_ADD_C_HI + FIELD_NUM_LIMBS;
+/// Column index of `c_comp_hi[0]` — high u16 half of each `c_complement[i]`.
+pub const COL_ADD_C_COMP_HI: usize = COL_ADD_C_COMP_LO + FIELD_NUM_LIMBS;
 /// Total trace columns for the field-add AIR
-/// (49 = 8 + 8 + 8 + 1 + 8 + 8 + 8).
-pub const FIELD_ADD_NUM_COLS: usize = COL_ADD_C_COMP_BORROW + FIELD_NUM_LIMBS;
+/// (81 = 8 + 8 + 8 + 1 + 8 + 8 + 8 + 8 + 8 + 8 + 8).
+pub const FIELD_ADD_NUM_COLS: usize = COL_ADD_C_COMP_HI + FIELD_NUM_LIMBS;
+
+/// Bus name for the shared u16 range-check table. Caller AIRs send
+/// `lookup_key(BUS_U16_RANGE, [value], 1)` for each u16 value they
+/// want range-proven; the `rostro-range-check::U16RangeTableAir`
+/// instance in the same batch provides the table entries on this bus.
+///
+/// Per-AIR convention: ALL u16 range checks across the PoP batch
+/// share this single global bus name. LogUp matches lookups by
+/// content; multiple AIRs on the same bus pair up correctly with the
+/// single table AIR. Production deployments instantiate ONE
+/// `U16RangeTableAir::new(BUS_U16_RANGE)` per batch.
+pub const BUS_U16_RANGE: &str = "rostro-u16-range";
+
+/// `2^16` as a u32. Used as the radix for the u16 limb split.
+pub const RADIX_U16: u32 = 1u32 << 16;
 
 /// `2^32` as a Goldilocks-fitting constant. Fits in u64 (= 4_294_967_296)
 /// and well below `p_G = 2^64 - 2^32 + 1`. Used as the per-limb radix in
@@ -145,6 +169,14 @@ where
 			core::array::from_fn(|i| local[COL_ADD_C_COMP + i]);
 		let c_complement_borrow: [AB::Var; FIELD_NUM_LIMBS] =
 			core::array::from_fn(|i| local[COL_ADD_C_COMP_BORROW + i]);
+		let c_lo: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_ADD_C_LO + i]);
+		let c_hi: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_ADD_C_HI + i]);
+		let c_comp_lo: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_ADD_C_COMP_LO + i]);
+		let c_comp_hi: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_ADD_C_COMP_HI + i]);
 
 		// `t` is boolean.
 		builder.assert_bool(t);
@@ -237,14 +269,52 @@ where
 		// a borrow at the top.
 		builder.assert_zero(c_complement_borrow[FIELD_NUM_LIMBS - 1]);
 
-		// TODO(curve25519-air, commit 3): u32 range-check lookups on
-		// every prover-controlled limb. Without these, c_complement[i]
-		// is allowed to be any Goldilocks value, and a malicious prover
-		// could satisfy the canonical-balance equation with values
-		// outside [0, 2^32). Split each u32 into two u16 halves; lookup
-		// each half via `rostro-range-check` bus. Closes the "smuggle
-		// Goldilocks values > 2^32 into limb cells" attack surface for
-		// every prover-controlled column: a, b, c, c_complement.
+		// ─── u32 range-check via u16 limb split (commit 3 of 3) ───────
+		//
+		// For each prover-controlled u32 limb (c[i] and c_complement[i]),
+		// witness two u16 halves and constrain
+		//   limb == low + high * 2^16
+		// Then lookup_key each half against the shared u16 range-check
+		// bus. The bus is balanced by a `U16RangeTableAir` instance in
+		// the same batch providing all values in [0, 2^16).
+		//
+		// Input columns a, b are NOT range-checked here — their range
+		// correctness is the caller's responsibility (the AIR that
+		// produced them, typically). Per the standard input/output
+		// AIR composition pattern.
+		//
+		// `carry[i]` is constrained to {-1, 0, 1} via the tertiary
+		// check above, so it doesn't need a u16 range check.
+		// `c_complement_borrow[i]` is constrained to {0, 1} via the
+		// boolean check, so likewise.
+		// `t` is constrained to {0, 1}.
+		//
+		// 16 prover-controlled u32 limbs × 2 halves = 32 lookup_key
+		// interactions per add operation.
+
+		let radix_u16 = AB::Expr::from_u32(RADIX_U16);
+
+		for i in 0..FIELD_NUM_LIMBS {
+			// c[i] limb-split: c[i] == c_lo[i] + c_hi[i] * 2^16
+			let c_split: AB::Expr =
+				c_lo[i].into() + c_hi[i].into() * radix_u16.clone() - c[i].into();
+			builder.assert_zero(c_split);
+
+			// c_complement[i] limb-split.
+			let cc_split: AB::Expr = c_comp_lo[i].into()
+				+ c_comp_hi[i].into() * radix_u16.clone()
+				- c_complement[i].into();
+			builder.assert_zero(cc_split);
+
+			// Lookup each half against the u16 range-check bus. count = +1
+			// per query; weight = 1 per `LookupBus::lookup_key` convention.
+			// The table AIR (in the same batch) provides matching entries
+			// with negative multiplicities; LogUp balances the bus.
+			builder.push_interaction(BUS_U16_RANGE, [c_lo[i]], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [c_hi[i]], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [c_comp_lo[i]], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [c_comp_hi[i]], AB::Expr::ONE, 1);
+		}
 	}
 }
 
@@ -340,7 +410,32 @@ pub fn build_field_add_trace_row(
 		"top-borrow closure violated: c >= p (witness builder bug or non-canonical c)",
 	);
 
-	FieldAddTraceRow { a: *a, b: *b, c, t, carry, c_complement, c_complement_borrow }
+	// Split each prover-controlled u32 limb into u16 halves for the
+	// range-check lookup (commit 3).
+	let mut c_lo = [0u16; FIELD_NUM_LIMBS];
+	let mut c_hi = [0u16; FIELD_NUM_LIMBS];
+	let mut c_comp_lo = [0u16; FIELD_NUM_LIMBS];
+	let mut c_comp_hi = [0u16; FIELD_NUM_LIMBS];
+	for i in 0..FIELD_NUM_LIMBS {
+		c_lo[i] = (c[i] & 0xFFFF) as u16;
+		c_hi[i] = (c[i] >> 16) as u16;
+		c_comp_lo[i] = (c_complement[i] & 0xFFFF) as u16;
+		c_comp_hi[i] = (c_complement[i] >> 16) as u16;
+	}
+
+	FieldAddTraceRow {
+		a: *a,
+		b: *b,
+		c,
+		t,
+		carry,
+		c_complement,
+		c_complement_borrow,
+		c_lo,
+		c_hi,
+		c_comp_lo,
+		c_comp_hi,
+	}
 }
 
 /// Trace row produced by [`build_field_add_trace_row`]. Holds the
@@ -359,6 +454,15 @@ pub struct FieldAddTraceRow {
 	/// Per-limb borrow chain for the canonical-form subtraction.
 	/// Each value ∈ {0, 1}; borrow[7] must equal 0.
 	pub c_complement_borrow: [u8; FIELD_NUM_LIMBS],
+	/// Low u16 half of each `c[i]`. Constrained by `c == lo + hi * 2^16`
+	/// and range-checked via the u16 lookup bus.
+	pub c_lo: [u16; FIELD_NUM_LIMBS],
+	/// High u16 half of each `c[i]`.
+	pub c_hi: [u16; FIELD_NUM_LIMBS],
+	/// Low u16 half of each `c_complement[i]`.
+	pub c_comp_lo: [u16; FIELD_NUM_LIMBS],
+	/// High u16 half of each `c_complement[i]`.
+	pub c_comp_hi: [u16; FIELD_NUM_LIMBS],
 }
 
 impl FieldAddTraceRow {
@@ -389,6 +493,18 @@ impl FieldAddTraceRow {
 			out.push(F::from_u32(v));
 		}
 		for &v in &self.c_complement_borrow {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.c_lo {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.c_hi {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.c_comp_lo {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.c_comp_hi {
 			out.push(F::from_u32(u32::from(v)));
 		}
 		debug_assert_eq!(out.len(), FIELD_ADD_NUM_COLS);

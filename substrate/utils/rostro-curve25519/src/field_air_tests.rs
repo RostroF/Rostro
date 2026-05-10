@@ -34,8 +34,9 @@ use rand::SeedableRng;
 
 use crate::field::{add, FIELD_NUM_LIMBS, P_MINUS_ONE_LIMBS};
 use crate::field_air::{
-	build_field_add_trace_row, FieldAddAir, COL_ADD_A, COL_ADD_B, COL_ADD_C, COL_ADD_CARRY,
-	COL_ADD_C_COMP, COL_ADD_C_COMP_BORROW, COL_ADD_T, FIELD_ADD_NUM_COLS,
+	build_field_add_trace_row, FieldAddAir, BUS_U16_RANGE, COL_ADD_A, COL_ADD_B, COL_ADD_C,
+	COL_ADD_CARRY, COL_ADD_C_COMP, COL_ADD_C_COMP_BORROW, COL_ADD_C_COMP_HI, COL_ADD_C_COMP_LO,
+	COL_ADD_C_HI, COL_ADD_C_LO, COL_ADD_T, FIELD_ADD_NUM_COLS,
 };
 use crate::oracle_tests_helpers::random_canonical;
 
@@ -263,7 +264,140 @@ fn column_layout_constants_are_stable() {
 	assert_eq!(COL_ADD_CARRY, 25);
 	assert_eq!(COL_ADD_C_COMP, 33);
 	assert_eq!(COL_ADD_C_COMP_BORROW, 41);
-	assert_eq!(FIELD_ADD_NUM_COLS, 49);
+	assert_eq!(COL_ADD_C_LO, 49);
+	assert_eq!(COL_ADD_C_HI, 57);
+	assert_eq!(COL_ADD_C_COMP_LO, 65);
+	assert_eq!(COL_ADD_C_COMP_HI, 73);
+	assert_eq!(FIELD_ADD_NUM_COLS, 81);
+}
+
+// ─── u32 range-check lookup integration tests (commit 3) ───────────────────
+//
+// These tests verify the constraint-side machinery for the limb-split
+// equation `limb == lo + hi * 2^16` and the bus-name plumbing. Actual
+// LogUp balance is end-to-end-tested when the full batch-stark setup
+// runs (downstream); these tests check the AIR emits the right
+// `push_interaction` calls and that limb-split constraints catch bad
+// witnesses.
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_corrupted_c_lo_split() {
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	let row = build_field_add_trace_row(&zero, &zero);
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	// Flip c_lo[0] — limb-split equation `c[0] == lo + hi * 2^16` fails
+	// because c[0] is unchanged but lo is wrong.
+	trace[COL_ADD_C_LO] = trace[COL_ADD_C_LO] + Goldilocks::ONE;
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_corrupted_c_comp_hi_split() {
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	let row = build_field_add_trace_row(&zero, &zero);
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	// Flip c_comp_hi[0].
+	trace[COL_ADD_C_COMP_HI] = trace[COL_ADD_C_COMP_HI] + Goldilocks::ONE;
+	run_eval(&trace);
+}
+
+#[test]
+fn bus_name_is_pinned() {
+	// The u16 range-check bus name MUST match the table AIR's bus name
+	// in production batches. If anyone renames either side without the
+	// other, lookups silently fail to balance and the proof rejects.
+	assert_eq!(BUS_U16_RANGE, "rostro-u16-range");
+}
+
+/// Recording builder for verifying bus interactions. Captures every
+/// `push_interaction` call instead of running constraint assertions.
+/// Used to count + inspect the lookup pushes the AIR emits.
+struct RecordingBuilder<'a> {
+	main_window: RowWindow<'a, Goldilocks>,
+	preprocessed_window: RowWindow<'a, Goldilocks>,
+	pushed: Vec<(alloc::string::String, Goldilocks, usize, u32)>,
+}
+
+impl<'a> AirBuilder for RecordingBuilder<'a> {
+	type F = Goldilocks;
+	type Expr = Goldilocks;
+	type Var = Goldilocks;
+	type MainWindow = RowWindow<'a, Goldilocks>;
+	type PreprocessedWindow = RowWindow<'a, Goldilocks>;
+	type PublicVar = Goldilocks;
+	type PeriodicVar = Goldilocks;
+	fn main(&self) -> Self::MainWindow {
+		self.main_window
+	}
+	fn preprocessed(&self) -> &Self::PreprocessedWindow {
+		&self.preprocessed_window
+	}
+	fn is_first_row(&self) -> Self::Expr {
+		Goldilocks::ONE
+	}
+	fn is_last_row(&self) -> Self::Expr {
+		Goldilocks::ONE
+	}
+	fn is_transition_window(&self, _: usize) -> Self::Expr {
+		Goldilocks::ZERO
+	}
+	fn assert_zero<I: Into<Self::Expr>>(&mut self, _x: I) {
+		// Recording only — don't enforce constraints.
+	}
+}
+
+impl<'a> InteractionBuilder for RecordingBuilder<'a> {
+	fn push_interaction<E: Into<Self::Expr>>(
+		&mut self,
+		bus_name: &str,
+		fields: impl IntoIterator<Item = E>,
+		count: impl Into<Self::Expr>,
+		count_weight: u32,
+	) {
+		let multiplicity: Goldilocks = count.into();
+		let collected: Vec<Goldilocks> = fields.into_iter().map(Into::into).collect();
+		self.pushed.push((
+			alloc::string::String::from(bus_name),
+			multiplicity,
+			collected.len(),
+			count_weight,
+		));
+	}
+	fn push_local_interaction(
+		&mut self,
+		tuples: impl IntoIterator<Item = (Vec<Self::Expr>, Self::Expr)>,
+	) {
+		tuples.into_iter().for_each(drop);
+	}
+}
+
+#[test]
+fn air_emits_32_u16_range_lookups_per_add() {
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	let row = build_field_add_trace_row(&zero, &zero);
+	let trace = row.to_trace_vec::<Goldilocks>();
+	let next_row = trace.clone();
+	let pp: Vec<Goldilocks> = Vec::new();
+	let pp_next: Vec<Goldilocks> = Vec::new();
+	let mut builder = RecordingBuilder {
+		main_window: RowWindow::from_two_rows(&trace, &next_row),
+		preprocessed_window: RowWindow::from_two_rows(&pp, &pp_next),
+		pushed: Vec::new(),
+	};
+	let air = FieldAddAir::new();
+	<FieldAddAir as Air<RecordingBuilder>>::eval(&air, &mut builder);
+
+	// 8 limbs × 4 halves per limb (c_lo, c_hi, c_comp_lo, c_comp_hi)
+	// = 32 lookup pushes.
+	assert_eq!(builder.pushed.len(), 32, "expected exactly 32 u16 range-check pushes");
+	for (bus, mult, arity, weight) in &builder.pushed {
+		assert_eq!(bus, BUS_U16_RANGE, "all pushes should be on the u16 range bus");
+		assert_eq!(*mult, Goldilocks::ONE, "queries carry count = +1");
+		assert_eq!(*arity, 1, "u16 lookups have exactly one field per message");
+		assert_eq!(*weight, 1, "queries carry weight = 1");
+	}
 }
 
 // ─── Canonical-form check rejection tests (commit 2) ───────────────────────
