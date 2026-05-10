@@ -3,7 +3,7 @@ name = "rostro-vm-bench"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "A/B benchmark harness for PVM-family VMs (javm vs polkavm) on Rostro-shop-shaped workloads"
+description = "A/B benchmark harness for RVM (Rostro Virtual Machine) implementations (javm vs polkavm) on Rostro-shop-shaped workloads"
 authors = ["Rostro Foundation"]
 publish = false
 
