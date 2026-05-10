@@ -40,14 +40,26 @@ rns-runtime-api = { workspace = true }
 pallet-rostro-bilateral-receipt = { workspace = true }
 pallet-rostro-canonical-files = { workspace = true }
 pallet-rostro-operator-state = { workspace = true }
+pallet-rostro-personhood = { workspace = true }
 pallet-rostro-rpc-method-policy = { workspace = true }
 rns-types = { workspace = true }
+rostro-multi-key = { path = "../../utils/rostro-multi-key", default-features = false }
 pallet-sassafras = { workspace = true, features = ["construct-dummy-ring-context"] }
 pallet-session = { workspace = true }
 pallet-sudo = { workspace = true }
 pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
+
+# zk-pki — production hardware-attestation primitive. Vendored
+# from ~/Polkadot/pki/ on 2026-05-08. The `test-utils` feature on
+# zk-pki-tpm exposes `NoopBindingProofVerifier`, the same dev-mode
+# binding verifier paseo uses pre-`DOTWAVE_SIGNING_CERT_HASH`. The
+# production `ProductionBindingProofVerifier` swap happens once
+# dotwave's signing cert is final.
+zk-pki-pallet = { workspace = true }
+zk-pki-primitives = { workspace = true }
+zk-pki-tpm = { workspace = true, features = ["test-utils"] }
 
 # Primitives
 sp-api = { workspace = true }
@@ -88,14 +100,19 @@ std = [
 	"pallet-rostro-bilateral-receipt/std",
 	"pallet-rostro-canonical-files/std",
 	"pallet-rostro-operator-state/std",
+	"pallet-rostro-personhood/std",
 	"pallet-rostro-rpc-method-policy/std",
 	"rns-types/std",
+	"rostro-multi-key/std",
 	"pallet-sassafras/std",
 	"pallet-session/std",
 	"pallet-sudo/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
+	"zk-pki-pallet/std",
+	"zk-pki-primitives/std",
+	"zk-pki-tpm/std",
 	"sp-api/std",
 	"sp-block-builder/std",
 	"sp-consensus-grandpa/std",

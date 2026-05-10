@@ -1,0 +1,28 @@
+[package]
+name = "rostro-poseidon-air"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Plonky3 AIR for the Goldilocks-Poseidon2 permutation (WIDTH=8). Standalone hash AIR shared across PoP per-algorithm AIRs (passport_attest_aa_*, passport_attest_ca_*, liveness_facematch) via cross-table lookups. Round constants + linear-layer matrices sourced from p3-goldilocks's audited tables; constraint set keeps degree ≤ 3 via intermediate witness columns for S-box (x^2, x^4) products."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+p3-air        = { workspace = true }
+p3-field      = { workspace = true }
+p3-goldilocks = { workspace = true }
+p3-matrix     = { workspace = true }
+p3-poseidon2  = { workspace = true }
+
+[dev-dependencies]
+p3-goldilocks = { workspace = true, default-features = true }
+p3-symmetric  = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

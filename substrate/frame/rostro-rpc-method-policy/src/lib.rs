@@ -180,6 +180,17 @@ pub const V0_WELL_KNOWN_POLICIES: &[(&[u8], MethodPolicy)] = &[
 	(b"PnsStorageApi_resolve_name", MethodPolicy::PublicGated),
 	(b"PnsStorageApi_get_listing", MethodPolicy::PublicGated),
 	(b"PnsStorageApi_lookup_by_name", MethodPolicy::PublicGated),
+
+	// zk-pki cert / EK / chain-validity queries. Same PublicGated
+	// posture as RNS: cert state is public-by-design (it's the
+	// hardware-attestation registry), shield rate-limits volume.
+	(b"ZkPkiApi_cert_status", MethodPolicy::PublicGated),
+	(b"ZkPkiApi_certs_by_issuer", MethodPolicy::PublicGated),
+	(b"ZkPkiApi_certs_by_user", MethodPolicy::PublicGated),
+	(b"ZkPkiApi_certs_by_root", MethodPolicy::PublicGated),
+	(b"ZkPkiApi_entity_status", MethodPolicy::PublicGated),
+	(b"ZkPkiApi_ek_lookup", MethodPolicy::PublicGated),
+	(b"ZkPkiApi_chain_valid_at", MethodPolicy::PublicGated),
 ];
 
 /// Runtime API exposed for the `rostro-rpc-shield` middleware to query

@@ -1,0 +1,91 @@
+[package]
+name = "pallet-rostro-personhood"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Proof-of-personhood layer above zk-pki. Verifies a passport_attest + liveness_facematch Groth16 proof pair (BN254) bound to an active zk-pki HW cert via a fresh HIP, stores per-AccountId cert records carrying TTL + adult bool + seat_id. One passport = one cert globally, enforced via deterministic on-chain nullifier. PoP cert is bound to the SS58, not to a specific HW cert — a user with multiple HW-attested devices on the same SS58 votes once. Direct mint, no issuer; personhood doesn't require permission. SRT-gated rotation of CSCA + seats merkle roots and circuit verifying keys."
+publish = false
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { features = ["derive", "max-encoded-len"], workspace = true }
+log = { workspace = true }
+scale-info = { features = ["derive"], workspace = true }
+
+frame-benchmarking = { optional = true, workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+
+# Groth16 verification — TRANSITIONAL. The arkworks stack here served
+# the original Groth16/BN254 commitment; per `pop_design_section1_circuits.md`
+# update on 2026-05-09 PoP migrates to Plonky3 from day 1. This block
+# stays only until the Plonky3 verifier is wired and the cutover lands;
+# at that point the arkworks deps + the existing `mod verifier` block
+# get deleted in a single commit per the no-cross-purpose-files rule.
+ark-bn254     = { workspace = true, features = ["curve"] }
+ark-ff        = { workspace = true }
+ark-groth16   = { workspace = true }
+ark-serialize = { workspace = true }
+ark-snark     = { workspace = true }
+
+# Plonky3 — the production verifier path for PoP. STARK over Goldilocks,
+# Poseidon2 in-circuit hash, no trusted setup, post-quantum-secure by
+# construction. Scaffolding lives in `src/plonky3_verifier.rs` + `src/airs/*`,
+# strictly siloed from the arkworks block above.
+p3-air        = { workspace = true }
+p3-field      = { workspace = true }
+p3-goldilocks = { workspace = true }
+p3-poseidon2  = { workspace = true }
+
+# Hardware Integrity Proof types from zkpki. The personhood pallet
+# accepts a CanonicalHipProof on mint and dispatches verification
+# through the configured ZkPkiInterface — it does not duplicate
+# zkpki's HIP verifier crate.
+zk-pki-primitives = { workspace = true }
+
+[dev-dependencies]
+sp-keyring = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"frame-benchmarking?/std",
+	"frame-support/std",
+	"frame-system/std",
+	"log/std",
+	"scale-info/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
+	"sp-std/std",
+	"ark-bn254/std",
+	"ark-ff/std",
+	"ark-groth16/std",
+	"ark-serialize/std",
+	"zk-pki-primitives/std",
+]
+runtime-benchmarks = [
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]

@@ -1,0 +1,104 @@
+[package]
+name = "zk-pki-runtime"
+description = "Reference runtime wiring the ZK-PKI pallet in, for integration testing."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[dev-dependencies]
+sp-io             = { workspace = true, default-features = true }
+# Needed only by the mint_cert integration tests to derive a valid
+# P-256 pubkey from a fixed scalar (the mock verifier calls
+# `DevicePublicKey::new_p256(..)` which enforces curve-point validity).
+p256              = { workspace = true, features = ["std"] }
+
+[dependencies]
+codec             = { features = ["derive"], workspace = true }
+scale-info        = { features = ["derive"], workspace = true }
+frame-executive   = { workspace = true }
+frame-support     = { workspace = true }
+frame-system      = { workspace = true }
+frame-system-rpc-runtime-api = { workspace = true }
+frame-try-runtime = { optional = true, workspace = true }
+pallet-balances   = { workspace = true }
+pallet-proxy      = { workspace = true }
+pallet-timestamp  = { workspace = true }
+pallet-sudo       = { workspace = true }
+pallet-transaction-payment = { workspace = true }
+pallet-transaction-payment-rpc-runtime-api = { workspace = true }
+sp-api            = { workspace = true }
+sp-block-builder  = { workspace = true }
+sp-core           = { workspace = true }
+sp-genesis-builder = { workspace = true }
+sp-inherents      = { workspace = true }
+sp-offchain       = { workspace = true }
+sp-runtime        = { workspace = true }
+sp-session        = { workspace = true }
+sp-storage        = { workspace = true }
+sp-transaction-pool = { workspace = true }
+sp-version        = { workspace = true }
+zk-pki-pallet     = { workspace = true }
+zk-pki-primitives = { workspace = true }
+# Test-only runtime pulls in `zk-pki-tpm` with the `test-utils` feature
+# so the bypass-crypto `NoopBindingProofVerifier` is available for the
+# pallet's `BindingProofVerifier` config slot. Never enable this on a
+# production-facing runtime.
+zk-pki-tpm        = { workspace = true, features = ["test-utils"] }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-executive/std",
+    "frame-support/std",
+    "frame-system-rpc-runtime-api/std",
+    "frame-system/std",
+    "pallet-balances/std",
+    "pallet-proxy/std",
+    "pallet-sudo/std",
+    "pallet-timestamp/std",
+    "pallet-transaction-payment-rpc-runtime-api/std",
+    "pallet-transaction-payment/std",
+    "scale-info/std",
+    "sp-api/std",
+    "sp-block-builder/std",
+    "sp-core/std",
+    "sp-genesis-builder/std",
+    "sp-inherents/std",
+    "sp-offchain/std",
+    "sp-runtime/std",
+    "sp-session/std",
+    "sp-storage/std",
+    "sp-transaction-pool/std",
+    "sp-version/std",
+    "zk-pki-pallet/std",
+    "zk-pki-primitives/std",
+    "zk-pki-tpm/std",
+]
+runtime-benchmarks = [
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "pallet-proxy/runtime-benchmarks",
+    "pallet-sudo/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
+    "pallet-transaction-payment/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    "zk-pki-pallet/runtime-benchmarks",
+]
+try-runtime = [
+    "frame-executive/try-runtime",
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "frame-try-runtime/try-runtime",
+    "pallet-balances/try-runtime",
+    "pallet-proxy/try-runtime",
+    "pallet-sudo/try-runtime",
+    "pallet-timestamp/try-runtime",
+    "pallet-transaction-payment/try-runtime",
+    "sp-runtime/try-runtime",
+    "zk-pki-pallet/try-runtime",
+]

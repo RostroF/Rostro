@@ -60,8 +60,9 @@ use sp_runtime::{
 		BlakeTwo256, Block as BlockT, ConvertInto, IdentifyAccount, NumberFor, Verify,
 	},
 	transaction_validity::{TransactionSource, TransactionValidity},
-	ApplyExtrinsicResult, DispatchError, MultiSignature, MultiSigner,
+	ApplyExtrinsicResult, DispatchError,
 };
+use rostro_multi_key::{RostroSignature, RostroSigner};
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
@@ -85,7 +86,12 @@ pub use sp_runtime::{Perbill, Permill};
 
 // ─── Type aliases ───────────────────────────────────────────────────────────
 
-pub type Signature = MultiSignature;
+// Multi-scheme signature primitive — see `rostro-multi-key` crate docs.
+// Sr25519 + Ed25519 + Ecdsa with Option-C AccountId derivation:
+// Ed25519 source-matches Solana/Aptos/Sui/Cosmos (raw pubkey),
+// Ecdsa source-matches Ethereum (last-20 of keccak256(uncompressed)),
+// Sr25519 uses tagged blake2_256(0x01 || pubkey) for namespace separation.
+pub type Signature = RostroSignature;
 pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 pub type Nonce = u32;
 pub type Balance = u128;
@@ -680,8 +686,162 @@ impl pallet_rostro_bilateral_receipt::AtomicMintHook<AccountId, Balance>
 impl pallet_rostro_bilateral_receipt::Config for Runtime {
 	type Currency = Balances;
 	type Signature = Signature;
-	type AccountPublic = MultiSigner;
+	type AccountPublic = RostroSigner;
 	type AtomicMintHook = OperatorStateMintAdapter;
+}
+
+// ─── zk-pki Configuration ─────────────────────────────────────────────────
+// Hardware-attestation primitive. Binds a device's TPM EK / Strongbox
+// key to an on-chain commitment, then verifies mime_wrap Groth16 proofs
+// against that commitment. The same primitive carries every PoP cert.
+//
+// Constants tracked from paseo's posture: 30-day grace, 5-year root TTL,
+// 90-day min root, 45-day challenge window, fee tiers PoP/Packed/None.
+// Block cadence is the gemini value (DAYS = 24h of HOURS-of-MINUTES at
+// MILLISECS_PER_BLOCK), so day counts translate directly.
+parameter_types! {
+	pub const PkiInactivePurgePeriod: BlockNumber    = 30 * DAYS;
+	pub const PkiContractOfferTtlBlocks: BlockNumber = DAYS;
+	pub const PkiMaxRootTtlBlocks: BlockNumber       = 5 * 365 * DAYS;
+	pub const PkiMaxIssuersPerRoot: u32              = 5;
+	pub const PkiChallengeWindowBlocks: BlockNumber  = 45 * DAYS;
+	pub const PkiCertDeposit: Balance                = ROSTO;
+	pub const PkiOfferDeposit: Balance               = ROSTO / 10;
+	pub const PkiMinRootTtlBlocks: BlockNumber       = 90 * DAYS;
+	pub const PkiMinIssuerTtlBlocks: BlockNumber     = 30 * DAYS;
+	pub const PkiTtlCheckInterval: BlockNumber       = DAYS;
+	pub const PkiTemplateDeposit: Balance            = 10 * ROSTO;
+	pub const PkiMaxTemplatesPerIssuer: u32          = 256;
+	pub const PkiProtocolFeeBasisPoints: u32         = 1_000;
+	pub const PkiBlockCreatorCapBasisPoints: u32     = 4_000;
+	pub const PkiDepositBasisPoints: u32             = 500;
+	pub const PkiMinDeposit: Balance                 = ROSTO / 10;
+	pub const PkiMintFeePoP: Balance                 = ROSTO;
+	pub const PkiMintFeePacked: Balance              = ROSTO + ROSTO / 2;
+	pub const PkiMintFeeNone: Balance                = 2 * ROSTO;
+	// Burn-hole until treasury wires up — same posture as
+	// `PnsCustodianAccount`. Swap to a real treasury sink once
+	// `pallet-treasury` lands.
+	pub PkiProtocolFeeRecipient: AccountId = AccountId::new([0u8; 32]);
+}
+
+impl zk_pki_pallet::Config for Runtime {
+	type InactivePurgePeriod = PkiInactivePurgePeriod;
+	type ContractOfferTtlBlocks = PkiContractOfferTtlBlocks;
+	type MaxRootTtlBlocks = PkiMaxRootTtlBlocks;
+	type MaxIssuersPerRoot = PkiMaxIssuersPerRoot;
+	type ChallengeWindowBlocks = PkiChallengeWindowBlocks;
+	type CertDeposit = PkiCertDeposit;
+	type OfferDeposit = PkiOfferDeposit;
+	type MinRootTtlBlocks = PkiMinRootTtlBlocks;
+	type MinIssuerTtlBlocks = PkiMinIssuerTtlBlocks;
+	type TtlCheckInterval = PkiTtlCheckInterval;
+	type TemplateDeposit = PkiTemplateDeposit;
+	type MaxTemplatesPerIssuer = PkiMaxTemplatesPerIssuer;
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type Currency = Balances;
+	type FindAuthor = SassafrasAuthorAdapter;
+	type ProtocolFeeRecipient = PkiProtocolFeeRecipient;
+	type ProtocolFeeBasisPoints = PkiProtocolFeeBasisPoints;
+	type BlockCreatorCapBasisPoints = PkiBlockCreatorCapBasisPoints;
+	type DepositBasisPoints = PkiDepositBasisPoints;
+	type MinDeposit = PkiMinDeposit;
+	type MintFeePoP = PkiMintFeePoP;
+	type MintFeePacked = PkiMintFeePacked;
+	type MintFeeNone = PkiMintFeeNone;
+	// Per-call-unique EK-hash test verifier. Production must swap
+	// to the real `TpmAttestationVerifier` once mainnet is staffing
+	// the manufacturer-intermediate whitelist.
+	type Attestation = zk_pki_primitives::traits::TpmTestAttestationVerifier;
+	// Bypass-crypto binding verifier (decodes `MockVerdict` from
+	// `integrity_blob`). Production swap is
+	// `zk_pki_tpm::ProductionBindingProofVerifier` — pending the
+	// real `DOTWAVE_SIGNING_CERT_HASH` constant landing.
+	type BindingProofVerifier =
+		zk_pki_tpm::test_mock_verifier::NoopBindingProofVerifier;
+	// Placeholder weights — replace with `--pallet zk-pki-pallet
+	// --extrinsic '*'` benchmark output before mainnet.
+	type WeightInfo = zk_pki_pallet::weights::SubstrateWeight<Runtime>;
+	// pallet_proxy is not in gemini-runtime — we use Noop. Operator
+	// authorization on Rostro is RNS-rooted, not proxy-rooted.
+	type ProxyValidator = zk_pki_primitives::proxy::NoopProxyValidator;
+}
+
+// ─── Personhood (PoP) Configuration ───────────────────────────────────────
+// Proof-of-personhood layer above zkpki. mint_pop verifies a
+// passport_attest + liveness_facematch Groth16 pair (BN254) bound to
+// the caller's active zkpki HW cert via a fresh HIP. Single passport
+// = single cert globally (deterministic nullifier). PoP cert bound
+// to SS58, so multi-device users (one SS58 spans devices via
+// restored seed) still vote once.
+//
+// MaxProofAge=600 blocks (~1 hour at 6s/block) — locked §1.
+
+parameter_types! {
+	pub const PopMaxProofAge: BlockNumber = 600;
+}
+
+/// Adapter that delegates `pallet_rostro_personhood::ZkPkiInterface`
+/// calls to the local zkpki pallet. The interface keeps the
+/// personhood pallet decoupled from a hard `T: zk_pki_pallet::Config`
+/// bound — gemini-runtime is the only crate that knows about both.
+pub struct ZkPkiPersonhoodAdapter;
+
+impl pallet_rostro_personhood::ZkPkiInterface<AccountId, BlockNumber>
+	for ZkPkiPersonhoodAdapter
+{
+	fn verify_cert_and_hip(
+		thumbprint: sp_core::H256,
+		account: &AccountId,
+		hip_proof: &zk_pki_primitives::hip::CanonicalHipProof,
+		challenge_nonce: &[u8; 32],
+	) -> Result<(), pallet_rostro_personhood::ZkPkiError> {
+		let result = zk_pki_pallet::Pallet::<Runtime>::verify_active_cert_and_hip(
+			thumbprint.0,
+			account,
+			hip_proof,
+			challenge_nonce,
+		);
+		// Translate zkpki's pallet errors into the small enum
+		// personhood understands. Anything other than the four
+		// listed reasons is funnelled into HipFailed — those are
+		// the only paths `verify_active_cert_and_hip` returns.
+		result.map_err(|e| {
+			use pallet_rostro_personhood::ZkPkiError;
+			let ev: zk_pki_pallet::Error<Runtime> = e;
+			match ev {
+				zk_pki_pallet::Error::<Runtime>::CertNotFound => ZkPkiError::CertNotFound,
+				zk_pki_pallet::Error::<Runtime>::NotCertHolder => ZkPkiError::CertNotOwned,
+				zk_pki_pallet::Error::<Runtime>::CertNotActive
+				| zk_pki_pallet::Error::<Runtime>::CertExpired => ZkPkiError::CertNotGood,
+				_ => ZkPkiError::HipFailed,
+			}
+		})
+	}
+
+	fn hip_attested_at(
+		_hip_proof: &zk_pki_primitives::hip::CanonicalHipProof,
+	) -> Option<BlockNumber> {
+		// CanonicalHipProof's freshness comes from the
+		// challenge_nonce being bound to a recent chain anchor
+		// (which the personhood circuit enforces). The proof
+		// itself doesn't carry a chain block number, so report
+		// None — personhood's mint_pop already handles that
+		// case (anchor-binding is the freshness mechanism).
+		None
+	}
+}
+
+impl pallet_rostro_personhood::Config for Runtime {
+	type MaxProofAge = PopMaxProofAge;
+	type ZkPki = ZkPkiPersonhoodAdapter;
+	// Production Groth16 verifier (ark-groth16 over BN254). Same
+	// stack zk-pki uses for mime_wrap.
+	type ProofVerifier = pallet_rostro_personhood::ArkProofVerifier;
+	// SrtOrigin stubbed at EnsureRoot until the SecurityResponseTeam
+	// pallet lands. Same posture as RNS reserved-list and other
+	// SRT-gated extrinsics in this runtime.
+	type SrtOrigin = frame_system::EnsureRoot<AccountId>;
 }
 
 // ─── construct_runtime ─────────────────────────────────────────────────────
@@ -731,6 +891,20 @@ construct_runtime!(
 		// Bilateral receipts — customer↔operator non-repudiation +
 		// atomic operator-state mint via OperatorStateMintAdapter.
 		BilateralReceipt: pallet_rostro_bilateral_receipt,
+
+		// zk-pki — hardware-attestation primitive. Binds device EK/
+		// Strongbox key to on-chain commitment; verifies mime_wrap
+		// Groth16 proofs. Foundation for personhood (8e) and
+		// validator slash-on-rejoin attestations (7b step 6).
+		ZkPki: zk_pki_pallet,
+
+		// Personhood (PoP) — verifies a passport_attest +
+		// liveness_facematch Groth16 pair bound to an active zkpki
+		// cert via a fresh HIP. One passport → one cert
+		// (deterministic nullifier). One SS58 → one PoP cert. The
+		// personhood layer mime_wrap is orthogonal to (HW
+		// attestation), bound only via the SS58 holder.
+		Personhood: pallet_rostro_personhood,
 	}
 );
 
@@ -1073,6 +1247,75 @@ impl_runtime_apis! {
 			let base_node = <RnsBaseNode as frame_support::traits::Get<rns_types::DomainHash>>::get();
 			let node = rns_types::parse_name_to_node(&name, &base_node).unwrap_or_default();
 			pallet_rns_resolvers::resolvers::Pallet::<Runtime>::lookup(node, record_types)
+		}
+
+		fn account_dashboard(owner: AccountId) -> rns_types::AccountDashboard {
+			let primary_name =
+				pallet_rns_registrar::registrar::OwnerToPrimaryName::<Runtime>::get(&owner);
+			let subnames =
+				pallet_rns_registrar::registry::AccountToSubnames::<Runtime>::iter_prefix(&owner)
+					.map(|(hash, _)| hash)
+					.collect();
+			let pending_subname_offers =
+				pallet_rns_registrar::registry::OfferedToAccount::<Runtime>::iter_prefix(&owner)
+					.map(|(hash, _)| hash)
+					.collect();
+			let pending_name_offers = pallet_rns_registrar::registrar::OfferedNames::<Runtime>::iter()
+				.filter_map(|(node, record)| {
+					if record.recipient == owner { Some(node) } else { None }
+				})
+				.collect();
+			rns_types::AccountDashboard {
+				primary_name,
+				subnames,
+				pending_subname_offers,
+				pending_name_offers,
+			}
+		}
+	}
+
+	// zk-pki runtime API — cert / EK / chain-validity queries. Each
+	// method forwards to a `pallet::Pallet::<Runtime>::query_*`
+	// function. Exposed via `state_call`; corresponding entries in
+	// `V0_WELL_KNOWN_POLICIES` classify them as `PublicGated` so
+	// rostro-rpc-shield rate-limits but does not deny.
+	impl zk_pki_primitives::runtime_api::ZkPkiApi<Block, AccountId> for Runtime {
+		fn cert_status(
+			thumbprint: [u8; 32],
+		) -> Option<zk_pki_primitives::runtime_api::CertStatusResponse<AccountId>> {
+			zk_pki_pallet::Pallet::<Runtime>::query_cert_status(thumbprint)
+		}
+
+		fn certs_by_issuer(
+			issuer: AccountId,
+		) -> Vec<zk_pki_primitives::runtime_api::CertSummary> {
+			zk_pki_pallet::Pallet::<Runtime>::query_certs_by_issuer(issuer)
+		}
+
+		fn certs_by_user(
+			user: AccountId,
+		) -> Vec<zk_pki_primitives::runtime_api::CertSummary> {
+			zk_pki_pallet::Pallet::<Runtime>::query_certs_by_user(user)
+		}
+
+		fn certs_by_root(
+			root: AccountId,
+		) -> Vec<zk_pki_primitives::runtime_api::CertSummary> {
+			zk_pki_pallet::Pallet::<Runtime>::query_certs_by_root(root)
+		}
+
+		fn entity_status(
+			address: AccountId,
+		) -> Option<zk_pki_primitives::runtime_api::EntityStatusResponse<AccountId>> {
+			zk_pki_pallet::Pallet::<Runtime>::query_entity_status(address)
+		}
+
+		fn ek_lookup(root: AccountId, ek_hash: [u8; 32]) -> Option<[u8; 32]> {
+			zk_pki_pallet::Pallet::<Runtime>::query_ek_lookup(root, ek_hash)
+		}
+
+		fn chain_valid_at(thumbprint: [u8; 32], block_number: u64) -> bool {
+			zk_pki_pallet::Pallet::<Runtime>::query_chain_valid_at(thumbprint, block_number)
 		}
 	}
 }

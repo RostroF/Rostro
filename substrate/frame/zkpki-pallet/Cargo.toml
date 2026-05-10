@@ -1,0 +1,82 @@
+[package]
+name = "zk-pki-pallet"
+description = "FRAME pallet: extrinsics, storage, on_initialize, lookup table, EK registry, TTL, and atomic ops."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lints]
+workspace = true
+
+[dependencies]
+codec           = { features = ["derive"], workspace = true }
+scale-info      = { features = ["derive"], workspace = true }
+frame-benchmarking = { optional = true, workspace = true }
+frame-support   = { workspace = true }
+frame-system    = { workspace = true }
+sp-core         = { workspace = true }
+sp-io           = { workspace = true }
+sp-runtime      = { workspace = true }
+sp-std          = { workspace = true }
+zk-pki-primitives = { workspace = true }
+zk-pki-tpm      = { workspace = true }
+zk-pki-integrity = { workspace = true }
+zk-pki-hip      = { workspace = true }
+
+# Mime-wrap Groth16 verifier kernel (Stage 5b migration). Same
+# arkworks crates as the Stage 4 standalone pallet. ark-bn254 needs
+# `curve` explicitly (default-features=false strips it; `Bn254` and
+# `Fr` exports live behind that feature).
+ark-bn254       = { version = "0.5", default-features = false, features = ["curve"] }
+ark-groth16     = { version = "0.5", default-features = false }
+ark-serialize   = { version = "0.5", default-features = false }
+ark-snark       = { version = "0.5", default-features = false }
+ark-ff          = { version = "0.5", default-features = false }
+
+[dev-dependencies]
+sp-core    = { workspace = true, default-features = true }
+sp-io      = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "scale-info/std",
+    "sp-core/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "zk-pki-primitives/std",
+    "zk-pki-tpm/std",
+    "zk-pki-integrity/std",
+    "zk-pki-hip/std",
+    "ark-bn254/std",
+    "ark-groth16/std",
+    "ark-serialize/std",
+    "ark-ff/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    # Needed for `MockVerdict` in benchmark payload construction.
+    # NoopBindingProofVerifier decodes integrity_blob as MockVerdict;
+    # the benchmark has to supply a SCALE-encoded Tpm verdict.
+    "zk-pki-tpm/test-utils",
+]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
+]

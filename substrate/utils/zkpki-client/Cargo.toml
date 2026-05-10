@@ -1,0 +1,24 @@
+[package]
+name = "zk-pki-client"
+description = "Mobile app Rust layer: TPM extrinsic construction, TOTP handoff, contract signing."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+codec             = { features = ["derive"], workspace = true }
+sp-core           = { workspace = true }
+sp-runtime        = { workspace = true }
+zk-pki-primitives = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "sp-core/std",
+    "sp-runtime/std",
+    "zk-pki-primitives/std",
+]

@@ -1,0 +1,36 @@
+[package]
+name = "tpm2-hip-probe"
+description = "Windows TPM 2.0 HIP proof probe. Emits CanonicalHipProof SCALE hex via TBS."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "tpm2-hip-probe"
+path = "src/main.rs"
+
+# Shared (platform-agnostic) deps — codec for SCALE encoding the
+# canonical proof struct, clap for CLI, hex for emission, and the
+# primitives crate for the canonical struct definition itself.
+[dependencies]
+codec = { workspace = true, default-features = true }
+frame-support = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
+zk-pki-primitives = { workspace = true, default-features = true }
+hex = { version = "0.4", features = ["std"] }
+clap = { version = "4", features = ["derive"] }
+
+# Windows-only: the `windows` crate is pure Rust FFI to system DLLs,
+# no external C library required (unlike tss-esapi which needs the
+# tpm2-tss library installed). TBS functions live under
+# `Win32::System::TpmBaseServices` in 0.58 (the older
+# `Win32::Security::Tpm` path was removed). The single feature flag
+# `Win32_System_TpmBaseServices` transitively pulls in
+# `Win32_System`, `Win32`, and `Win32_Foundation`.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_System_TpmBaseServices",
+] }
