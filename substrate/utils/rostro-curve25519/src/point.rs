@@ -154,18 +154,27 @@ pub fn add(p1: &EdwardsPoint, p2: &EdwardsPoint) -> EdwardsPoint {
 	}
 }
 
-/// Bit width of canonical Ristretto255 scalars (group order
-/// `ell = 2^252 + 27742317777372353535851937790883648493`, so bit 252
-/// is the high bit of any in-range scalar).
-pub const SCALAR_NUM_BITS: usize = 253;
+/// Bit width of the scalar in the per-bit double-and-add loop. Set to
+/// 256 (not 253) so the corresponding multi-row AIR has a power-of-2
+/// trace height — Plonky3 requires this.
+///
+/// Mathematically, the Ristretto255 group order
+/// `ell = 2^252 + 27742317777372353535851937790883648493`
+/// is < `2^253`, so the top 3 bits of any canonical scalar (i.e. one
+/// produced by `Scalar::from_bytes_mod_order` / `Scalar::to_bytes`)
+/// are zero. Iterating those 3 extra zero bits is a no-op, and the
+/// result is identical to a 253-bit loop. Callers passing
+/// non-canonical scalars (top 3 bits set) get a defined-but-different
+/// answer; the AIR does not enforce canonicity.
+pub const SCALAR_NUM_BITS: usize = 256;
 
 /// Left-to-right double-and-add scalar multiplication on Edwards25519.
 ///
-/// Computes `scalar · point` over the 253 high-to-low bits of
-/// `scalar`. Iterates **exactly 253 times regardless of scalar**:
-/// uniform per-bit work is what lets the corresponding AIR (P-tier
-/// commits S2-S4) have a uniform per-row structure and avoids any
-/// early-exit branch that would leak the scalar's bit length.
+/// Computes `scalar · point` over the 256 high-to-low bits of
+/// `scalar`. Iterates **exactly 256 times regardless of scalar**:
+/// uniform per-bit work is what lets the corresponding AIR (commits
+/// S3-S4) have a uniform per-row structure and avoids any early-exit
+/// branch that would leak the scalar's bit length.
 ///
 /// `scalar` is little-endian (matches `curve25519-dalek::Scalar`'s
 /// 32-byte canonical form). Bit `i` is `(scalar[i/8] >> (i % 8)) & 1`.
