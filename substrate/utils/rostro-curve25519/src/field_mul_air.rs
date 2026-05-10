@@ -105,8 +105,13 @@ use p3_field::PrimeCharacteristicRing;
 use p3_lookup::InteractionBuilder;
 use p3_matrix::dense::RowMajorMatrix;
 
-use crate::field::{wide_mul, FIELD_NUM_LIMBS};
-use crate::field_air::{BUS_U16_RANGE, RADIX_U16};
+use num_bigint::BigUint;
+use num_integer::Integer;
+
+use crate::field::{
+	bytes_to_limbs, limbs_to_bytes, wide_mul, FIELD_NUM_LIMBS, P_LIMBS, P_MINUS_ONE_LIMBS,
+};
+use crate::field_air::{BUS_U16_RANGE, RADIX_LIMB, RADIX_U16};
 
 /// Number of u32 limbs in the wide product (16 = 2 × FIELD_NUM_LIMBS).
 pub const WIDE_NUM_LIMBS: usize = 2 * FIELD_NUM_LIMBS;
@@ -143,8 +148,67 @@ pub const COL_MUL_CARRY: usize = COL_MUL_WIDE_HI + WIDE_NUM_LIMBS;
 pub const COL_MUL_CARRY_LO: usize = COL_MUL_CARRY + NUM_COLS_SCHOOLBOOK;
 /// High u16 of each carry[k] (32 cells).
 pub const COL_MUL_CARRY_HI: usize = COL_MUL_CARRY_LO + NUM_COLS_SCHOOLBOOK;
-/// Total columns for FieldMulAir M1 (192).
+/// Snapshot of the M1 column count (192), kept for historical
+/// reference and column-layout pin tests. Use [`FIELD_MUL_NUM_COLS`]
+/// for the current full AIR width.
 pub const FIELD_MUL_M1_NUM_COLS: usize = COL_MUL_CARRY_HI + NUM_COLS_SCHOOLBOOK;
+
+// ─── M2 columns: Barrett reduction witnesses ───────────────────────────────
+//
+// q is the witnessed quotient `wide / p` (integer division). Since
+// a, b < p ≈ 2^255, the wide product < p^2 < 2^510, and q < p, so q
+// fits in 8 u32 limbs (the same canonical shape as a, b, c). No
+// extra top bit needed.
+//
+// qp_wide is q * p computed via a second schoolbook (mirrors the
+// a*b schoolbook structurally; separate witness block per silo).
+//
+// The subtraction wide - qp_wide == c (with c < p) is verified
+// limb-wise with a borrow chain `qp_borrow[0..16]`. The top borrow
+// (qp_borrow[15]) is pinned to 0, which enforces wide >= qp_wide.
+// For limbs m ∈ [8..16), the equation says (wide - qp_wide - borrow_in)
+// == 0 since c has no contribution there; this is what forces wide
+// to actually equal qp_wide + c (rather than wide >> 256 + something).
+
+/// Witnessed Barrett quotient `q = floor(wide / p)` (8 u32 limbs).
+pub const COL_MUL_Q: usize = FIELD_MUL_M1_NUM_COLS;
+/// Low u16 of each q[i] (8 cells).
+pub const COL_MUL_Q_LO: usize = COL_MUL_Q + FIELD_NUM_LIMBS;
+/// High u16 of each q[i] (8 cells).
+pub const COL_MUL_Q_HI: usize = COL_MUL_Q_LO + FIELD_NUM_LIMBS;
+/// `q * p` as a 16 u32-limb wide value (mirrors `wide_product` shape).
+pub const COL_MUL_QP_WIDE: usize = COL_MUL_Q_HI + FIELD_NUM_LIMBS;
+/// Low u16 of each qp_wide[m] (16 cells).
+pub const COL_MUL_QP_WIDE_LO: usize = COL_MUL_QP_WIDE + WIDE_NUM_LIMBS;
+/// High u16 of each qp_wide[m] (16 cells).
+pub const COL_MUL_QP_WIDE_HI: usize = COL_MUL_QP_WIDE_LO + WIDE_NUM_LIMBS;
+/// Schoolbook column carry chain for `q * p` (32 cells, qp_carry[31]
+/// pinned to 0 by top-balance closure).
+pub const COL_MUL_QP_CARRY: usize = COL_MUL_QP_WIDE_HI + WIDE_NUM_LIMBS;
+/// Low u16 of each qp_carry[k] (32 cells).
+pub const COL_MUL_QP_CARRY_LO: usize = COL_MUL_QP_CARRY + NUM_COLS_SCHOOLBOOK;
+/// High u16 of each qp_carry[k] (32 cells).
+pub const COL_MUL_QP_CARRY_HI: usize = COL_MUL_QP_CARRY_LO + NUM_COLS_SCHOOLBOOK;
+/// Output of the modular multiply: `c = (a * b) mod p`, 8 u32 limbs.
+pub const COL_MUL_C: usize = COL_MUL_QP_CARRY_HI + NUM_COLS_SCHOOLBOOK;
+/// Low u16 of each c[i] (8 cells).
+pub const COL_MUL_C_LO: usize = COL_MUL_C + FIELD_NUM_LIMBS;
+/// High u16 of each c[i] (8 cells).
+pub const COL_MUL_C_HI: usize = COL_MUL_C_LO + FIELD_NUM_LIMBS;
+/// `c_complement = p_minus_one - c` (8 u32 limbs) for canonical-form check.
+pub const COL_MUL_C_COMP: usize = COL_MUL_C_HI + FIELD_NUM_LIMBS;
+/// Per-limb borrow chain for the canonical-form subtraction
+/// (8 booleans, borrow[7] pinned to 0).
+pub const COL_MUL_C_COMP_BORROW: usize = COL_MUL_C_COMP + FIELD_NUM_LIMBS;
+/// Low u16 of each c_complement[i] (8 cells).
+pub const COL_MUL_C_COMP_LO: usize = COL_MUL_C_COMP_BORROW + FIELD_NUM_LIMBS;
+/// High u16 of each c_complement[i] (8 cells).
+pub const COL_MUL_C_COMP_HI: usize = COL_MUL_C_COMP_LO + FIELD_NUM_LIMBS;
+/// Per-limb borrow chain for the wide subtraction `wide == qp_wide + c`
+/// (16 booleans, qp_borrow[15] pinned to 0).
+pub const COL_MUL_QP_BORROW: usize = COL_MUL_C_COMP_HI + FIELD_NUM_LIMBS;
+/// Total columns for FieldMulAir M2 (432 = 192 M1 + 240 M2).
+pub const FIELD_MUL_NUM_COLS: usize = COL_MUL_QP_BORROW + WIDE_NUM_LIMBS;
 
 /// Plonky3 AIR for one field-multiplication operation, M1 stage (schoolbook
 /// trace only, no Barrett reduction yet).
@@ -159,7 +223,7 @@ impl FieldMulAir {
 
 impl<F: PrimeCharacteristicRing + Send + Sync> BaseAir<F> for FieldMulAir {
 	fn width(&self) -> usize {
-		FIELD_MUL_M1_NUM_COLS
+		FIELD_MUL_NUM_COLS
 	}
 }
 
@@ -309,6 +373,213 @@ where
 			builder.push_interaction(BUS_U16_RANGE, [carry_lo[k]], AB::Expr::ONE, 1);
 			builder.push_interaction(BUS_U16_RANGE, [carry_hi[k]], AB::Expr::ONE, 1);
 		}
+
+		// ──────────────────────────────────────────────────────────────
+		// M2: Barrett reduction
+		// ──────────────────────────────────────────────────────────────
+		//
+		// Extract M2 witnesses + verify the q*p schoolbook + wide
+		// subtraction + canonical-form check on c. Together these
+		// constrain `wide_product == q * p + c` with `c < p`, which
+		// is the modular-multiply reduction.
+		//
+		// M2 witnesses (no u16 range-check lookups yet — those land in
+		// M3; the M2 soundness gap is "prover could put non-u32-shaped
+		// values in M2 cells"). The Barrett math is structurally
+		// correct here; range-check closes the last gap.
+
+		let q: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_MUL_Q + i]);
+		let q_lo: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_MUL_Q_LO + i]);
+		let q_hi: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_MUL_Q_HI + i]);
+		let qp_wide: [AB::Var; WIDE_NUM_LIMBS] =
+			core::array::from_fn(|m| local[COL_MUL_QP_WIDE + m]);
+		let qp_wide_lo: [AB::Var; WIDE_NUM_LIMBS] =
+			core::array::from_fn(|m| local[COL_MUL_QP_WIDE_LO + m]);
+		let qp_wide_hi: [AB::Var; WIDE_NUM_LIMBS] =
+			core::array::from_fn(|m| local[COL_MUL_QP_WIDE_HI + m]);
+		let qp_carry: [AB::Var; NUM_COLS_SCHOOLBOOK] =
+			core::array::from_fn(|k| local[COL_MUL_QP_CARRY + k]);
+		let qp_carry_lo: [AB::Var; NUM_COLS_SCHOOLBOOK] =
+			core::array::from_fn(|k| local[COL_MUL_QP_CARRY_LO + k]);
+		let qp_carry_hi: [AB::Var; NUM_COLS_SCHOOLBOOK] =
+			core::array::from_fn(|k| local[COL_MUL_QP_CARRY_HI + k]);
+		let c: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_MUL_C + i]);
+		let c_lo: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_MUL_C_LO + i]);
+		let c_hi: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_MUL_C_HI + i]);
+		let c_complement: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_MUL_C_COMP + i]);
+		let c_complement_borrow: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_MUL_C_COMP_BORROW + i]);
+		let c_comp_lo: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_MUL_C_COMP_LO + i]);
+		let c_comp_hi: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_MUL_C_COMP_HI + i]);
+		let qp_borrow: [AB::Var; WIDE_NUM_LIMBS] =
+			core::array::from_fn(|m| local[COL_MUL_QP_BORROW + m]);
+
+		// ─── Limb-split constraints for M2 u32 witnesses ──────────────
+		//
+		// Same shape as M1's splits. The lo/hi halves get range-checked
+		// in M3; for now the splits ensure the u32 cell equals lo + hi
+		// * 2^16 (which combined with range checks forces u32 shape).
+
+		for i in 0..FIELD_NUM_LIMBS {
+			let q_split: AB::Expr =
+				q_lo[i].into() + q_hi[i].into() * radix_u16.clone() - q[i].into();
+			builder.assert_zero(q_split);
+			let c_split: AB::Expr =
+				c_lo[i].into() + c_hi[i].into() * radix_u16.clone() - c[i].into();
+			builder.assert_zero(c_split);
+			let cc_split: AB::Expr = c_comp_lo[i].into()
+				+ c_comp_hi[i].into() * radix_u16.clone()
+				- c_complement[i].into();
+			builder.assert_zero(cc_split);
+		}
+		for m in 0..WIDE_NUM_LIMBS {
+			let qpw_split: AB::Expr = qp_wide_lo[m].into()
+				+ qp_wide_hi[m].into() * radix_u16.clone()
+				- qp_wide[m].into();
+			builder.assert_zero(qpw_split);
+		}
+		for k in 0..NUM_COLS_SCHOOLBOOK {
+			let qpc_split: AB::Expr = qp_carry_lo[k].into()
+				+ qp_carry_hi[k].into() * radix_u16.clone()
+				- qp_carry[k].into();
+			builder.assert_zero(qpc_split);
+		}
+
+		// ─── q * p schoolbook ─────────────────────────────────────────
+		//
+		// Mirrors the a*b schoolbook structurally; q's u16 halves
+		// multiply against the constant p's u16 halves to produce
+		// qp_wide. Same column-sum + carry-chain pattern.
+		//
+		// p_u16[k] is the k-th u16 sub-limb of P_LIMBS (a constant).
+		// p_u16[2m]   = P_LIMBS[m] & 0xFFFF
+		// p_u16[2m+1] = P_LIMBS[m] >> 16
+
+		let q_u16 = |i: usize| -> AB::Var {
+			if i % 2 == 0 {
+				q_lo[i / 2]
+			} else {
+				q_hi[i / 2]
+			}
+		};
+		let p_u16_const = |k: usize| -> u32 {
+			let m = k / 2;
+			if k % 2 == 0 {
+				P_LIMBS[m] & 0xFFFF
+			} else {
+				P_LIMBS[m] >> 16
+			}
+		};
+		let qp_wide_u16 = |k: usize| -> AB::Var {
+			if k % 2 == 0 {
+				qp_wide_lo[k / 2]
+			} else {
+				qp_wide_hi[k / 2]
+			}
+		};
+
+		for k in 0..NUM_COLS_SCHOOLBOOK {
+			let mut col_sum: AB::Expr = AB::Expr::ZERO;
+			for i in 0..U16_NUM_SUBLIMBS {
+				if i > k {
+					continue;
+				}
+				let j = k - i;
+				if j >= U16_NUM_SUBLIMBS {
+					continue;
+				}
+				let p_j = AB::Expr::from_u32(p_u16_const(j));
+				col_sum = col_sum + q_u16(i).into() * p_j;
+			}
+			let carry_in: AB::Expr = if k == 0 {
+				AB::Expr::ZERO
+			} else {
+				qp_carry[k - 1].into()
+			};
+			let balance: AB::Expr = col_sum
+				+ carry_in
+				- qp_wide_u16(k).into()
+				- qp_carry[k].into() * radix_u16.clone();
+			builder.assert_zero(balance);
+		}
+		// Top-balance closure for q*p schoolbook.
+		builder.assert_zero(qp_carry[NUM_COLS_SCHOOLBOOK - 1]);
+
+		// ─── Wide subtraction: wide == qp_wide + c ────────────────────
+		//
+		// Per-limb borrow-chain subtraction. For limbs m ∈ [0..8), the
+		// equation is `wide[m] - qp_wide[m] - borrow_in[m] +
+		// qp_borrow[m] * 2^32 == c[m]`. For limbs m ∈ [8..16), c has no
+		// contribution, so the RHS is 0. The top borrow (qp_borrow[15])
+		// must be 0 (no underflow → wide >= qp_wide, which means c >= 0).
+
+		let radix_limb = AB::Expr::from_u64(RADIX_LIMB);
+		for m in 0..WIDE_NUM_LIMBS {
+			let borrow_in: AB::Expr = if m == 0 {
+				AB::Expr::ZERO
+			} else {
+				qp_borrow[m - 1].into()
+			};
+			let c_contrib: AB::Expr = if m < FIELD_NUM_LIMBS {
+				c[m].into()
+			} else {
+				AB::Expr::ZERO
+			};
+			let sub_balance: AB::Expr = wide[m].into()
+				- qp_wide[m].into()
+				- borrow_in
+				+ qp_borrow[m].into() * radix_limb.clone()
+				- c_contrib;
+			builder.assert_zero(sub_balance);
+		}
+
+		// qp_borrow booleans for m ∈ [0..15). qp_borrow[15] is pinned
+		// by the top-balance closure below; its boolean check is
+		// redundant.
+		for m in 0..(WIDE_NUM_LIMBS - 1) {
+			builder.assert_bool(qp_borrow[m]);
+		}
+		// Top-borrow closure: qp_borrow[15] == 0.
+		builder.assert_zero(qp_borrow[WIDE_NUM_LIMBS - 1]);
+
+		// ─── Canonical-form check on c ────────────────────────────────
+		//
+		// Mirrors FieldAddAir's canonical-form check: c_complement =
+		// p_minus_one - c with a borrow chain. If c > p - 1, the
+		// subtraction underflows at the top, which the closure rejects.
+
+		for i in 0..FIELD_NUM_LIMBS {
+			let p_minus_one_limb = AB::Expr::from_u32(P_MINUS_ONE_LIMBS[i]);
+			let borrow_in: AB::Expr = if i == 0 {
+				AB::Expr::ZERO
+			} else {
+				c_complement_borrow[i - 1].into()
+			};
+			let canonical_balance: AB::Expr = p_minus_one_limb
+				- c[i].into()
+				- borrow_in
+				+ c_complement_borrow[i].into() * radix_limb.clone()
+				- c_complement[i].into();
+			builder.assert_zero(canonical_balance);
+		}
+		for i in 0..(FIELD_NUM_LIMBS - 1) {
+			builder.assert_bool(c_complement_borrow[i]);
+		}
+		builder.assert_zero(c_complement_borrow[FIELD_NUM_LIMBS - 1]);
+
+		// TODO(M3): u16 range-check lookups for q_lo, q_hi, qp_wide_lo,
+		// qp_wide_hi, qp_carry_lo, qp_carry_hi, c_lo, c_hi, c_comp_lo,
+		// c_comp_hi. Total ~144 additional u16 lookups per multiply
+		// (M1's 128 + M2's 144 = 272 total).
 	}
 }
 
@@ -333,6 +604,33 @@ pub struct FieldMulTraceRow {
 	pub carry: [u32; NUM_COLS_SCHOOLBOOK],
 	pub carry_lo: [u16; NUM_COLS_SCHOOLBOOK],
 	pub carry_hi: [u16; NUM_COLS_SCHOOLBOOK],
+
+	// ── M2 witnesses (Barrett reduction) ─────────────────────────────
+	/// Quotient `q = floor(wide / p)`, 8 u32 limbs.
+	pub q: [u32; FIELD_NUM_LIMBS],
+	pub q_lo: [u16; FIELD_NUM_LIMBS],
+	pub q_hi: [u16; FIELD_NUM_LIMBS],
+	/// `q * p` as 16 u32 limbs (mirrors wide_product shape).
+	pub qp_wide: [u32; WIDE_NUM_LIMBS],
+	pub qp_wide_lo: [u16; WIDE_NUM_LIMBS],
+	pub qp_wide_hi: [u16; WIDE_NUM_LIMBS],
+	/// q*p schoolbook column carries (32 cells; carry[31] = 0).
+	pub qp_carry: [u32; NUM_COLS_SCHOOLBOOK],
+	pub qp_carry_lo: [u16; NUM_COLS_SCHOOLBOOK],
+	pub qp_carry_hi: [u16; NUM_COLS_SCHOOLBOOK],
+	/// Output: `c = (a * b) mod p`, 8 u32 limbs in canonical form.
+	pub c: [u32; FIELD_NUM_LIMBS],
+	pub c_lo: [u16; FIELD_NUM_LIMBS],
+	pub c_hi: [u16; FIELD_NUM_LIMBS],
+	/// Canonical-form witness: `c_complement = p_minus_one - c`.
+	pub c_complement: [u32; FIELD_NUM_LIMBS],
+	/// Per-limb borrow chain for the canonical-form subtraction.
+	pub c_complement_borrow: [u8; FIELD_NUM_LIMBS],
+	pub c_comp_lo: [u16; FIELD_NUM_LIMBS],
+	pub c_comp_hi: [u16; FIELD_NUM_LIMBS],
+	/// Per-limb borrow chain for the wide subtraction `wide == qp_wide + c`.
+	/// 16 booleans; qp_borrow[15] is always 0 (top-borrow closure).
+	pub qp_borrow: [u8; WIDE_NUM_LIMBS],
 }
 
 /// Build a single-row trace for [`FieldMulAir`] (M1) from canonical
@@ -435,6 +733,170 @@ pub fn build_field_mul_trace_row(
 		carry_hi[k] = (carry[k] >> 16) as u16;
 	}
 
+	// ─── M2 witnesses: Barrett reduction ──────────────────────────────
+
+	// Compute q = floor(wide / p) and c = wide mod p via num-bigint.
+	let mut wide_bytes = [0u8; 64];
+	for (m, limb) in wide.iter().enumerate() {
+		wide_bytes[m * 4..(m + 1) * 4].copy_from_slice(&limb.to_le_bytes());
+	}
+	let wide_big = BigUint::from_bytes_le(&wide_bytes);
+	let p_big = BigUint::from_bytes_le(&limbs_to_bytes(&P_LIMBS));
+	let (q_big, c_big) = wide_big.div_rem(&p_big);
+
+	// q fits in 8 u32 limbs because wide < p^2 implies q < p.
+	let mut q_bytes_padded = q_big.to_bytes_le();
+	q_bytes_padded.resize(32, 0);
+	let mut q_bytes = [0u8; 32];
+	q_bytes.copy_from_slice(&q_bytes_padded[..32]);
+	let q = bytes_to_limbs(&q_bytes);
+
+	// c also fits in 8 u32 limbs (canonical: < p).
+	let mut c_bytes_padded = c_big.to_bytes_le();
+	c_bytes_padded.resize(32, 0);
+	let mut c_bytes = [0u8; 32];
+	c_bytes.copy_from_slice(&c_bytes_padded[..32]);
+	let c = bytes_to_limbs(&c_bytes);
+
+	// qp_wide = q * p as 16-limb wide integer.
+	let qp_wide = wide_mul(&q, &P_LIMBS);
+
+	// u16 splits.
+	let mut q_lo = [0u16; FIELD_NUM_LIMBS];
+	let mut q_hi = [0u16; FIELD_NUM_LIMBS];
+	for i in 0..FIELD_NUM_LIMBS {
+		q_lo[i] = (q[i] & 0xFFFF) as u16;
+		q_hi[i] = (q[i] >> 16) as u16;
+	}
+	let mut qp_wide_lo = [0u16; WIDE_NUM_LIMBS];
+	let mut qp_wide_hi = [0u16; WIDE_NUM_LIMBS];
+	for m in 0..WIDE_NUM_LIMBS {
+		qp_wide_lo[m] = (qp_wide[m] & 0xFFFF) as u16;
+		qp_wide_hi[m] = (qp_wide[m] >> 16) as u16;
+	}
+	let mut c_lo = [0u16; FIELD_NUM_LIMBS];
+	let mut c_hi = [0u16; FIELD_NUM_LIMBS];
+	for i in 0..FIELD_NUM_LIMBS {
+		c_lo[i] = (c[i] & 0xFFFF) as u16;
+		c_hi[i] = (c[i] >> 16) as u16;
+	}
+
+	// q*p schoolbook carry chain. Same shape as the a*b schoolbook
+	// above: per-column witnessed carries derived by walking columns
+	// low-to-high and solving for carry_out at each step.
+	let q_u16 = |i: usize| -> u32 {
+		if i % 2 == 0 {
+			u32::from(q_lo[i / 2])
+		} else {
+			u32::from(q_hi[i / 2])
+		}
+	};
+	let p_u16_const = |k: usize| -> u32 {
+		let m = k / 2;
+		if k % 2 == 0 {
+			P_LIMBS[m] & 0xFFFF
+		} else {
+			P_LIMBS[m] >> 16
+		}
+	};
+	let qp_wide_u16_view = |k: usize| -> u32 {
+		if k % 2 == 0 {
+			u32::from(qp_wide_lo[k / 2])
+		} else {
+			u32::from(qp_wide_hi[k / 2])
+		}
+	};
+
+	let mut qp_carry = [0u32; NUM_COLS_SCHOOLBOOK];
+	let mut carry_in: u64 = 0;
+	for k in 0..NUM_COLS_SCHOOLBOOK {
+		let mut col_partial: u64 = 0;
+		for i in 0..U16_NUM_SUBLIMBS {
+			if i > k {
+				continue;
+			}
+			let j = k - i;
+			if j >= U16_NUM_SUBLIMBS {
+				continue;
+			}
+			col_partial += u64::from(q_u16(i)) * u64::from(p_u16_const(j));
+		}
+		let total = col_partial + carry_in;
+		let qp_k = u64::from(qp_wide_u16_view(k));
+		assert!(
+			total >= qp_k,
+			"build_field_mul_trace_row: qp schoolbook column {} balance failed",
+			k,
+		);
+		let carry_out = (total - qp_k) / (1u64 << 16);
+		assert!(carry_out < u64::from(u32::MAX), "qp_carry overflow at column {}", k);
+		qp_carry[k] = carry_out as u32;
+		carry_in = carry_out;
+	}
+	assert_eq!(qp_carry[NUM_COLS_SCHOOLBOOK - 1], 0, "qp top-balance violated");
+
+	let mut qp_carry_lo = [0u16; NUM_COLS_SCHOOLBOOK];
+	let mut qp_carry_hi = [0u16; NUM_COLS_SCHOOLBOOK];
+	for k in 0..NUM_COLS_SCHOOLBOOK {
+		qp_carry_lo[k] = (qp_carry[k] & 0xFFFF) as u16;
+		qp_carry_hi[k] = (qp_carry[k] >> 16) as u16;
+	}
+
+	// Wide subtraction: wide - qp_wide = c (with c zero-padded to 16
+	// limbs). Compute the limb-wise borrow chain.
+	let mut qp_borrow = [0u8; WIDE_NUM_LIMBS];
+	let mut borrow_in: i64 = 0;
+	for m in 0..WIDE_NUM_LIMBS {
+		let c_contrib: i64 = if m < FIELD_NUM_LIMBS {
+			i64::from(c[m])
+		} else {
+			0
+		};
+		let lhs: i64 = i64::from(wide[m]) - i64::from(qp_wide[m]) - borrow_in;
+		let d: i64 = lhs - c_contrib;
+		if d < 0 {
+			qp_borrow[m] = 1;
+			borrow_in = 1;
+		} else {
+			qp_borrow[m] = 0;
+			borrow_in = 0;
+		}
+	}
+	assert_eq!(
+		qp_borrow[WIDE_NUM_LIMBS - 1],
+		0,
+		"wide-subtraction top-borrow closure violated (witness builder bug or wide < q*p)",
+	);
+
+	// Canonical-form witness on c: c_complement = p_minus_one - c.
+	let mut c_complement = [0u32; FIELD_NUM_LIMBS];
+	let mut c_complement_borrow = [0u8; FIELD_NUM_LIMBS];
+	let mut borrow: i64 = 0;
+	for i in 0..FIELD_NUM_LIMBS {
+		let d: i64 = i64::from(P_MINUS_ONE_LIMBS[i]) - i64::from(c[i]) - borrow;
+		if d < 0 {
+			c_complement[i] = (d + (1i64 << 32)) as u32;
+			c_complement_borrow[i] = 1;
+			borrow = 1;
+		} else {
+			c_complement[i] = d as u32;
+			c_complement_borrow[i] = 0;
+			borrow = 0;
+		}
+	}
+	assert_eq!(
+		c_complement_borrow[FIELD_NUM_LIMBS - 1],
+		0,
+		"canonical-form top-borrow closure violated (c >= p)",
+	);
+
+	let mut c_comp_lo = [0u16; FIELD_NUM_LIMBS];
+	let mut c_comp_hi = [0u16; FIELD_NUM_LIMBS];
+	for i in 0..FIELD_NUM_LIMBS {
+		c_comp_lo[i] = (c_complement[i] & 0xFFFF) as u16;
+		c_comp_hi[i] = (c_complement[i] >> 16) as u16;
+	}
+
 	FieldMulTraceRow {
 		a: *a,
 		b: *b,
@@ -448,12 +910,30 @@ pub fn build_field_mul_trace_row(
 		carry,
 		carry_lo,
 		carry_hi,
+		q,
+		q_lo,
+		q_hi,
+		qp_wide,
+		qp_wide_lo,
+		qp_wide_hi,
+		qp_carry,
+		qp_carry_lo,
+		qp_carry_hi,
+		c,
+		c_lo,
+		c_hi,
+		c_complement,
+		c_complement_borrow,
+		c_comp_lo,
+		c_comp_hi,
+		qp_borrow,
 	}
 }
 
 impl FieldMulTraceRow {
 	pub fn to_trace_vec<F: PrimeCharacteristicRing>(&self) -> Vec<F> {
-		let mut out = Vec::with_capacity(FIELD_MUL_M1_NUM_COLS);
+		let mut out = Vec::with_capacity(FIELD_MUL_NUM_COLS);
+		// M1 block.
 		for &v in &self.a {
 			out.push(F::from_u32(v));
 		}
@@ -491,12 +971,65 @@ impl FieldMulTraceRow {
 			out.push(F::from_u32(u32::from(v)));
 		}
 		debug_assert_eq!(out.len(), FIELD_MUL_M1_NUM_COLS);
+		// M2 block.
+		for &v in &self.q {
+			out.push(F::from_u32(v));
+		}
+		for &v in &self.q_lo {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.q_hi {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.qp_wide {
+			out.push(F::from_u32(v));
+		}
+		for &v in &self.qp_wide_lo {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.qp_wide_hi {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.qp_carry {
+			out.push(F::from_u32(v));
+		}
+		for &v in &self.qp_carry_lo {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.qp_carry_hi {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.c {
+			out.push(F::from_u32(v));
+		}
+		for &v in &self.c_lo {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.c_hi {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.c_complement {
+			out.push(F::from_u32(v));
+		}
+		for &v in &self.c_complement_borrow {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.c_comp_lo {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.c_comp_hi {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		for &v in &self.qp_borrow {
+			out.push(F::from_u32(u32::from(v)));
+		}
+		debug_assert_eq!(out.len(), FIELD_MUL_NUM_COLS);
 		out
 	}
 
 	pub fn to_trace_matrix<F: PrimeCharacteristicRing + Send + Sync>(
 		&self,
 	) -> RowMajorMatrix<F> {
-		RowMajorMatrix::new(self.to_trace_vec::<F>(), FIELD_MUL_M1_NUM_COLS)
+		RowMajorMatrix::new(self.to_trace_vec::<F>(), FIELD_MUL_NUM_COLS)
 	}
 }

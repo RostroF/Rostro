@@ -18,6 +18,12 @@ p3-field      = { workspace = true }
 p3-goldilocks = { workspace = true }
 p3-lookup     = { workspace = true }
 p3-matrix     = { workspace = true }
+# Big-integer arithmetic for witness-side division-with-quotient
+# (Barrett reduction needs q = floor(wide / p)). num-bigint is
+# no_std-compatible via alloc; included as a non-optional dep so the
+# witness builder works in both production prover paths and dev tests.
+num-bigint    = { version = "0.4", default-features = false }
+num-integer   = { version = "0.1", default-features = false }
 
 [dev-dependencies]
 curve25519-dalek = { version = "4.1", default-features = false, features = ["alloc", "digest", "group"] }

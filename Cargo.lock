@@ -13334,6 +13334,7 @@ dependencies = [
  "curve25519-dalek",
  "hex-literal",
  "num-bigint",
+ "num-integer",
  "num-traits",
  "p3-air",
  "p3-field",
