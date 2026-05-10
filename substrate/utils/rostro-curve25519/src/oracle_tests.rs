@@ -12,11 +12,13 @@
 //! `field.rs` drifts, a test here fails and points at the wrong limb.
 
 use crate::field::{
-	add, bytes_to_limbs, inv, is_canonical, is_zero, limbs_to_bytes, mul, neg, reduce, square,
-	sub, FIELD_NUM_LIMBS, P_LIMBS, P_MINUS_ONE_LIMBS,
+	add, bytes_to_limbs, inv, is_canonical, is_negative, is_zero, limbs_to_bytes, mul, neg,
+	pow_p_minus_5_div_8, reduce, sqrt_ratio_m1, square, sub, FIELD_NUM_LIMBS, P_LIMBS,
+	P_MINUS_ONE_LIMBS, SQRT_M1_LIMBS,
 };
 use num_bigint::BigUint;
 use num_traits::Num;
+use rand::SeedableRng;
 
 /// `p = 2^255 - 19` in little-endian bytes, taken from RFC 7748 § 4.1.
 /// This is the source-of-truth byte sequence we encode into limbs.
@@ -488,4 +490,187 @@ fn inv_matches_bigint_oracle_random() {
 		one[0] = 1;
 		assert_eq!(mul(&v, &actual), one);
 	}
+}
+
+// ─── sqrt_ratio_m1 + supporting primitives ────────────────────────────────
+
+#[test]
+fn sqrt_m1_squared_equals_minus_one() {
+	// SQRT_M1² mod p == p - 1 ≡ -1 mod p.
+	let squared = square(&SQRT_M1_LIMBS);
+	assert_eq!(squared, P_MINUS_ONE_LIMBS, "SQRT_M1² must be p - 1");
+}
+
+#[test]
+fn sqrt_m1_is_canonical() {
+	assert!(is_canonical(&SQRT_M1_LIMBS), "SQRT_M1 must be in [0, p)");
+}
+
+#[test]
+fn pow_p_minus_5_div_8_matches_bigint_oracle() {
+	// (p - 5) / 8 = 2^252 - 3.
+	let p = p_biguint();
+	let exp = (&p - BigUint::from(5u8)) / BigUint::from(8u8);
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0xd00d_face_face_d00d);
+	for _ in 0..10 {
+		let v = random_canonical(&mut rng);
+		let actual = pow_p_minus_5_div_8(&v);
+		let v_big = limbs_to_biguint(&v);
+		let expected_big = v_big.modpow(&exp, &p);
+		let expected = biguint_to_limbs(&expected_big);
+		assert_eq!(actual, expected, "pow_p_minus_5_div_8 diverges from bigint oracle");
+	}
+}
+
+#[test]
+fn pow_p_minus_5_div_8_zero_is_zero() {
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	let actual = pow_p_minus_5_div_8(&zero);
+	assert_eq!(actual, zero);
+}
+
+#[test]
+fn pow_p_minus_5_div_8_one_is_one() {
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	let actual = pow_p_minus_5_div_8(&one);
+	assert_eq!(actual, one);
+}
+
+/// Bigint oracle: compute the unique non-negative (LSB = 0) square root
+/// of `target` mod p, if it exists. Returns `None` if `target` is a
+/// non-square. Uses the closed form for p ≡ 5 mod 8.
+fn sqrt_oracle(target: &BigUint) -> Option<BigUint> {
+	let p = p_biguint();
+	if target.modpow(&((&p - BigUint::from(1u8)) / BigUint::from(2u8)), &p)
+		!= BigUint::from(1u8) && *target != BigUint::from(0u8)
+	{
+		return None;
+	}
+	// For p ≡ 5 mod 8: candidate = target^((p+3)/8); if candidate² == target, use it.
+	// Else if candidate² == -target, multiply by √-1.
+	let cand = target.modpow(&((&p + BigUint::from(3u8)) / BigUint::from(8u8)), &p);
+	let cand_sq = (&cand * &cand) % &p;
+	let mut r = if &cand_sq == target {
+		cand
+	} else {
+		let i = limbs_to_biguint(&SQRT_M1_LIMBS);
+		(&cand * &i) % &p
+	};
+	// Normalize sign: pick the root with LSB = 0.
+	if &r % BigUint::from(2u8) == BigUint::from(1u8) {
+		r = (&p - &r) % &p;
+	}
+	Some(r)
+}
+
+#[test]
+fn sqrt_ratio_m1_of_a_square_matches_oracle() {
+	// For random x, set u = x², v = 1: sqrt_ratio_m1 should return
+	// (true, ±x), with ±x chosen by the LSB-positive convention.
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0x5151_face_5151_face);
+	for _ in 0..10 {
+		let x = random_canonical(&mut rng);
+		let u = square(&x);
+		let mut v = [0u32; FIELD_NUM_LIMBS];
+		v[0] = 1;
+		let (ok, r) = sqrt_ratio_m1(&u, &v);
+		assert!(ok, "x² is always a square");
+		assert!(!is_negative(&r), "sqrt_ratio_m1 must return the LSB-positive root");
+		// r² must equal x² == u.
+		assert_eq!(square(&r), u, "(sqrt(x²))² must equal x²");
+	}
+}
+
+#[test]
+fn sqrt_ratio_m1_ratio_form_matches_oracle() {
+	// For random u, v (v ≠ 0): r² · v should equal u (when u/v is a
+	// square). Compare against the bigint oracle.
+	let p = p_biguint();
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0xface_0001_5151_d00d);
+	for _ in 0..20 {
+		let u = random_canonical(&mut rng);
+		let v = random_canonical(&mut rng);
+		if is_zero(&v) {
+			continue;
+		}
+		let u_big = limbs_to_biguint(&u);
+		let v_big = limbs_to_biguint(&v);
+		let v_inv = v_big.modpow(&(&p - BigUint::from(2u8)), &p);
+		let target = (&u_big * &v_inv) % &p;
+		let oracle = sqrt_oracle(&target);
+
+		let (ok, r) = sqrt_ratio_m1(&u, &v);
+		match (oracle, ok) {
+			(Some(expected_big), true) => {
+				let expected = biguint_to_limbs(&expected_big);
+				assert_eq!(r, expected, "sqrt result diverges from bigint oracle");
+			},
+			(None, false) => {
+				// Both agree: u/v is a non-square. The returned `r` is
+				// the fallback; don't constrain its value.
+			},
+			(Some(_), false) => panic!("sqrt_ratio_m1 reported non-square for an actual square"),
+			(None, true) => panic!("sqrt_ratio_m1 reported square for an actual non-square"),
+		}
+	}
+}
+
+#[test]
+fn sqrt_ratio_m1_of_zero_over_anything_is_zero() {
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	let mut rng = rand::rngs::StdRng::seed_from_u64(0xabcd_1234_5678_face);
+	for _ in 0..5 {
+		let v = random_canonical(&mut rng);
+		if is_zero(&v) {
+			continue;
+		}
+		let (ok, r) = sqrt_ratio_m1(&zero, &v);
+		assert!(ok, "0/v is a square (= 0)");
+		assert_eq!(r, zero, "sqrt(0/v) must be 0");
+	}
+}
+
+#[test]
+fn sqrt_ratio_m1_one_over_one_picks_canonical_positive_root() {
+	// sqrt(1/1) has two roots: 1 and p-1. The Ristretto convention picks
+	// the LSB-zero one. 1 has LSB=1 (so is_negative=true), p-1 has low
+	// byte 0xEC (LSB=0, is_negative=false) — so the canonical positive
+	// root is p-1.
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	let (ok, r) = sqrt_ratio_m1(&one, &one);
+	assert!(ok);
+	assert_eq!(r, P_MINUS_ONE_LIMBS, "canonical sqrt(1) must be p-1, not 1");
+	// And: r² == 1 (the input).
+	assert_eq!(square(&r), one);
+}
+
+#[test]
+fn sqrt_ratio_m1_non_square_returns_false() {
+	// A known non-square: 2 is a non-square mod p (verify with bigint
+	// Euler's criterion, then check our function reports it).
+	let p = p_biguint();
+	let two = BigUint::from(2u8);
+	let euler = two.modpow(&((&p - BigUint::from(1u8)) / BigUint::from(2u8)), &p);
+	assert_ne!(euler, BigUint::from(1u8), "2 should be a non-square mod p");
+
+	let mut u = [0u32; FIELD_NUM_LIMBS];
+	u[0] = 2;
+	let mut v = [0u32; FIELD_NUM_LIMBS];
+	v[0] = 1;
+	let (ok, _r) = sqrt_ratio_m1(&u, &v);
+	assert!(!ok, "sqrt_ratio_m1 must report 2 as a non-square");
+}
+
+#[test]
+fn is_negative_pin() {
+	let mut even = [0u32; FIELD_NUM_LIMBS];
+	even[0] = 2;
+	assert!(!is_negative(&even));
+	let mut odd = [0u32; FIELD_NUM_LIMBS];
+	odd[0] = 1;
+	assert!(is_negative(&odd));
+	// p - 1 has low byte 0xEC, which is even — so p - 1 is NOT "negative".
+	assert!(!is_negative(&P_MINUS_ONE_LIMBS));
 }

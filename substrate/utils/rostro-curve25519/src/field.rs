@@ -541,3 +541,173 @@ fn p_minus_two_bits_msb_first() -> [bool; 255] {
 	}
 	bits
 }
+
+/// `√(-1) mod p`, the canonical positive square root of -1 in `F_p`.
+///
+/// Matches `curve25519_dalek::backend::serial::u32::constants::SQRT_M1`.
+/// Used by Ristretto255 encode/decode and by hash-to-curve.
+///
+/// Hex (LE bytes, byte 0 first):
+/// `b0 a0 0e 4a 27 1b ee c4 78 e4 2f ad 06 18 43 2f
+///  a7 d7 fb 3d 99 00 4d 2b 0b df c1 4f 80 24 83 2b`
+pub const SQRT_M1_LIMBS: [u32; FIELD_NUM_LIMBS] = [
+	0x4A0E_A0B0,
+	0xC4EE_1B27,
+	0xAD2F_E478,
+	0x2F43_1806,
+	0x3DFB_D7A7,
+	0x2B4D_0099,
+	0x4FC1_DF0B,
+	0x2B83_2480,
+];
+
+/// Modular exponentiation by an MSB-first bit sequence.
+///
+/// Returns `base^e mod p` where `e` is encoded as the bit slice
+/// `exp_bits` from MSB to LSB. Used by [`pow_p_minus_5_div_8`] and
+/// (privately) by [`inv`]'s underlying square-and-multiply chain.
+///
+/// Handles the leading-zero case by treating any leading zero bits as
+/// "not yet initialized" — equivalent to skipping over them.
+pub fn pow(base: &[u32; FIELD_NUM_LIMBS], exp_bits: &[bool]) -> [u32; FIELD_NUM_LIMBS] {
+	if is_zero(base) {
+		// 0^0 == 1 in our convention (matches num-bigint); 0^e == 0 for e > 0.
+		let any_one = exp_bits.iter().any(|&b| b);
+		if !any_one {
+			let mut one = [0u32; FIELD_NUM_LIMBS];
+			one[0] = 1;
+			return one;
+		}
+		return [0u32; FIELD_NUM_LIMBS];
+	}
+
+	let mut result_init = false;
+	let mut result = [0u32; FIELD_NUM_LIMBS];
+	for &bit in exp_bits {
+		if result_init {
+			result = square(&result);
+		}
+		if bit {
+			if !result_init {
+				result = *base;
+				result_init = true;
+			} else {
+				result = mul(&result, base);
+			}
+		}
+	}
+	if !result_init {
+		// All zero bits — return 1.
+		let mut one = [0u32; FIELD_NUM_LIMBS];
+		one[0] = 1;
+		return one;
+	}
+	result
+}
+
+/// `base^((p - 5) / 8) mod p`, the exponent that powers the Ristretto
+/// `sqrt_ratio_m1` routine.
+///
+/// `(p - 5) / 8 = 2^252 - 3`. Bit layout: 250 ones from positions 2..=251,
+/// then bit 251 (the MSB of this exponent) — that is, the value's
+/// binary form is `0x0FFFFFFF...FD` (252 bits long with low two bits
+/// `01`). We walk MSB to LSB.
+pub fn pow_p_minus_5_div_8(base: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
+	// (p - 5) / 8 = 2^252 - 3. LE bytes:
+	//   [0xFD, 0xFF, 0xFF, ..., 0xFF (28 bytes), 0x0F, 0x00, 0x00, 0x00]
+	// = byte 0: 0xFD, bytes 1..=30: 0xFF, byte 31: 0x0F.
+	// Bit width = 252 (high bit at position 251).
+	let mut bytes = [0xFFu8; 32];
+	bytes[0] = 0xFD;
+	bytes[31] = 0x0F;
+	let mut bits = [false; 252];
+	for i in 0..252 {
+		let bit_position = 251 - i;
+		let byte_idx = bit_position / 8;
+		let bit_in_byte = bit_position % 8;
+		bits[i] = (bytes[byte_idx] >> bit_in_byte) & 1 == 1;
+	}
+	pow(base, &bits)
+}
+
+/// Returns `true` iff the canonical limb encoding of `v` has its
+/// least-significant bit set. By the Ristretto255 / RFC 9380 sign
+/// convention, this is the meaning of "negative" for a field element.
+///
+/// Requires `v` already reduced (call [`reduce`] first if uncertain).
+pub fn is_negative(v: &[u32; FIELD_NUM_LIMBS]) -> bool {
+	(v[0] & 1) == 1
+}
+
+/// Conditional negate: returns `-v mod p` if `cond`, else `v`.
+pub fn cond_neg(v: &[u32; FIELD_NUM_LIMBS], cond: bool) -> [u32; FIELD_NUM_LIMBS] {
+	if cond {
+		neg(v)
+	} else {
+		*v
+	}
+}
+
+/// Ristretto255 / `sqrt_ratio_i` per the curve25519-dalek convention.
+///
+/// Computes `sqrt(u / v)` over `F_p` when `u/v` is a square, or a
+/// well-defined fallback value when it is not. The boolean return
+/// is `true` iff `u/v` is a (possibly zero) square; the field-element
+/// return is meaningful only when `true`, but is deterministic
+/// regardless.
+///
+/// Algorithm (Ristretto draft, § F.6 / dalek `sqrt_ratio_i`):
+/// ```text
+///   v3 = v² · v
+///   v7 = v³ · (v²)² = v^7
+///   r  = u · v3 · (u · v7)^((p-5)/8)
+///   check = v · r²
+///
+///   correct_sign       = (check ==  u)
+///   flipped_sign       = (check == -u)
+///   flipped_sign_i     = (check == -u · √-1)
+///
+///   if flipped_sign  or flipped_sign_i: r ← r · √-1
+///   if r is "negative" (LSB == 1):     r ← -r
+///
+///   was_square = correct_sign or flipped_sign
+/// ```
+///
+/// Returns `(was_square, r)`. The conventional "canonical positive"
+/// root is selected via the `is_negative` flip — this matches
+/// dalek's `sqrt_ratio_i` exactly.
+pub fn sqrt_ratio_m1(
+	u: &[u32; FIELD_NUM_LIMBS],
+	v: &[u32; FIELD_NUM_LIMBS],
+) -> (bool, [u32; FIELD_NUM_LIMBS]) {
+	let v2 = square(v);
+	let v3 = mul(&v2, v);
+	let v4 = square(&v2);
+	let v7 = mul(&v4, &v3);
+
+	let u_v3 = mul(u, &v3);
+	let u_v7 = mul(u, &v7);
+	let u_v7_pow = pow_p_minus_5_div_8(&u_v7);
+	let mut r = mul(&u_v3, &u_v7_pow);
+
+	let r_sq = square(&r);
+	let check = mul(v, &r_sq);
+
+	let neg_u = neg(u);
+	let neg_u_i = mul(&neg_u, &SQRT_M1_LIMBS);
+
+	let correct_sign = check == *u;
+	let flipped_sign = check == neg_u;
+	let flipped_sign_i = check == neg_u_i;
+
+	if flipped_sign || flipped_sign_i {
+		r = mul(&r, &SQRT_M1_LIMBS);
+	}
+
+	if is_negative(&r) {
+		r = neg(&r);
+	}
+
+	let was_square = correct_sign || flipped_sign;
+	(was_square, r)
+}
