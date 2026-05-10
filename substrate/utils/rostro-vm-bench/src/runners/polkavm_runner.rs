@@ -62,6 +62,12 @@ impl RvmRunner for PolkaVmRunner {
 		loop {
 			match inst.run() {
 				Ok(InterruptKind::Finished) => break,
+				// JAM REPLY (ecalli 0) is a terminal halt — javm's InvocationKernel
+				// treats it as `KernelResult::Halt(a0)`. Mirror that here so a
+				// JAM-convention blob produces the same observable outcome on
+				// both runners. Other ecallis are host calls; for bench workloads
+				// they're stubbed (no-op continue).
+				Ok(InterruptKind::Ecalli(0)) => break,
 				Ok(InterruptKind::Ecalli(_)) => continue,
 				Ok(InterruptKind::Trap) => return Err("polkavm: trap".to_string()),
 				Ok(InterruptKind::NotEnoughGas) =>

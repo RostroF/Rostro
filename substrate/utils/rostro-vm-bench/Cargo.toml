@@ -12,4 +12,5 @@ javm = { path = "/home/coder/jar/grey/crates/javm" }
 polkavm = { workspace = true }
 
 [dev-dependencies]
+grey-transpiler = { path = "/home/coder/jar/grey/crates/grey-transpiler" }
 criterion = { version = "0.5", features = ["html_reports"] }

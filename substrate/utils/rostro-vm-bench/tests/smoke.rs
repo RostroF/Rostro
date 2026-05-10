@@ -56,3 +56,56 @@ fn javm_runner_names_match_backend() {
 	#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 	assert_eq!(JavmRunner::recompiler().name(), "javm-recompiler");
 }
+
+/// Build a javm-flavor blob using grey-transpiler's Assembler:
+/// `a0 = 42; ecalli 0` (JAM REPLY). The Assembler emits javm's native
+/// blob format with its own magic header — polkavm cannot parse this.
+fn tiny_blob_javm_native() -> Vec<u8> {
+	use grey_transpiler::assembler::{Assembler, Reg};
+	let mut asm = Assembler::new();
+	asm.set_stack_pages(1);
+	asm.set_heap_pages(0);
+	asm.load_imm_64(Reg::A0, 42);
+	asm.ecalli(0x00);
+	asm.build()
+}
+
+#[test]
+fn javm_runs_native_blob_and_returns_42() {
+	let blob = tiny_blob_javm_native();
+	let mut runner = JavmRunner::interpreter();
+	let out = runner.run(&blob, &[]).expect("javm run");
+	assert_eq!(out.result_a0, 42, "expected A0 = 42, got {}", out.result_a0);
+	assert!(out.gas_consumed > 0, "gas_consumed should be non-zero");
+}
+
+/// Apples-to-apples on the observable program result. The two VMs use
+/// incompatible blob magic headers, so each gets its native blob built
+/// from logically-equivalent source: load 42 into A0, halt. Both VMs
+/// should report A0 = 42 at halt. Gas counts differ (different cost
+/// models) — we don't assert on gas, just emit it.
+#[test]
+fn javm_and_polkavm_agree_on_result_42() {
+	let javm_blob = tiny_blob_javm_native();
+	let polkavm_blob = tiny_blob_polkavm_halt();
+
+	let mut javm = JavmRunner::interpreter();
+	let mut polkavm = PolkaVmRunner::new().expect("PolkaVmRunner::new");
+
+	let javm_out = javm.run(&javm_blob, &[]).expect("javm");
+	let polkavm_out = polkavm.run(&polkavm_blob, &[]).expect("polkavm");
+
+	assert_eq!(
+		javm_out.result_a0, polkavm_out.result_a0,
+		"javm A0 ({}) vs polkavm A0 ({}) disagree",
+		javm_out.result_a0, polkavm_out.result_a0,
+	);
+	assert_eq!(javm_out.result_a0, 42);
+
+	eprintln!(
+		"a0=42 workload: javm gas={} polkavm gas={} (delta {})",
+		javm_out.gas_consumed,
+		polkavm_out.gas_consumed,
+		javm_out.gas_consumed as i128 - polkavm_out.gas_consumed as i128,
+	);
+}
