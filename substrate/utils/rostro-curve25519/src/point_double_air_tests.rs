@@ -20,9 +20,9 @@ use crate::field_mul_air::BUS_FIELD_MUL;
 use crate::field_sub_air::BUS_FIELD_SUB;
 use crate::point::{double as point_double, neutral, EdwardsPoint};
 use crate::point_double_air::{
-	build_point_double_trace_row, PointDoubleAir, COL_A, COL_B, COL_C, COL_D, COL_E, COL_F,
-	COL_G, COL_H, COL_P1_X, COL_P1_Y, COL_P1_Z, COL_P3_T, COL_P3_X, COL_P3_Y, COL_P3_Z,
-	COL_XPY_SQ, COL_XPY_SQ_MINUS_A, COL_X_PLUS_Y, COL_Z_SQ, POINT_DOUBLE_NUM_COLS,
+	build_point_double_trace_row, PointDoubleAir, BUS_POINT_DOUBLE, COL_A, COL_B, COL_C, COL_D,
+	COL_E, COL_F, COL_G, COL_H, COL_P1_X, COL_P1_Y, COL_P1_Z, COL_P3_T, COL_P3_X, COL_P3_Y,
+	COL_P3_Z, COL_XPY_SQ, COL_XPY_SQ_MINUS_A, COL_X_PLUS_Y, COL_Z_SQ, POINT_DOUBLE_NUM_COLS,
 };
 
 struct RecordingBuilder<'a> {
@@ -124,22 +124,41 @@ fn trace_vec_width_matches_layout() {
 }
 
 #[test]
-fn point_double_emits_16_service_bus_queries() {
+fn point_double_emits_16_field_op_queries_plus_one_point_double_provider() {
 	let pushes = record_eval(&neutral());
-	assert_eq!(pushes.len(), 16, "expected exactly 16 service-bus pushes");
+	// 5 sub + 3 add + 8 mul = 16 field-op consumer + 1 point-double
+	// provider = 17 total.
+	assert_eq!(pushes.len(), 17, "expected 16 field-op + 1 point-double = 17");
 
 	let num_subs = pushes.iter().filter(|(b, _, _, _)| b == BUS_FIELD_SUB).count();
 	let num_adds = pushes.iter().filter(|(b, _, _, _)| b == BUS_FIELD_ADD).count();
 	let num_muls = pushes.iter().filter(|(b, _, _, _)| b == BUS_FIELD_MUL).count();
+	let num_pd = pushes.iter().filter(|(b, _, _, _)| b == BUS_POINT_DOUBLE).count();
 	assert_eq!(num_subs, 5, "expected 5 sub queries");
 	assert_eq!(num_adds, 3, "expected 3 add queries");
 	assert_eq!(num_muls, 8, "expected 8 mul queries");
+	assert_eq!(num_pd, 1, "expected 1 point-double provider emit");
 
-	for (bus, mult, payload, weight) in &pushes {
+	for (bus, mult, payload, weight) in
+		pushes.iter().filter(|(b, _, _, _)| b != BUS_POINT_DOUBLE)
+	{
 		assert_eq!(*mult, Goldilocks::ONE, "consumer count must be +1 (bus={})", bus);
 		assert_eq!(payload.len(), 24, "payload must be 24 cells (bus={})", bus);
 		assert_eq!(*weight, 1, "count_weight must be 1 (bus={})", bus);
 	}
+
+	let (_, mult, payload, weight) = pushes
+		.iter()
+		.find(|(b, _, _, _)| b == BUS_POINT_DOUBLE)
+		.expect("point-double provider push");
+	assert_eq!(*mult, Goldilocks::ZERO - Goldilocks::ONE, "provider count = -1");
+	assert_eq!(payload.len(), 56, "(p1.xyz, p3.xyzt) payload = (3 + 4) × 8 = 56");
+	assert_eq!(*weight, 1);
+}
+
+#[test]
+fn point_double_service_bus_name_is_pinned() {
+	assert_eq!(BUS_POINT_DOUBLE, "rostro-point-double");
 }
 
 fn limbs_from(payload: &[Goldilocks], offset: usize) -> [u32; FIELD_NUM_LIMBS] {
@@ -154,7 +173,7 @@ fn limbs_from(payload: &[Goldilocks], offset: usize) -> [u32; FIELD_NUM_LIMBS] {
 fn every_pushed_tuple_satisfies_its_field_op() {
 	let pushes = record_eval(&basepoint());
 
-	for (bus, _, payload, _) in &pushes {
+	for (bus, _, payload, _) in pushes.iter().filter(|(b, _, _, _)| b != BUS_POINT_DOUBLE) {
 		let a = limbs_from(payload, 0);
 		let b = limbs_from(payload, FIELD_NUM_LIMBS);
 		let c = limbs_from(payload, 2 * FIELD_NUM_LIMBS);
@@ -173,6 +192,33 @@ fn every_pushed_tuple_satisfies_its_field_op() {
 			bus, a, b, c, expected,
 		);
 	}
+}
+
+#[test]
+fn point_double_provider_emit_matches_oracle() {
+	// BUS_POINT_DOUBLE provider emit carries (p1.x, p1.y, p1.z, p3) =
+	// 7 × 8 = 56 cells. Verify p3 matches `crate::point::double`.
+	let bp = basepoint();
+	let pushes = record_eval(&bp);
+
+	let (_, mult, payload, _) = pushes
+		.iter()
+		.find(|(b, _, _, _)| b == BUS_POINT_DOUBLE)
+		.expect("point-double provider push present");
+	assert_eq!(*mult, Goldilocks::ZERO - Goldilocks::ONE);
+	assert_eq!(payload.len(), 56);
+
+	// Layout: p1.x [0..8], p1.y [8..16], p1.z [16..24],
+	//         p3.x [24..32], p3.y [32..40], p3.z [40..48], p3.t [48..56].
+	let p3_x = limbs_from(payload, 24);
+	let p3_y = limbs_from(payload, 32);
+	let p3_z = limbs_from(payload, 40);
+	let p3_t = limbs_from(payload, 48);
+	let expected = point_double(&bp);
+	assert_eq!(p3_x, expected.x, "p3.x mismatch");
+	assert_eq!(p3_y, expected.y, "p3.y mismatch");
+	assert_eq!(p3_z, expected.z, "p3.z mismatch");
+	assert_eq!(p3_t, expected.t, "p3.t mismatch");
 }
 
 #[test]

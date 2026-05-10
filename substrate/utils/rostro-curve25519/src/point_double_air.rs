@@ -51,6 +51,15 @@ use crate::field_mul_air::BUS_FIELD_MUL;
 use crate::field_sub_air::BUS_FIELD_SUB;
 use crate::point::{double as point_double, EdwardsPoint};
 
+/// Service-bus name for PointDoubleAir. Each invocation emits its
+/// `(p1, p3)` tuple on this bus with `count = -1`; consumers
+/// (ScalarMulAir, etc.) push the same shape with `count = +1` to query
+/// "verify p3 = 2 · p1 on Edwards25519". Payload = 7 × 8 = 56 cells
+/// (X1, Y1, Z1, X3, Y3, Z3, T3). T1 is **not** exposed (the doubling
+/// formula does not read it, and the AIR's trace does not allocate
+/// for it).
+pub const BUS_POINT_DOUBLE: &str = "rostro-point-double";
+
 // ─── Column layout ─────────────────────────────────────────────────────────
 //
 // 19 × 8-limb groups = 152 cells per row.
@@ -162,6 +171,24 @@ where
 		push_field_op_var::<AB>(builder, BUS_FIELD_MUL, &g_col, &h_col, &p3_y);
 		push_field_op_var::<AB>(builder, BUS_FIELD_MUL, &e_col, &h_col, &p3_t);
 		push_field_op_var::<AB>(builder, BUS_FIELD_MUL, &f_col, &g_col, &p3_z);
+
+		// ─── Service-bus emit (S2 of scalar-mul plan) ─────────────────
+		//
+		// Expose (p1.x, p1.y, p1.z, p3.x, p3.y, p3.z, p3.t) on
+		// BUS_POINT_DOUBLE with count = -1. The doubling formula does
+		// not read T1, so it is not part of the payload. 56 cells per
+		// message.
+		let payload: Vec<AB::Expr> = p1_x
+			.iter()
+			.chain(p1_y.iter())
+			.chain(p1_z.iter())
+			.chain(p3_x.iter())
+			.chain(p3_y.iter())
+			.chain(p3_z.iter())
+			.chain(p3_t.iter())
+			.map(|v| (*v).into())
+			.collect();
+		builder.push_interaction(BUS_POINT_DOUBLE, payload, AB::Expr::ZERO - AB::Expr::ONE, 1);
 	}
 }
 

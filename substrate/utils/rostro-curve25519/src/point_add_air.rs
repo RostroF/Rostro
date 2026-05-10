@@ -57,6 +57,13 @@ use crate::field_mul_air::BUS_FIELD_MUL;
 use crate::field_sub_air::BUS_FIELD_SUB;
 use crate::point::{add as point_add, EdwardsPoint, ED25519_2D_LIMBS};
 
+/// Service-bus name for PointAddAir. Each PointAddAir invocation emits
+/// its `(p1, p2, p3)` tuple on this bus with `count = -1`; consumers
+/// (ScalarMulAir, etc.) push the same shape with `count = +1` to query
+/// "verify p3 = p1 + p2 on Edwards25519". Payload = 12 × 8 = 96 cells
+/// (X1, Y1, Z1, T1, X2, Y2, Z2, T2, X3, Y3, Z3, T3).
+pub const BUS_POINT_ADD: &str = "rostro-point-add";
+
 // ─── Column layout ─────────────────────────────────────────────────────────
 //
 // 26 × 8-limb groups = 208 cells per row. Order chosen to mirror the
@@ -193,6 +200,31 @@ where
 		push_field_op_var::<AB>(builder, BUS_FIELD_MUL, &g_col, &h_col, &p3_y);
 		push_field_op_var::<AB>(builder, BUS_FIELD_MUL, &e_col, &h_col, &p3_t);
 		push_field_op_var::<AB>(builder, BUS_FIELD_MUL, &f_col, &g_col, &p3_z);
+
+		// ─── Service-bus emit (S2 of scalar-mul plan) ─────────────────
+		//
+		// Expose (p1, p2, p3) on BUS_POINT_ADD with count = -1. The
+		// consumer (ScalarMulAir) emits the same shape with count = +1
+		// to query "verify p3 = p1 + p2". LogUp balances when every
+		// scalar-mul row gets answered by exactly one PointAddAir row.
+		//
+		// 96 cells per message (4 coords × 3 points × 8 limbs).
+		let payload: Vec<AB::Expr> = p1_x
+			.iter()
+			.chain(p1_y.iter())
+			.chain(p1_z.iter())
+			.chain(p1_t.iter())
+			.chain(p2_x.iter())
+			.chain(p2_y.iter())
+			.chain(p2_z.iter())
+			.chain(p2_t.iter())
+			.chain(p3_x.iter())
+			.chain(p3_y.iter())
+			.chain(p3_z.iter())
+			.chain(p3_t.iter())
+			.map(|v| (*v).into())
+			.collect();
+		builder.push_interaction(BUS_POINT_ADD, payload, AB::Expr::ZERO - AB::Expr::ONE, 1);
 	}
 }
 

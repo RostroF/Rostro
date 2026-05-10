@@ -252,7 +252,8 @@ fn point_add_basepoint_plus_2g_balances_against_field_op_providers() {
 	let row = build_point_add_trace_row(&p1, &p2);
 	let trace = row.to_trace_vec::<Goldilocks>();
 	let pushes = run_air(&PointAddAir::new(), &trace);
-	assert_eq!(pushes.len(), 18, "PointAddAir should push 18 service queries");
+	// 18 field-op consumer queries + 1 point-add provider emit = 19.
+	assert_eq!(pushes.len(), 19, "PointAddAir should push 18 field-op + 1 point-add = 19");
 	assert_service_bus_balanced_for(&pushes);
 }
 
@@ -262,7 +263,8 @@ fn point_double_basepoint_balances_against_field_op_providers() {
 	let row = build_point_double_trace_row(&p1);
 	let trace = row.to_trace_vec::<Goldilocks>();
 	let pushes = run_air(&PointDoubleAir::new(), &trace);
-	assert_eq!(pushes.len(), 16, "PointDoubleAir should push 16 service queries");
+	// 16 field-op consumer queries + 1 point-double provider emit = 17.
+	assert_eq!(pushes.len(), 17, "PointDoubleAir should push 16 field-op + 1 point-double = 17");
 	assert_service_bus_balanced_for(&pushes);
 }
 
@@ -361,11 +363,13 @@ fn point_add_then_double_chain_balances() {
 
 	// Combine both consumer push streams; the balance helper
 	// instantiates one provider per consumer push, so the combined
-	// service-bus ledger should still net to zero.
+	// service-bus ledger should still net to zero. (Each point AIR also
+	// emits one provider push on its own point-bus — counted in length
+	// but not part of the field-op balance check.)
 	let mut combined: Vec<(String, Goldilocks, Vec<Goldilocks>, u32)> = Vec::new();
 	combined.extend(pushes_add.into_iter());
 	combined.extend(pushes_double.into_iter());
-	assert_eq!(combined.len(), 18 + 16);
+	assert_eq!(combined.len(), 19 + 17);
 	assert_service_bus_balanced_for(&combined);
 
 	// And: 3G doubled equals 6G via the standalone point oracle.
