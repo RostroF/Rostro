@@ -75,6 +75,7 @@ pub mod point_add_air;
 pub mod point_double_air;
 pub mod ristretto;
 pub mod scalar_mul_air;
+pub mod sqrt_ratio_m1_air;
 
 #[cfg(test)]
 mod oracle_tests_helpers;
@@ -111,3 +112,6 @@ mod ristretto_tests;
 
 #[cfg(test)]
 mod field_pow_p58_air_tests;
+
+#[cfg(test)]
+mod sqrt_ratio_m1_air_tests;
