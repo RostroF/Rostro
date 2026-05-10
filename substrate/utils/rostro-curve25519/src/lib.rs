@@ -68,6 +68,7 @@ extern crate alloc;
 pub mod field;
 pub mod field_air;
 pub mod field_mul_air;
+pub mod field_pow_p58_air;
 pub mod field_sub_air;
 pub mod point;
 pub mod point_add_air;
@@ -107,3 +108,6 @@ mod scalar_mul_air_tests;
 
 #[cfg(test)]
 mod ristretto_tests;
+
+#[cfg(test)]
+mod field_pow_p58_air_tests;
