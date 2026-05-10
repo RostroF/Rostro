@@ -35,7 +35,7 @@ use rand::SeedableRng;
 use crate::field::{add, FIELD_NUM_LIMBS, P_MINUS_ONE_LIMBS};
 use crate::field_air::{
 	build_field_add_trace_row, FieldAddAir, COL_ADD_A, COL_ADD_B, COL_ADD_C, COL_ADD_CARRY,
-	COL_ADD_T, FIELD_ADD_NUM_COLS,
+	COL_ADD_C_COMP, COL_ADD_C_COMP_BORROW, COL_ADD_T, FIELD_ADD_NUM_COLS,
 };
 use crate::oracle_tests_helpers::random_canonical;
 
@@ -261,5 +261,71 @@ fn column_layout_constants_are_stable() {
 	assert_eq!(COL_ADD_C, 16);
 	assert_eq!(COL_ADD_T, 24);
 	assert_eq!(COL_ADD_CARRY, 25);
-	assert_eq!(FIELD_ADD_NUM_COLS, 33);
+	assert_eq!(COL_ADD_C_COMP, 33);
+	assert_eq!(COL_ADD_C_COMP_BORROW, 41);
+	assert_eq!(FIELD_ADD_NUM_COLS, 49);
+}
+
+// ─── Canonical-form check rejection tests (commit 2) ───────────────────────
+//
+// These tests verify that the canonical-form constraint (c_complement
+// + borrow chain) catches non-canonical c values. Note: full soundness
+// of canonical-form rejection requires u32 range checks on every
+// limb (commit 3) — without them, a sophisticated attacker can smuggle
+// Goldilocks values > 2^32 into the trace. These tests exercise the
+// constraint-side rejection for HONEST limb-shaped corruptions.
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_corrupted_c_complement() {
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	let row = build_field_add_trace_row(&zero, &zero);
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	// Flip c_complement[0] — canonical-form balance at limb 0 fails.
+	trace[COL_ADD_C_COMP] = trace[COL_ADD_C_COMP] + Goldilocks::ONE;
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_non_boolean_complement_borrow() {
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	let row = build_field_add_trace_row(&zero, &zero);
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	// Set complement_borrow[0] = 2 — boolean check at limb 0 fails.
+	trace[COL_ADD_C_COMP_BORROW] = Goldilocks::from_u32(2);
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_nonzero_top_complement_borrow() {
+	let zero = [0u32; FIELD_NUM_LIMBS];
+	let row = build_field_add_trace_row(&zero, &zero);
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	// Set complement_borrow[7] = 1 — top-borrow closure constraint fails.
+	// (Honest trace has this = 0; the constraint pins it.)
+	trace[COL_ADD_C_COMP_BORROW + (FIELD_NUM_LIMBS - 1)] = Goldilocks::ONE;
+	run_eval(&trace);
+}
+
+#[test]
+fn build_trace_row_canonical_form_for_p_minus_one() {
+	// Witness builder must produce all-zero c_complement when c == p-1.
+	let row = build_field_add_trace_row(&P_MINUS_ONE_LIMBS, &[0u32; FIELD_NUM_LIMBS]);
+	assert_eq!(row.c, P_MINUS_ONE_LIMBS);
+	assert_eq!(row.c_complement, [0u32; FIELD_NUM_LIMBS]);
+	assert_eq!(row.c_complement_borrow, [0u8; FIELD_NUM_LIMBS]);
+	// And it accepts cleanly.
+	run_eval(&row.to_trace_vec::<Goldilocks>());
+}
+
+#[test]
+fn build_trace_row_canonical_form_for_zero() {
+	// Witness builder must produce c_complement == p_minus_one when c == 0.
+	let row = build_field_add_trace_row(&[0u32; FIELD_NUM_LIMBS], &[0u32; FIELD_NUM_LIMBS]);
+	assert_eq!(row.c, [0u32; FIELD_NUM_LIMBS]);
+	assert_eq!(row.c_complement, P_MINUS_ONE_LIMBS);
+	assert_eq!(row.c_complement_borrow, [0u8; FIELD_NUM_LIMBS]);
+	run_eval(&row.to_trace_vec::<Goldilocks>());
 }
