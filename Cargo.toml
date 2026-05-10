@@ -292,6 +292,7 @@ members = [
 	"substrate/utils/rostro-canonical-fetch",
 	"substrate/utils/rostro-canonicalize",
 	"substrate/utils/rostro-client",
+	"substrate/utils/rostro-curve25519",
 	"substrate/utils/rostro-poseidon-air",
 	"substrate/utils/rostro-range-check",
 	"substrate/utils/rostro-consensus-sassafras",
@@ -654,6 +655,7 @@ zk-pki-primitives = { path = "substrate/utils/zkpki-primitives", default-feature
 zk-pki-rpc = { path = "substrate/utils/zkpki-rpc", default-features = false }
 zk-pki-runtime = { path = "substrate/utils/zkpki-runtime", default-features = false }
 zk-pki-tpm = { path = "substrate/utils/zkpki-tpm", default-features = false }
+rostro-curve25519 = { path = "substrate/utils/rostro-curve25519", default-features = false }
 rostro-poseidon-air = { path = "substrate/utils/rostro-poseidon-air", default-features = false }
 rostro-range-check = { path = "substrate/utils/rostro-range-check", default-features = false }
 pallet-rostro-proof-anchor = { path = "substrate/frame/rostro-proof-anchor", default-features = false }

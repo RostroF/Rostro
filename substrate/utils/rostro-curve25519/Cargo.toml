@@ -1,0 +1,28 @@
+[package]
+name = "rostro-curve25519"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Non-native Curve25519 / Ristretto255 arithmetic as Plonky3 AIRs over Goldilocks. Building blocks for the PoP path's verified_oprf primitive: 256-bit base-field add/sub/mul/reduction, Edwards25519 point ops, Ristretto encode/decode, hash-to-curve (RFC 9380 ELL2 RO), Chaum-Pedersen dlog-equality verification. Soundness-load-bearing — every primitive is constraint-checked against curve25519-dalek as the pure-Rust oracle in dev-tests."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+p3-air        = { workspace = true }
+p3-field      = { workspace = true }
+p3-goldilocks = { workspace = true }
+p3-lookup     = { workspace = true }
+p3-matrix     = { workspace = true }
+
+[dev-dependencies]
+curve25519-dalek = { version = "4.1", default-features = false, features = ["alloc", "digest", "group"] }
+hex-literal = { version = "0.4" }
+
+[features]
+default = ["std"]
+std = []
