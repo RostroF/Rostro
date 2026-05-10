@@ -1,0 +1,426 @@
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
+
+use p3_field::{BasedVectorSpace, Field, PrimeField, PrimeField32, reduce_32, split_32};
+use p3_symmetric::{CryptographicPermutation, Hash, MerkleCap};
+
+use crate::{CanFinalizeDigest, CanObserve, CanSample, CanSampleBits, FieldChallenger};
+
+/// A challenger that operates natively on PF but produces challenges of F: PrimeField32.
+///
+/// Used for optimizing the cost of recursive proof verification of STARKs in SNARKs.
+///
+/// SAFETY: There are some bias complications with using this challenger. In particular,
+/// samples are actually random in [0, 2^64) and then reduced to be in F.
+#[derive(Clone, Debug)]
+pub struct MultiField32Challenger<F, PF, P, const WIDTH: usize, const RATE: usize>
+where
+    F: PrimeField32,
+    PF: Field,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    sponge_state: [PF; WIDTH],
+    input_buffer: Vec<F>,
+    output_buffer: Vec<F>,
+    permutation: P,
+    num_f_elms: usize,
+}
+
+impl<F, PF, P, const WIDTH: usize, const RATE: usize> MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    PF: Field,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    pub fn new(permutation: P) -> Result<Self, String> {
+        if F::order() >= PF::order() {
+            return Err(String::from("F::order() must be less than PF::order()"));
+        }
+        let num_f_elms = PF::bits() / 64;
+        Ok(Self {
+            sponge_state: [PF::default(); WIDTH],
+            input_buffer: vec![],
+            output_buffer: vec![],
+            permutation,
+            num_f_elms,
+        })
+    }
+}
+
+impl<F, PF, P, const WIDTH: usize, const RATE: usize> MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    PF: PrimeField,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    fn duplexing(&mut self) {
+        assert!(self.input_buffer.len() <= self.num_f_elms * RATE);
+
+        for (i, f_chunk) in self.input_buffer.chunks(self.num_f_elms).enumerate() {
+            self.sponge_state[i] = reduce_32(f_chunk);
+        }
+        self.input_buffer.clear();
+
+        // Apply the permutation.
+        self.permutation.permute_mut(&mut self.sponge_state);
+
+        self.output_buffer.clear();
+        for &pf_val in &self.sponge_state[..RATE] {
+            self.output_buffer
+                .extend(split_32::<PF, F>(pf_val, self.num_f_elms));
+        }
+    }
+}
+
+impl<F, PF, P, const WIDTH: usize, const RATE: usize> FieldChallenger<F>
+    for MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    PF: PrimeField,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+}
+
+impl<F, PF, P, const WIDTH: usize, const RATE: usize> CanObserve<F>
+    for MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    PF: PrimeField,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    fn observe(&mut self, value: F) {
+        // Any buffered output is now invalid.
+        self.output_buffer.clear();
+
+        self.input_buffer.push(value);
+
+        if self.input_buffer.len() == self.num_f_elms * RATE {
+            self.duplexing();
+        }
+    }
+}
+
+impl<F, PF, const N: usize, P, const WIDTH: usize, const RATE: usize> CanObserve<[F; N]>
+    for MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    PF: PrimeField,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    fn observe(&mut self, values: [F; N]) {
+        for value in values {
+            self.observe(value);
+        }
+    }
+}
+
+impl<F, PF, const N: usize, P, const WIDTH: usize, const RATE: usize> CanObserve<Hash<F, PF, N>>
+    for MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    PF: PrimeField,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    fn observe(&mut self, values: Hash<F, PF, N>) {
+        for pf_val in values {
+            let f_vals: Vec<F> = split_32(pf_val, self.num_f_elms);
+            for f_val in f_vals {
+                self.observe(f_val);
+            }
+        }
+    }
+}
+
+impl<F, PF, const N: usize, P, const WIDTH: usize, const RATE: usize>
+    CanObserve<&MerkleCap<F, [PF; N]>> for MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    PF: PrimeField,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    fn observe(&mut self, cap: &MerkleCap<F, [PF; N]>) {
+        for digest in cap.roots() {
+            for pf_val in digest {
+                let f_vals: Vec<F> = split_32(*pf_val, self.num_f_elms);
+                for f_val in f_vals {
+                    self.observe(f_val);
+                }
+            }
+        }
+    }
+}
+
+impl<F, PF, const N: usize, P, const WIDTH: usize, const RATE: usize>
+    CanObserve<MerkleCap<F, [PF; N]>> for MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    PF: PrimeField,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    fn observe(&mut self, cap: MerkleCap<F, [PF; N]>) {
+        self.observe(&cap);
+    }
+}
+
+// for TrivialPcs
+impl<F, PF, P, const WIDTH: usize, const RATE: usize> CanObserve<Vec<Vec<F>>>
+    for MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    PF: PrimeField,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    fn observe(&mut self, valuess: Vec<Vec<F>>) {
+        for values in valuess {
+            for value in values {
+                self.observe(value);
+            }
+        }
+    }
+}
+
+impl<F, EF, PF, P, const WIDTH: usize, const RATE: usize> CanSample<EF>
+    for MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    EF: BasedVectorSpace<F>,
+    PF: PrimeField,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    fn sample(&mut self) -> EF {
+        EF::from_basis_coefficients_fn(|_| {
+            // If we have buffered inputs, we must perform a duplexing so that the challenge will
+            // reflect them. Or if we've run out of outputs, we must perform a duplexing to get more.
+            if !self.input_buffer.is_empty() || self.output_buffer.is_empty() {
+                self.duplexing();
+            }
+
+            self.output_buffer
+                .pop()
+                .expect("Output buffer should be non-empty")
+        })
+    }
+}
+
+impl<F, PF, P, const WIDTH: usize, const RATE: usize> CanSampleBits<usize>
+    for MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    PF: PrimeField,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    /// The sampled bits are not perfectly uniform, but we can bound the error: every sequence
+    /// appears with probability 1/p-close to uniform (1/2^b).
+    ///
+    /// Proof:
+    /// We denote p = F::ORDER_U32, and b = `bits`.
+    /// If X follows a uniform distribution over F, if we consider the first b bits of X, each
+    /// sequence appears either with probability P1 = ⌊p / 2^b⌋ / p or P2 = (1 + ⌊p / 2^b⌋) / p.
+    /// We have 1/2^b - 1/p ≤ P1, P2 ≤ 1/2^b + 1/p
+    fn sample_bits(&mut self, bits: usize) -> usize {
+        assert!(bits < (usize::BITS as usize));
+        assert!((1 << bits) < F::ORDER_U32);
+        let rand_f: F = self.sample();
+        let rand_usize = rand_f.as_canonical_u32() as usize;
+        rand_usize & ((1 << bits) - 1)
+    }
+}
+
+impl<F, PF, P, const WIDTH: usize, const RATE: usize> CanFinalizeDigest
+    for MultiField32Challenger<F, PF, P, WIDTH, RATE>
+where
+    F: PrimeField32,
+    PF: PrimeField,
+    P: CryptographicPermutation<[PF; WIDTH]>,
+{
+    type Digest = [PF; RATE];
+
+    fn finalize(mut self) -> [PF; RATE] {
+        // Unconditionally duplex: absorb any pending input and permute.
+        //
+        // Note: sampling only pops from the output buffer without modifying
+        // sponge state, so it does not necessarily affect the digest (e.g.
+        // when the last observe already triggered auto-duplexing).
+        self.duplexing();
+        self.sponge_state[..RATE].try_into().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use p3_baby_bear::BabyBear;
+    use p3_field::PrimeCharacteristicRing;
+    use p3_goldilocks::Goldilocks;
+    use p3_symmetric::Permutation;
+
+    use super::*;
+    use crate::grinding_challenger::GrindingChallenger;
+
+    const WIDTH: usize = 8;
+    const RATE: usize = 4;
+
+    type F = BabyBear;
+    type PF = Goldilocks;
+
+    #[derive(Clone)]
+    struct TestPermutation;
+
+    impl Permutation<[PF; WIDTH]> for TestPermutation {
+        fn permute_mut(&self, input: &mut [PF; WIDTH]) {
+            for (i, val) in input.iter_mut().enumerate() {
+                *val = PF::from_u8((i + 1) as u8);
+            }
+        }
+    }
+
+    impl CryptographicPermutation<[PF; WIDTH]> for TestPermutation {}
+
+    /// A permutation where each output depends on all inputs, suitable for
+    /// tests that need to detect state changes (e.g. finalize).
+    #[derive(Clone)]
+    struct MixingPermutation;
+
+    impl Permutation<[PF; WIDTH]> for MixingPermutation {
+        fn permute_mut(&self, input: &mut [PF; WIDTH]) {
+            let sum: PF = input.iter().copied().sum();
+            for (i, val) in input.iter_mut().enumerate() {
+                *val = sum + PF::from_u8((i + 1) as u8);
+            }
+        }
+    }
+
+    impl CryptographicPermutation<[PF; WIDTH]> for MixingPermutation {}
+
+    #[test]
+    fn test_output_buffer_excludes_capacity() {
+        let permutation = TestPermutation;
+        let mut challenger =
+            MultiField32Challenger::<F, PF, _, WIDTH, RATE>::new(permutation).unwrap();
+
+        // num_f_elms = PF::bits() / 64 = 64 / 64 = 1 for Goldilocks
+        let num_f_elms = challenger.num_f_elms;
+
+        // Trigger duplexing by sampling
+        let _: F = challenger.sample();
+
+        // Output buffer should contain RATE * num_f_elms elements, NOT WIDTH * num_f_elms
+        // This verifies we only output the rate portion, not the capacity
+        let expected_output_size = RATE * num_f_elms;
+        let incorrect_output_size = WIDTH * num_f_elms;
+
+        assert_eq!(
+            challenger.output_buffer.len(),
+            expected_output_size - 1, // -1 because we sampled one element
+            "Output buffer should be based on RATE ({}), not WIDTH ({})",
+            expected_output_size,
+            incorrect_output_size
+        );
+    }
+
+    #[test]
+    fn test_finalize() {
+        let new_chal =
+            || MultiField32Challenger::<F, PF, _, WIDTH, RATE>::new(MixingPermutation).unwrap();
+
+        // Deterministic: same observations produce same digest.
+        let mut c1 = new_chal();
+        let mut c2 = new_chal();
+        for i in 0..5u8 {
+            c1.observe(F::from_u8(i));
+            c2.observe(F::from_u8(i));
+        }
+        assert_eq!(c1.finalize(), c2.finalize());
+
+        // Different observations produce different digests.
+        let mut c1 = new_chal();
+        let mut c2 = new_chal();
+        for i in 0..5u8 {
+            c1.observe(F::from_u8(i));
+            c2.observe(F::from_u8(i + 1));
+        }
+        assert_ne!(c1.finalize(), c2.finalize());
+    }
+
+    /// Document how sampling interacts with finalize.
+    ///
+    /// Same principle as DuplexChallenger: sampling only pops from the
+    /// output buffer without modifying sponge state. The digest changes
+    /// when a sample triggers a new duplexing. Each duplexing produces
+    /// `num_f_elms * RATE` output elements (here 1 * 4 = 4 BabyBear
+    /// elements for Goldilocks/BabyBear), so the digest is stable within
+    /// each batch of that many samples.
+    #[test]
+    fn test_finalize_sample_interaction() {
+        let batch_size = {
+            let c =
+                MultiField32Challenger::<F, PF, _, WIDTH, RATE>::new(MixingPermutation).unwrap();
+            c.num_f_elms * RATE
+        };
+
+        let digest = |n_samples: usize| {
+            let mut c =
+                MultiField32Challenger::<F, PF, _, WIDTH, RATE>::new(MixingPermutation).unwrap();
+            for i in 0..3u8 {
+                c.observe(F::from_u8(i));
+            }
+            for _ in 0..n_samples {
+                let _: F = c.sample();
+            }
+            c.finalize()
+        };
+
+        // The first sample triggers duplexing (absorbs pending input),
+        // so finalize's duplexing is an extra permutation — different digest.
+        assert_ne!(digest(0), digest(1));
+
+        // Samples within the same batch don't trigger another duplexing.
+        assert_eq!(digest(1), digest(2));
+        assert_eq!(digest(1), digest(batch_size));
+
+        // Exhausting the output buffer triggers a fresh duplexing.
+        assert_ne!(digest(batch_size), digest(batch_size + 1));
+
+        // Stable within the second batch.
+        assert_eq!(digest(batch_size + 1), digest(batch_size + 2));
+    }
+
+    #[test]
+    fn test_duplexing_respects_rate() {
+        let permutation = TestPermutation;
+        let mut challenger =
+            MultiField32Challenger::<F, PF, _, WIDTH, RATE>::new(permutation).unwrap();
+
+        let num_f_elms = challenger.num_f_elms;
+
+        // Fill input buffer to trigger duplexing
+        for i in 0..(num_f_elms * RATE) {
+            challenger.observe(F::from_u8(i as u8));
+        }
+
+        // After observing exactly num_f_elms * RATE elements, duplexing occurs
+        // Output buffer should have exactly RATE * num_f_elms elements
+        assert_eq!(
+            challenger.output_buffer.len(),
+            RATE * num_f_elms,
+            "After duplexing, output buffer should contain RATE * num_f_elms elements"
+        );
+    }
+
+    #[test]
+    fn test_grind_zero_bits_returns_zero() {
+        // bits == 0: must short-circuit to ZERO without touching state.
+        let mut challenger =
+            MultiField32Challenger::<F, PF, _, WIDTH, RATE>::new(MixingPermutation).unwrap();
+
+        // Snapshot to detect any transcript mutation.
+        let before = challenger.clone();
+
+        let witness = challenger.grind(0);
+
+        assert_eq!(witness, F::ZERO);
+        assert_eq!(challenger.input_buffer, before.input_buffer);
+        assert_eq!(challenger.output_buffer, before.output_buffer);
+        assert_eq!(challenger.sponge_state, before.sponge_state);
+    }
+}
