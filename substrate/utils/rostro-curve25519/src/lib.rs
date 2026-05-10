@@ -67,6 +67,7 @@ extern crate alloc;
 
 pub mod field;
 pub mod field_air;
+pub mod field_mul_air;
 pub mod field_sub_air;
 
 #[cfg(test)]
@@ -77,6 +78,9 @@ mod oracle_tests;
 
 #[cfg(test)]
 mod field_air_tests;
+
+#[cfg(test)]
+mod field_mul_air_tests;
 
 #[cfg(test)]
 mod field_sub_air_tests;
