@@ -101,19 +101,52 @@ fn fib_polkavm_matches_native_reference() {
 /// Real workload apples-to-apples: both VMs compute the same Fibonacci
 /// iteration and produce the same A0. Gas counts differ (different cost
 /// models) — emitted for visibility but not asserted on.
-/// Naive trial-division primes — polkavm only for now (see
-/// `workloads::primes` module docs for why javm-flavor is deferred).
+/// Naive trial-division primes — both VMs now, apples-to-apples.
+/// Uses the Assembler extension methods (`mul_64`, `rem_unsigned_64`,
+/// `set_less_than_unsigned`, `branch_less_unsigned`) on the
+/// `feature/assembler-extended-ops` branch of grey-transpiler.
+#[test]
+fn primes_javm_matches_native_reference() {
+	let n: u64 = 30;
+	let blob = primes::javm_blob(n);
+	let mut runner = JavmRunner::interpreter();
+	let out = runner.run(&blob, &[]).expect("javm primes");
+	assert_eq!(out.result_a0, primes::expected_result(n), "javm primes({n})");
+}
+
 #[test]
 fn primes_polkavm_matches_native_reference() {
-	let n: u64 = 30; // primes in [2, 30) = 10
+	let n: u64 = 30;
 	let blob = primes::polkavm_blob(n);
 	let mut runner = PolkaVmRunner::new().expect("PolkaVmRunner");
 	let out = runner.run(&blob, &[]).expect("polkavm primes");
+	assert_eq!(out.result_a0, primes::expected_result(n), "polkavm primes({n})");
+}
+
+#[test]
+fn primes_javm_polkavm_agree() {
+	let n: u64 = 30;
+	let mut javm = JavmRunner::interpreter();
+	let mut polkavm = PolkaVmRunner::new().expect("PolkaVmRunner");
+
+	let javm_out = javm.run(&primes::javm_blob(n), &[]).expect("javm primes");
+	let polkavm_out = polkavm
+		.run(&primes::polkavm_blob(n), &[])
+		.expect("polkavm primes");
+
 	assert_eq!(
-		out.result_a0,
-		primes::expected_result(n),
-		"primes({}) mismatch",
-		n
+		javm_out.result_a0, polkavm_out.result_a0,
+		"javm ({}) vs polkavm ({}) disagree on primes({n})",
+		javm_out.result_a0, polkavm_out.result_a0,
+	);
+	assert_eq!(javm_out.result_a0, primes::expected_result(n));
+
+	eprintln!(
+		"primes({}) workload: javm gas={} polkavm gas={} (delta {})",
+		n,
+		javm_out.gas_consumed,
+		polkavm_out.gas_consumed,
+		javm_out.gas_consumed as i128 - polkavm_out.gas_consumed as i128,
 	);
 }
 
