@@ -17,7 +17,7 @@
 
 use rostro_vm_bench::{
 	runners::{JavmRunner, PolkaVmRunner},
-	workloads::fib,
+	workloads::{fib, primes},
 	RvmRunner,
 };
 
@@ -101,6 +101,22 @@ fn fib_polkavm_matches_native_reference() {
 /// Real workload apples-to-apples: both VMs compute the same Fibonacci
 /// iteration and produce the same A0. Gas counts differ (different cost
 /// models) — emitted for visibility but not asserted on.
+/// Naive trial-division primes — polkavm only for now (see
+/// `workloads::primes` module docs for why javm-flavor is deferred).
+#[test]
+fn primes_polkavm_matches_native_reference() {
+	let n: u64 = 30; // primes in [2, 30) = 10
+	let blob = primes::polkavm_blob(n);
+	let mut runner = PolkaVmRunner::new().expect("PolkaVmRunner");
+	let out = runner.run(&blob, &[]).expect("polkavm primes");
+	assert_eq!(
+		out.result_a0,
+		primes::expected_result(n),
+		"primes({}) mismatch",
+		n
+	);
+}
+
 #[test]
 fn fib_javm_polkavm_agree() {
 	let n: u64 = 10;

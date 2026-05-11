@@ -10,3 +10,4 @@
 //! (sha256/1MB, ed25519 verify, SCALE roundtrip) get layered on top.
 
 pub mod fib;
+pub mod primes;
