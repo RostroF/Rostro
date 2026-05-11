@@ -17,6 +17,7 @@
 
 use rostro_vm_bench::{
 	runners::{JavmRunner, PolkaVmRunner},
+	workloads::fib,
 	RvmRunner,
 };
 
@@ -77,6 +78,52 @@ fn javm_runs_native_blob_and_returns_42() {
 	let out = runner.run(&blob, &[]).expect("javm run");
 	assert_eq!(out.result_a0, 42, "expected A0 = 42, got {}", out.result_a0);
 	assert!(out.gas_consumed > 0, "gas_consumed should be non-zero");
+}
+
+#[test]
+fn fib_javm_matches_native_reference() {
+	let n: u64 = 10;
+	let blob = fib::javm_blob(n);
+	let mut runner = JavmRunner::interpreter();
+	let out = runner.run(&blob, &[]).expect("javm fib");
+	assert_eq!(out.result_a0, fib::expected_result(n));
+}
+
+#[test]
+fn fib_polkavm_matches_native_reference() {
+	let n: u64 = 10;
+	let blob = fib::polkavm_blob(n);
+	let mut runner = PolkaVmRunner::new().expect("PolkaVmRunner");
+	let out = runner.run(&blob, &[]).expect("polkavm fib");
+	assert_eq!(out.result_a0, fib::expected_result(n));
+}
+
+/// Real workload apples-to-apples: both VMs compute the same Fibonacci
+/// iteration and produce the same A0. Gas counts differ (different cost
+/// models) — emitted for visibility but not asserted on.
+#[test]
+fn fib_javm_polkavm_agree() {
+	let n: u64 = 10;
+	let mut javm = JavmRunner::interpreter();
+	let mut polkavm = PolkaVmRunner::new().expect("PolkaVmRunner");
+
+	let javm_out = javm.run(&fib::javm_blob(n), &[]).expect("javm fib");
+	let polkavm_out = polkavm.run(&fib::polkavm_blob(n), &[]).expect("polkavm fib");
+
+	assert_eq!(
+		javm_out.result_a0, polkavm_out.result_a0,
+		"javm A0 ({}) vs polkavm A0 ({}) disagree",
+		javm_out.result_a0, polkavm_out.result_a0,
+	);
+	assert_eq!(javm_out.result_a0, fib::expected_result(n));
+
+	eprintln!(
+		"fib({}) workload: javm gas={} polkavm gas={} (delta {})",
+		n,
+		javm_out.gas_consumed,
+		polkavm_out.gas_consumed,
+		javm_out.gas_consumed as i128 - polkavm_out.gas_consumed as i128,
+	);
 }
 
 /// Apples-to-apples on the observable program result. The two VMs use

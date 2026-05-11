@@ -12607,6 +12607,7 @@ dependencies = [
  "grey-transpiler",
  "javm",
  "polkavm 0.31.0",
+ "polkavm-common 0.31.0",
 ]
 
 [[package]]

@@ -17,6 +17,7 @@
 //! framing this harness is built to inform.
 
 pub mod runners;
+pub mod workloads;
 
 /// Minimal interface a Rostro Virtual Machine implementation must expose to
 /// be measured.
