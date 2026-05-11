@@ -9,7 +9,12 @@ publish = false
 
 [dependencies]
 javm = { path = "/home/coder/jar/grey/crates/javm" }
-polkavm = { workspace = true }
+# Override the workspace `default-features = false` to opt into polkavm's
+# `std` feature — required for the JIT compiler backend on x86_64 Linux
+# (see polkavm-0.31.0/src/lib.rs `if_compiler_is_supported!` cfg gate).
+# The workspace pin is no-std because the substrate executor uses it that
+# way; we don't have the same constraint, so we get the compiler backend.
+polkavm = { workspace = true, features = ["std"] }
 polkavm-common = { workspace = true }
 grey-transpiler = { path = "/home/coder/jar/grey/crates/grey-transpiler" }
 

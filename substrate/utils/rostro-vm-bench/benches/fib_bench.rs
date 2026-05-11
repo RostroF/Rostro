@@ -93,7 +93,11 @@ fn bench_fib(c: &mut Criterion) {
 
 		// Polkavm compiler is host-dependent — skip the bench if it's
 		// not available on this build.
-		if let Ok(mut runner) = PolkaVmRunner::compiler() {
+		let compiler_result = PolkaVmRunner::compiler();
+		if let Err(ref e) = compiler_result {
+			eprintln!("polkavm-compiler not available for N={n}: {e}");
+		}
+		if let Ok(mut runner) = compiler_result {
 			// Verify it agrees before benching.
 			assert_eq!(
 				runner.run(&polkavm_blob, &[]).expect("warmup compiler").result_a0,
