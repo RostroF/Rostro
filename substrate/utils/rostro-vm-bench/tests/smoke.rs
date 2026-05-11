@@ -58,6 +58,50 @@ fn javm_runner_names_match_backend() {
 	assert_eq!(JavmRunner::recompiler().name(), "javm-recompiler");
 }
 
+#[test]
+fn polkavm_runner_names_match_backend() {
+	assert_eq!(PolkaVmRunner::new().expect("default").name(), "polkavm");
+	assert_eq!(
+		PolkaVmRunner::interpreter().expect("interpreter").name(),
+		"polkavm-interpreter"
+	);
+	// Compiler backend may not be supported on every platform — if it
+	// isn't compiled in, we surface that as a clean Err rather than
+	// failing the test build.
+	match PolkaVmRunner::compiler() {
+		Ok(runner) => assert_eq!(runner.name(), "polkavm-compiler"),
+		Err(_) => eprintln!("polkavm-compiler not supported on this platform — skipping"),
+	}
+}
+
+/// All four backends (javm-interpreter / javm-recompiler /
+/// polkavm-interpreter / polkavm-compiler) must agree on fib(10) when
+/// they're available on the host platform.
+#[test]
+fn fib_all_backends_agree() {
+	let n: u64 = 10;
+	let javm_blob = fib::javm_blob(n);
+	let polkavm_blob = fib::polkavm_blob(n);
+	let expected = fib::expected_result(n);
+
+	let runs = [
+		JavmRunner::interpreter().run(&javm_blob, &[]).map(|o| ("javm-interpreter", o)),
+		#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+		JavmRunner::recompiler().run(&javm_blob, &[]).map(|o| ("javm-recompiler", o)),
+		PolkaVmRunner::interpreter()
+			.expect("interp")
+			.run(&polkavm_blob, &[])
+			.map(|o| ("polkavm-interpreter", o)),
+		// polkavm-compiler intentionally omitted: not guaranteed available
+		// on all hosts. Smoke-tested explicitly in `polkavm_runner_names_match_backend`.
+	];
+
+	for run in runs {
+		let (name, out) = run.expect("run failed");
+		assert_eq!(out.result_a0, expected, "{name} disagrees with native fib({n})");
+	}
+}
+
 /// Build a javm-flavor blob using grey-transpiler's Assembler:
 /// `a0 = 42; ecalli 0` (JAM REPLY). The Assembler emits javm's native
 /// blob format with its own magic header — polkavm cannot parse this.

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) Rostro Foundation
 
-//! Criterion bench for the trial-division primes workload, javm + polkavm.
+//! Criterion bench for the trial-division primes workload — four-way
+//! characterization (javm interp/recomp + polkavm interp/comp).
 //!
 //! Sweeps `count_primes_up_to(N)` for N ∈ {100, 500, 1_000}. The naive
-//! algorithm is roughly `O(N²)` — sweeping N produces the "inverted dyno"
+//! algorithm is roughly O(N²) — sweeping N produces the "inverted dyno"
 //! curve the bench was designed to surface.
 //!
 //! Run with:
@@ -17,8 +18,6 @@ use rostro_vm_bench::{
 	RvmRunner,
 };
 
-/// N values to sweep. Smaller than the fib sweep because the inner
-/// loop is more expensive — `O(N²)` vs `fib`'s `O(N)`.
 const PRIMES_N_VALUES: &[u64] = &[100, 500, 1_000];
 
 fn bench_primes(c: &mut Criterion) {
@@ -28,25 +27,23 @@ fn bench_primes(c: &mut Criterion) {
 		let javm_blob = primes::javm_blob(n);
 		let polkavm_blob = primes::polkavm_blob(n);
 
-		// Correctness check at bench-startup — a broken blob builder
-		// gets caught before any timing samples are taken.
 		let expected = primes::expected_result(n);
-		let mut javm_warm = JavmRunner::interpreter();
-		let mut polkavm_warm = PolkaVmRunner::new().expect("PolkaVmRunner::new");
 		assert_eq!(
-			javm_warm.run(&javm_blob, &[]).expect("warmup javm").result_a0,
+			JavmRunner::interpreter()
+				.run(&javm_blob, &[])
+				.expect("warmup javm")
+				.result_a0,
 			expected,
-			"javm primes({}) mismatch in bench setup",
-			n
+			"javm primes({n}) mismatch in bench setup"
 		);
 		assert_eq!(
-			polkavm_warm
+			PolkaVmRunner::interpreter()
+				.expect("polkavm-interpreter")
 				.run(&polkavm_blob, &[])
 				.expect("warmup polkavm")
 				.result_a0,
 			expected,
-			"polkavm primes({}) mismatch in bench setup",
-			n
+			"polkavm primes({n}) mismatch in bench setup"
 		);
 
 		group.bench_with_input(
@@ -61,13 +58,49 @@ fn bench_primes(c: &mut Criterion) {
 			},
 		);
 
-		group.bench_with_input(BenchmarkId::new("polkavm", n), &polkavm_blob, |b, blob| {
-			let mut runner = PolkaVmRunner::new().expect("PolkaVmRunner::new");
-			b.iter(|| {
-				let out = runner.run(black_box(blob), &[]).expect("polkavm primes");
-				black_box(out);
-			});
-		});
+		#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+		group.bench_with_input(
+			BenchmarkId::new("javm-recompiler", n),
+			&javm_blob,
+			|b, blob| {
+				let mut runner = JavmRunner::recompiler();
+				b.iter(|| {
+					let out = runner.run(black_box(blob), &[]).expect("javm primes");
+					black_box(out);
+				});
+			},
+		);
+
+		group.bench_with_input(
+			BenchmarkId::new("polkavm-interpreter", n),
+			&polkavm_blob,
+			|b, blob| {
+				let mut runner =
+					PolkaVmRunner::interpreter().expect("polkavm-interpreter");
+				b.iter(|| {
+					let out = runner.run(black_box(blob), &[]).expect("polkavm primes");
+					black_box(out);
+				});
+			},
+		);
+
+		if let Ok(mut runner) = PolkaVmRunner::compiler() {
+			assert_eq!(
+				runner.run(&polkavm_blob, &[]).expect("warmup compiler").result_a0,
+				expected,
+				"polkavm-compiler primes({n}) mismatch in bench setup",
+			);
+			group.bench_with_input(
+				BenchmarkId::new("polkavm-compiler", n),
+				&polkavm_blob,
+				|b, blob| {
+					b.iter(|| {
+						let out = runner.run(black_box(blob), &[]).expect("polkavm primes");
+						black_box(out);
+					});
+				},
+			);
+		}
 	}
 
 	group.finish();

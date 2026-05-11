@@ -6,7 +6,9 @@
 use crate::{RvmRunner, RunOutput};
 use super::DEFAULT_GAS_LIMIT;
 
-use polkavm::{Config, Engine, GasMeteringKind, InterruptKind, Module, ModuleConfig, Reg};
+use polkavm::{
+	BackendKind, Config, Engine, GasMeteringKind, InterruptKind, Module, ModuleConfig, Reg,
+};
 
 /// RVM runner using `polkavm::Module::instantiate()` + manual register setup.
 ///
@@ -14,29 +16,62 @@ use polkavm::{Config, Engine, GasMeteringKind, InterruptKind, Module, ModuleConf
 /// The engine is built once and reused across `run` calls; modules are rebuilt
 /// per call (matches the "compile + execute every iteration" benchmark fairness
 /// note from grey-bench).
+///
+/// Backend selection: use [`PolkaVmRunner::interpreter`] or
+/// [`PolkaVmRunner::compiler`] to force a specific backend; [`PolkaVmRunner::new`]
+/// uses whatever polkavm's `Config::from_env()` resolves to (typically the
+/// compiler when supported, falling back to interpreter).
 pub struct PolkaVmRunner {
 	engine: Engine,
 	gas_limit: i64,
+	name: &'static str,
 }
 
 impl PolkaVmRunner {
+	/// Default backend — whatever polkavm's config resolves to.
 	pub fn new() -> Result<Self, String> {
-		let mut config = Config::from_env().unwrap_or_else(|_| Config::new());
-		config.set_allow_experimental(true);
-		let engine =
-			Engine::new(&config).map_err(|e| format!("polkavm Engine::new: {}", e))?;
-		Ok(Self { engine, gas_limit: DEFAULT_GAS_LIMIT as i64 })
+		Self::build("polkavm", None)
+	}
+
+	/// Force the software interpreter backend.
+	pub fn interpreter() -> Result<Self, String> {
+		Self::build("polkavm-interpreter", Some(BackendKind::Interpreter))
+	}
+
+	/// Force the JIT compiler backend.
+	///
+	/// On platforms where the compiler backend isn't compiled in,
+	/// `Engine::new()` will fail and this returns `Err`.
+	pub fn compiler() -> Result<Self, String> {
+		Self::build("polkavm-compiler", Some(BackendKind::Compiler))
 	}
 
 	pub fn with_gas_limit(mut self, gas: u64) -> Self {
 		self.gas_limit = gas as i64;
 		self
 	}
+
+	fn build(name: &'static str, backend: Option<BackendKind>) -> Result<Self, String> {
+		let mut config = Config::from_env().unwrap_or_else(|_| Config::new());
+		config.set_allow_experimental(true);
+		if let Some(b) = backend {
+			config.set_backend(Some(b));
+		}
+		// Disable sandboxing unless the user opted in via env var. Bench
+		// processes don't need OS-level isolation; the in-process VM
+		// sandbox is sufficient. Matches grey-bench's pattern.
+		if std::env::var_os("POLKAVM_SANDBOXING_ENABLED").is_none() {
+			config.set_sandboxing_enabled(false);
+		}
+		let engine =
+			Engine::new(&config).map_err(|e| format!("polkavm Engine::new ({name}): {e}"))?;
+		Ok(Self { engine, gas_limit: DEFAULT_GAS_LIMIT as i64, name })
+	}
 }
 
 impl RvmRunner for PolkaVmRunner {
 	fn name(&self) -> &'static str {
-		"polkavm"
+		self.name
 	}
 
 	fn run(&mut self, blob: &[u8], _input: &[u8]) -> Result<RunOutput, String> {
