@@ -46,7 +46,6 @@ use crate::field::{
 use crate::field_air::{BUS_FIELD_ADD, BUS_U16_RANGE};
 use crate::field_mul_air::BUS_FIELD_MUL;
 use crate::field_sub_air::BUS_FIELD_SUB;
-use crate::point::EdwardsPoint;
 use crate::sqrt_ratio_m1_air::BUS_SQRT_RATIO_M1;
 
 /// Service-bus name. Payload `(u, x_E, y_E, z_E, t_E)` = 5 × 8 = 40 cells.

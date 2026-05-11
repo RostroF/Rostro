@@ -23,7 +23,7 @@
 //! the published formulas.
 
 use crate::field::{
-	add as field_add, inv, is_canonical, is_negative, is_zero, limbs_to_bytes, mul as field_mul,
+	add as field_add, is_canonical, is_negative, is_zero, limbs_to_bytes, mul as field_mul,
 	neg as field_neg, sqrt_ratio_m1, square, sub as field_sub, FIELD_NUM_LIMBS, SQRT_M1_LIMBS,
 };
 use crate::point::{EdwardsPoint, ED25519_D_LIMBS};

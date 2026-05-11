@@ -11,7 +11,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use p3_air::{Air, AirBuilder, BaseAir, RowWindow};
+use p3_air::{Air, AirBuilder, RowWindow};
 use p3_field::{Field, PrimeCharacteristicRing};
 use p3_goldilocks::Goldilocks;
 use p3_lookup::InteractionBuilder;

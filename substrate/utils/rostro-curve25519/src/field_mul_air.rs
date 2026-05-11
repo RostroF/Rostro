@@ -310,21 +310,21 @@ where
 		// indexing for b_u16 and wide_u16.
 
 		let a_u16 = |i: usize| -> AB::Var {
-			if i % 2 == 0 {
+			if i.is_multiple_of(2) {
 				a_lo[i / 2]
 			} else {
 				a_hi[i / 2]
 			}
 		};
 		let b_u16 = |j: usize| -> AB::Var {
-			if j % 2 == 0 {
+			if j.is_multiple_of(2) {
 				b_lo[j / 2]
 			} else {
 				b_hi[j / 2]
 			}
 		};
 		let wide_u16 = |k: usize| -> AB::Var {
-			if k % 2 == 0 {
+			if k.is_multiple_of(2) {
 				wide_lo[k / 2]
 			} else {
 				wide_hi[k / 2]
@@ -474,7 +474,7 @@ where
 		// p_u16[2m+1] = P_LIMBS[m] >> 16
 
 		let q_u16 = |i: usize| -> AB::Var {
-			if i % 2 == 0 {
+			if i.is_multiple_of(2) {
 				q_lo[i / 2]
 			} else {
 				q_hi[i / 2]
@@ -482,14 +482,14 @@ where
 		};
 		let p_u16_const = |k: usize| -> u32 {
 			let m = k / 2;
-			if k % 2 == 0 {
+			if k.is_multiple_of(2) {
 				P_LIMBS[m] & 0xFFFF
 			} else {
 				P_LIMBS[m] >> 16
 			}
 		};
 		let qp_wide_u16 = |k: usize| -> AB::Var {
-			if k % 2 == 0 {
+			if k.is_multiple_of(2) {
 				qp_wide_lo[k / 2]
 			} else {
 				qp_wide_hi[k / 2]
@@ -724,21 +724,21 @@ pub fn build_field_mul_trace_row(
 	//
 	// Helper closures for u16 view.
 	let a_u16 = |i: usize| -> u32 {
-		if i % 2 == 0 {
+		if i.is_multiple_of(2) {
 			u32::from(a_lo[i / 2])
 		} else {
 			u32::from(a_hi[i / 2])
 		}
 	};
 	let b_u16 = |j: usize| -> u32 {
-		if j % 2 == 0 {
+		if j.is_multiple_of(2) {
 			u32::from(b_lo[j / 2])
 		} else {
 			u32::from(b_hi[j / 2])
 		}
 	};
 	let wide_u16_view = |k: usize| -> u32 {
-		if k % 2 == 0 {
+		if k.is_multiple_of(2) {
 			u32::from(wide_lo[k / 2])
 		} else {
 			u32::from(wide_hi[k / 2])
@@ -841,7 +841,7 @@ pub fn build_field_mul_trace_row(
 	// above: per-column witnessed carries derived by walking columns
 	// low-to-high and solving for carry_out at each step.
 	let q_u16 = |i: usize| -> u32 {
-		if i % 2 == 0 {
+		if i.is_multiple_of(2) {
 			u32::from(q_lo[i / 2])
 		} else {
 			u32::from(q_hi[i / 2])
@@ -849,14 +849,14 @@ pub fn build_field_mul_trace_row(
 	};
 	let p_u16_const = |k: usize| -> u32 {
 		let m = k / 2;
-		if k % 2 == 0 {
+		if k.is_multiple_of(2) {
 			P_LIMBS[m] & 0xFFFF
 		} else {
 			P_LIMBS[m] >> 16
 		}
 	};
 	let qp_wide_u16_view = |k: usize| -> u32 {
-		if k % 2 == 0 {
+		if k.is_multiple_of(2) {
 			u32::from(qp_wide_lo[k / 2])
 		} else {
 			u32::from(qp_wide_hi[k / 2])

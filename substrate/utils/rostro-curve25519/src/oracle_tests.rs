@@ -465,7 +465,6 @@ fn inv_times_v_is_one_random() {
 #[test]
 fn inv_matches_bigint_oracle_random() {
 	use num_bigint::BigUint;
-	use num_traits::One;
 	use rand::SeedableRng;
 
 	let mut rng = rand::rngs::StdRng::seed_from_u64(0xeeee_ffff_0000_1111);
