@@ -31,7 +31,7 @@ use crate::field::{
 	add as field_add, is_negative, mul as field_mul, neg as field_neg, square as field_square,
 	sub as field_sub, FIELD_NUM_LIMBS, SQRT_M1_LIMBS,
 };
-use crate::field_air::BUS_FIELD_ADD;
+use crate::field_air::{BUS_FIELD_ADD, BUS_U16_RANGE};
 use crate::field_mul_air::BUS_FIELD_MUL;
 use crate::field_sub_air::BUS_FIELD_SUB;
 use crate::point::EdwardsPoint;
@@ -82,7 +82,23 @@ pub const COL_SIGN_Y_PRIME: usize = COL_ROTATE + 1;
 pub const COL_SIGN_S: usize = COL_SIGN_Y_PRIME + 1;
 pub const COL_INVSQRT_WAS_SQ: usize = COL_SIGN_S + 1;
 
-pub const RISTRETTO_COMPRESS_NUM_COLS: usize = COL_INVSQRT_WAS_SQ + 1;
+// LSB-tie witnesses (two u16 halves each) pinning the three sign flags
+// to the actual LSB of their respective field-element limbs:
+//   rotate       ↔ LSB(T_ZINV[0])
+//   sign_y_prime ↔ LSB(X_PRIME_ZINV[0])
+//   sign_s       ↔ LSB(S_RAW[0])
+// Decomposition: limb[0] = 2 · (lo + 2^16 · hi) + flag, with lo, hi
+// range-checked as u16 on BUS_U16_RANGE. The upstream u32 bound on each
+// input limb (delivered via BUS_FIELD_MUL / BUS_FIELD_SUB outputs) then
+// forces limb_hi < 2^31, pinning the flag to the actual LSB.
+pub const COL_T_ZINV_LIMB_HI_LO: usize = COL_INVSQRT_WAS_SQ + 1;
+pub const COL_T_ZINV_LIMB_HI_HI: usize = COL_T_ZINV_LIMB_HI_LO + 1;
+pub const COL_X_PRIME_ZINV_LIMB_HI_LO: usize = COL_T_ZINV_LIMB_HI_HI + 1;
+pub const COL_X_PRIME_ZINV_LIMB_HI_HI: usize = COL_X_PRIME_ZINV_LIMB_HI_LO + 1;
+pub const COL_S_RAW_LIMB_HI_LO: usize = COL_X_PRIME_ZINV_LIMB_HI_HI + 1;
+pub const COL_S_RAW_LIMB_HI_HI: usize = COL_S_RAW_LIMB_HI_LO + 1;
+
+pub const RISTRETTO_COMPRESS_NUM_COLS: usize = COL_S_RAW_LIMB_HI_HI + 1;
 
 /// Plonky3 AIR for Ristretto255 compress.
 #[derive(Clone, Debug, Default)]
@@ -203,7 +219,11 @@ where
 		builder.assert_bool(rotate);
 		builder.assert_bool(sign_y_prime);
 		builder.assert_bool(sign_s);
-		builder.assert_bool(invsqrt_was_sq);
+		// 1/(u1·u2²) IS a square for any valid Ristretto-image point
+		// (Ristretto255 §3.2). Force was_square = 1 so the prover cannot
+		// claim non-square and consume garbage from SqrtRatioM1Air's
+		// was_square=0 branch.
+		builder.assert_one(invsqrt_was_sq);
 
 		// Selection: x_prime = rotate ? y_sqrt_m1 : x
 		//            y_prime = rotate ? x_sqrt_m1 : y
@@ -245,6 +265,29 @@ where
 					- sign_s.into() * neg_s_raw[i].into()
 					- one_minus_ss.clone() * s_raw[i].into(),
 			);
+		}
+
+		// ─── LSB-tie: pin sign flags to actual LSBs ───────────────────
+		// Each flag is forced to equal the LSB of its bound limb via a
+		// 2-u16 decomposition: limb[0] = 2·(lo + 2^16·hi) + flag.
+		let radix_u16 = AB::Expr::from_u64(1u64 << 16);
+		let two = AB::Expr::from_u64(2);
+		for (flag, src, lo_col, hi_col) in [
+			(rotate, t_zinv[0], COL_T_ZINV_LIMB_HI_LO, COL_T_ZINV_LIMB_HI_HI),
+			(
+				sign_y_prime,
+				x_prime_zinv[0],
+				COL_X_PRIME_ZINV_LIMB_HI_LO,
+				COL_X_PRIME_ZINV_LIMB_HI_HI,
+			),
+			(sign_s, s_raw[0], COL_S_RAW_LIMB_HI_LO, COL_S_RAW_LIMB_HI_HI),
+		] {
+			let lo: AB::Var = local[lo_col];
+			let hi: AB::Var = local[hi_col];
+			let limb_hi_expr = lo.into() + hi.into() * radix_u16.clone();
+			builder.assert_zero(src.into() - two.clone() * limb_hi_expr - flag.into());
+			builder.push_interaction(BUS_U16_RANGE, [lo], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [hi], AB::Expr::ONE, 1);
 		}
 
 		// ─── Bus queries ──────────────────────────────────────────────
@@ -362,6 +405,17 @@ pub struct RistrettoCompressTraceRow {
 	pub sign_y_prime: u32,
 	pub sign_s: u32,
 	pub invsqrt_was_sq: u32,
+	pub t_zinv_limb_hi_lo: u32,
+	pub t_zinv_limb_hi_hi: u32,
+	pub x_prime_zinv_limb_hi_lo: u32,
+	pub x_prime_zinv_limb_hi_hi: u32,
+	pub s_raw_limb_hi_lo: u32,
+	pub s_raw_limb_hi_hi: u32,
+}
+
+fn lsb_tie_split(limb0: u32, flag: bool) -> (u32, u32) {
+	let limb_hi = (limb0 - u32::from(flag)) / 2;
+	(limb_hi & 0xFFFF, limb_hi >> 16)
 }
 
 pub fn build_ristretto_compress_trace_row(p: &EdwardsPoint) -> RistrettoCompressTraceRow {
@@ -401,6 +455,11 @@ pub fn build_ristretto_compress_trace_row(p: &EdwardsPoint) -> RistrettoCompress
 	let sign_s = is_negative(&s_raw);
 	let s = if sign_s { neg_s_raw } else { s_raw };
 
+	let (t_zinv_limb_hi_lo, t_zinv_limb_hi_hi) = lsb_tie_split(t_zinv[0], rotate);
+	let (x_prime_zinv_limb_hi_lo, x_prime_zinv_limb_hi_hi) =
+		lsb_tie_split(x_prime_zinv[0], sign_y_prime);
+	let (s_raw_limb_hi_lo, s_raw_limb_hi_hi) = lsb_tie_split(s_raw[0], sign_s);
+
 	RistrettoCompressTraceRow {
 		p: *p,
 		z_plus_y,
@@ -432,6 +491,12 @@ pub fn build_ristretto_compress_trace_row(p: &EdwardsPoint) -> RistrettoCompress
 		sign_y_prime: u32::from(sign_y_prime),
 		sign_s: u32::from(sign_s),
 		invsqrt_was_sq: u32::from(invsqrt_was_sq),
+		t_zinv_limb_hi_lo,
+		t_zinv_limb_hi_hi,
+		x_prime_zinv_limb_hi_lo,
+		x_prime_zinv_limb_hi_hi,
+		s_raw_limb_hi_lo,
+		s_raw_limb_hi_hi,
 	}
 }
 
@@ -478,6 +543,12 @@ impl RistrettoCompressTraceRow {
 		out.push(F::from_u32(self.sign_y_prime));
 		out.push(F::from_u32(self.sign_s));
 		out.push(F::from_u32(self.invsqrt_was_sq));
+		out.push(F::from_u32(self.t_zinv_limb_hi_lo));
+		out.push(F::from_u32(self.t_zinv_limb_hi_hi));
+		out.push(F::from_u32(self.x_prime_zinv_limb_hi_lo));
+		out.push(F::from_u32(self.x_prime_zinv_limb_hi_hi));
+		out.push(F::from_u32(self.s_raw_limb_hi_lo));
+		out.push(F::from_u32(self.s_raw_limb_hi_hi));
 		debug_assert_eq!(out.len(), RISTRETTO_COMPRESS_NUM_COLS);
 		out
 	}

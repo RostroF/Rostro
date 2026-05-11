@@ -20,8 +20,8 @@ use crate::field_sub_air::BUS_FIELD_SUB;
 use crate::point::{double as point_double, EdwardsPoint};
 use crate::ristretto::compress as oracle_compress;
 use crate::ristretto_compress_air::{
-	build_ristretto_compress_trace_row, RistrettoCompressAir, BUS_RISTRETTO_COMPRESS, COL_S,
-	COL_SIGN_S, RISTRETTO_COMPRESS_NUM_COLS,
+	build_ristretto_compress_trace_row, RistrettoCompressAir, BUS_RISTRETTO_COMPRESS,
+	COL_INVSQRT_WAS_SQ, COL_ROTATE, COL_S, COL_SIGN_S, RISTRETTO_COMPRESS_NUM_COLS,
 };
 use crate::sqrt_ratio_m1_air::BUS_SQRT_RATIO_M1;
 
@@ -173,6 +173,34 @@ fn air_rejects_flipped_sign_s() {
 	let mut trace = row.to_trace_vec::<Goldilocks>();
 	// Flip sign_s; the s = (sign_s ? neg_s_raw : s_raw) selection breaks.
 	trace[COL_SIGN_S] = Goldilocks::ONE - trace[COL_SIGN_S];
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_forged_rotate() {
+	// Audit gap (closed): without LSB-tie, the prover could swing rotate
+	// independently of (T · zinv)'s actual parity, picking which 4-coset
+	// representative gets emitted. The LSB decomposition pins rotate to
+	// the actual LSB of T_ZINV[0]; flipping rotate without re-deriving
+	// the limb_hi witness must fail the algebraic equation.
+	let row = build_ristretto_compress_trace_row(&basepoint());
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	trace[COL_ROTATE] = Goldilocks::ONE - trace[COL_ROTATE];
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_invsqrt_was_sq_zero() {
+	// Ristretto255 guarantees 1/(u1·u2²) IS a square for any image point.
+	// A malicious prover claiming was_square=0 would let SqrtRatioM1Air
+	// fulfill the lookup on its broken was_square=0 branch with arbitrary
+	// invsqrt. assert_one(invsqrt_was_sq) closes that path; this test
+	// proves the assertion is active.
+	let row = build_ristretto_compress_trace_row(&basepoint());
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	trace[COL_INVSQRT_WAS_SQ] = Goldilocks::ZERO;
 	run_eval(&trace);
 }
 

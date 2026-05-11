@@ -97,7 +97,25 @@ pub const COL_P_Y: usize = COL_P_X + FIELD_NUM_LIMBS;
 pub const COL_P_Z: usize = COL_P_Y + FIELD_NUM_LIMBS;
 pub const COL_P_T: usize = COL_P_Z + FIELD_NUM_LIMBS;
 
-pub const SCALAR_MUL_NUM_COLS: usize = COL_P_T + FIELD_NUM_LIMBS;
+/// Start of the 32-byte scalar accumulator. `byte_acc[b]` for `b ∈ 0..32`
+/// is the running value of byte `b` of the scalar after this row's bit
+/// has been folded in (MSB-first within each byte). After the final row,
+/// `byte_acc[b]` equals byte `b` of the scalar in little-endian
+/// orientation (so `byte_acc[0]` is the LSB byte). The last row emits
+/// `(byte_acc[0..32], P, acc_out)` on [`BUS_SCALAR_MUL`].
+pub const COL_SCALAR_BYTE_ACC: usize = COL_P_T + FIELD_NUM_LIMBS;
+pub const SCALAR_BYTE_LEN: usize = 32;
+
+pub const SCALAR_MUL_NUM_COLS: usize = COL_SCALAR_BYTE_ACC + SCALAR_BYTE_LEN;
+
+/// Width of the preprocessed trace. One selector column per scalar byte;
+/// row `r` has a `1` in column `(255 - r) / 8` and zeros elsewhere.
+pub const SCALAR_MUL_NUM_PREPROC_COLS: usize = SCALAR_BYTE_LEN;
+
+/// Service-bus name. Payload: `(byte_acc[0..32], P.{x,y,z,t}[0..32],
+/// acc_out.{x,y,z,t}[0..32])` = 32 + 32 + 32 = 96 cells. Emitted exactly
+/// once per scalar-mul chain (gated by `is_last_row`).
+pub const BUS_SCALAR_MUL: &str = "rostro-scalar-mul";
 
 /// Plonky3 AIR for one Edwards25519 scalar multiplication.
 #[derive(Clone, Debug, Default)]
@@ -112,6 +130,24 @@ impl ScalarMulAir {
 impl<F: PrimeCharacteristicRing + Send + Sync> BaseAir<F> for ScalarMulAir {
 	fn width(&self) -> usize {
 		SCALAR_MUL_NUM_COLS
+	}
+
+	fn preprocessed_width(&self) -> usize {
+		SCALAR_MUL_NUM_PREPROC_COLS
+	}
+
+	fn preprocessed_trace(&self) -> Option<RowMajorMatrix<F>> {
+		// Selector matrix: row r has 1 at column (255 - r) / 8, zeros
+		// elsewhere. This pins the per-row "which byte's accumulator is
+		// updated" decision to verifier-known data.
+		let mut values = Vec::with_capacity(SCALAR_MUL_HEIGHT * SCALAR_MUL_NUM_PREPROC_COLS);
+		for r in 0..SCALAR_MUL_HEIGHT {
+			let active_byte = (SCALAR_NUM_BITS - 1 - r) / 8;
+			for b in 0..SCALAR_BYTE_LEN {
+				values.push(if b == active_byte { F::ONE } else { F::ZERO });
+			}
+		}
+		Some(RowMajorMatrix::new(values, SCALAR_MUL_NUM_PREPROC_COLS))
 	}
 }
 
@@ -223,6 +259,46 @@ where
 			trans.assert_eq(n_p_t[i], p_t[i]);
 		}
 
+		// ─── Scalar-byte accumulator: pin bit chain to (byte_acc[0..32]) ─
+		// At row r, the bit being processed is at scalar position
+		// (255 - r). It belongs to byte b = (255 - r) / 8 at bit-within-
+		// byte (255 - r) % 8 (MSB-first). The preprocessed selector
+		// `selector_b[r]` is 1 iff this row updates byte b.
+		//
+		// Recurrence per byte (MSB-first within the byte, processed in
+		// 8 consecutive rows):
+		//   byte_acc[b]_r = byte_acc[b]_{r-1} + selector_b[r] *
+		//                   (byte_acc[b]_{r-1} + bit[r])
+		// = if selector=1: 2 * prev + bit  (shift-and-or)
+		//   if selector=0: prev            (other bytes are untouched)
+		//
+		// First row: byte_acc[b]_0 = selector_b[0] * bit[0]
+		//   → byte_acc[31] = bit[0] (MSB of byte 31); all others = 0.
+		// Last row: byte_acc[b]_255 = canonical value of scalar byte b.
+		let byte_acc: [AB::Var; SCALAR_BYTE_LEN] =
+			core::array::from_fn(|b| local[COL_SCALAR_BYTE_ACC + b]);
+		let next_slice = main.next_slice();
+		let next_bit: AB::Var = next_slice[COL_BIT];
+		let next_byte_acc: [AB::Var; SCALAR_BYTE_LEN] =
+			core::array::from_fn(|b| next_slice[COL_SCALAR_BYTE_ACC + b]);
+		let sel_pre: [AB::Var; SCALAR_BYTE_LEN] =
+			core::array::from_fn(|b| builder.preprocessed().current(b).unwrap());
+		let next_sel_pre: [AB::Var; SCALAR_BYTE_LEN] =
+			core::array::from_fn(|b| builder.preprocessed().next(b).unwrap());
+
+		let mut first_byte = builder.when_first_row();
+		for b in 0..SCALAR_BYTE_LEN {
+			first_byte.assert_zero(byte_acc[b].into() - sel_pre[b].into() * bit.into());
+		}
+		let mut trans_byte = builder.when_transition();
+		for b in 0..SCALAR_BYTE_LEN {
+			trans_byte.assert_zero(
+				next_byte_acc[b].into()
+					- byte_acc[b].into()
+					- next_sel_pre[b].into() * (byte_acc[b].into() + next_bit.into()),
+			);
+		}
+
 		// ─── Bus queries (every row, count = +1) ──────────────────────
 
 		// rostro-point-double: (acc_in.x, acc_in.y, acc_in.z, tmp.x,
@@ -257,6 +333,34 @@ where
 			.map(|v| (*v).into())
 			.collect();
 		builder.push_interaction(BUS_POINT_ADD, pa_payload, AB::Expr::ONE, 1);
+
+		// ─── Service-bus emit (last row only, count = -1) ─────────────
+		// Payload: (byte_acc[0..32], P.{x,y,z,t}, acc_out.{x,y,z,t}).
+		// The byte_acc columns above pin this to the scalar implied by
+		// the per-row bit chain, closing the audit-flagged scalar-binding
+		// gap. Caller pushes (scalar_bytes_LE, P, k·P) on this bus.
+		let mut emit_payload: Vec<AB::Expr> = Vec::with_capacity(96);
+		for b in 0..SCALAR_BYTE_LEN {
+			emit_payload.push(byte_acc[b].into());
+		}
+		for v in p_x.iter().chain(p_y.iter()).chain(p_z.iter()).chain(p_t.iter()) {
+			emit_payload.push((*v).into());
+		}
+		for v in acc_out_x
+			.iter()
+			.chain(acc_out_y.iter())
+			.chain(acc_out_z.iter())
+			.chain(acc_out_t.iter())
+		{
+			emit_payload.push((*v).into());
+		}
+		let neg_one = AB::Expr::ZERO - AB::Expr::ONE;
+		builder.push_interaction(
+			BUS_SCALAR_MUL,
+			emit_payload,
+			builder.is_last_row() * neg_one,
+			1,
+		);
 	}
 }
 
@@ -275,6 +379,7 @@ pub fn build_scalar_mul_trace<F: PrimeCharacteristicRing>(
 	let mut out = Vec::with_capacity(SCALAR_MUL_HEIGHT * SCALAR_MUL_NUM_COLS);
 
 	let mut acc_in = neutral();
+	let mut byte_acc = [0u32; SCALAR_BYTE_LEN];
 	for row_index in 0..SCALAR_MUL_HEIGHT {
 		// Bit at position (SCALAR_NUM_BITS - 1 - row_index), MSB-first.
 		let bit_pos = SCALAR_NUM_BITS - 1 - row_index;
@@ -284,6 +389,12 @@ pub fn build_scalar_mul_trace<F: PrimeCharacteristicRing>(
 		let cand = point_add(&tmp, p);
 		let acc_out = if bit == 1 { cand } else { tmp };
 
+		// Update the byte accumulator: this row updates byte
+		// `(255 - row_index) / 8` by shifting left and OR-ing the new
+		// bit. Other bytes stay put.
+		let active_byte = bit_pos / 8;
+		byte_acc[active_byte] = byte_acc[active_byte] * 2 + u32::from(bit);
+
 		// Push the row in column-layout order.
 		out.push(F::from_u32(u32::from(bit)));
 		push_point::<F>(&mut out, &acc_in);
@@ -291,14 +402,21 @@ pub fn build_scalar_mul_trace<F: PrimeCharacteristicRing>(
 		push_point::<F>(&mut out, &cand);
 		push_point::<F>(&mut out, &acc_out);
 		push_point::<F>(&mut out, p);
+		for b in 0..SCALAR_BYTE_LEN {
+			out.push(F::from_u32(byte_acc[b]));
+		}
 
 		acc_in = acc_out;
 	}
 
 	debug_assert_eq!(out.len(), SCALAR_MUL_HEIGHT * SCALAR_MUL_NUM_COLS);
 
-	// Sanity: the witness's terminal acc matches the standalone oracle.
+	// Sanity: the witness's terminal acc matches the standalone oracle,
+	// and the byte accumulator matches the scalar's LE bytes.
 	debug_assert_eq!(acc_in, scalar_mul(scalar, p));
+	for b in 0..SCALAR_BYTE_LEN {
+		debug_assert_eq!(byte_acc[b], u32::from(scalar[b]));
+	}
 
 	out
 }

@@ -23,7 +23,8 @@ use crate::field_sub_air::BUS_FIELD_SUB;
 use crate::oracle_tests_helpers::random_canonical;
 use crate::sqrt_ratio_m1_air::{
 	build_sqrt_ratio_m1_trace_row, SqrtRatioM1Air, BUS_SQRT_RATIO_M1, COL_CORRECT_SIGN,
-	COL_FLIPPED_SIGN, COL_FLIPPED_SIGN_I, COL_IS_NEG_R_SELECTED, COL_R, COL_U, COL_V,
+	COL_FLIPPED_SIGN, COL_FLIPPED_SIGN_I, COL_INV_S_FLIPPED_I, COL_IS_NEG_R_SELECTED,
+	COL_LZ_CORRECT, COL_R, COL_R_SELECTED_LIMB_HI_HI, COL_R_SELECTED_LIMB_HI_LO, COL_U, COL_V,
 	COL_WAS_SQUARE, SQRT_RATIO_M1_NUM_COLS,
 };
 
@@ -113,7 +114,13 @@ fn column_layout_constants_are_stable() {
 	assert_eq!(COL_FLIPPED_SIGN_I, COL_FLIPPED_SIGN + 1);
 	assert_eq!(COL_WAS_SQUARE, COL_FLIPPED_SIGN_I + 1);
 	assert_eq!(COL_IS_NEG_R_SELECTED, COL_WAS_SQUARE + 1);
-	assert_eq!(SQRT_RATIO_M1_NUM_COLS, COL_IS_NEG_R_SELECTED + 1);
+	// Three zero-test blocks, each (8 lz + 8 linv + 1 inv_s) = 17 cells.
+	assert_eq!(COL_LZ_CORRECT, COL_IS_NEG_R_SELECTED + 1);
+	assert_eq!(COL_INV_S_FLIPPED_I, COL_LZ_CORRECT + 3 * 17 - 1);
+	// LSB-tie witnesses: 2 cells (low + high u16 of (r_selected[0] - flag) / 2).
+	assert_eq!(COL_R_SELECTED_LIMB_HI_LO, COL_INV_S_FLIPPED_I + 1);
+	assert_eq!(COL_R_SELECTED_LIMB_HI_HI, COL_R_SELECTED_LIMB_HI_LO + 1);
+	assert_eq!(SQRT_RATIO_M1_NUM_COLS, COL_R_SELECTED_LIMB_HI_HI + 1);
 }
 
 // ─── Witness builder correctness ───────────────────────────────────────────
@@ -221,6 +228,58 @@ fn air_rejects_corrupted_r() {
 	let mut trace = row.to_trace_vec::<Goldilocks>();
 	// Corrupt r[0]: selection constraint catches it.
 	trace[COL_R] = trace[COL_R] + Goldilocks::ONE;
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_was_square_forged_to_zero_when_input_is_square() {
+	// Audit gap (closed): on a valid square input where check == u (so
+	// correct_sign should be 1), a malicious prover claiming was_square=0
+	// would let them return arbitrary r. The zero-test-with-inverse-witness
+	// pattern now binds correct_sign = (check == u); this test forges
+	// both correct_sign and was_square to 0 on a known-square row and
+	// asserts the AIR rejects.
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	let row = build_sqrt_ratio_m1_trace_row(&one, &one);
+	assert_eq!(row.correct_sign, 1, "test premise: this input is a square");
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	trace[COL_CORRECT_SIGN] = Goldilocks::ZERO;
+	trace[COL_WAS_SQUARE] = Goldilocks::ZERO;
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_forged_is_neg_r_selected() {
+	// Audit gap (closed): LSB of r_selected[0] must equal the
+	// is_neg_r_selected flag. For u=v=1, the canonical sqrt yields
+	// r_selected = 1 (LSB=1) → flag=1. Forging the flag to 0 leaves
+	// limb_hi_lo + 2^16 · limb_hi_hi = 0 in the trace, so the LSB-tie
+	// constraint r_selected[0] == 2 · limb_hi + flag fails (1 ≠ 0).
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	let row = build_sqrt_ratio_m1_trace_row(&one, &one);
+	assert_eq!(row.is_neg_r_selected, 1, "test premise: r_selected[0] LSB is 1");
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	trace[COL_IS_NEG_R_SELECTED] = Goldilocks::ZERO;
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_forged_lz_correct_when_check_equals_u() {
+	// Symmetric coverage of the new constraint: even if a prover forges
+	// the lz_correct vector to all-zeros (claiming no limb matches), the
+	// per-limb `lz · diff = 0` constraint requires diff to be nonzero,
+	// which conflicts with check[i] == u[i].
+	let mut one = [0u32; FIELD_NUM_LIMBS];
+	one[0] = 1;
+	let row = build_sqrt_ratio_m1_trace_row(&one, &one);
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	// Force lz_correct[0] = 0 (it was 1 in the honest witness).
+	trace[COL_LZ_CORRECT] = Goldilocks::ZERO;
 	run_eval(&trace);
 }
 

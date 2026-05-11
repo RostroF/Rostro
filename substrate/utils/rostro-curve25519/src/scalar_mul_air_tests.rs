@@ -18,7 +18,7 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use p3_air::{Air, AirBuilder, RowWindow};
+use p3_air::{Air, AirBuilder, BaseAir, RowWindow};
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField64};
 use p3_goldilocks::Goldilocks;
 use p3_lookup::InteractionBuilder;
@@ -28,9 +28,9 @@ use crate::point::{neutral, scalar_mul, EdwardsPoint};
 use crate::point_add_air::BUS_POINT_ADD;
 use crate::point_double_air::BUS_POINT_DOUBLE;
 use crate::scalar_mul_air::{
-	build_scalar_mul_trace, read_result_from_trace, ScalarMulAir, COL_ACC_IN_X, COL_ACC_IN_Y,
-	COL_ACC_OUT_X, COL_BIT, COL_CAND_X, COL_P_X, COL_TMP_X, SCALAR_MUL_HEIGHT,
-	SCALAR_MUL_NUM_COLS,
+	build_scalar_mul_trace, read_result_from_trace, ScalarMulAir, BUS_SCALAR_MUL, COL_ACC_IN_X,
+	COL_ACC_IN_Y, COL_ACC_OUT_X, COL_BIT, COL_CAND_X, COL_P_X, COL_SCALAR_BYTE_ACC, COL_TMP_X,
+	SCALAR_BYTE_LEN, SCALAR_MUL_HEIGHT, SCALAR_MUL_NUM_COLS, SCALAR_MUL_NUM_PREPROC_COLS,
 };
 
 // ─── Constraint-asserting builder (per-row evaluator) ─────────────────────
@@ -103,21 +103,26 @@ impl<'a> InteractionBuilder for ExpectZeroBuilder<'a> {
 /// would. Panics on any constraint violation.
 fn check_constraints(trace: &[Goldilocks]) {
 	let air = ScalarMulAir::new();
-	let pp: Vec<Goldilocks> = Vec::new();
-	let pp_next: Vec<Goldilocks> = Vec::new();
+	let preproc = <ScalarMulAir as BaseAir<Goldilocks>>::preprocessed_trace(&air)
+		.expect("scalar-mul preprocessed trace");
+	let pp_values = preproc.values;
 	for row in 0..SCALAR_MUL_HEIGHT {
 		let next = (row + 1) % SCALAR_MUL_HEIGHT;
 		let cur_slice =
 			&trace[row * SCALAR_MUL_NUM_COLS..(row + 1) * SCALAR_MUL_NUM_COLS];
 		let next_slice =
 			&trace[next * SCALAR_MUL_NUM_COLS..(next + 1) * SCALAR_MUL_NUM_COLS];
+		let pp_cur = &pp_values
+			[row * SCALAR_MUL_NUM_PREPROC_COLS..(row + 1) * SCALAR_MUL_NUM_PREPROC_COLS];
+		let pp_next = &pp_values
+			[next * SCALAR_MUL_NUM_PREPROC_COLS..(next + 1) * SCALAR_MUL_NUM_PREPROC_COLS];
 		let is_first = if row == 0 { Goldilocks::ONE } else { Goldilocks::ZERO };
 		// Transition fires on every row except the wrap-around (last row → first row).
 		let is_trans =
 			if row == SCALAR_MUL_HEIGHT - 1 { Goldilocks::ZERO } else { Goldilocks::ONE };
 		let mut builder = ExpectZeroBuilder {
 			main_window: RowWindow::from_two_rows(cur_slice, next_slice),
-			preprocessed_window: RowWindow::from_two_rows(&pp, &pp_next),
+			preprocessed_window: RowWindow::from_two_rows(pp_cur, pp_next),
 			is_first_row: is_first,
 			is_transition: is_trans,
 			constraint_index: 0,
@@ -137,8 +142,11 @@ fn column_layout_constants_are_stable() {
 	assert_eq!(COL_CAND_X, 65);
 	assert_eq!(COL_ACC_OUT_X, 97);
 	assert_eq!(COL_P_X, 129);
-	assert_eq!(SCALAR_MUL_NUM_COLS, 161);
+	assert_eq!(COL_SCALAR_BYTE_ACC, 161);
+	assert_eq!(SCALAR_BYTE_LEN, 32);
+	assert_eq!(SCALAR_MUL_NUM_COLS, 193);
 	assert_eq!(SCALAR_MUL_HEIGHT, 256);
+	assert_eq!(SCALAR_MUL_NUM_PREPROC_COLS, 32);
 }
 
 #[test]
@@ -259,6 +267,47 @@ fn air_rejects_broken_chain_transition() {
 
 #[test]
 #[should_panic(expected = "constraint")]
+fn air_rejects_forged_scalar_byte_acc() {
+	// Audit gap (closed): before the scalar-byte-acc binding, a prover
+	// could run double-and-add over arbitrary bits and have the chain's
+	// terminal acc_out treated as k·P for any verifier-claimed k. After
+	// the binding, the byte_acc columns are pinned by the bit chain via
+	// the per-row recurrence; corrupting byte_acc[0] on the final row
+	// must violate the row 254 → 255 transition.
+	let mut scalar = [0u8; 32];
+	scalar[0] = 7;
+	let mut trace = build_scalar_mul_trace::<Goldilocks>(&scalar, &basepoint());
+	let last_row_start = (SCALAR_MUL_HEIGHT - 1) * SCALAR_MUL_NUM_COLS;
+	trace[last_row_start + COL_SCALAR_BYTE_ACC] = Goldilocks::from_u32(8);
+	check_constraints(&trace);
+}
+
+#[test]
+fn last_row_byte_acc_equals_scalar_le_bytes() {
+	// Honest-witness pin: byte_acc[b] on the last row equals scalar[b]
+	// (LE) for a non-trivial scalar. This guarantees the BUS_SCALAR_MUL
+	// payload carries the actual scalar value the prover used.
+	let mut scalar = [0u8; 32];
+	scalar[0] = 7;
+	scalar[1] = 0xab;
+	scalar[15] = 0xff;
+	scalar[31] = 0x01;
+	let trace = build_scalar_mul_trace::<Goldilocks>(&scalar, &basepoint());
+	let last_row_start = (SCALAR_MUL_HEIGHT - 1) * SCALAR_MUL_NUM_COLS;
+	for b in 0..SCALAR_BYTE_LEN {
+		assert_eq!(
+			trace[last_row_start + COL_SCALAR_BYTE_ACC + b],
+			Goldilocks::from_u32(u32::from(scalar[b])),
+			"byte_acc[{}] on last row should equal scalar[{}] = {}",
+			b,
+			b,
+			scalar[b],
+		);
+	}
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
 fn air_rejects_p_change_across_rows() {
 	let scalar = [0u8; 32];
 	let mut trace = build_scalar_mul_trace::<Goldilocks>(&scalar, &basepoint());
@@ -276,9 +325,11 @@ struct CountingBuilder<'a> {
 	preprocessed_window: RowWindow<'a, Goldilocks>,
 	pd_count: usize,
 	pa_count: usize,
+	sm_count: usize,
 	other_count: usize,
 	pd_payload_arity: usize,
 	pa_payload_arity: usize,
+	sm_payload_arity: usize,
 }
 
 impl<'a> AirBuilder for CountingBuilder<'a> {
@@ -322,6 +373,9 @@ impl<'a> InteractionBuilder for CountingBuilder<'a> {
 		} else if bus == BUS_POINT_ADD {
 			self.pa_count += 1;
 			self.pa_payload_arity = arity;
+		} else if bus == BUS_SCALAR_MUL {
+			self.sm_count += 1;
+			self.sm_payload_arity = arity;
 		} else {
 			self.other_count += 1;
 		}
@@ -338,28 +392,38 @@ impl<'a> InteractionBuilder for CountingBuilder<'a> {
 fn each_row_pushes_one_point_double_and_one_point_add() {
 	let scalar = [0u8; 32];
 	let trace = build_scalar_mul_trace::<Goldilocks>(&scalar, &neutral());
+	let air = ScalarMulAir::new();
+	let preproc = <ScalarMulAir as BaseAir<Goldilocks>>::preprocessed_trace(&air)
+		.expect("scalar-mul preprocessed trace");
 
-	// Per-row eval count: 1 row of trace → 1 pd push + 1 pa push.
+	// Per-row eval count: 1 row of trace → 1 pd push + 1 pa push + 1 sm
+	// push (the scalar-mul service emit, gated to last row by the count
+	// expression; push_interaction is invoked structurally on every row).
 	let cur_slice = &trace[0..SCALAR_MUL_NUM_COLS];
 	let next_slice = &trace[SCALAR_MUL_NUM_COLS..2 * SCALAR_MUL_NUM_COLS];
-	let pp: Vec<Goldilocks> = Vec::new();
-	let pp_next: Vec<Goldilocks> = Vec::new();
+	let pp_cur =
+		&preproc.values[0..SCALAR_MUL_NUM_PREPROC_COLS];
+	let pp_next =
+		&preproc.values[SCALAR_MUL_NUM_PREPROC_COLS..2 * SCALAR_MUL_NUM_PREPROC_COLS];
 	let mut builder = CountingBuilder {
 		main_window: RowWindow::from_two_rows(cur_slice, next_slice),
-		preprocessed_window: RowWindow::from_two_rows(&pp, &pp_next),
+		preprocessed_window: RowWindow::from_two_rows(pp_cur, pp_next),
 		pd_count: 0,
 		pa_count: 0,
+		sm_count: 0,
 		other_count: 0,
 		pd_payload_arity: 0,
 		pa_payload_arity: 0,
+		sm_payload_arity: 0,
 	};
-	let air = ScalarMulAir::new();
 	<ScalarMulAir as Air<CountingBuilder>>::eval(&air, &mut builder);
 	assert_eq!(builder.pd_count, 1, "one point-double consumer push per row");
 	assert_eq!(builder.pa_count, 1, "one point-add consumer push per row");
+	assert_eq!(builder.sm_count, 1, "one scalar-mul service emit per row");
 	assert_eq!(builder.other_count, 0, "no other bus pushes from ScalarMulAir");
 	assert_eq!(builder.pd_payload_arity, 56, "point-double payload = 56 cells");
 	assert_eq!(builder.pa_payload_arity, 96, "point-add payload = 96 cells");
+	assert_eq!(builder.sm_payload_arity, 96, "scalar-mul payload = 96 cells");
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────

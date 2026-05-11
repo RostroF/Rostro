@@ -43,7 +43,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use p3_air::{Air, AirBuilder, BaseAir, WindowAccess};
-use p3_field::PrimeCharacteristicRing;
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField64};
+use p3_goldilocks::Goldilocks;
 use p3_lookup::InteractionBuilder;
 use p3_matrix::dense::RowMajorMatrix;
 
@@ -51,7 +52,7 @@ use crate::field::{
 	add as field_add, is_negative, mul as field_mul, neg as field_neg, square as field_square,
 	sub as field_sub, FIELD_NUM_LIMBS, SQRT_M1_LIMBS,
 };
-use crate::field_air::BUS_FIELD_ADD;
+use crate::field_air::{BUS_FIELD_ADD, BUS_U16_RANGE};
 use crate::field_mul_air::BUS_FIELD_MUL;
 use crate::field_pow_p58_air::BUS_FIELD_POW_P58;
 use crate::field_sub_air::BUS_FIELD_SUB;
@@ -91,7 +92,31 @@ pub const COL_FLIPPED_SIGN_I: usize = COL_FLIPPED_SIGN + 1;
 pub const COL_WAS_SQUARE: usize = COL_FLIPPED_SIGN_I + 1;
 pub const COL_IS_NEG_R_SELECTED: usize = COL_WAS_SQUARE + 1;
 
-pub const SQRT_RATIO_M1_NUM_COLS: usize = COL_IS_NEG_R_SELECTED + 1;
+// Zero-test witnesses pinning each flag to its physical equality. Each
+// block is: 8 per-limb-zero booleans + 8 per-limb Goldilocks inverses
+// (used only when the limb is nonzero) + 1 inverse of the count-of-
+// nonzero-limbs (used only when the flag is 0).
+pub const COL_LZ_CORRECT: usize = COL_IS_NEG_R_SELECTED + 1;
+pub const COL_LINV_CORRECT: usize = COL_LZ_CORRECT + FIELD_NUM_LIMBS;
+pub const COL_INV_S_CORRECT: usize = COL_LINV_CORRECT + FIELD_NUM_LIMBS;
+pub const COL_LZ_FLIPPED: usize = COL_INV_S_CORRECT + 1;
+pub const COL_LINV_FLIPPED: usize = COL_LZ_FLIPPED + FIELD_NUM_LIMBS;
+pub const COL_INV_S_FLIPPED: usize = COL_LINV_FLIPPED + FIELD_NUM_LIMBS;
+pub const COL_LZ_FLIPPED_I: usize = COL_INV_S_FLIPPED + 1;
+pub const COL_LINV_FLIPPED_I: usize = COL_LZ_FLIPPED_I + FIELD_NUM_LIMBS;
+pub const COL_INV_S_FLIPPED_I: usize = COL_LINV_FLIPPED_I + FIELD_NUM_LIMBS;
+
+// LSB-tie witnesses for is_neg_r_selected = (r_selected[0] & 1 == 1).
+// Decomposes r_selected[0] as `2 * (limb_hi_lo + 65536 * limb_hi_hi) +
+// is_neg_r_selected`, with both halves range-checked as u16 on
+// `BUS_U16_RANGE`. Because r_selected[0] is already u32-bounded by its
+// producer (FieldMulAir output carried in via the field-mul bus), the
+// algebra forces the limb_hi half into u31 automatically; the LSB flag
+// is then pinned to the actual LSB of r_selected[0].
+pub const COL_R_SELECTED_LIMB_HI_LO: usize = COL_INV_S_FLIPPED_I + 1;
+pub const COL_R_SELECTED_LIMB_HI_HI: usize = COL_R_SELECTED_LIMB_HI_LO + 1;
+
+pub const SQRT_RATIO_M1_NUM_COLS: usize = COL_R_SELECTED_LIMB_HI_HI + 1;
 
 /// Plonky3 AIR for sqrt_ratio_m1.
 #[derive(Clone, Debug, Default)]
@@ -228,6 +253,75 @@ where
 			builder.assert_zero(flipped_sign_i.into() * (check[i].into() - neg_u_i[i].into()));
 		}
 
+		// ─── Pin each flag to its physical equality ───────────────────
+		// The gated constraints above prove flag=1 ⇒ check==target. They
+		// do NOT prove flag=0 ⇒ check!=target — a malicious prover could
+		// claim flag=0 when the equality holds and return arbitrary r.
+		// Close that direction here.
+		//
+		// Per-limb pattern: witness lz[i] (boolean, "diff_i is zero") +
+		// linv[i] (Goldilocks inverse of diff_i if diff_i != 0):
+		//   lz[i] · diff_i = 0                       (lz=1 ⇒ diff=0)
+		//   (1 - lz[i]) · (diff_i · linv[i] - 1) = 0 (lz=0 ⇒ diff≠0)
+		// Vector zero: s = Σ (1 - lz[i]) ∈ {0..8}. flag = (s == 0).
+		// Witness inv_s (Goldilocks inverse of s when s != 0):
+		//   flag · s = 0                       (flag=1 ⇒ s=0 ⇒ check==target)
+		//   (1 - flag) · (s · inv_s - 1) = 0   (flag=0 ⇒ s≠0 ⇒ check≠target)
+		let lz_c = limbs::<AB>(local, COL_LZ_CORRECT);
+		let linv_c = limbs::<AB>(local, COL_LINV_CORRECT);
+		let inv_s_c: AB::Var = local[COL_INV_S_CORRECT];
+		let lz_f = limbs::<AB>(local, COL_LZ_FLIPPED);
+		let linv_f = limbs::<AB>(local, COL_LINV_FLIPPED);
+		let inv_s_f: AB::Var = local[COL_INV_S_FLIPPED];
+		let lz_fi = limbs::<AB>(local, COL_LZ_FLIPPED_I);
+		let linv_fi = limbs::<AB>(local, COL_LINV_FLIPPED_I);
+		let inv_s_fi: AB::Var = local[COL_INV_S_FLIPPED_I];
+
+		let mut s_c: AB::Expr = AB::Expr::ZERO;
+		let mut s_f: AB::Expr = AB::Expr::ZERO;
+		let mut s_fi: AB::Expr = AB::Expr::ZERO;
+		for i in 0..FIELD_NUM_LIMBS {
+			builder.assert_bool(lz_c[i]);
+			builder.assert_bool(lz_f[i]);
+			builder.assert_bool(lz_fi[i]);
+
+			let d_c: AB::Expr = check[i].into() - u[i].into();
+			let d_f: AB::Expr = check[i].into() - neg_u[i].into();
+			let d_fi: AB::Expr = check[i].into() - neg_u_i[i].into();
+
+			builder.assert_zero(lz_c[i].into() * d_c.clone());
+			builder.assert_zero(lz_f[i].into() * d_f.clone());
+			builder.assert_zero(lz_fi[i].into() * d_fi.clone());
+
+			builder.assert_zero(
+				(AB::Expr::ONE - lz_c[i].into()) * (d_c * linv_c[i].into() - AB::Expr::ONE),
+			);
+			builder.assert_zero(
+				(AB::Expr::ONE - lz_f[i].into()) * (d_f * linv_f[i].into() - AB::Expr::ONE),
+			);
+			builder.assert_zero(
+				(AB::Expr::ONE - lz_fi[i].into()) * (d_fi * linv_fi[i].into() - AB::Expr::ONE),
+			);
+
+			s_c = s_c + (AB::Expr::ONE - lz_c[i].into());
+			s_f = s_f + (AB::Expr::ONE - lz_f[i].into());
+			s_fi = s_fi + (AB::Expr::ONE - lz_fi[i].into());
+		}
+
+		builder.assert_zero(correct_sign.into() * s_c.clone());
+		builder.assert_zero(flipped_sign.into() * s_f.clone());
+		builder.assert_zero(flipped_sign_i.into() * s_fi.clone());
+		builder.assert_zero(
+			(AB::Expr::ONE - correct_sign.into()) * (s_c * inv_s_c.into() - AB::Expr::ONE),
+		);
+		builder.assert_zero(
+			(AB::Expr::ONE - flipped_sign.into()) * (s_f * inv_s_f.into() - AB::Expr::ONE),
+		);
+		builder.assert_zero(
+			(AB::Expr::ONE - flipped_sign_i.into())
+				* (s_fi * inv_s_fi.into() - AB::Expr::ONE),
+		);
+
 		// ─── Selection: r_selected = (flipped + flipped_i) ? r_raw_i : r_raw
 		let pick_r_i = flipped_sign.into() + flipped_sign_i.into();
 		let one_minus_pick = AB::Expr::ONE - pick_r_i.clone();
@@ -248,6 +342,26 @@ where
 					- one_minus_neg.clone() * r_selected[i].into(),
 			);
 		}
+
+		// ─── LSB-tie: pin `is_neg_r_selected` to the LSB of r_selected[0] ─
+		// Without this, the prover could witness either flag value on the
+		// same r_selected and pass downstream sign-handling. Decompose
+		// r_selected[0] = 2 · (limb_hi_lo + 2^16 · limb_hi_hi) + flag,
+		// with both halves range-checked as u16. Together with the
+		// upstream u32 bound on r_selected[0] (carried over via the
+		// field-mul producer), this forces the flag to equal the actual
+		// LSB.
+		let r_sel_limb_hi_lo: AB::Var = local[COL_R_SELECTED_LIMB_HI_LO];
+		let r_sel_limb_hi_hi: AB::Var = local[COL_R_SELECTED_LIMB_HI_HI];
+		let radix_u16 = AB::Expr::from_u64(1u64 << 16);
+		let limb_hi_expr = r_sel_limb_hi_lo.into() + r_sel_limb_hi_hi.into() * radix_u16;
+		builder.assert_zero(
+			r_selected[0].into()
+				- (limb_hi_expr * AB::Expr::from_u64(2))
+				- is_neg_r_selected.into(),
+		);
+		builder.push_interaction(BUS_U16_RANGE, [r_sel_limb_hi_lo], AB::Expr::ONE, 1);
+		builder.push_interaction(BUS_U16_RANGE, [r_sel_limb_hi_hi], AB::Expr::ONE, 1);
 
 		// ─── Bus queries (consumer side, count = +1) ──────────────────
 		// Pow chain:
@@ -326,6 +440,50 @@ pub struct SqrtRatioM1TraceRow {
 	pub flipped_sign_i: u32,
 	pub was_square: u32,
 	pub is_neg_r_selected: u32,
+	pub lz_correct: [u32; FIELD_NUM_LIMBS],
+	pub linv_correct: [u64; FIELD_NUM_LIMBS],
+	pub inv_s_correct: u64,
+	pub lz_flipped: [u32; FIELD_NUM_LIMBS],
+	pub linv_flipped: [u64; FIELD_NUM_LIMBS],
+	pub inv_s_flipped: u64,
+	pub lz_flipped_i: [u32; FIELD_NUM_LIMBS],
+	pub linv_flipped_i: [u64; FIELD_NUM_LIMBS],
+	pub inv_s_flipped_i: u64,
+	pub r_selected_limb_hi_lo: u32,
+	pub r_selected_limb_hi_hi: u32,
+}
+
+/// Per-limb zero-test witness for `check == target` as a Goldilocks
+/// vector. Returns `(lz, linv, inv_s)` where:
+/// - `lz[i] = 1` iff `check[i] == target[i]` (canonical u32 equality);
+///   `linv[i]` is `(check[i] - target[i])^{-1}` in Goldilocks when
+///   nonzero, else any value (witness ignored under that branch).
+/// - `inv_s` is the Goldilocks inverse of `Σ_i (1 - lz[i])` when nonzero,
+///   else any value.
+fn build_eq_witness(
+	check: &[u32; FIELD_NUM_LIMBS],
+	target: &[u32; FIELD_NUM_LIMBS],
+) -> ([u32; FIELD_NUM_LIMBS], [u64; FIELD_NUM_LIMBS], u64) {
+	let mut lz = [0u32; FIELD_NUM_LIMBS];
+	let mut linv = [0u64; FIELD_NUM_LIMBS];
+	let mut s_count: u64 = 0;
+	for i in 0..FIELD_NUM_LIMBS {
+		let diff = Goldilocks::from_u64(u64::from(check[i]))
+			- Goldilocks::from_u64(u64::from(target[i]));
+		if diff == Goldilocks::ZERO {
+			lz[i] = 1;
+		} else {
+			lz[i] = 0;
+			linv[i] = diff.inverse().as_canonical_u64();
+			s_count += 1;
+		}
+	}
+	let inv_s = if s_count == 0 {
+		0
+	} else {
+		Goldilocks::from_u64(s_count).inverse().as_canonical_u64()
+	};
+	(lz, linv, inv_s)
 }
 
 pub fn build_sqrt_ratio_m1_trace_row(
@@ -360,6 +518,18 @@ pub fn build_sqrt_ratio_m1_trace_row(
 	let is_neg_r_selected = is_negative(&r_selected);
 	let r = if is_neg_r_selected { neg_r_selected } else { r_selected };
 
+	let (lz_correct, linv_correct, inv_s_correct) = build_eq_witness(&check, u);
+	let (lz_flipped, linv_flipped, inv_s_flipped) = build_eq_witness(&check, &neg_u);
+	let (lz_flipped_i, linv_flipped_i, inv_s_flipped_i) = build_eq_witness(&check, &neg_u_i);
+
+	// LSB-tie witness for is_neg_r_selected: limb_hi = (r_selected[0] -
+	// flag) / 2, split into two u16 halves.
+	let limb0 = r_selected[0];
+	let is_neg = u32::from(is_neg_r_selected);
+	let limb_hi = (limb0 - is_neg) / 2;
+	let r_selected_limb_hi_lo = limb_hi & 0xFFFF;
+	let r_selected_limb_hi_hi = limb_hi >> 16;
+
 	SqrtRatioM1TraceRow {
 		u: *u,
 		v: *v,
@@ -384,6 +554,17 @@ pub fn build_sqrt_ratio_m1_trace_row(
 		flipped_sign_i: u32::from(flipped_sign_i),
 		was_square: u32::from(was_square),
 		is_neg_r_selected: u32::from(is_neg_r_selected),
+		lz_correct,
+		linv_correct,
+		inv_s_correct,
+		lz_flipped,
+		linv_flipped,
+		inv_s_flipped,
+		lz_flipped_i,
+		linv_flipped_i,
+		inv_s_flipped_i,
+		r_selected_limb_hi_lo,
+		r_selected_limb_hi_hi,
 	}
 }
 
@@ -423,6 +604,21 @@ impl SqrtRatioM1TraceRow {
 		out.push(F::from_u32(self.flipped_sign_i));
 		out.push(F::from_u32(self.was_square));
 		out.push(F::from_u32(self.is_neg_r_selected));
+		for (lz, linv, inv_s) in [
+			(&self.lz_correct, &self.linv_correct, self.inv_s_correct),
+			(&self.lz_flipped, &self.linv_flipped, self.inv_s_flipped),
+			(&self.lz_flipped_i, &self.linv_flipped_i, self.inv_s_flipped_i),
+		] {
+			for &b in lz {
+				out.push(F::from_u32(b));
+			}
+			for &x in linv {
+				out.push(F::from_u64(x));
+			}
+			out.push(F::from_u64(inv_s));
+		}
+		out.push(F::from_u32(self.r_selected_limb_hi_lo));
+		out.push(F::from_u32(self.r_selected_limb_hi_hi));
 		debug_assert_eq!(out.len(), SQRT_RATIO_M1_NUM_COLS);
 		out
 	}

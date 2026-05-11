@@ -21,7 +21,8 @@ use crate::point::{double as point_double, EdwardsPoint};
 use crate::ristretto::compress as oracle_compress;
 use crate::ristretto_decompress_air::{
 	build_ristretto_decompress_trace_row, RistrettoDecompressAir, BUS_RISTRETTO_DECOMPRESS,
-	COL_IS_VALID, COL_S, COL_X, COL_Y, RISTRETTO_DECOMPRESS_NUM_COLS,
+	COL_IS_T_NEG, COL_IS_VALID, COL_IS_Y_ZERO, COL_S, COL_X, COL_X_IS_NEG, COL_Y,
+	RISTRETTO_DECOMPRESS_NUM_COLS,
 };
 use crate::sqrt_ratio_m1_air::BUS_SQRT_RATIO_M1;
 
@@ -181,6 +182,68 @@ fn air_rejects_corrupted_is_valid() {
 	// Flip is_valid: the deg-2 chain is_valid = intermediate · not_y_zero
 	// catches it.
 	trace[COL_IS_VALID] = Goldilocks::ONE - trace[COL_IS_VALID];
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_forged_x_is_neg() {
+	// Audit gap (closed): without the LSB-tie, the prover could swing
+	// x_is_neg independently of LSB(x_raw[0]) and emit either the +x or
+	// -x branch indistinguishably. Flipping the flag without re-deriving
+	// limb_hi witnesses must violate `x_raw[0] = 2·limb_hi + flag`.
+	let bp = basepoint();
+	let bytes = oracle_compress(&bp);
+	let s = bytes_to_limbs(&bytes);
+	let row = build_ristretto_decompress_trace_row(&s);
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	trace[COL_X_IS_NEG] = Goldilocks::ONE - trace[COL_X_IS_NEG];
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_forged_is_t_neg() {
+	// Symmetric coverage for the second LSB-tie on T[0].
+	let bp = basepoint();
+	let bytes = oracle_compress(&bp);
+	let s = bytes_to_limbs(&bytes);
+	let row = build_ristretto_decompress_trace_row(&s);
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	trace[COL_IS_T_NEG] = Goldilocks::ONE - trace[COL_IS_T_NEG];
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_forged_is_y_zero_when_y_nonzero() {
+	// Audit gap (closed) — direction A: y is nonzero (basepoint),
+	// honest is_y_zero=0. Forging to 1 violates `is_y_zero · Σ(1-y_lz[i])
+	// = 0` because at least one y limb is nonzero.
+	let bp = basepoint();
+	let bytes = oracle_compress(&bp);
+	let s = bytes_to_limbs(&bytes);
+	let row = build_ristretto_decompress_trace_row(&s);
+	assert_eq!(row.is_y_zero, 0, "basepoint has y != 0");
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	trace[COL_IS_Y_ZERO] = Goldilocks::ONE;
+	run_eval(&trace);
+}
+
+#[test]
+#[should_panic(expected = "constraint")]
+fn air_rejects_forged_is_y_zero_when_y_is_zero() {
+	// Audit gap (closed) — direction B (the headline attack):
+	// s=1 yields y=0 (a torsion-flavored encoding). Honest is_y_zero=1
+	// gives is_valid=0; forging is_y_zero=0 would let is_valid=1 slip
+	// through. The new constraint `(1 - is_y_zero) · (s_y · inv_s - 1)`
+	// rejects: s_y = 0 here, so s_y · inv_s - 1 = -1 ≠ 0.
+	let mut s = [0u32; FIELD_NUM_LIMBS];
+	s[0] = 1;
+	let row = build_ristretto_decompress_trace_row(&s);
+	assert_eq!(row.is_y_zero, 1, "test premise: s=1 produces y=0");
+	let mut trace = row.to_trace_vec::<Goldilocks>();
+	trace[COL_IS_Y_ZERO] = Goldilocks::ZERO;
 	run_eval(&trace);
 }
 

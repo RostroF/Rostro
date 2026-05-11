@@ -29,7 +29,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use p3_air::{Air, AirBuilder, RowWindow};
+use p3_air::{Air, AirBuilder, BaseAir, RowWindow};
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
 use p3_goldilocks::Goldilocks;
 use p3_lookup::InteractionBuilder;
@@ -43,6 +43,7 @@ use crate::point_add_air::{build_point_add_trace_row, PointAddAir, BUS_POINT_ADD
 use crate::point_double_air::{build_point_double_trace_row, PointDoubleAir, BUS_POINT_DOUBLE};
 use crate::scalar_mul_air::{
 	build_scalar_mul_trace_matrix, ScalarMulAir, SCALAR_MUL_HEIGHT, SCALAR_MUL_NUM_COLS,
+	SCALAR_MUL_NUM_PREPROC_COLS,
 };
 
 // ─── Generic recording builder ─────────────────────────────────────────────
@@ -441,16 +442,20 @@ fn scalar_mul_air_point_buses_balance_against_point_providers() {
 	let trace = trace_matrix.values;
 	let mut all_pushes: Vec<(String, Goldilocks, Vec<Goldilocks>, u32)> = Vec::new();
 	let air = ScalarMulAir::new();
+	let preproc = <ScalarMulAir as BaseAir<Goldilocks>>::preprocessed_trace(&air)
+		.expect("scalar-mul preprocessed trace");
 	for row in 0..SCALAR_MUL_HEIGHT {
 		let next = (row + 1) % SCALAR_MUL_HEIGHT;
 		let cur_slice = &trace[row * SCALAR_MUL_NUM_COLS..(row + 1) * SCALAR_MUL_NUM_COLS];
 		let next_slice =
 			&trace[next * SCALAR_MUL_NUM_COLS..(next + 1) * SCALAR_MUL_NUM_COLS];
-		let pp: Vec<Goldilocks> = Vec::new();
-		let pp_next: Vec<Goldilocks> = Vec::new();
+		let pp_cur = &preproc.values
+			[row * SCALAR_MUL_NUM_PREPROC_COLS..(row + 1) * SCALAR_MUL_NUM_PREPROC_COLS];
+		let pp_next = &preproc.values
+			[next * SCALAR_MUL_NUM_PREPROC_COLS..(next + 1) * SCALAR_MUL_NUM_PREPROC_COLS];
 		let mut b = RecordingBuilder {
 			main_window: RowWindow::from_two_rows(cur_slice, next_slice),
-			preprocessed_window: RowWindow::from_two_rows(&pp, &pp_next),
+			preprocessed_window: RowWindow::from_two_rows(pp_cur, pp_next),
 			pushed: Vec::new(),
 		};
 		<ScalarMulAir as Air<RecordingBuilder>>::eval(&air, &mut b);

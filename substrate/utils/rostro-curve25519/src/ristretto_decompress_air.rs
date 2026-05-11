@@ -28,7 +28,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use p3_air::{Air, AirBuilder, BaseAir, WindowAccess};
-use p3_field::PrimeCharacteristicRing;
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField64};
+use p3_goldilocks::Goldilocks;
 use p3_lookup::InteractionBuilder;
 use p3_matrix::dense::RowMajorMatrix;
 
@@ -36,7 +37,7 @@ use crate::field::{
 	add as field_add, is_negative, is_zero, mul as field_mul, neg as field_neg,
 	square as field_square, sub as field_sub, FIELD_NUM_LIMBS,
 };
-use crate::field_air::BUS_FIELD_ADD;
+use crate::field_air::{BUS_FIELD_ADD, BUS_U16_RANGE};
 use crate::field_mul_air::BUS_FIELD_MUL;
 use crate::field_sub_air::BUS_FIELD_SUB;
 use crate::point::ED25519_D_LIMBS;
@@ -77,7 +78,27 @@ pub const COL_NOT_T_NEG: usize = COL_IS_VALID + 1;
 pub const COL_NOT_Y_ZERO: usize = COL_NOT_T_NEG + 1;
 pub const COL_INTERMEDIATE_VALID: usize = COL_NOT_Y_ZERO + 1;
 
-pub const RISTRETTO_DECOMPRESS_NUM_COLS: usize = COL_INTERMEDIATE_VALID + 1;
+// LSB-tie witnesses pinning each sign flag to the actual LSB of its
+// bound limb: x_is_neg ↔ LSB(X_RAW[0]); is_t_neg ↔ LSB(T[0]).
+// Each is decomposed as `limb[0] = 2·(lo + 2^16·hi) + flag` with both
+// halves range-checked as u16. Together with upstream u32 bounds on
+// X_RAW and T, this pins the flag to the actual LSB.
+pub const COL_X_RAW_LIMB_HI_LO: usize = COL_INTERMEDIATE_VALID + 1;
+pub const COL_X_RAW_LIMB_HI_HI: usize = COL_X_RAW_LIMB_HI_LO + 1;
+pub const COL_T_LIMB_HI_LO: usize = COL_X_RAW_LIMB_HI_HI + 1;
+pub const COL_T_LIMB_HI_HI: usize = COL_T_LIMB_HI_LO + 1;
+
+// Zero-test witnesses pinning `is_y_zero = (y == 0_vec)`. Per-limb
+// `y_lz[i]` is a boolean = (y[i] == 0); `y_linv[i]` is the Goldilocks
+// inverse of y[i] when nonzero. `y_inv_s` is the inverse of
+// Σ(1 - y_lz[i]) when the sum is nonzero. Together these force the
+// `is_y_zero` flag to equal the actual all-zero check on y, closing the
+// audit-flagged forged-`is_valid` path on torsion-point encodings.
+pub const COL_Y_LZ: usize = COL_T_LIMB_HI_HI + 1;
+pub const COL_Y_LINV: usize = COL_Y_LZ + FIELD_NUM_LIMBS;
+pub const COL_Y_INV_S: usize = COL_Y_LINV + FIELD_NUM_LIMBS;
+
+pub const RISTRETTO_DECOMPRESS_NUM_COLS: usize = COL_Y_INV_S + 1;
 
 #[derive(Clone, Debug, Default)]
 pub struct RistrettoDecompressAir;
@@ -246,11 +267,47 @@ where
 			}
 		}
 
-		// Gated zero-witness: is_y_zero · y[i] == 0 for each i.
-		// (Direction: flag set ⇒ y limbs all zero. The reverse direction
-		// is the v0 soundness gap noted in the module docstring.)
+		// Pin `is_y_zero = (y == 0_vec)` via the standard zero-test
+		// pattern. Per-limb: y_lz[i] ∈ {0,1} pinned to (y[i] == 0) via
+		// `y_lz[i] · y[i] = 0` and `(1 - y_lz[i]) · (y[i] · y_linv[i]
+		// - 1) = 0`. Vector zero: `s = Σ (1 - y_lz[i])` and
+		// `is_y_zero · s = 0`, `(1 - is_y_zero) · (s · y_inv_s - 1) = 0`.
+		// Closes the audit gap where a prover could claim is_y_zero=0 on
+		// a torsion-point encoding (y = 0) to forge `is_valid = 1`.
+		let y_lz: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_Y_LZ + i]);
+		let y_linv: [AB::Var; FIELD_NUM_LIMBS] =
+			core::array::from_fn(|i| local[COL_Y_LINV + i]);
+		let y_inv_s: AB::Var = local[COL_Y_INV_S];
+		let mut s_y: AB::Expr = AB::Expr::ZERO;
 		for i in 0..FIELD_NUM_LIMBS {
-			builder.assert_zero(is_y_zero.into() * y[i].into());
+			builder.assert_bool(y_lz[i]);
+			builder.assert_zero(y_lz[i].into() * y[i].into());
+			builder.assert_zero(
+				(AB::Expr::ONE - y_lz[i].into())
+					* (y[i].into() * y_linv[i].into() - AB::Expr::ONE),
+			);
+			s_y = s_y + (AB::Expr::ONE - y_lz[i].into());
+		}
+		builder.assert_zero(is_y_zero.into() * s_y.clone());
+		builder.assert_zero(
+			(AB::Expr::ONE - is_y_zero.into()) * (s_y * y_inv_s.into() - AB::Expr::ONE),
+		);
+
+		// ─── LSB-tie: pin sign flags to actual LSBs ───────────────────
+		// x_is_neg ↔ LSB(X_RAW[0]) and is_t_neg ↔ LSB(T[0]).
+		let radix_u16 = AB::Expr::from_u64(1u64 << 16);
+		let two = AB::Expr::from_u64(2);
+		for (flag, src, lo_col, hi_col) in [
+			(x_is_neg, x_raw[0], COL_X_RAW_LIMB_HI_LO, COL_X_RAW_LIMB_HI_HI),
+			(is_t_neg, t[0], COL_T_LIMB_HI_LO, COL_T_LIMB_HI_HI),
+		] {
+			let lo: AB::Var = local[lo_col];
+			let hi: AB::Var = local[hi_col];
+			let limb_hi_expr = lo.into() + hi.into() * radix_u16.clone();
+			builder.assert_zero(src.into() - two.clone() * limb_hi_expr - flag.into());
+			builder.push_interaction(BUS_U16_RANGE, [lo], AB::Expr::ONE, 1);
+			builder.push_interaction(BUS_U16_RANGE, [hi], AB::Expr::ONE, 1);
 		}
 
 		// ─── Bus queries (consumer side, count = +1) ──────────────────
@@ -363,6 +420,42 @@ pub struct RistrettoDecompressTraceRow {
 	pub is_t_neg: u32,
 	pub is_y_zero: u32,
 	pub is_valid: u32,
+	pub x_raw_limb_hi_lo: u32,
+	pub x_raw_limb_hi_hi: u32,
+	pub t_limb_hi_lo: u32,
+	pub t_limb_hi_hi: u32,
+	pub y_lz: [u32; FIELD_NUM_LIMBS],
+	pub y_linv: [u64; FIELD_NUM_LIMBS],
+	pub y_inv_s: u64,
+}
+
+fn lsb_tie_split(limb0: u32, flag: bool) -> (u32, u32) {
+	let limb_hi = (limb0 - u32::from(flag)) / 2;
+	(limb_hi & 0xFFFF, limb_hi >> 16)
+}
+
+fn build_y_zero_witness(
+	y: &[u32; FIELD_NUM_LIMBS],
+) -> ([u32; FIELD_NUM_LIMBS], [u64; FIELD_NUM_LIMBS], u64) {
+	let mut lz = [0u32; FIELD_NUM_LIMBS];
+	let mut linv = [0u64; FIELD_NUM_LIMBS];
+	let mut s_count: u64 = 0;
+	for i in 0..FIELD_NUM_LIMBS {
+		let v = Goldilocks::from_u64(u64::from(y[i]));
+		if v == Goldilocks::ZERO {
+			lz[i] = 1;
+		} else {
+			lz[i] = 0;
+			linv[i] = v.inverse().as_canonical_u64();
+			s_count += 1;
+		}
+	}
+	let inv_s = if s_count == 0 {
+		0
+	} else {
+		Goldilocks::from_u64(s_count).inverse().as_canonical_u64()
+	};
+	(lz, linv, inv_s)
 }
 
 pub fn build_ristretto_decompress_trace_row(s: &[u32; FIELD_NUM_LIMBS]) -> RistrettoDecompressTraceRow {
@@ -397,6 +490,10 @@ pub fn build_ristretto_decompress_trace_row(s: &[u32; FIELD_NUM_LIMBS]) -> Ristr
 
 	let z = one_limbs;
 
+	let (x_raw_limb_hi_lo, x_raw_limb_hi_hi) = lsb_tie_split(x_raw[0], x_is_neg);
+	let (t_limb_hi_lo, t_limb_hi_hi) = lsb_tie_split(t[0], is_t_neg);
+	let (y_lz, y_linv, y_inv_s) = build_y_zero_witness(&y);
+
 	RistrettoDecompressTraceRow {
 		s: *s,
 		ss,
@@ -424,6 +521,13 @@ pub fn build_ristretto_decompress_trace_row(s: &[u32; FIELD_NUM_LIMBS]) -> Ristr
 		is_t_neg: u32::from(is_t_neg),
 		is_y_zero: u32::from(is_y_zero),
 		is_valid: u32::from(is_valid),
+		x_raw_limb_hi_lo,
+		x_raw_limb_hi_hi,
+		t_limb_hi_lo,
+		t_limb_hi_hi,
+		y_lz,
+		y_linv,
+		y_inv_s,
 	}
 }
 
@@ -465,6 +569,17 @@ impl RistrettoDecompressTraceRow {
 		out.push(F::from_u32(1 - self.is_t_neg));
 		out.push(F::from_u32(1 - self.is_y_zero));
 		out.push(F::from_u32(self.was_square * (1 - self.is_t_neg)));
+		out.push(F::from_u32(self.x_raw_limb_hi_lo));
+		out.push(F::from_u32(self.x_raw_limb_hi_hi));
+		out.push(F::from_u32(self.t_limb_hi_lo));
+		out.push(F::from_u32(self.t_limb_hi_hi));
+		for &b in &self.y_lz {
+			out.push(F::from_u32(b));
+		}
+		for &x in &self.y_linv {
+			out.push(F::from_u64(x));
+		}
+		out.push(F::from_u64(self.y_inv_s));
 		debug_assert_eq!(out.len(), RISTRETTO_DECOMPRESS_NUM_COLS);
 		out
 	}
