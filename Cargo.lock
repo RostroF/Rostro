@@ -13489,6 +13489,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-poseidon-sponge-air"
+version = "0.1.0"
+dependencies = [
+ "p3-air",
+ "p3-field",
+ "p3-goldilocks",
+ "p3-lookup",
+ "p3-matrix",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "rand 0.8.5",
+ "rostro-poseidon-air",
+]
+
+[[package]]
 name = "rostro-range-check"
 version = "0.1.0"
 dependencies = [

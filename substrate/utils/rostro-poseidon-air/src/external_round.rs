@@ -210,7 +210,12 @@ where
 /// External-layer linear step for WIDTH=8: apply `apply_mat4` to each consecutive
 /// 4-element chunk, then add the partial-sum vector to each element. Mirrors the
 /// `WIDTH ∈ {4,8,12,16,20,24,32}` branch of `p3_poseidon2::mds_light_permutation`.
-pub(crate) fn mds_light_permutation_8<E>(state: &mut [E; WIDTH])
+///
+/// Public so that `rostro-poseidon-sponge-air` can apply the same linear layer
+/// in both its witness function and its AIR's pre-block constraint, ensuring
+/// witness/AIR parity on the pre-MDS step (which `external_initial_permute_state`
+/// prepends before the first round and which is NOT covered by `ExternalRoundAir`).
+pub fn mds_light_permutation_8<E>(state: &mut [E; WIDTH])
 where
 	E: Clone + Add<E, Output = E>,
 {

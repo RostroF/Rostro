@@ -77,6 +77,7 @@ mod internal_round;
 pub use external_round::{
 	COL_STATE, COL_X_SQUARED, COL_X_TO_4, EXTERNAL_ROUND_NUM_COLS, ExternalRoundAir,
 	ExternalRoundKind, HALF_FULL_ROUNDS, PREPROCESSED_NUM_COLS, TRACE_HEIGHT, WIDTH,
+	mds_light_permutation_8,
 };
 pub use internal_round::{
 	COL_INT_STATE, COL_INT_X_SQUARED, COL_INT_X_TO_4, INTERNAL_ROUND_NUM_COLS, InternalRoundAir,
