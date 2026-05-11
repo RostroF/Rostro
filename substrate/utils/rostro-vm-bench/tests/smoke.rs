@@ -17,7 +17,7 @@
 
 use rostro_vm_bench::{
 	runners::{JavmRunner, PolkaVmRunner},
-	workloads::{fib, primes},
+	workloads::{fib, primes, scale_roundtrip},
 	RvmRunner,
 };
 
@@ -72,6 +72,60 @@ fn polkavm_runner_names_match_backend() {
 		Ok(runner) => assert_eq!(runner.name(), "polkavm-compiler"),
 		Err(_) => eprintln!("polkavm-compiler not supported on this platform — skipping"),
 	}
+}
+
+/// SCALE-shape roundtrip: init → XOR-and-copy → sum. Catches read-from-wrong-buffer
+/// bugs because the XOR transform makes the output differ from input.
+#[test]
+fn scale_roundtrip_javm_matches_native_reference() {
+	for n in [1u64, 5, 10, 100] {
+		let blob = scale_roundtrip::javm_blob(n);
+		let mut runner = JavmRunner::interpreter();
+		let out = runner.run(&blob, &[]).expect("javm scale_roundtrip");
+		assert_eq!(
+			out.result_a0,
+			scale_roundtrip::expected_result(n),
+			"javm scale_roundtrip({n})"
+		);
+	}
+}
+
+#[test]
+fn scale_roundtrip_polkavm_matches_native_reference() {
+	for n in [1u64, 5, 10, 100] {
+		let blob = scale_roundtrip::polkavm_blob(n);
+		let mut runner = PolkaVmRunner::new().expect("PolkaVmRunner");
+		let out = runner.run(&blob, &[]).expect("polkavm scale_roundtrip");
+		assert_eq!(
+			out.result_a0,
+			scale_roundtrip::expected_result(n),
+			"polkavm scale_roundtrip({n})"
+		);
+	}
+}
+
+#[test]
+fn scale_roundtrip_javm_polkavm_agree() {
+	let n: u64 = 100;
+	let mut javm = JavmRunner::interpreter();
+	let mut polkavm = PolkaVmRunner::new().expect("PolkaVmRunner");
+
+	let javm_out = javm
+		.run(&scale_roundtrip::javm_blob(n), &[])
+		.expect("javm scale_roundtrip");
+	let polkavm_out = polkavm
+		.run(&scale_roundtrip::polkavm_blob(n), &[])
+		.expect("polkavm scale_roundtrip");
+
+	assert_eq!(javm_out.result_a0, polkavm_out.result_a0);
+	assert_eq!(javm_out.result_a0, scale_roundtrip::expected_result(n));
+
+	eprintln!(
+		"scale_roundtrip({n}) workload: javm gas={} polkavm gas={} (delta {})",
+		javm_out.gas_consumed,
+		polkavm_out.gas_consumed,
+		javm_out.gas_consumed as i128 - polkavm_out.gas_consumed as i128,
+	);
 }
 
 /// All four backends (javm-interpreter / javm-recompiler /

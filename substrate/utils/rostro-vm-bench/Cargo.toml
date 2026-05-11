@@ -23,3 +23,7 @@ harness = false
 [[bench]]
 name = "primes_bench"
 harness = false
+
+[[bench]]
+name = "scale_roundtrip_bench"
+harness = false

@@ -11,3 +11,4 @@
 
 pub mod fib;
 pub mod primes;
+pub mod scale_roundtrip;
