@@ -155,5 +155,7 @@ fn biguint_to_limbs_8(v: &BigUint) -> [u32; FIELD_NUM_LIMBS] {
 	})
 }
 
+pub mod reduce_384;
+
 #[cfg(test)]
 mod tests;
