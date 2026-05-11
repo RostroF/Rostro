@@ -258,22 +258,22 @@ fn push_inv_check<AB: InteractionBuilder>(
 	builder.push_interaction(BUS_FIELD_MUL, payload, AB::Expr::ONE, 1);
 }
 
-fn push_sqrt_ratio_m1<AB: InteractionBuilder>(
+fn push_sqrt_ratio_m1_v_const_one<AB: InteractionBuilder>(
 	builder: &mut AB,
-	u_first: AB::Expr,
-	v: &[AB::Var; FIELD_NUM_LIMBS],
+	u: &[AB::Var; FIELD_NUM_LIMBS],
 	was_sq: AB::Var,
 	r: &[AB::Var; FIELD_NUM_LIMBS],
 ) {
-	// Payload (u, v, was_sq, r) = 25 cells. Here u is a constant (1 in
-	// our use), so we encode u[0] = u_first, u[1..] = 0.
+	// Payload (u, v, was_sq, r) = 25 cells. Elligator2 needs sqrt(gx) =
+	// sqrt_ratio_m1(gx, 1) so `u` is variable (the 8-limb gx) and `v` is
+	// the constant 1.
 	let mut payload: Vec<AB::Expr> = Vec::with_capacity(25);
-	payload.push(u_first);
+	for v_var in u.iter() {
+		payload.push((*v_var).into());
+	}
+	payload.push(AB::Expr::ONE);
 	for _ in 1..FIELD_NUM_LIMBS {
 		payload.push(AB::Expr::ZERO);
-	}
-	for v in v.iter() {
-		payload.push((*v).into());
 	}
 	payload.push(was_sq.into());
 	for r_v in r.iter() {
@@ -432,9 +432,9 @@ where
 		push_op::<AB>(builder, BUS_FIELD_MUL, &x2, &inner_x2, &gx2);
 
 		// sqrt_ratio_m1(gx1, 1) → (is_sq_gx1, sqrt_gx1)
-		push_sqrt_ratio_m1::<AB>(builder, AB::Expr::ZERO, &gx1, is_sq_gx1, &sqrt_gx1);
-		// sqrt_ratio_m1(gx2, 1) → (is_sq_gx2 = 1, sqrt_gx2)
-		push_sqrt_ratio_m1::<AB>(builder, AB::Expr::ZERO, &gx2, is_sq_gx2, &sqrt_gx2);
+		push_sqrt_ratio_m1_v_const_one::<AB>(builder, &gx1, is_sq_gx1, &sqrt_gx1);
+		// sqrt_ratio_m1(gx2, 1) → (is_sq_gx2, sqrt_gx2)
+		push_sqrt_ratio_m1_v_const_one::<AB>(builder, &gx2, is_sq_gx2, &sqrt_gx2);
 
 		// neg_y_m_pre = 0 - y_m_pre
 		push_sub_zero_a::<AB>(builder, &y_m_pre, &neg_y_m_pre);

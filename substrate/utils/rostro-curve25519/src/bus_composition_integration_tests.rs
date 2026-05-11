@@ -45,6 +45,12 @@ use crate::scalar_mul_air::{
 	build_scalar_mul_trace_matrix, ScalarMulAir, SCALAR_MUL_HEIGHT, SCALAR_MUL_NUM_COLS,
 	SCALAR_MUL_NUM_PREPROC_COLS,
 };
+use crate::elligator2::map_to_curve_elligator2_edwards25519;
+use crate::elligator2_air::{
+	build_elligator2_trace_row, Elligator2Air, BUS_ELLIGATOR2,
+};
+use crate::field_air::BUS_U16_RANGE;
+use crate::sqrt_ratio_m1_air::BUS_SQRT_RATIO_M1;
 
 // ─── Generic recording builder ─────────────────────────────────────────────
 //
@@ -521,4 +527,95 @@ fn scalar_mul_air_point_buses_balance_against_point_providers() {
 		);
 		assert_eq!(provider_emit.1, Goldilocks::ZERO - Goldilocks::ONE);
 	}
+}
+
+// ─── H2: Elligator2Air bus balance ─────────────────────────────────────────
+//
+// Closes the in-row test gap from `elligator2_air_tests`: corrupting an
+// output column (x_E, y_E, t_E) of a BUS_FIELD_MUL push isn't caught by
+// row-local constraints. Here we verify every consumer push the AIR emits
+// is algebraically consistent — for each (a, b, c) on a field bus, c must
+// equal op(a, b); for each sqrt-ratio query, (was_sq, r) must match
+// `field::sqrt_ratio_m1(u, v)`. This is the necessary condition for any
+// honest provider trace to balance the LogUp.
+
+fn limbs_from_payload(p: &[Goldilocks], offset: usize) -> [u32; FIELD_NUM_LIMBS] {
+	core::array::from_fn(|i| p[offset + i].as_canonical_u64() as u32)
+}
+
+#[test]
+fn elligator2_air_bus_pushes_are_algebraically_consistent() {
+	let mut u = [0u32; FIELD_NUM_LIMBS];
+	u[0] = 7;
+	let row = build_elligator2_trace_row(&u);
+	let trace = row.to_trace_vec::<Goldilocks>();
+	let pushes = run_air(&Elligator2Air::new(), &trace);
+
+	let mut mul_count = 0;
+	let mut add_count = 0;
+	let mut sub_count = 0;
+	let mut sqrt_count = 0;
+	let mut u16r_count = 0;
+	let mut service_count = 0;
+
+	for (bus, _count, payload, _weight) in &pushes {
+		if bus == BUS_FIELD_MUL || bus == BUS_FIELD_ADD || bus == BUS_FIELD_SUB {
+			assert_eq!(payload.len(), 24, "{} payload = 24 cells", bus);
+			let a = limbs_from_payload(payload, 0);
+			let b = limbs_from_payload(payload, FIELD_NUM_LIMBS);
+			let c = limbs_from_payload(payload, 2 * FIELD_NUM_LIMBS);
+			let expected = if bus == BUS_FIELD_MUL {
+				mul_count += 1;
+				field_mul(&a, &b)
+			} else if bus == BUS_FIELD_ADD {
+				add_count += 1;
+				field_add(&a, &b)
+			} else {
+				sub_count += 1;
+				field_sub(&a, &b)
+			};
+			assert_eq!(c, expected, "{} consumer payload mismatch: a={:?} b={:?}", bus, a, b);
+		} else if bus == BUS_SQRT_RATIO_M1 {
+			sqrt_count += 1;
+			assert_eq!(payload.len(), 25, "sqrt-ratio payload = 25 cells");
+			let u_arg = limbs_from_payload(payload, 0);
+			let v_arg = limbs_from_payload(payload, FIELD_NUM_LIMBS);
+			let was_sq_emitted = payload[2 * FIELD_NUM_LIMBS].as_canonical_u64();
+			let r = limbs_from_payload(payload, 2 * FIELD_NUM_LIMBS + 1);
+			let (oracle_was_sq, oracle_r) =
+				crate::field::sqrt_ratio_m1(&u_arg, &v_arg);
+			assert_eq!(
+				was_sq_emitted, u64::from(oracle_was_sq),
+				"sqrt_ratio_m1 was_square mismatch",
+			);
+			assert_eq!(r, oracle_r, "sqrt_ratio_m1 r mismatch");
+		} else if bus == BUS_U16_RANGE {
+			u16r_count += 1;
+			assert_eq!(payload.len(), 1, "u16-range payload = 1 cell");
+			let v = payload[0].as_canonical_u64();
+			assert!(v < (1u64 << 16), "u16-range value {} exceeds 2^16", v);
+		} else if bus == BUS_ELLIGATOR2 {
+			service_count += 1;
+			assert_eq!(payload.len(), 40, "service emit = 40 cells");
+			// Verify the emitted point matches the witness oracle.
+			let u_emit = limbs_from_payload(payload, 0);
+			let x_e = limbs_from_payload(payload, FIELD_NUM_LIMBS);
+			let y_e = limbs_from_payload(payload, 2 * FIELD_NUM_LIMBS);
+			let z_e = limbs_from_payload(payload, 3 * FIELD_NUM_LIMBS);
+			let t_e = limbs_from_payload(payload, 4 * FIELD_NUM_LIMBS);
+			assert_eq!(u_emit, u, "service emit u doesn't match input");
+			let oracle = map_to_curve_elligator2_edwards25519(&u);
+			assert_eq!(x_e, oracle.x, "service emit x_E mismatch");
+			assert_eq!(y_e, oracle.y, "service emit y_E mismatch");
+			assert_eq!(z_e, oracle.z, "service emit z_E mismatch");
+			assert_eq!(t_e, oracle.t, "service emit t_E mismatch");
+		}
+	}
+
+	assert!(mul_count > 0, "expected BUS_FIELD_MUL pushes");
+	assert!(add_count > 0, "expected BUS_FIELD_ADD pushes");
+	assert!(sub_count > 0, "expected BUS_FIELD_SUB pushes");
+	assert_eq!(sqrt_count, 2, "expected 2 BUS_SQRT_RATIO_M1 pushes");
+	assert_eq!(u16r_count, 2, "expected 2 BUS_U16_RANGE pushes (LSB-tie)");
+	assert_eq!(service_count, 1, "expected 1 service emit");
 }

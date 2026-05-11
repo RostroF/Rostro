@@ -16,7 +16,7 @@ use p3_lookup::InteractionBuilder;
 use crate::elligator2::map_to_curve_elligator2_edwards25519;
 use crate::elligator2_air::{
 	build_elligator2_trace_row, Elligator2Air, BUS_ELLIGATOR2, COL_FLIP_Y, COL_IS_NEG_Y_M_PRE,
-	COL_IS_SQ_GX1, COL_T_E, COL_X_E, COL_Y_E, ELLIGATOR2_NUM_COLS,
+	COL_IS_SQ_GX1, ELLIGATOR2_NUM_COLS,
 };
 use crate::field::{bytes_to_limbs, is_canonical, FIELD_NUM_LIMBS};
 use crate::field_air::BUS_U16_RANGE;
