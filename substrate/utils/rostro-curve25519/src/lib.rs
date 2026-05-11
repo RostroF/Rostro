@@ -65,6 +65,7 @@
 
 extern crate alloc;
 
+pub mod elligator2;
 pub mod field;
 pub mod field_air;
 pub mod field_mul_air;
@@ -123,3 +124,6 @@ mod ristretto_compress_air_tests;
 
 #[cfg(test)]
 mod ristretto_decompress_air_tests;
+
+#[cfg(test)]
+mod elligator2_tests;
