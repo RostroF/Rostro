@@ -111,6 +111,10 @@ pub struct Reduce384Witness {
 	pub red_carries: [u32; FIELD_NUM_LIMBS],
 	/// Borrows from the `(p - 1) - u` chain (canonical check). Each ∈ {0, 1}.
 	pub canon_borrows: [u32; FIELD_NUM_LIMBS],
+	/// Per-limb difference in the `(p - 1) - u` chain. Each ∈ [0, 2^32).
+	/// Identity: `canon_diff[i] + u[i] + canon_borrows[i-1] ==
+	/// p_minus_1[i] + 2^32 · canon_borrows[i]`.
+	pub canon_diff: [u32; FIELD_NUM_LIMBS],
 }
 
 /// Compute every intermediate value the AIR will need, given the 384-bit
@@ -192,13 +196,16 @@ pub fn compute_reduce_384_witness(
 		arr
 	};
 	let mut canon_borrows = [0u32; FIELD_NUM_LIMBS];
+	let mut canon_diff = [0u32; FIELD_NUM_LIMBS];
 	let mut borrow: i64 = 0;
 	for i in 0..FIELD_NUM_LIMBS {
-		let diff: i64 = i64::from(p_minus_1[i]) - i64::from(u[i]) - borrow;
-		if diff < 0 {
+		let raw: i64 = i64::from(p_minus_1[i]) - i64::from(u[i]) - borrow;
+		if raw < 0 {
 			borrow = 1;
+			canon_diff[i] = (raw + (1i64 << 32)) as u32;
 		} else {
 			borrow = 0;
+			canon_diff[i] = raw as u32;
 		}
 		canon_borrows[i] = borrow as u32;
 	}
@@ -221,6 +228,7 @@ pub fn compute_reduce_384_witness(
 		u,
 		red_carries,
 		canon_borrows,
+		canon_diff,
 	}
 }
 
