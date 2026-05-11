@@ -131,3 +131,6 @@ mod elligator2_tests;
 
 #[cfg(test)]
 mod elligator2_air_tests;
+
+#[cfg(test)]
+mod fuzz_oracle;

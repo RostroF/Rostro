@@ -367,16 +367,14 @@ where
 			);
 		}
 
-		// flip_y = (is_sq_gx1 == is_neg_y_m_pre) — XNOR. The witness
-		// flips y when is_negative(y_m_pre) disagrees with the required
-		// sign (sgn0 = 0 when x = x1, sgn0 = 1 when x = x2).
-		// flip_y = is_sq_gx1 · is_neg_y_m_pre + (1 - is_sq_gx1) · (1 - is_neg_y_m_pre)
-		//        = 1 - is_sq_gx1 - is_neg_y_m_pre + 2 · is_sq_gx1 · is_neg_y_m_pre
+		// flip_y = is_sq_gx1 XOR is_neg_y_m_pre. The witness flips y when
+		// is_negative(y_m_pre) disagrees with the RFC 9380 §6.7.1 required
+		// sign (sgn0(y) = 1 when x = x1, sgn0(y) = 0 when x = x2).
+		// flip_y = is_sq_gx1 + is_neg_y_m_pre - 2 · is_sq_gx1 · is_neg_y_m_pre
 		builder.assert_zero(
 			flip_y.into()
-				- (AB::Expr::ONE
-					- is_sq_gx1.into() - is_neg_y_m_pre.into()
-					+ AB::Expr::from_u64(2) * is_sq_gx1.into() * is_neg_y_m_pre.into()),
+				- (is_sq_gx1.into() + is_neg_y_m_pre.into()
+					- AB::Expr::from_u64(2) * is_sq_gx1.into() * is_neg_y_m_pre.into()),
 		);
 
 		// y_m = flip_y ? neg_y_m_pre : y_m_pre
@@ -601,8 +599,9 @@ pub fn build_elligator2_trace_row(u: &[u32; FIELD_NUM_LIMBS]) -> Elligator2Trace
 	let (x_m, y_m_pre) = if is_sq_gx1 { (x1, sqrt_gx1) } else { (x2, sqrt_gx2) };
 	let is_neg_y_m_pre = is_negative(&y_m_pre);
 	let neg_y_m_pre = field_neg(&y_m_pre);
-	// flip_y = (is_sq_gx1 == is_neg_y_m_pre) — XNOR.
-	let flip_y = is_sq_gx1 == is_neg_y_m_pre;
+	// flip_y = is_sq_gx1 XOR is_neg_y_m_pre. Per RFC 9380 §6.7.1, want
+	// sgn0(y) == 1 when is_sq_gx1, else sgn0(y) == 0.
+	let flip_y = is_sq_gx1 != is_neg_y_m_pre;
 	let y_m = if flip_y { neg_y_m_pre } else { y_m_pre };
 
 	assert!(

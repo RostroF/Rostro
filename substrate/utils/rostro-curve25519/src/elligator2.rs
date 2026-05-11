@@ -102,10 +102,11 @@ pub fn map_to_curve_elligator2_edwards25519(
 		(x2, sqrt_gx2)
 	};
 
-	// RFC 9380 §F.3 step 11: the sign rule. If x = x1, want sgn0(y) == 0
-	// (LSB even, "positive"). If x = x2, want sgn0(y) == 1 (LSB odd,
-	// "negative"). Equivalently: flip y iff is_sq XOR is_negative(y).
-	let want_negative = !is_sq_gx1;
+	// RFC 9380 §6.7.1 / §F.3 step 11: the sign rule. If is_square(gx1)
+	// (x = x1), want sgn0(y) == 1 (LSB odd, "negative"). Else (x = x2),
+	// want sgn0(y) == 0 (LSB even, "positive"). Equivalently: flip y
+	// iff is_sq_gx1 XOR is_negative(y_m_pre).
+	let want_negative = is_sq_gx1;
 	let y_m = if is_negative(&y_m_pre) == want_negative {
 		y_m_pre
 	} else {
