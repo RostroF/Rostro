@@ -156,6 +156,8 @@ impl ProofVerifier<AccountId, u64> for MockProofVerifier {
 		_vk_bytes: &[u8],
 		_proof_bytes: &[u8],
 		_inputs: &PassportPublicInputs<AccountId, u64>,
+		_aa_challenge: &[u8; 32],
+		_sha256_digest_of_challenge: &[u8; 32],
 	) -> Result<(), ()> {
 		PROOF_STATE.with(|s| {
 			if s.borrow().passport_should_pass {
@@ -263,8 +265,6 @@ fn passport_inputs(
 		anchor,
 		csca_root,
 		seats_root,
-		aa_challenge: [0u8; 32],
-		sha256_digest_of_challenge: [0u8; 32],
 	}
 }
 
@@ -1021,6 +1021,19 @@ fn challenge_domains_are_stable() {
 	assert_eq!(AA_CHALLENGE_DOMAIN, b"rostro-pop-aa-v1");
 	assert_eq!(HIP_CHALLENGE_DOMAIN, b"rostro-pop-hip-v1");
 	assert_ne!(AA_CHALLENGE_DOMAIN, HIP_CHALLENGE_DOMAIN);
+}
+
+#[test]
+fn aa_challenge_and_hip_nonce_differ_on_same_inputs() {
+	use crate::{aa_challenge, hip_challenge_nonce};
+	let anchor = ChainAnchor { block: 100u64, hash: H256([0x42; 32]) };
+	let bound: AccountId = 7;
+	let aa = aa_challenge(&anchor, &bound);
+	let hip = hip_challenge_nonce(&anchor, &bound);
+	// Same anchor + same account → still distinct outputs because the
+	// domain bytes differ. Without this, a leaked HIP attestation would
+	// satisfy the AIR's AA-challenge PI binding.
+	assert_ne!(aa, hip);
 }
 
 #[test]

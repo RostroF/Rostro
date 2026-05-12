@@ -145,17 +145,19 @@ pub const COL_CSCA_ROOT: usize = 44;
 pub const COL_SEATS_ROOT: usize = 52;
 /// Starting column of the `aa_challenge` PI field (8 limbs follow).
 ///
-/// **Promoted from witness to PI 2026-05-09.** The pallet computes
-/// `expected_aa_challenge = SHA-256(AA_CHALLENGE_DOMAIN ‖ anchor.hash ‖
-/// bound_account.encode())` and asserts it equals the proof's PI value
-/// here. The AIR uses this as the message that the chip's RSA signature
-/// is verified against. (HIP nonce derivation in `hip_challenge_nonce`
-/// uses the same shape with a different domain constant so the two
-/// subsystems' challenges cannot be cross-replayed.)
+/// **Pallet-derived, not prover-supplied.** The pallet computes
+/// `aa_challenge = SHA-256(AA_CHALLENGE_DOMAIN ‖ anchor.hash ‖
+/// bound_account.encode())` from chain-anchored values and passes the
+/// result into the verifier as an explicit parameter; the verifier
+/// places it in this PI column. The AIR uses it as the message that
+/// the chip's RSA signature is verified against. (HIP nonce derivation
+/// in `hip_challenge_nonce` uses the same shape with a different
+/// domain constant so the two subsystems' challenges cannot be
+/// cross-replayed.)
 ///
-/// This split (pallet computes SHA-256, AIR uses pre-computed result as
-/// PI) avoids needing SHA-256-in-AIR as a precondition for the
-/// AA-challenge ↔ chip-sig binding to work. SHA-256 in-circuit lands
+/// This split (pallet derives, AIR consumes via column equality)
+/// avoids needing SHA-256-in-AIR as a precondition for the
+/// AA-challenge ↔ chip-sig binding to work. SHA-256-in-AIR lands
 /// later when DG-list inclusion in SOD requires it; until then this
 /// pattern lets the chip-sig verification proceed without depending on
 /// it.
@@ -164,14 +166,14 @@ pub const COL_AA_CHALLENGE: usize = 60;
 pub const AA_CHALLENGE_LIMBS: usize = HASH_LIMBS;
 /// Starting column of the SHA-256 digest of `aa_challenge` (8 limbs follow).
 ///
-/// **Promoted from witness to PI 2026-05-09.** Same play as the AA
-/// challenge promotion: the pallet computes `expected_digest = SHA-256(
-/// proof.aa_challenge_pi_bytes)` and asserts it equals this PI value;
-/// the AIR's existing PKCS#1 v1.5 constraint binds `EM[224..256]` to
-/// these limbs. Together, the chain of bindings is:
+/// **Pallet-derived, not prover-supplied.** Same play as the AA
+/// challenge: the pallet computes `SHA-256(aa_challenge)` and forwards
+/// the result to the verifier as an explicit parameter; the AIR's
+/// existing PKCS#1 v1.5 constraint binds `EM[224..256]` to this PI
+/// column. Together, the chain of bindings is:
 ///
-///   pallet computes aa_challenge from anchor + bound_account → checks PI
-///   pallet computes SHA-256(aa_challenge) → checks PI
+///   pallet computes aa_challenge from anchor + bound_account → PI
+///   pallet computes SHA-256(aa_challenge) → PI
 ///   AIR constrains EM digest bytes equal this PI
 ///   AIR constrains chip's RSA signature decodes to EM (modexp TODO)
 ///

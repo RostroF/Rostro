@@ -248,16 +248,15 @@ pub struct PassportPublicInputs<AccountId, BlockNumber> {
 	/// Merkle root of the seats mapping. Pallet rejects if not
 	/// equal to current `CurrentSeatsRoot`.
 	pub seats_root: H256,
-	/// `aa_challenge = SHA-256(AA_CHALLENGE_DOMAIN || anchor.hash || bound_account.encode())`.
-	/// Pallet pre-computes from `anchor` + `bound_account` and asserts
-	/// equality with this PI before AIR verification. The AIR then uses
-	/// it as the message that the chip's RSA-2048-SHA256 signature was
-	/// computed over.
-	pub aa_challenge: [u8; 32],
-	/// `SHA-256(aa_challenge)`. Pallet pre-computes and asserts equality.
-	/// AIR uses this as the digest its PKCS#1 v1.5 EM bytes must contain.
-	pub sha256_digest_of_challenge: [u8; 32],
 }
+
+// `aa_challenge` and its SHA-256 digest are no longer fields on this
+// struct. They are derived inside `mint_pop` from
+// `(AA_CHALLENGE_DOMAIN, anchor.hash, bound_account)` and flow into
+// the verifier as explicit parameters. Treating them as user-supplied
+// PIs let the prover pick the message the chip's signature was over,
+// which severed chain-anchoring of AA. See `aa_challenge()` and the
+// updated [`ProofVerifier::verify_passport_attest`] signature.
 
 /// Public-input bundle for the `liveness_facematch` circuit.
 ///
@@ -379,10 +378,18 @@ pub trait ProofVerifier<AccountId, BlockNumber> {
 	/// public inputs. The implementation is responsible for
 	/// encoding the inputs into the BN254 field-element vector
 	/// matching the circuit's `public [...]` declaration.
+	///
+	/// `aa_challenge` and `sha256_digest_of_challenge` are derived by
+	/// the pallet from `(AA_CHALLENGE_DOMAIN, anchor.hash, bound_account)`
+	/// and forwarded here so the AIR can consume them as PIs. They are
+	/// NOT in `inputs` — letting the prover supply them severed the
+	/// chain-anchoring of the chip signature.
 	fn verify_passport_attest(
 		vk_bytes: &[u8],
 		proof_bytes: &[u8],
 		inputs: &PassportPublicInputs<AccountId, BlockNumber>,
+		aa_challenge: &[u8; 32],
+		sha256_digest_of_challenge: &[u8; 32],
 	) -> Result<(), ()>;
 
 	/// Verify the `liveness_facematch` Groth16 proof.
@@ -403,8 +410,11 @@ impl<AccountId, BlockNumber> ProofVerifier<AccountId, BlockNumber> for ArkProofV
 		vk_bytes: &[u8],
 		proof_bytes: &[u8],
 		inputs: &PassportPublicInputs<AccountId, BlockNumber>,
+		aa_challenge: &[u8; 32],
+		sha256_digest_of_challenge: &[u8; 32],
 	) -> Result<(), ()> {
-		let public_inputs = verifier::passport_public_inputs(inputs);
+		let public_inputs =
+			verifier::passport_public_inputs(inputs, aa_challenge, sha256_digest_of_challenge);
 		verifier::verify_groth16(vk_bytes, proof_bytes, &public_inputs).map_err(|_| ())
 	}
 
@@ -769,12 +779,21 @@ pub mod pallet {
 			// 8. Verify both Groth16 proofs through the configured
 			//    ProofVerifier. Production uses ark-groth16; tests
 			//    use a controllable mock.
+			//
+			//    The AA challenge + its SHA-256 digest are derived here
+			//    from chain-anchored values and forwarded to the
+			//    verifier as explicit PIs. The prover does NOT get to
+			//    pick the message the chip's signature was over.
+			let computed_aa_challenge = aa_challenge(&passport_inputs.anchor, &caller);
+			let computed_aa_digest = sp_io::hashing::sha2_256(&computed_aa_challenge);
 			let passport_vk = PassportAttestVk::<T>::get()
 				.ok_or(Error::<T>::PassportVkNotSet)?;
 			T::ProofVerifier::verify_passport_attest(
 				&passport_vk.bytes,
 				&passport_proof,
 				&passport_inputs,
+				&computed_aa_challenge,
+				&computed_aa_digest,
 			)
 			.map_err(|_| Error::<T>::PassportProofInvalid)?;
 
@@ -913,31 +932,47 @@ pub mod pallet {
 	}
 }
 
-/// Derive the HIP attestation nonce from the chain anchor and the
-/// caller's bound account. The device's StrongBox/TPM2 attestation is
-/// over this nonce; freshness comes from `anchor.hash` being a recent
-/// chain block, and binding to `bound_account` prevents redirect
-/// attacks (a leaked HIP attestation for one account cannot be
-/// replayed to mint at another).
+/// Domain-scoped challenge derivation shared by HIP and AA paths.
+/// Freshness comes from `anchor.hash` being a recent chain block; the
+/// `bound_account` binding prevents redirect attacks (a leaked
+/// challenge for one account cannot be replayed to mint at another);
+/// `domain` separates the two subsystems so a leaked value cannot
+/// cross-replay.
 ///
-/// `nonce = SHA-256(HIP_CHALLENGE_DOMAIN || anchor.hash || bound_account.encode())`
-///
-/// The AA challenge derivation uses a different domain
-/// ([`AA_CHALLENGE_DOMAIN`]) so a leaked HIP nonce cannot be replayed
-/// as an AA challenge and vice versa. The chip's AA signature is the
-/// cryptographic source of truth even when the host is compromised;
-/// HIP is the platform-attestation gate that runs first.
+/// `out = SHA-256(domain || anchor.hash || bound_account.encode())`
+fn derive_challenge<AccountId: Encode, BlockNumber>(
+	domain: &[u8],
+	anchor: &ChainAnchor<BlockNumber>,
+	bound_account: &AccountId,
+) -> [u8; 32] {
+	let mut hashable = sp_std::vec::Vec::with_capacity(domain.len() + 32 + 64);
+	hashable.extend_from_slice(domain);
+	hashable.extend_from_slice(anchor.hash.as_bytes());
+	bound_account.encode_to(&mut hashable);
+	sp_io::hashing::sha2_256(&hashable)
+}
+
+/// HIP attestation nonce — the value the device's StrongBox/TPM2
+/// attestation is over. See [`derive_challenge`].
 pub(crate) fn hip_challenge_nonce<AccountId: Encode, BlockNumber>(
 	anchor: &ChainAnchor<BlockNumber>,
 	bound_account: &AccountId,
 ) -> [u8; 32] {
-	let mut hashable = sp_std::vec::Vec::with_capacity(
-		HIP_CHALLENGE_DOMAIN.len() + 32 + 64,
-	);
-	hashable.extend_from_slice(HIP_CHALLENGE_DOMAIN);
-	hashable.extend_from_slice(anchor.hash.as_bytes());
-	bound_account.encode_to(&mut hashable);
-	sp_io::hashing::sha2_256(&hashable)
+	derive_challenge(HIP_CHALLENGE_DOMAIN, anchor, bound_account)
+}
+
+/// AA challenge bytes — the message the chip's RSA-2048-SHA256
+/// signature is computed over. See [`derive_challenge`].
+///
+/// Computed by the pallet (not user-supplied) so the AIR's PKCS#1
+/// binding can verify against a chain-anchored value the prover cannot
+/// choose. The verifier receives both this value and its SHA-256
+/// digest from the pallet and feeds them as PIs into the AA AIR.
+pub(crate) fn aa_challenge<AccountId: Encode, BlockNumber>(
+	anchor: &ChainAnchor<BlockNumber>,
+	bound_account: &AccountId,
+) -> [u8; 32] {
+	derive_challenge(AA_CHALLENGE_DOMAIN, anchor, bound_account)
 }
 
 mod verifier {
@@ -990,6 +1025,8 @@ mod verifier {
 	/// conventions — see zk-pki-pallet's mime_wrap module).
 	pub fn passport_public_inputs<AccountId, BlockNumber>(
 		_inputs: &PassportPublicInputs<AccountId, BlockNumber>,
+		_aa_challenge: &[u8; 32],
+		_sha256_digest_of_challenge: &[u8; 32],
 	) -> alloc::vec::Vec<Fr> {
 		// TODO(PoP): match passport_attest.circom's public-input
 		// layout once the circuit lands.
