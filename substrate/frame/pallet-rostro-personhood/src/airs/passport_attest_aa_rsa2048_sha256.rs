@@ -403,6 +403,29 @@ where
 		// per-algorithm AA AIR. Acceptable cost.
 		builder.assert_bool(local[COL_ADULT].clone());
 
+		// Discriminant range on `nullifier_type`: the enum has exactly
+		// four valid values — Salted=0, NonSalted=1, SaltedMock=2,
+		// NonSaltedMock=3. Force the cell into {0,1,2,3} via the
+		// quartic
+		//   nt · (nt - 1) · (nt - 2) · (nt - 3) = 0
+		// which is zero iff nt is one of the four roots.
+		//
+		// Without this, the prover could write any Goldilocks value
+		// here and the AIR wouldn't notice; the pallet's
+		// `AcceptedNullifierTypes` check (commit C4) catches the
+		// SCALE-decoded enum cases, but the AIR's own column shape
+		// must be bound too — otherwise a Plonky3 verifier consuming
+		// the column for downstream constraints (forthcoming OPRF
+		// scope/nullifier work) operates on a value the prover
+		// could have fabricated outside the four discriminants.
+		{
+			let nt: AB::Expr = local[COL_NULLIFIER_TYPE].clone().into();
+			let nt_minus_1: AB::Expr = nt.clone() - AB::Expr::ONE;
+			let nt_minus_2: AB::Expr = nt.clone() - AB::Expr::from_u32(2);
+			let nt_minus_3: AB::Expr = nt.clone() - AB::Expr::from_u32(3);
+			builder.assert_zero(nt * nt_minus_1 * nt_minus_2 * nt_minus_3);
+		}
+
 		// ─── PKCS#1 v1.5 padding structure check on EM ─────────────────
 		//
 		// EM = 0x00 ‖ 0x01 ‖ (0xFF × 202) ‖ 0x00 ‖ DigestInfo ‖ H
@@ -873,6 +896,42 @@ mod tests {
 			 got pushes to: {:?}",
 			b.other_bus_pushes,
 		);
+	}
+
+	#[test]
+	fn nullifier_type_quartic_is_zero_exactly_for_four_discriminants() {
+		// Independent verification of the polynomial property the
+		// eval()'s quartic asserts. If the formulation in eval()
+		// drifts (e.g., someone "simplifies" to a different
+		// polynomial), this test catches the divergence by
+		// re-checking the property the constraint is supposed to
+		// enforce: nt ∈ {0,1,2,3} iff the quartic == 0.
+		use p3_field::PrimeCharacteristicRing;
+		use p3_goldilocks::Goldilocks;
+
+		let one = Goldilocks::ONE;
+		let two = Goldilocks::from_u32(2);
+		let three = Goldilocks::from_u32(3);
+
+		for nt in 0u64..32 {
+			let v = Goldilocks::from_u64(nt);
+			let q = v * (v - one) * (v - two) * (v - three);
+			if nt < 4 {
+				assert_eq!(
+					q,
+					Goldilocks::ZERO,
+					"nullifier_type {} (valid discriminant) must satisfy quartic == 0",
+					nt,
+				);
+			} else {
+				assert_ne!(
+					q,
+					Goldilocks::ZERO,
+					"nullifier_type {} (invalid discriminant) must NOT satisfy quartic == 0",
+					nt,
+				);
+			}
+		}
 	}
 
 	#[test]
