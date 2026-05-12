@@ -13581,6 +13581,18 @@ name = "rostro-rpc-shield"
 version = "0.1.0"
 
 [[package]]
+name = "rostro-rsa2048-air"
+version = "0.1.0"
+dependencies = [
+ "p3-air",
+ "p3-field",
+ "p3-goldilocks",
+ "p3-lookup",
+ "p3-matrix",
+ "rostro-curve25519",
+]
+
+[[package]]
 name = "rostro-runtime"
 version = "0.1.0"
 dependencies = [

@@ -299,6 +299,7 @@ members = [
 	"substrate/utils/rostro-hash-to-curve-air",
 	"substrate/utils/rostro-chaum-pedersen-air",
 	"substrate/utils/rostro-range-check",
+	"substrate/utils/rostro-rsa2048-air",
 	"substrate/utils/rostro-consensus-sassafras",
 	"substrate/utils/rostro-kzg-srs",
 	"substrate/utils/rostro-ratchet",
@@ -666,6 +667,7 @@ rostro-hash-to-field-air = { path = "substrate/utils/rostro-hash-to-field-air", 
 rostro-hash-to-curve-air = { path = "substrate/utils/rostro-hash-to-curve-air", default-features = false }
 rostro-chaum-pedersen-air = { path = "substrate/utils/rostro-chaum-pedersen-air", default-features = false }
 rostro-range-check = { path = "substrate/utils/rostro-range-check", default-features = false }
+rostro-rsa2048-air = { path = "substrate/utils/rostro-rsa2048-air", default-features = false }
 pallet-rostro-proof-anchor = { path = "substrate/frame/rostro-proof-anchor", default-features = false }
 pallet-rostro-rpc-method-policy = { path = "substrate/frame/rostro-rpc-method-policy", default-features = false }
 pallet-rostro-type-registry = { path = "substrate/frame/rostro-type-registry", default-features = false }

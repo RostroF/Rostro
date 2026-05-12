@@ -1,0 +1,32 @@
+[package]
+name = "rostro-rsa2048-air"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Service AIR providing the 64-limb u32 schoolbook multiplication primitive for RSA-2048 over Goldilocks. Used by the AA-AIR's modular exponentiation s^65537 mod N == EM: every modular multiply pushes one (a[64], b[64], c[128]) interaction onto BUS_RSA2048_MUL; this AIR provides one row per multiply, witnessing every partial product + carry chain. Range checks consume BUS_U16_RANGE (rostro-range-check). Strictly siloed per the per-algorithm AA-AIR rule — NIST-P256, Brainpool, and other variants get their own per-modulus multiplication crates."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+p3-air        = { workspace = true }
+p3-field      = { workspace = true }
+p3-goldilocks = { workspace = true }
+p3-lookup     = { workspace = true }
+p3-matrix     = { workspace = true }
+
+# rostro-curve25519 — re-exports BUS_U16_RANGE. The multiply AIR's
+# many u32-shaped intermediate cells (partial-product lo/hi halves +
+# carries + output limbs) all flow through that bus to the global
+# table-side U16RangeTableAir.
+rostro-curve25519 = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+	"rostro-curve25519/std",
+]
