@@ -64,12 +64,24 @@ parameter_types! {
 	pub const TestFixedPopTtl: u64 = 100_000;
 }
 
+/// Test runtime allowlist. Camino-shape (Salted + SaltedMock) so both
+/// production and mock variants can be exercised through `mint_pop`.
+/// Tests that need to exercise mainnet-shape rejection of NonSalted
+/// rely on this list NOT containing `NonSalted` / `NonSaltedMock`.
+pub struct TestAcceptedNullifierTypes;
+impl frame_support::traits::Get<&'static [NullifierType]> for TestAcceptedNullifierTypes {
+	fn get() -> &'static [NullifierType] {
+		&[NullifierType::Salted, NullifierType::SaltedMock]
+	}
+}
+
 impl pallet_personhood::Config for Test {
 	type MaxProofAge = TestMaxProofAge;
 	type FixedPopTtl = TestFixedPopTtl;
 	type ZkPki = MockZkPki;
 	type ProofVerifier = MockProofVerifier;
 	type SrtOrigin = frame_system::EnsureRoot<AccountId>;
+	type AcceptedNullifierTypes = TestAcceptedNullifierTypes;
 }
 
 // ─── Mock ZkPki ──────────────────────────────────────────────────────────
@@ -617,6 +629,67 @@ fn mint_seats_root_rotated_rejected() {
 		assert_noop!(
 			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
 			pallet_personhood::Error::<Test>::SeatsRootRotated
+		);
+	});
+}
+
+#[test]
+fn mint_nullifier_type_nonsalted_rejected() {
+	// Mainnet-shape policy reject: a proof committing to a government-
+	// recomputable nullifier (NonSalted) is rejected even on a testnet
+	// runtime whose AcceptedNullifierTypes is the broader [Salted,
+	// SaltedMock]. NonSalted is not in any accept-list this codebase
+	// will ship.
+	new_test_ext().execute_with(|| {
+		good_setup(ALICE, HW_CERT_THUMB_1);
+		let a = anchor();
+		let mut pin = passport_inputs(
+			ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone(),
+		);
+		pin.nullifier_type = NullifierType::NonSalted;
+		let lin = liveness_inputs(ALICE, COMM_IN_1, a);
+		assert_noop!(
+			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
+			pallet_personhood::Error::<Test>::NullifierTypeRejected
+		);
+	});
+}
+
+#[test]
+fn mint_nullifier_type_nonsalted_mock_rejected() {
+	new_test_ext().execute_with(|| {
+		good_setup(ALICE, HW_CERT_THUMB_1);
+		let a = anchor();
+		let mut pin = passport_inputs(
+			ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone(),
+		);
+		pin.nullifier_type = NullifierType::NonSaltedMock;
+		let lin = liveness_inputs(ALICE, COMM_IN_1, a);
+		assert_noop!(
+			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
+			pallet_personhood::Error::<Test>::NullifierTypeRejected
+		);
+	});
+}
+
+#[test]
+fn mint_nullifier_type_salted_mock_accepted_on_testnet_shape() {
+	// The test runtime's AcceptedNullifierTypes includes SaltedMock
+	// (Camino-shape). Confirm it mints, with the SaltedMock variant
+	// preserved in the stored cert so downstream queries can
+	// distinguish devnet certs.
+	new_test_ext().execute_with(|| {
+		good_setup(ALICE, HW_CERT_THUMB_1);
+		let a = anchor();
+		let mut pin = passport_inputs(
+			ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone(),
+		);
+		pin.nullifier_type = NullifierType::SaltedMock;
+		let lin = liveness_inputs(ALICE, COMM_IN_1, a);
+		assert_ok!(submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin));
+		assert_eq!(
+			pallet_personhood::PopCerts::<Test>::get(ALICE).unwrap().nullifier_type,
+			NullifierType::SaltedMock,
 		);
 	});
 }

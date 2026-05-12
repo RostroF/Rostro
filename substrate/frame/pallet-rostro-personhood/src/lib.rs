@@ -489,6 +489,25 @@ pub mod pallet {
 		/// a mock that controls whether verification succeeds.
 		type ProofVerifier: ProofVerifier<Self::AccountId, BlockNumberFor<Self>>;
 
+		/// Allowlist of [`NullifierType`] discriminants this runtime
+		/// will accept on `mint_pop`.
+		///
+		/// Chain-identity invariant — deliberately a runtime-level
+		/// associated type rather than SRT-rotatable storage. Storage
+		/// rotation would let a compromised SRT threshold silently
+		/// expand the policy (e.g., add `NonSalted`, the government-
+		/// recomputable variant), visible only via storage diffs.
+		/// Runtime-level binding forces any change through a WASM
+		/// upgrade — observable to every node via the runtime hash.
+		///
+		/// Mainnet binds to `&[NullifierType::Salted]`. Camino testnet
+		/// binds to `&[NullifierType::Salted, NullifierType::SaltedMock]`.
+		/// Neither should ever include `NonSalted` or `NonSaltedMock`
+		/// — those exist as enum variants only so off-chain tooling
+		/// can describe legacy/test proofs by discriminant; on-chain
+		/// acceptance is a different policy question.
+		type AcceptedNullifierTypes: Get<&'static [NullifierType]>;
+
 		/// Origin authorised to rotate the CSCA root, the seats
 		/// root, and circuit verifying keys. Wired to the SRT
 		/// pallet once that lands; in the interim, the runtime
@@ -659,6 +678,12 @@ pub mod pallet {
 		/// yet. Same bootstrap shape as `CscaRootNotSet` — SRT must
 		/// publish before any mints can land.
 		OprfPubkeyHashNotSet,
+		/// `nullifier_type` in the proof is not in this runtime's
+		/// `AcceptedNullifierTypes` allowlist. Mainnet rejects every
+		/// variant except `Salted`; Camino additionally accepts
+		/// `SaltedMock`. Re-running the OPRF flow with the right
+		/// nullifier shape is the user-side recovery path.
+		NullifierTypeRejected,
 		/// Passport's TTL has already passed. Renew the passport
 		/// and try again.
 		PassportExpired,
@@ -798,6 +823,10 @@ pub mod pallet {
 			ensure!(
 				passport_inputs.oprf_pk_hash == current_oprf,
 				Error::<T>::OprfPubkeyHashRotated,
+			);
+			ensure!(
+				T::AcceptedNullifierTypes::get().contains(&passport_inputs.nullifier_type),
+				Error::<T>::NullifierTypeRejected,
 			);
 
 			// 6. Cert TTL is chain-assigned at mint (passport expiry no
