@@ -909,7 +909,7 @@ fn discard_pop_no_cert_rejected() {
 	new_test_ext().execute_with(|| {
 		assert_noop!(
 			Personhood::discard_pop(RuntimeOrigin::signed(ALICE)),
-			pallet_personhood::Error::<Test>::AlreadyHasPopCert // shape: "no cert to discard"
+			pallet_personhood::Error::<Test>::NoCertToDiscard
 		);
 	});
 }

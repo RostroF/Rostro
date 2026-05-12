@@ -697,6 +697,12 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// Caller already has a PoP cert. Discard first.
 		AlreadyHasPopCert,
+		/// `discard_pop` called by an account with no PoP cert to
+		/// discard. Distinct from `AlreadyHasPopCert` (which is the
+		/// mint-time "you already have one" path) so wallet UIs and
+		/// integrators can distinguish "you don't have a cert" from
+		/// "you already have a cert."
+		NoCertToDiscard,
 		/// Caller has no zk-pki HW cert at the supplied thumbprint.
 		HwCertNotFound,
 		/// HW cert exists but isn't owned by the caller.
@@ -996,7 +1002,7 @@ pub mod pallet {
 		#[pallet::weight(Weight::from_parts(50_000_000, 0))]
 		pub fn discard_pop(origin: OriginFor<T>) -> DispatchResult {
 			let caller = ensure_signed(origin)?;
-			let cert = PopCerts::<T>::take(&caller).ok_or(Error::<T>::AlreadyHasPopCert)?;
+			let cert = PopCerts::<T>::take(&caller).ok_or(Error::<T>::NoCertToDiscard)?;
 			Nullifiers::<T>::remove(cert.scoped_nullifier);
 			Self::deposit_event(Event::PopDiscarded {
 				who: caller,
