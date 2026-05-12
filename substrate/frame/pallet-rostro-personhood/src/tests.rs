@@ -284,6 +284,7 @@ fn liveness_inputs(
 fn seed_roots_and_vks() {
 	pallet_personhood::CurrentCscaRoot::<Test>::put(CSCA_ROOT_GOOD);
 	pallet_personhood::CurrentSeatsRoot::<Test>::put(SEATS_ROOT_GOOD);
+	pallet_personhood::CurrentOprfFederationPubkeyHash::<Test>::put(OPRF_PK_HASH);
 	pallet_personhood::PassportAttestVk::<Test>::put(VkRecord {
 		bytes: vec![0x01, 0x02, 0x03],
 		version: 1,
@@ -620,6 +621,25 @@ fn mint_seats_root_rotated_rejected() {
 	});
 }
 
+#[test]
+fn mint_oprf_pk_hash_rotated_rejected() {
+	new_test_ext().execute_with(|| {
+		good_setup(ALICE, HW_CERT_THUMB_1);
+		// Simulate K-era rotation: chain now expects a different
+		// federation pubkey hash than the one the proof committed to.
+		let rotated = H256([0xCC; 32]);
+		pallet_personhood::CurrentOprfFederationPubkeyHash::<Test>::put(rotated);
+		let a = anchor();
+		// passport_inputs() commits to the pre-rotation OPRF_PK_HASH.
+		let pin = passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone());
+		let lin = liveness_inputs(ALICE, COMM_IN_1, a);
+		assert_noop!(
+			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
+			pallet_personhood::Error::<Test>::OprfPubkeyHashRotated
+		);
+	});
+}
+
 // `mint_passport_expired_rejected` removed in the 2026-05-10 PI redesign:
 // passport expiry is no longer carried as a PI (privacy: it's a quasi-
 // identifier, low cardinality + correlated with date-of-birth). The chain
@@ -700,9 +720,10 @@ fn mint_liveness_proof_invalid_rejected() {
 #[test]
 fn mint_passport_vk_not_set_rejected() {
 	new_test_ext().execute_with(|| {
-		// Roots set but vks not.
+		// Roots + OPRF hash set but vks not.
 		pallet_personhood::CurrentCscaRoot::<Test>::put(CSCA_ROOT_GOOD);
 		pallet_personhood::CurrentSeatsRoot::<Test>::put(SEATS_ROOT_GOOD);
+		pallet_personhood::CurrentOprfFederationPubkeyHash::<Test>::put(OPRF_PK_HASH);
 		with_zkpki_state(|s| {
 			s.cert_owners.insert(HW_CERT_THUMB_1, ALICE);
 		});
@@ -728,6 +749,7 @@ fn mint_liveness_vk_not_set_rejected() {
 	new_test_ext().execute_with(|| {
 		pallet_personhood::CurrentCscaRoot::<Test>::put(CSCA_ROOT_GOOD);
 		pallet_personhood::CurrentSeatsRoot::<Test>::put(SEATS_ROOT_GOOD);
+		pallet_personhood::CurrentOprfFederationPubkeyHash::<Test>::put(OPRF_PK_HASH);
 		pallet_personhood::PassportAttestVk::<Test>::put(VkRecord {
 			bytes: vec![0x01],
 			version: 1,
@@ -861,6 +883,29 @@ fn srt_set_seats_root_works() {
 	});
 }
 
+#[test]
+fn srt_set_oprf_federation_pubkey_hash_works() {
+	new_test_ext().execute_with(|| {
+		let new = H256([0xEE; 32]);
+		assert_ok!(Personhood::srt_set_oprf_federation_pubkey_hash(RuntimeOrigin::root(), new));
+		assert_eq!(
+			pallet_personhood::CurrentOprfFederationPubkeyHash::<Test>::get(),
+			Some(new),
+		);
+	});
+}
+
+#[test]
+fn srt_set_oprf_federation_pubkey_hash_rejects_non_root() {
+	new_test_ext().execute_with(|| {
+		let new = H256([0xEE; 32]);
+		assert!(
+			Personhood::srt_set_oprf_federation_pubkey_hash(RuntimeOrigin::signed(ALICE), new)
+				.is_err()
+		);
+	});
+}
+
 // ─── Tests: pre-publication bootstrap state ──────────────────────────────
 //
 // Mirror what a fresh chain looks like before SRT has published any
@@ -937,6 +982,46 @@ fn mint_seats_root_not_set_rejected() {
 				liveness_inputs(ALICE, COMM_IN_1, a),
 			),
 			pallet_personhood::Error::<Test>::SeatsRootNotSet
+		);
+	});
+}
+
+#[test]
+fn mint_oprf_pk_hash_not_set_rejected() {
+	// CSCA root + seats root + vks set, OPRF pubkey hash not.
+	// Isolates the OprfPubkeyHashNotSet path from the bootstrap
+	// errors that fire earlier.
+	new_test_ext().execute_with(|| {
+		pallet_personhood::CurrentCscaRoot::<Test>::put(CSCA_ROOT_GOOD);
+		pallet_personhood::CurrentSeatsRoot::<Test>::put(SEATS_ROOT_GOOD);
+		pallet_personhood::PassportAttestVk::<Test>::put(VkRecord {
+			bytes: vec![0x01],
+			version: 1,
+			set_at: 1,
+			ceremony_hash: H256::zero(),
+		});
+		pallet_personhood::LivenessFacematchVk::<Test>::put(VkRecord {
+			bytes: vec![0x02],
+			version: 1,
+			set_at: 1,
+			ceremony_hash: H256::zero(),
+		});
+		with_zkpki_state(|s| {
+			s.cert_owners.insert(HW_CERT_THUMB_1, ALICE);
+		});
+		with_proof_state(|s| {
+			s.passport_should_pass = true;
+			s.liveness_should_pass = true;
+		});
+		let a = anchor();
+		assert_noop!(
+			submit_mint(
+				ALICE,
+				HW_CERT_THUMB_1,
+				passport_inputs(ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone()),
+				liveness_inputs(ALICE, COMM_IN_1, a),
+			),
+			pallet_personhood::Error::<Test>::OprfPubkeyHashNotSet
 		);
 	});
 }

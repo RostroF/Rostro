@@ -540,6 +540,25 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type CurrentSeatsRoot<T: Config> = StorageValue<_, H256, OptionQuery>;
 
+	/// Current OPRF federation pubkey hash —
+	/// `Poseidon2(federation_pubkey.x, federation_pubkey.y)` over the
+	/// threshold-shared K's published point. Rotated by SRT at K-era
+	/// boundaries (5-year cycle per
+	/// `pop_design_section1c_oprf_nullifier.md`). Hard cutover on
+	/// rotation: proofs against a stale federation pubkey are rejected
+	/// with [`Error::OprfPubkeyHashRotated`], so post-rotation users
+	/// must re-run the OPRF flow against the new federation before
+	/// retrying mint.
+	///
+	/// Without this gate, the K-rotation story does nothing — old
+	/// pubkeys remain accepted forever and leaked K shares stay
+	/// exploitable across rotations.
+	///
+	/// Same bootstrap-state reasoning as [`CurrentCscaRoot`]: pre-
+	/// publication state returns [`Error::OprfPubkeyHashNotSet`].
+	#[pallet::storage]
+	pub type CurrentOprfFederationPubkeyHash<T: Config> = StorageValue<_, H256, OptionQuery>;
+
 	/// Verifying key for the `passport_attest` circuit. Rotated by
 	/// SRT.
 	#[pallet::storage]
@@ -575,6 +594,9 @@ pub mod pallet {
 		/// SRT rotated the seats root. `old` is `None` on first
 		/// publication post-genesis.
 		SeatsRootRotated { old: Option<H256>, new: H256 },
+		/// SRT rotated the OPRF federation pubkey hash. `old` is
+		/// `None` on first publication post-genesis.
+		OprfFederationPubkeyHashRotated { old: Option<H256>, new: H256 },
 		/// SRT rotated a circuit verifying key.
 		VkRotated { which: CircuitId, version: u32 },
 	}
@@ -628,6 +650,15 @@ pub mod pallet {
 		/// SRT has not published the seats root yet. Same shape as
 		/// `CscaRootNotSet`.
 		SeatsRootNotSet,
+		/// `oprf_pk_hash` in the proof does not match the chain's
+		/// current OPRF federation pubkey hash. Likely an SRT
+		/// K-era rotation just landed; re-run the OPRF flow against
+		/// the new federation and retry.
+		OprfPubkeyHashRotated,
+		/// SRT has not published the OPRF federation pubkey hash
+		/// yet. Same bootstrap shape as `CscaRootNotSet` — SRT must
+		/// publish before any mints can land.
+		OprfPubkeyHashNotSet,
 		/// Passport's TTL has already passed. Renew the passport
 		/// and try again.
 		PassportExpired,
@@ -762,6 +793,12 @@ pub mod pallet {
 				passport_inputs.seats_root == current_seats,
 				Error::<T>::SeatsRootRotated,
 			);
+			let current_oprf = CurrentOprfFederationPubkeyHash::<T>::get()
+				.ok_or(Error::<T>::OprfPubkeyHashNotSet)?;
+			ensure!(
+				passport_inputs.oprf_pk_hash == current_oprf,
+				Error::<T>::OprfPubkeyHashRotated,
+			);
 
 			// 6. Cert TTL is chain-assigned at mint (passport expiry no
 			//    longer carried as PI for privacy). No per-mint expiry
@@ -874,6 +911,27 @@ pub mod pallet {
 			let old = CurrentSeatsRoot::<T>::get();
 			CurrentSeatsRoot::<T>::put(new_root);
 			Self::deposit_event(Event::SeatsRootRotated { old, new: new_root });
+			Ok(())
+		}
+
+		/// SRT rotates the OPRF federation pubkey hash. Same
+		/// single-extrinsic pattern as `srt_set_csca_root` —
+		/// covers first publication post-genesis, scheduled K-era
+		/// rotation (5-year cycle), and emergency rotation in one
+		/// call. Hard cutover; proofs against the previous federation
+		/// pubkey reject at mint with `OprfPubkeyHashRotated`. Users
+		/// must re-run the OPRF flow against the new federation
+		/// before retrying.
+		#[pallet::call_index(5)]
+		#[pallet::weight(Weight::from_parts(20_000_000, 0))]
+		pub fn srt_set_oprf_federation_pubkey_hash(
+			origin: OriginFor<T>,
+			new_hash: H256,
+		) -> DispatchResult {
+			T::SrtOrigin::ensure_origin(origin)?;
+			let old = CurrentOprfFederationPubkeyHash::<T>::get();
+			CurrentOprfFederationPubkeyHash::<T>::put(new_hash);
+			Self::deposit_event(Event::OprfFederationPubkeyHashRotated { old, new: new_hash });
 			Ok(())
 		}
 
