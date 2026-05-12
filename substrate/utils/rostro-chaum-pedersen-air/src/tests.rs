@@ -20,6 +20,24 @@ fn basepoint_is_on_curve() {
 }
 
 #[test]
+fn basepoint_t_matches_pinned_limbs() {
+	// `ed25519_basepoint()` computes T = X · Y mod p at call time via
+	// `field_mul`. Pin the expected limbs here so any silent change to
+	// field_mul / Barrett reduction / limb packing that would shift T
+	// fails CI loud instead of corrupting the AIR-side basepoint
+	// embedding (ChaumPedersenAir reads each of X/Y/Z/T from the
+	// ed25519_basepoint() output and emits them as bus constants).
+	//
+	// Derived independently: T_int = X_int · Y_int mod (2^255 - 19),
+	// then split into 8 little-endian u32 limbs.
+	const EXPECTED_T: [u32; 8] = [
+		0xA5B7DDA3, 0x6DDE8AB3, 0x775152F5, 0x20F09F80,
+		0x64ABE37D, 0x66EA4E8E, 0xD78B7665, 0x67875F0F,
+	];
+	assert_eq!(ed25519_basepoint().t, EXPECTED_T);
+}
+
+#[test]
 fn basepoint_scalar_arithmetic_is_self_consistent() {
 	// Algebraic check: 2·G computed via scalar_mul([2]) must equal
 	// double(G) computed directly. Catches off-by-one in basepoint coords
