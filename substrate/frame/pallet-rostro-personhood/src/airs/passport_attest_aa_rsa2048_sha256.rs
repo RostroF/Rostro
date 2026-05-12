@@ -23,7 +23,7 @@
 //! The chip computed: `aa_signature = RSA_sign(aa_challenge, chip_priv_key)`
 //! where:
 //! - `aa_challenge` is the chain-anchored challenge bytes the pallet
-//!   hashed via SHA-256 of `(ROSTRO_POP_DOMAIN ‖ anchor.hash ‖ bound_account)`
+//!   hashed via SHA-256 of `(AA_CHALLENGE_DOMAIN ‖ anchor.hash ‖ bound_account)`
 //! - The signing recipe per ICAO 9303 Part 11 + RSASSA-PKCS1-v1_5:
 //!   1. Compute `m = SHA-256(aa_challenge)` → 32-byte digest
 //!   2. PKCS#1 v1.5-pad: `EM = 0x00 || 0x01 || PS || 0x00 || DigestInfo(m)`
@@ -146,10 +146,12 @@ pub const COL_SEATS_ROOT: usize = 52;
 /// Starting column of the `aa_challenge` PI field (8 limbs follow).
 ///
 /// **Promoted from witness to PI 2026-05-09.** The pallet computes
-/// `expected_aa_challenge = SHA-256(ROSTRO_POP_DOMAIN ‖ anchor.hash ‖
-/// bound_account.encode())` (per `lib.rs::hip_challenge_nonce`'s formula)
-/// and asserts it equals the proof's PI value here. The AIR uses this
-/// as the message that the chip's RSA signature is verified against.
+/// `expected_aa_challenge = SHA-256(AA_CHALLENGE_DOMAIN ‖ anchor.hash ‖
+/// bound_account.encode())` and asserts it equals the proof's PI value
+/// here. The AIR uses this as the message that the chip's RSA signature
+/// is verified against. (HIP nonce derivation in `hip_challenge_nonce`
+/// uses the same shape with a different domain constant so the two
+/// subsystems' challenges cannot be cross-replayed.)
 ///
 /// This split (pallet computes SHA-256, AIR uses pre-computed result as
 /// PI) avoids needing SHA-256-in-AIR as a precondition for the

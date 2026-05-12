@@ -33,7 +33,10 @@
 //!   `binding == kdf(shared_secret ‖ anchor_hash ‖ bound_account)`
 //! - `dg14_bytes_hash ∈ SOD-signed DG list`
 //! - DSC chain → CSCA root membership in `csca_root` merkle tree
-//! - `nullifier == Poseidon(canonical_mrz, ROSTRO_POP_DOMAIN)`
+//! - `nullifier == Poseidon(canonical_mrz, <scope_domain>)`
+//!   (exact domain TBD when this AIR's constraint set lands — the
+//!   AA path uses `AA_CHALLENGE_DOMAIN` for its challenge derivation;
+//!   CA's nullifier scope is a separate design decision)
 //!
 //! Per the no-cross-purpose-files rule, this circuit shares no helper
 //! functions, no column constants, and no input parsers with `passport_attest_aa`.

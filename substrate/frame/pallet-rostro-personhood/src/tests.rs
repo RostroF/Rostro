@@ -19,7 +19,8 @@
 use crate as pallet_personhood;
 use crate::{
 	ChainAnchor, CircuitId, LivenessPublicInputs, NullifierType, PassportPublicInputs, PopCert,
-	ProofVerifier, VkRecord, ZkPkiError, ZkPkiInterface, ROSTRO_POP_DOMAIN,
+	ProofVerifier, VkRecord, ZkPkiError, ZkPkiInterface, AA_CHALLENGE_DOMAIN,
+	HIP_CHALLENGE_DOMAIN,
 };
 use codec::Encode;
 use frame_support::{
@@ -1009,12 +1010,17 @@ fn srt_set_vk_per_circuit_isolated() {
 // ─── Tests: domain-separator / sanity ────────────────────────────────────
 
 #[test]
-fn rostro_pop_domain_constant_is_stable() {
-	// The deterministic nullifier and the AA challenge both
-	// derive from this. Changing it silently would invalidate every
-	// in-the-wild proof — pin it down with a test that catches
-	// accidental edits.
-	assert_eq!(ROSTRO_POP_DOMAIN, b"rostro-pop-v1");
+fn challenge_domains_are_stable() {
+	// AA challenge and HIP nonce derivations both depend on these
+	// constants. Changing either silently would invalidate every
+	// in-the-wild proof against the corresponding subsystem — pin
+	// both down so accidental edits show up in CI.
+	//
+	// They MUST also differ from each other so a leaked HIP attestation
+	// cannot be replayed as an AA challenge or vice versa.
+	assert_eq!(AA_CHALLENGE_DOMAIN, b"rostro-pop-aa-v1");
+	assert_eq!(HIP_CHALLENGE_DOMAIN, b"rostro-pop-hip-v1");
+	assert_ne!(AA_CHALLENGE_DOMAIN, HIP_CHALLENGE_DOMAIN);
 }
 
 #[test]

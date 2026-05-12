@@ -103,14 +103,26 @@ use sp_core::H256;
 use sp_runtime::traits::Saturating;
 use zk_pki_primitives::hip::CanonicalHipProof;
 
-/// Domain separator for the AA challenge derivation in `hip_challenge_nonce`.
-/// Prevents cross-chain replay of HIP attestations bound to passport mints.
+/// Domain separator for the AA challenge derivation.
 ///
-/// Used for: `aa_challenge = SHA-256(ROSTRO_POP_DOMAIN || anchor.hash || bound_account.encode())`.
+/// Used for: `aa_challenge = SHA-256(AA_CHALLENGE_DOMAIN || anchor.hash || bound_account.encode())`.
 /// The AIR receives `aa_challenge` and `sha256_digest_of_challenge` as PIs;
 /// the pallet pre-computes both and asserts equality with the proof's PIs
-/// before running the AIR verifier.
-pub const ROSTRO_POP_DOMAIN: &[u8] = b"rostro-pop-v1";
+/// before running the AIR verifier (derivation wiring lands in a follow-up
+/// commit; this constant is published first so the AIR-side PI shape can
+/// settle).
+///
+/// Distinct from [`HIP_CHALLENGE_DOMAIN`] so a leaked HIP challenge cannot
+/// be replayed as an AA challenge and vice versa, even if `anchor.hash`
+/// and `bound_account` collide between contexts.
+pub const AA_CHALLENGE_DOMAIN: &[u8] = b"rostro-pop-aa-v1";
+
+/// Domain separator for the HIP attestation nonce derivation.
+///
+/// Used for: `hip_challenge_nonce = SHA-256(HIP_CHALLENGE_DOMAIN || anchor.hash || bound_account.encode())`.
+/// The chip cannot be tricked into signing this for an AA-shaped purpose
+/// because [`AA_CHALLENGE_DOMAIN`] differs.
+pub const HIP_CHALLENGE_DOMAIN: &[u8] = b"rostro-pop-hip-v1";
 
 /// Service-scope domain for the OPRF-protected scoped nullifier.
 ///
@@ -236,7 +248,7 @@ pub struct PassportPublicInputs<AccountId, BlockNumber> {
 	/// Merkle root of the seats mapping. Pallet rejects if not
 	/// equal to current `CurrentSeatsRoot`.
 	pub seats_root: H256,
-	/// `aa_challenge = SHA-256(ROSTRO_POP_DOMAIN || anchor.hash || bound_account.encode())`.
+	/// `aa_challenge = SHA-256(AA_CHALLENGE_DOMAIN || anchor.hash || bound_account.encode())`.
 	/// Pallet pre-computes from `anchor` + `bound_account` and asserts
 	/// equality with this PI before AIR verification. The AIR then uses
 	/// it as the message that the chip's RSA-2048-SHA256 signature was
@@ -901,28 +913,28 @@ pub mod pallet {
 	}
 }
 
-/// Derive the AA challenge nonce from the chain anchor and the
-/// caller's bound account. The chip's AA signature is over this
-/// nonce; freshness comes from `anchor_hash` being a recent chain
-/// block, and binding to `bound_account` prevents redirect attacks
-/// (a leaked AA signature for one account cannot be replayed to mint
-/// at another).
+/// Derive the HIP attestation nonce from the chain anchor and the
+/// caller's bound account. The device's StrongBox/TPM2 attestation is
+/// over this nonce; freshness comes from `anchor.hash` being a recent
+/// chain block, and binding to `bound_account` prevents redirect
+/// attacks (a leaked HIP attestation for one account cannot be
+/// replayed to mint at another).
 ///
-/// `nonce = SHA-256(ROSTRO_POP_DOMAIN || anchor.hash || bound_account.encode())`
+/// `nonce = SHA-256(HIP_CHALLENGE_DOMAIN || anchor.hash || bound_account.encode())`
 ///
-/// The same value is reused as the HIP-binding nonce so HIP attestations
-/// cannot be replayed across mints either — even on a compromised host
-/// where StrongBox/TPM2 attestation is suspect, the chip's AA signature
-/// remains the cryptographic source of truth and this nonce is what
-/// makes that signature non-replayable.
+/// The AA challenge derivation uses a different domain
+/// ([`AA_CHALLENGE_DOMAIN`]) so a leaked HIP nonce cannot be replayed
+/// as an AA challenge and vice versa. The chip's AA signature is the
+/// cryptographic source of truth even when the host is compromised;
+/// HIP is the platform-attestation gate that runs first.
 pub(crate) fn hip_challenge_nonce<AccountId: Encode, BlockNumber>(
 	anchor: &ChainAnchor<BlockNumber>,
 	bound_account: &AccountId,
 ) -> [u8; 32] {
 	let mut hashable = sp_std::vec::Vec::with_capacity(
-		ROSTRO_POP_DOMAIN.len() + 32 + 64,
+		HIP_CHALLENGE_DOMAIN.len() + 32 + 64,
 	);
-	hashable.extend_from_slice(ROSTRO_POP_DOMAIN);
+	hashable.extend_from_slice(HIP_CHALLENGE_DOMAIN);
 	hashable.extend_from_slice(anchor.hash.as_bytes());
 	bound_account.encode_to(&mut hashable);
 	sp_io::hashing::sha2_256(&hashable)
