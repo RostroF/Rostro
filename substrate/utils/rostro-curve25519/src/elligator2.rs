@@ -3,12 +3,37 @@
 
 //! Elligator2 map for hash-to-curve on Edwards25519.
 //!
-//! Implements `map_to_curve_elligator2_edwards25519` per RFC 9380 §F.3 +
-//! §G.2: take a field element `u ∈ F_p25519` and produce an Edwards25519
+//! Implements `map_to_curve_elligator2_edwards25519` per RFC 9380 **§F.3**
+//! + §G.2: take a field element `u ∈ F_p25519` and produce an Edwards25519
 //! point. Internally goes via the Curve25519 (Montgomery) Elligator2 map
 //! then applies the birational map to Edwards25519. This is the *map* leg
 //! of hash-to-curve; the *hash_to_field* leg (Poseidon2 + DST + mod
 //! reduction) is a separate AIR.
+//!
+//! ## Variant choice: §F.3, not §6.7.1
+//!
+//! RFC 9380 specifies two Elligator2 variants:
+//! - **§6.7.1 (straight-line / constant-time):** sign rule is
+//!   `sgn0(y) = sgn0(u)`. Sign depends on the *input*.
+//! - **§F.3 (optimised):** sign rule is "if branch chose x1, sgn0(y) = 1;
+//!   else sgn0(y) = 0," i.e., sign depends on *which branch was taken*.
+//!
+//! This crate implements §F.3 with the convention `want_negative =
+//! is_sq_gx1` (sign = 1 when gx1 is a square, sign = 0 otherwise). The
+//! opposite convention (sign = NOT is_sq_gx1, used by e.g.
+//! zcash/pasta_curves) is equally valid §F.3 but produces a different
+//! map; the two conventions are not interoperable. Our pinned
+//! regression vectors in `hash_to_curve_air/src/tests.rs` lock this
+//! choice.
+//!
+//! A consequence of §F.3 is `map(u) == map(-u)`: flipping the input
+//! sign doesn't change `u²`, so it doesn't change the branch, so it
+//! doesn't change the output sign rule, so it doesn't change the
+//! output. The `fuzz_elligator2_negation_symmetry` test pins this
+//! property and is **incompatible with §6.7.1** (where flipping `u`
+//! would flip `sgn0(u)` and therefore flip `sgn0(y)`). Don't "fix"
+//! that test against §6.7.1 — switching variants would invalidate
+//! every nullifier minted under the §F.3 convention.
 //!
 //! For the OPRF nullifier pipeline (per `pop_zkpassport_oprf_pattern.md`),
 //! Hash2Curve(private_nullifier) wraps two map_to_curve calls (RO mode)
@@ -102,10 +127,11 @@ pub fn map_to_curve_elligator2_edwards25519(
 		(x2, sqrt_gx2)
 	};
 
-	// RFC 9380 §6.7.1 / §F.3 step 11: the sign rule. If is_square(gx1)
-	// (x = x1), want sgn0(y) == 1 (LSB odd, "negative"). Else (x = x2),
-	// want sgn0(y) == 0 (LSB even, "positive"). Equivalently: flip y
-	// iff is_sq_gx1 XOR is_negative(y_m_pre).
+	// RFC 9380 §F.3 sign rule (NOT §6.7.1 — see module docstring).
+	// If is_square(gx1) (branch chose x = x1), want sgn0(y) == 1
+	// (LSB odd, "negative"). Else (x = x2), want sgn0(y) == 0
+	// (LSB even, "positive"). Equivalently: flip y iff
+	// is_sq_gx1 XOR is_negative(y_m_pre).
 	let want_negative = is_sq_gx1;
 	let y_m = if is_negative(&y_m_pre) == want_negative {
 		y_m_pre
