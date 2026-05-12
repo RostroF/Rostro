@@ -73,6 +73,8 @@
 
 use p3_air::{Air, AirBuilder, BaseAir, WindowAccess};
 use p3_field::{Field, PrimeCharacteristicRing};
+use p3_lookup::InteractionBuilder;
+use rostro_curve25519::field_air::BUS_U16_RANGE;
 
 // ─── Public input column layout (shared shape across all AA algorithms) ────
 //
@@ -239,16 +241,57 @@ pub const COL_RSA_DECODED_EM: usize = COL_RSA_SIGNATURE_S + RSA2048_LIMBS;
 // land when Ristretto255-over-Goldilocks curve primitives are scaffolded
 // (see `pop_lookup_integration_next_work.md` for the unblocking work).
 
-/// Total trace columns for this AIR. Phase 3a-stripped + 2026-05-10 PI
-/// redesign baseline. Includes: PI block (76 cols), RSA witness block
-/// (modulus + exponent + signature + EM = 193 cols).
+/// Starting column of the **u16-split block** for u32 range checks.
 ///
-/// Grows when (a) Ristretto255 curve-arithmetic AIR primitives land and
-/// witness columns for DG1 / eContent / sod_sig / salts / OPRF artifacts
-/// are added; (b) modular exponentiation `s^65537 mod N == EM` constraint
-/// set lands with its square-and-multiply intermediate witness columns;
-/// (c) DG-list inclusion in SOD lands.
-pub const NUM_COLS: usize = COL_RSA_DECODED_EM + RSA2048_LIMBS;
+/// Every prover-influenced u32 cell in the trace above (PI block u32
+/// fields + RSA witness block) is split here into two adjacent u16
+/// half-cells `(lo, hi)` such that `original = lo + 2^16 · hi`. The
+/// AIR pushes one [`BUS_U16_RANGE`] lookup per half-cell; the table
+/// side ([`rostro_range_check::U16RangeTableAir`] instantiated on the
+/// same bus elsewhere in the batch) provides every u16 value once.
+/// LogUp balance rejects any cell whose value is not a valid u32.
+///
+/// The split layout mirrors the original column order — see
+/// [`u32_blocks_to_range_check`] for the canonical iteration order.
+///
+/// Bool / discriminant / u16-typed PI cells skip this block: `adult`
+/// is bool-asserted in `eval`, `nullifier_type` is range-bound to
+/// `{0,1,2,3}` by a forthcoming quartic constraint (audit AIR-P1-2,
+/// commit C25), `seat_id` is range-checked as a single u16 lookup
+/// without splitting (it's already < 2^16 by type).
+pub const COL_RC_SPLITS_BASE: usize = COL_RSA_DECODED_EM + RSA2048_LIMBS;
+
+/// Number of u32 cells covered by the range-check splits block.
+///
+/// Breakdown (mirroring iteration order in `u32_blocks_to_range_check`):
+/// - PI u32 cells: comm_in(8) + scoped_nullifier(8) + oprf_pk_hash(8)
+///   + bound_account(8) + anchor.block(1) + anchor.hash(8) + csca_root(8)
+///   + seats_root(8) + aa_challenge(8) + sha256_digest_of_challenge(8)
+///   = 73
+/// - RSA witness u32 cells: modulus(64) + exponent_e(1) + signature(64)
+///   + decoded_em(64) = 193
+/// - Total: 266
+///
+/// Defensive coverage of EM + PI cells: those are already shape-bound
+/// elsewhere (EM via `assert_eq` to constants/PI; PI via the
+/// pallet-supplied verifier values). Range-checking them is
+/// belt-and-suspenders against future regressions to the pallet
+/// encoder or the EM constant block.
+pub const NUM_U32_CELLS_TO_RANGE_CHECK: usize = 266;
+
+/// Total trace columns for this AIR.
+///
+/// Layout: PI block (76) + RSA witness block (193) + u16-split block
+/// for range checks (266 × 2 = 532). Grand total = 801.
+///
+/// Grows when (a) Ristretto255 curve-arithmetic AIR primitives land
+/// and witness columns for DG1 / eContent / sod_sig / salts / OPRF
+/// artifacts are added; (b) modular exponentiation `s^65537 mod N ==
+/// EM` constraint set lands with its square-and-multiply intermediate
+/// witness columns; (c) DG-list inclusion in SOD lands. Each future
+/// expansion that adds prover-witnessed u32 cells must also expand
+/// the splits block.
+pub const NUM_COLS: usize = COL_RC_SPLITS_BASE + 2 * NUM_U32_CELLS_TO_RANGE_CHECK;
 
 // ─── Limb-encoding helpers (siloed to this AIR) ────────────────────────────
 //
@@ -300,6 +343,38 @@ pub fn rsa2048_u32_limbs_to_bytes(limbs: &[u32; RSA2048_LIMBS]) -> [u8; 256] {
 	out
 }
 
+/// Canonical iteration order for the u32 cells that flow into the
+/// range-check splits block (`COL_RC_SPLITS_BASE` …).
+///
+/// Each entry is `(block_start, block_len)` naming a contiguous run of
+/// u32 cells in the original trace. The order is locked: trace builders
+/// and the AIR's eval() must walk this list in the same order so the
+/// `(lo, hi)` halves at the splits offset correspond to the right
+/// originals.
+///
+/// Cells excluded by design:
+/// - `COL_ADULT` — bool, asserted via `assert_bool`.
+/// - `COL_NULLIFIER_TYPE` — discriminant 0..=3, quartic constraint lands in C25.
+/// - `COL_SEAT_ID` — u16 by type, single `BUS_U16_RANGE` lookup (no split).
+pub const U32_BLOCKS_TO_RANGE_CHECK: &[(usize, usize)] = &[
+	// ─── PI block (defensive: pallet-encoder shape, double-check anyway) ─
+	(COL_COMM_IN, HASH_LIMBS),
+	(COL_SCOPED_NULLIFIER, HASH_LIMBS),
+	(COL_OPRF_PK_HASH, HASH_LIMBS),
+	(COL_BOUND_ACCOUNT, HASH_LIMBS),
+	(COL_ANCHOR_BLOCK, 1),
+	(COL_ANCHOR_HASH, HASH_LIMBS),
+	(COL_CSCA_ROOT, HASH_LIMBS),
+	(COL_SEATS_ROOT, HASH_LIMBS),
+	(COL_AA_CHALLENGE, AA_CHALLENGE_LIMBS),
+	(COL_SHA256_DIGEST_OF_CHALLENGE, SHA256_DIGEST_LIMBS),
+	// ─── RSA witness block (prover-witnessed, primary range-check target) ─
+	(COL_RSA_MODULUS_N, RSA2048_LIMBS),
+	(COL_RSA_EXPONENT_E, 1),
+	(COL_RSA_SIGNATURE_S, RSA2048_LIMBS),
+	(COL_RSA_DECODED_EM, RSA2048_LIMBS),
+];
+
 /// AIR for the AA passport-attestation path with RSA-2048 chip key + SHA-256
 /// message hash. Stateless; no parameters.
 pub struct PassportAttestAaRsa2048Sha256Air;
@@ -310,9 +385,9 @@ impl<F: Field> BaseAir<F> for PassportAttestAaRsa2048Sha256Air {
 	}
 }
 
-impl<AB: AirBuilder> Air<AB> for PassportAttestAaRsa2048Sha256Air
+impl<AB: InteractionBuilder> Air<AB> for PassportAttestAaRsa2048Sha256Air
 where
-	AB::F: Field,
+	AB::F: Field + Send,
 {
 	fn eval(&self, builder: &mut AB) {
 		let main = builder.main();
@@ -413,14 +488,52 @@ where
 			AB::Expr::from_u32(RSA_PUBLIC_EXPONENT),
 		);
 
-		// TODO(PoP-AA-RSA2048): u32 limb range checks for every prover-
-		// controlled u32 column (RSA modulus + signature + canonical_mrz
-		// + Poseidon2 round states + future SHA-256 / modexp intermediates).
-		// **DEFERRED to v1** per `pop_air_range_check_strategy.md` —
-		// requires PermutationAirBuilder + lookup-argument integration,
-		// significant infrastructure beyond basic AirBuilder. NO STUB
-		// HELPERS allowed (silent no-ops are an audit footgun). Mainnet
-		// release gate: range checks landed + audited.
+		// ─── u32-limb range checks via BUS_U16_RANGE ───────────────────
+		//
+		// Every u32 cell in U32_BLOCKS_TO_RANGE_CHECK gets split into
+		// two adjacent u16 half-cells (lo, hi) inside the splits block
+		// at COL_RC_SPLITS_BASE. The AIR enforces:
+		//   (a) original == lo + 2^16 · hi  (tie the halves to the original)
+		//   (b) lo  ∈ [0, 2^16)  (BUS_U16_RANGE lookup)
+		//   (c) hi  ∈ [0, 2^16)  (BUS_U16_RANGE lookup)
+		// Together these force the original cell into [0, 2^32). LogUp
+		// balance against `rostro_range_check::U16RangeTableAir` (which
+		// must be instantiated on BUS_U16_RANGE in the same batch)
+		// rejects any cell whose lo or hi half doesn't appear in the
+		// table.
+		//
+		// Defensive coverage: includes EM cells (already asserted equal
+		// to constants/PIs) and PI cells (already pallet-encoder shape-
+		// enforced). Belt-and-suspenders: if the EM constants get a
+		// regression to a value > 2^32, the range check fires; if the
+		// pallet encoder drifts, the range check fires.
+		let radix_u16 = AB::Expr::from_u32(1u32 << 16);
+		let mut split_idx: usize = 0;
+		for &(block_start, block_len) in U32_BLOCKS_TO_RANGE_CHECK {
+			for i in 0..block_len {
+				let value: AB::Var = local[block_start + i].clone();
+				let lo: AB::Var = local[COL_RC_SPLITS_BASE + 2 * split_idx].clone();
+				let hi: AB::Var = local[COL_RC_SPLITS_BASE + 2 * split_idx + 1].clone();
+				// (a) original == lo + 2^16 · hi
+				builder.assert_zero(
+					value.into() - lo.clone().into() - radix_u16.clone() * hi.clone().into(),
+				);
+				// (b) + (c) Range-check both halves via the shared u16 bus.
+				builder.push_interaction(BUS_U16_RANGE, [lo], AB::Expr::ONE, 1);
+				builder.push_interaction(BUS_U16_RANGE, [hi], AB::Expr::ONE, 1);
+				split_idx += 1;
+			}
+		}
+		debug_assert_eq!(split_idx, NUM_U32_CELLS_TO_RANGE_CHECK);
+
+		// `seat_id` is already u16 by type contract — a single direct
+		// u16 lookup is sufficient (no split needed).
+		builder.push_interaction(
+			BUS_U16_RANGE,
+			[local[COL_SEAT_ID].clone()],
+			AB::Expr::ONE,
+			1,
+		);
 
 		// TODO(PoP-AA-RSA2048): modular exponentiation `s^e mod N == EM`.
 		// THIS IS THE BIG ONE. Implementation pattern: binary
@@ -642,15 +755,149 @@ mod tests {
 	fn rsa2048_witness_layout_is_contiguous() {
 		// Pin the witness column ordering. Layout (post 2026-05-10
 		// redesign): PI block (76) → RSA modulus → exponent → signature
-		// → decoded EM. The MRZ / DG2 / OPRF / sponge witness columns
-		// land later when Ristretto255-over-Goldilocks curve primitives
-		// are scaffolded. NUM_COLS will grow at that point.
+		// → decoded EM → u16-split block for range checks. The MRZ /
+		// DG2 / OPRF / sponge witness columns land later when
+		// Ristretto255-over-Goldilocks curve primitives are scaffolded;
+		// each future block that adds prover-witnessed u32 cells must
+		// also extend the splits block.
 		assert_eq!(COL_RSA_MODULUS_N, NUM_PI_COLS);
 		assert_eq!(COL_RSA_EXPONENT_E, COL_RSA_MODULUS_N + RSA2048_LIMBS);
 		assert_eq!(COL_RSA_SIGNATURE_S, COL_RSA_EXPONENT_E + 1);
 		assert_eq!(COL_RSA_DECODED_EM, COL_RSA_SIGNATURE_S + RSA2048_LIMBS);
-		assert_eq!(NUM_COLS, COL_RSA_DECODED_EM + RSA2048_LIMBS);
-		// Breakdown: 76 PI + 64 modulus + 1 exponent + 64 sig + 64 EM = 269 cols.
-		assert_eq!(NUM_COLS, 269);
+		assert_eq!(COL_RC_SPLITS_BASE, COL_RSA_DECODED_EM + RSA2048_LIMBS);
+		assert_eq!(NUM_COLS, COL_RC_SPLITS_BASE + 2 * NUM_U32_CELLS_TO_RANGE_CHECK);
+		// Breakdown: 76 PI + 64 modulus + 1 exponent + 64 sig + 64 EM
+		// + 2 * 266 splits = 801 cols.
+		assert_eq!(NUM_COLS, 801);
+	}
+
+	#[test]
+	fn eval_emits_expected_bus_push_count() {
+		// Mock builder that counts BUS_U16_RANGE pushes (no-ops every
+		// other constraint type). The AIR is supposed to emit exactly
+		// 2 lookups per u32 cell in U32_BLOCKS_TO_RANGE_CHECK PLUS one
+		// direct lookup for seat_id.
+		//   = 2 × 266 + 1 = 533
+		// If this count drifts, either the iteration list got out of
+		// sync with the splits block sizing OR a future commit
+		// accidentally added/dropped a lookup without updating the
+		// expectation. Catch both.
+		use p3_air::{AirBuilder, RowWindow};
+		use p3_field::PrimeCharacteristicRing;
+		use p3_goldilocks::Goldilocks;
+		use p3_lookup::InteractionBuilder;
+		use alloc::vec::Vec;
+		use alloc::string::String;
+
+		struct CountingBuilder<'a> {
+			main_window: RowWindow<'a, Goldilocks>,
+			preprocessed_window: RowWindow<'a, Goldilocks>,
+			u16_range_pushes: usize,
+			other_bus_pushes: Vec<String>,
+		}
+
+		impl<'a> AirBuilder for CountingBuilder<'a> {
+			type F = Goldilocks;
+			type Expr = Goldilocks;
+			type Var = Goldilocks;
+			type MainWindow = RowWindow<'a, Goldilocks>;
+			type PreprocessedWindow = RowWindow<'a, Goldilocks>;
+			type PublicVar = Goldilocks;
+			type PeriodicVar = Goldilocks;
+			fn main(&self) -> Self::MainWindow {
+				self.main_window
+			}
+			fn preprocessed(&self) -> &Self::PreprocessedWindow {
+				&self.preprocessed_window
+			}
+			fn is_first_row(&self) -> Self::Expr {
+				Goldilocks::ZERO
+			}
+			fn is_last_row(&self) -> Self::Expr {
+				Goldilocks::ZERO
+			}
+			fn is_transition_window(&self, _size: usize) -> Self::Expr {
+				Goldilocks::ZERO
+			}
+			fn assert_zero<I: Into<Self::Expr>>(&mut self, _x: I) {}
+		}
+
+		impl<'a> InteractionBuilder for CountingBuilder<'a> {
+			fn push_interaction<E: Into<Self::Expr>>(
+				&mut self,
+				bus: &str,
+				fields: impl IntoIterator<Item = E>,
+				_count: impl Into<Self::Expr>,
+				_count_weight: u32,
+			) {
+				let _arity = fields.into_iter().count();
+				if bus == BUS_U16_RANGE {
+					self.u16_range_pushes += 1;
+				} else {
+					self.other_bus_pushes.push(String::from(bus));
+				}
+			}
+			fn push_local_interaction(
+				&mut self,
+				tuples: impl IntoIterator<
+					Item = (Vec<Self::Expr>, Self::Expr),
+				>,
+			) {
+				tuples.into_iter().for_each(drop);
+			}
+		}
+
+		// Empty trace; eval reads cells but the mock returns Goldilocks::ZERO
+		// for any access (RowWindow over Vec<Goldilocks>).
+		let row: Vec<Goldilocks> =
+			(0..NUM_COLS).map(|_| Goldilocks::ZERO).collect();
+		let pp: Vec<Goldilocks> = Vec::new();
+		let mut b = CountingBuilder {
+			main_window: RowWindow::from_two_rows(&row, &row),
+			preprocessed_window: RowWindow::from_two_rows(&pp, &pp),
+			u16_range_pushes: 0,
+			other_bus_pushes: Vec::new(),
+		};
+		PassportAttestAaRsa2048Sha256Air.eval(&mut b);
+
+		let expected = 2 * NUM_U32_CELLS_TO_RANGE_CHECK + 1;
+		assert_eq!(
+			b.u16_range_pushes, expected,
+			"BUS_U16_RANGE push count drift: got {}, expected {} \
+			 (2 lookups per u32 cell + 1 for seat_id)",
+			b.u16_range_pushes, expected,
+		);
+		assert!(
+			b.other_bus_pushes.is_empty(),
+			"AA AIR should only push to BUS_U16_RANGE at this stage; \
+			 got pushes to: {:?}",
+			b.other_bus_pushes,
+		);
+	}
+
+	#[test]
+	fn range_check_iteration_order_covers_every_u32_cell() {
+		// The iteration order in U32_BLOCKS_TO_RANGE_CHECK must sum to
+		// exactly NUM_U32_CELLS_TO_RANGE_CHECK; otherwise the splits
+		// block is over- or under-sized and the eval()'s
+		// `debug_assert_eq!(split_idx, NUM_U32_CELLS_TO_RANGE_CHECK)`
+		// would fire (debug) or silently drift the bus-balance count
+		// (release).
+		let total: usize = U32_BLOCKS_TO_RANGE_CHECK
+			.iter()
+			.map(|(_, len)| *len)
+			.sum();
+		assert_eq!(total, NUM_U32_CELLS_TO_RANGE_CHECK);
+		// And the blocks must be in the documented order: PI block
+		// then RSA witness block.
+		let pi_total = HASH_LIMBS * 4 // comm_in, scoped_null, oprf_pk, bound_acct
+			+ 1                          // anchor.block
+			+ HASH_LIMBS * 3             // anchor.hash, csca_root, seats_root
+			+ AA_CHALLENGE_LIMBS
+			+ SHA256_DIGEST_LIMBS;
+		assert_eq!(pi_total, 73);
+		let witness_total = RSA2048_LIMBS + 1 + RSA2048_LIMBS + RSA2048_LIMBS;
+		assert_eq!(witness_total, 193);
+		assert_eq!(pi_total + witness_total, NUM_U32_CELLS_TO_RANGE_CHECK);
 	}
 }

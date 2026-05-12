@@ -48,7 +48,14 @@ ark-snark     = { workspace = true }
 p3-air        = { workspace = true }
 p3-field      = { workspace = true }
 p3-goldilocks = { workspace = true }
+p3-lookup     = { workspace = true }
 p3-poseidon2  = { workspace = true }
+
+# rostro-curve25519 — re-uses BUS_U16_RANGE for u32-limb range checks
+# in the AA AIR. Same shared bus name the curve25519 AIRs already
+# consume, so the table-side `U16RangeTableAir` provides a single
+# global table across the batch.
+rostro-curve25519 = { workspace = true }
 
 # Hardware Integrity Proof types from zkpki. The personhood pallet
 # accepts a CanonicalHipProof on mint and dispatches verification
@@ -76,6 +83,7 @@ std = [
 	"ark-ff/std",
 	"ark-groth16/std",
 	"ark-serialize/std",
+	"rostro-curve25519/std",
 	"zk-pki-primitives/std",
 ]
 runtime-benchmarks = [
