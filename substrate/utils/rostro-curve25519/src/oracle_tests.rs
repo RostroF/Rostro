@@ -112,6 +112,60 @@ fn is_canonical_rejects_p_plus_one() {
 	assert!(!is_canonical(&limbs));
 }
 
+// ─── Debug-asserts: arithmetic rejects non-canonical inputs ──────────────────
+//
+// The witness-side arithmetic functions document a "caller must pass
+// canonical inputs" contract. In debug builds (= cargo test) the contract
+// is enforced via debug_assert!; in release the asserts compile out so
+// production callers (oracle tests, AIR trace builders) pay no cost.
+// Tests pin each of the six entry points so a future refactor that
+// removes an assert fails CI loud rather than silently widening the
+// caller contract.
+
+#[test]
+#[should_panic(expected = "field::add called with non-canonical a")]
+#[cfg(debug_assertions)]
+fn add_debug_asserts_canonical_a() {
+	let _ = add(&P_LIMBS, &[0u32; FIELD_NUM_LIMBS]);
+}
+
+#[test]
+#[should_panic(expected = "field::sub called with non-canonical b")]
+#[cfg(debug_assertions)]
+fn sub_debug_asserts_canonical_b() {
+	let mut not_canon = P_LIMBS;
+	not_canon[0] = not_canon[0].wrapping_add(1); // p + 1
+	let _ = sub(&[0u32; FIELD_NUM_LIMBS], &not_canon);
+}
+
+#[test]
+#[should_panic(expected = "field::mul called with non-canonical")]
+#[cfg(debug_assertions)]
+fn mul_debug_asserts_canonical_inputs() {
+	let _ = mul(&P_LIMBS, &P_LIMBS);
+}
+
+#[test]
+#[should_panic(expected = "field::square called with non-canonical")]
+#[cfg(debug_assertions)]
+fn square_debug_asserts_canonical_input() {
+	let _ = crate::field::square(&P_LIMBS);
+}
+
+#[test]
+#[should_panic(expected = "field::neg called with non-canonical")]
+#[cfg(debug_assertions)]
+fn neg_debug_asserts_canonical_input() {
+	let _ = neg(&P_LIMBS);
+}
+
+#[test]
+#[should_panic(expected = "field::inv called with non-canonical")]
+#[cfg(debug_assertions)]
+fn inv_debug_asserts_canonical_input() {
+	let _ = inv(&P_LIMBS);
+}
+
 #[test]
 fn is_canonical_rejects_two_to_255() {
 	// 2^255 in LE bytes: high bit of last byte set.

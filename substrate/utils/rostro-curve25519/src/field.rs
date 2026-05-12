@@ -153,6 +153,8 @@ pub fn limbs_to_vec(limbs: &[u32; FIELD_NUM_LIMBS]) -> Vec<u32> {
 ///
 /// The AIR proves `a + b == c + t * p` limb-wise + canonical form of c.
 pub fn add(a: &[u32; FIELD_NUM_LIMBS], b: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
+	debug_assert!(is_canonical(a), "field::add called with non-canonical a: {:?}", a);
+	debug_assert!(is_canonical(b), "field::add called with non-canonical b: {:?}", b);
 	let raw_sum = wide_add(a, b);
 	reduce_wide_once(&raw_sum)
 }
@@ -164,6 +166,8 @@ pub fn add(a: &[u32; FIELD_NUM_LIMBS], b: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIEL
 /// The AIR proves `a == c + b - t * p` (or equivalently `a + t * p == c + b`)
 /// where `t ∈ {0, 1}` is whether the addition of p was needed.
 pub fn sub(a: &[u32; FIELD_NUM_LIMBS], b: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
+	debug_assert!(is_canonical(a), "field::sub called with non-canonical a: {:?}", a);
+	debug_assert!(is_canonical(b), "field::sub called with non-canonical b: {:?}", b);
 	if cmp(a, b) != core::cmp::Ordering::Less {
 		// a >= b: simple limb-wise subtraction, result already canonical.
 		wide_sub_no_borrow(a, b)
@@ -303,6 +307,7 @@ pub fn reduce(v: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
 
 /// Negation in the field: `-v mod p`. Equals `0` if `v == 0`, else `p - v`.
 pub fn neg(v: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
+	debug_assert!(is_canonical(v), "field::neg called with non-canonical v: {:?}", v);
 	if v.iter().all(|&x| x == 0) {
 		return [0u32; FIELD_NUM_LIMBS];
 	}
@@ -479,12 +484,15 @@ fn sub_bytes_le(
 /// Modular multiplication over `F_p`: returns `(a * b) mod p` in
 /// canonical form. Both inputs must be canonical.
 pub fn mul(a: &[u32; FIELD_NUM_LIMBS], b: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
+	debug_assert!(is_canonical(a), "field::mul called with non-canonical a: {:?}", a);
+	debug_assert!(is_canonical(b), "field::mul called with non-canonical b: {:?}", b);
 	let wide = wide_mul(a, b);
 	reduce_wide_mod_p(&wide)
 }
 
 /// Modular squaring over `F_p`: `(a * a) mod p`.
 pub fn square(a: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
+	debug_assert!(is_canonical(a), "field::square called with non-canonical a: {:?}", a);
 	mul(a, a)
 }
 
@@ -498,6 +506,7 @@ pub fn square(a: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
 /// `p - 2`. `p - 2 = 2^255 - 21`, binary `0111...11101011` with the
 /// low bit pattern `...1011` from the `-21` correction.
 pub fn inv(v: &[u32; FIELD_NUM_LIMBS]) -> [u32; FIELD_NUM_LIMBS] {
+	debug_assert!(is_canonical(v), "field::inv called with non-canonical v: {:?}", v);
 	if is_zero(v) {
 		return [0u32; FIELD_NUM_LIMBS];
 	}
