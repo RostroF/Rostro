@@ -13280,6 +13280,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-chaum-pedersen-air"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "p3-air",
+ "p3-field",
+ "p3-goldilocks",
+ "p3-lookup",
+ "p3-matrix",
+ "rand 0.8.5",
+ "rostro-curve25519",
+]
+
+[[package]]
 name = "rostro-client"
 version = "0.1.0"
 dependencies = [
@@ -13382,8 +13396,11 @@ dependencies = [
 name = "rostro-hash-to-curve-air"
 version = "0.1.0"
 dependencies = [
+ "p3-air",
  "p3-field",
  "p3-goldilocks",
+ "p3-lookup",
+ "p3-matrix",
  "rand 0.8.5",
  "rostro-curve25519",
  "rostro-hash-to-field-air",

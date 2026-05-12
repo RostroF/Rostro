@@ -1,0 +1,29 @@
+[package]
+name = "rostro-chaum-pedersen-air"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Chaum-Pedersen dlog-equality verification AIR over Edwards25519. Verifies that the same secret K was used in both `pk = K·G` and `response = K·blinded`. Building block for the OPRF nullifier path: confirms the federation honestly evaluated the OPRF without revealing K. Pure orchestration AIR — composes 4× ScalarMulAir + 2× PointAddAir via service buses; no in-row arithmetic. Fiat-Shamir hash binding (e = Hash(transcript)) is the OUTER circuit's responsibility — this AIR only verifies the algebraic equations."
+publish = false
+
+[dependencies]
+p3-air        = { workspace = true }
+p3-field      = { workspace = true }
+p3-goldilocks = { workspace = true }
+p3-lookup     = { workspace = true }
+p3-matrix     = { workspace = true }
+rostro-curve25519 = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+curve25519-dalek = { version = "4.1", default-features = false, features = ["alloc", "digest", "group"] }
+rand = { version = "0.8", default-features = false, features = ["std_rng"] }
+
+[features]
+default = ["std"]
+std = []
