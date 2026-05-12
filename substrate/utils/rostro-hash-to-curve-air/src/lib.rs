@@ -77,5 +77,10 @@ pub fn clear_cofactor(p: &EdwardsPoint) -> EdwardsPoint {
 	point_double(&four_p)
 }
 
+pub mod hash_to_curve_air;
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod hash_to_curve_air_tests;

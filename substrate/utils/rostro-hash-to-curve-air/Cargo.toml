@@ -10,8 +10,11 @@ description = "Hash-to-curve composition for Edwards25519 over the Rostro Goldil
 publish = false
 
 [dependencies]
+p3-air        = { workspace = true }
 p3-field      = { workspace = true }
 p3-goldilocks = { workspace = true }
+p3-lookup     = { workspace = true }
+p3-matrix     = { workspace = true }
 rostro-curve25519 = { workspace = true }
 rostro-hash-to-field-air = { workspace = true }
 
