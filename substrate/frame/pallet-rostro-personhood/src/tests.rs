@@ -1184,6 +1184,33 @@ fn srt_set_vk_strict_monotonic_enforced() {
 }
 
 #[test]
+fn srt_set_vk_version_u32_max_blocks_further_rotation() {
+	// At prev_version = u32::MAX, checked_add overflows and the
+	// extrinsic fails with VkVersionExhausted rather than silently
+	// saturating to u32::MAX and jamming rotation forever.
+	new_test_ext().execute_with(|| {
+		pallet_personhood::PassportAttestVk::<Test>::put(VkRecord {
+			bytes: vec![0xFF],
+			version: u32::MAX,
+			set_at: 1,
+			ceremony_hash: H256::zero(),
+			circuit_family_fingerprint: PASSPORT_VK_FP,
+		});
+		assert_noop!(
+			Personhood::srt_set_vk(
+				RuntimeOrigin::root(),
+				CircuitId::PassportAttest,
+				vec![0x01],
+				0,
+				H256::zero(),
+				PASSPORT_VK_FP,
+			),
+			pallet_personhood::Error::<Test>::VkVersionExhausted
+		);
+	});
+}
+
+#[test]
 fn srt_set_vk_wrong_fingerprint_rejected() {
 	// SRT cannot publish a liveness VK in the passport slot (or vice
 	// versa). The Config-supplied ExpectedVkFingerprints binds each

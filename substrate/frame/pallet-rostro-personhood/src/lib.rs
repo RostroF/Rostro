@@ -750,6 +750,13 @@ pub mod pallet {
 		VkMalformed,
 		/// vk version did not strictly increment by 1 on rotation.
 		VkVersionRegressed,
+		/// vk version is at `u32::MAX` and cannot increment further.
+		/// Recovery: ship a runtime upgrade that re-bases the version
+		/// counter (e.g., bump `circuit_family_fingerprint` and reset
+		/// to version 1). Triggering this in practice requires
+		/// ~4 billion rotations — included so the saturation case
+		/// fails loud rather than silently jamming further rotation.
+		VkVersionExhausted,
 		/// `circuit_family_fingerprint` in the publication did not
 		/// match the runtime's expected fingerprint for the target
 		/// `CircuitId`. Likely a slot mix-up by SRT (typo, coercion,
@@ -1052,8 +1059,11 @@ pub mod pallet {
 					let prev_version = PassportAttestVk::<T>::get()
 						.map(|vk| vk.version)
 						.unwrap_or(0);
+					let expected_next = prev_version
+						.checked_add(1)
+						.ok_or(Error::<T>::VkVersionExhausted)?;
 					ensure!(
-						new_version == prev_version.saturating_add(1),
+						new_version == expected_next,
 						Error::<T>::VkVersionRegressed,
 					);
 					PassportAttestVk::<T>::put(VkRecord {
@@ -1068,8 +1078,11 @@ pub mod pallet {
 					let prev_version = LivenessFacematchVk::<T>::get()
 						.map(|vk| vk.version)
 						.unwrap_or(0);
+					let expected_next = prev_version
+						.checked_add(1)
+						.ok_or(Error::<T>::VkVersionExhausted)?;
 					ensure!(
-						new_version == prev_version.saturating_add(1),
+						new_version == expected_next,
 						Error::<T>::VkVersionRegressed,
 					);
 					LivenessFacematchVk::<T>::put(VkRecord {
