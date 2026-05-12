@@ -155,6 +155,7 @@ fn biguint_to_limbs_8(v: &BigUint) -> [u32; FIELD_NUM_LIMBS] {
 	})
 }
 
+pub mod hash_to_field_air;
 pub mod reduce_384;
 pub mod reduce_384_air;
 
@@ -163,3 +164,6 @@ mod tests;
 
 #[cfg(test)]
 mod reduce_384_air_tests;
+
+#[cfg(test)]
+mod hash_to_field_air_tests;
