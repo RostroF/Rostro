@@ -55,6 +55,12 @@ impl frame_system::Config for Test {
 	type Hashing = BlakeTwo256;
 	type Hash = H256;
 	type Nonce = u32;
+	// Override the prelude's BlockHashCount = ConstU32<10> so it's
+	// strictly greater than TestMaxProofAge = 600. The pallet's
+	// integrity_test asserts this invariant; without the override
+	// the test runtime would itself be misconfigured and the
+	// integrity_test would panic at chain build.
+	type BlockHashCount = ConstU64<2400>;
 }
 
 parameter_types! {
@@ -1180,6 +1186,38 @@ fn srt_set_vk_strict_monotonic_enforced() {
 			),
 			pallet_personhood::Error::<Test>::VkVersionRegressed
 		);
+	});
+}
+
+#[test]
+fn mint_anchor_block_zero_rejected() {
+	// anchor.block = 0 is a valid u32 but block 0's hash is system-
+	// defined; the equality check `block_hash(0) == anchor.hash`
+	// could pass with a prover-supplied zero hash on a freshly-
+	// bootstrapped chain. Reject before reaching that comparison.
+	new_test_ext().execute_with(|| {
+		good_setup(ALICE, HW_CERT_THUMB_1);
+		let a = ChainAnchor { block: 0u64, hash: H256::zero() };
+		let pin = passport_inputs(
+			ALICE, SCOPED_NULL_1, COMM_IN_1, CSCA_ROOT_GOOD, SEATS_ROOT_GOOD, a.clone(),
+		);
+		let lin = liveness_inputs(ALICE, COMM_IN_1, a);
+		assert_noop!(
+			submit_mint(ALICE, HW_CERT_THUMB_1, pin, lin),
+			pallet_personhood::Error::<Test>::AnchorBlockZero
+		);
+	});
+}
+
+#[test]
+fn integrity_test_passes_on_well_configured_test_runtime() {
+	// Smoke-test the integrity invariant: TestMaxProofAge (600) must
+	// be strictly less than the configured BlockHashCount (2400). If
+	// either constant drifts without the other tracking, this test
+	// fails at chain build via the integrity_test panic.
+	use frame_support::traits::Hooks;
+	new_test_ext().execute_with(|| {
+		<Personhood as Hooks<u64>>::integrity_test();
 	});
 }
 

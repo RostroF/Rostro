@@ -100,7 +100,7 @@ use frame_support::pallet_prelude::*;
 use frame_system::pallet_prelude::{BlockNumberFor, OriginFor};
 use scale_info::TypeInfo;
 use sp_core::H256;
-use sp_runtime::traits::Saturating;
+use sp_runtime::traits::{Saturating, Zero};
 use zk_pki_primitives::hip::CanonicalHipProof;
 
 /// Domain separator for the AA challenge derivation.
@@ -565,6 +565,29 @@ pub mod pallet {
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		/// Panic at chain build / start if the runtime is configured
+		/// with `MaxProofAge >= BlockHashCount`. In that regime the
+		/// anchor freshness window extends past `frame_system`'s
+		/// hash-pruning horizon, and `block_hash(anchor_block)`
+		/// returns `H256::default()` for valid-but-pruned blocks —
+		/// a prover-supplied `anchor.hash = zero` would then pass the
+		/// equality check that's supposed to bind the proof to a
+		/// specific historical block.
+		fn integrity_test() {
+			let max_age = T::MaxProofAge::get();
+			let hash_count = <T as frame_system::Config>::BlockHashCount::get();
+			assert!(
+				max_age < hash_count,
+				"pallet-rostro-personhood: MaxProofAge ({max_age:?}) must be strictly \
+				 less than frame_system::BlockHashCount ({hash_count:?}); otherwise \
+				 anchor freshness extends past the hash-pruning horizon and \
+				 prover-controlled zero hashes can pass equality on pruned blocks",
+			);
+		}
+	}
+
 	// ─────────────────────────────────────────────────────────────
 	// Storage
 	// ─────────────────────────────────────────────────────────────
@@ -702,6 +725,12 @@ pub mod pallet {
 		/// Chain anchor hash does not match the chain's recorded
 		/// hash for the witnessed block.
 		AnchorMismatch,
+		/// Chain anchor `block` is zero. The block-0 hash is system-
+		/// defined and not a legitimate freshness anchor — reject
+		/// before reaching `block_hash(0)` where the comparison
+		/// against a prover-supplied zero hash could pass on a
+		/// freshly-bootstrapped chain.
+		AnchorBlockZero,
 		/// `csca_root` in the proof does not match the chain's
 		/// current root. Likely an SRT rotation just landed; retry.
 		CscaRootRotated,
@@ -859,6 +888,7 @@ pub mod pallet {
 
 			// 4. Chain anchor freshness + integrity.
 			let anchor_block = passport_inputs.anchor.block;
+			ensure!(!anchor_block.is_zero(), Error::<T>::AnchorBlockZero);
 			ensure!(now.saturating_sub(anchor_block) <= max_age, Error::<T>::ProofTooOld);
 			let actual_hash = frame_system::Pallet::<T>::block_hash(anchor_block);
 			let actual_h256 = H256::from_slice(actual_hash.as_ref());
