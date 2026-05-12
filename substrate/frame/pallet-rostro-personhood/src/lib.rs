@@ -331,6 +331,12 @@ pub struct VkRecord<BlockNumber> {
 	/// these vk bytes. Anyone with the transcript can verify the
 	/// SRT signed an honest build.
 	pub ceremony_hash: H256,
+	/// Fingerprint identifying which circuit family these bytes are
+	/// for: `blake2_256(canonical_structural_def || circuit_marker || version)`
+	/// per the recognizer pattern. Pinned at publication against
+	/// `Config::ExpectedVkFingerprints` so SRT cannot post a liveness
+	/// VK in the passport slot (or vice versa) by typo or coercion.
+	pub circuit_family_fingerprint: H256,
 }
 
 /// Which of the two circuits' vk to rotate.
@@ -503,6 +509,31 @@ pub mod pallet {
 		/// and force every node to decode + propagate the payload.
 		#[pallet::constant]
 		type MaxProofBytes: Get<u32>;
+
+		/// Per-circuit expected VK fingerprints. Each entry binds a
+		/// [`CircuitId`] slot to the `circuit_family_fingerprint` that
+		/// any VK published into that slot must match — pinning
+		/// "this slot holds the passport_attest verifier" vs
+		/// "this slot holds the liveness_facematch verifier" at the
+		/// runtime level.
+		///
+		/// Without this binding, `srt_set_vk` accepted any bytes
+		/// under any `CircuitId`, so a typo or coerced SRT signing
+		/// could publish a liveness VK in the passport slot. The
+		/// mismatch would be silent until first mint — and even then
+		/// it manifests as a generic `PassportProofInvalid`, not as
+		/// "you put the wrong VK in this slot."
+		///
+		/// Same shape as [`Self::AcceptedNullifierTypes`]: a runtime-
+		/// level associated type, NOT SRT-rotatable storage. Which
+		/// circuit a slot holds is a chain-identity invariant; only
+		/// the VK bytes (post-ceremony output) rotate, and they
+		/// rotate within the slot's fingerprint constraint.
+		///
+		/// Must include exactly one entry per [`CircuitId`] variant.
+		/// A runtime missing an entry will reject every publication
+		/// for that circuit with [`Error::VkFingerprintNotConfigured`].
+		type ExpectedVkFingerprints: Get<&'static [(CircuitId, H256)]>;
 
 		/// Allowlist of [`NullifierType`] discriminants this runtime
 		/// will accept on `mint_pop`.
@@ -719,6 +750,16 @@ pub mod pallet {
 		VkMalformed,
 		/// vk version did not strictly increment by 1 on rotation.
 		VkVersionRegressed,
+		/// `circuit_family_fingerprint` in the publication did not
+		/// match the runtime's expected fingerprint for the target
+		/// `CircuitId`. Likely a slot mix-up by SRT (typo, coercion,
+		/// or stale ceremony output). Re-publish with the right
+		/// fingerprint, or fix the SRT tooling.
+		VkFingerprintMismatch,
+		/// Runtime is missing an `ExpectedVkFingerprints` entry for
+		/// this `CircuitId`. Misconfiguration — fix in the runtime
+		/// upgrade that ships the next circuit family.
+		VkFingerprintNotConfigured,
 	}
 
 	// ─────────────────────────────────────────────────────────────
@@ -993,8 +1034,18 @@ pub mod pallet {
 			new_vk_bytes: Vec<u8>,
 			new_version: u32,
 			ceremony_hash: H256,
+			circuit_family_fingerprint: H256,
 		) -> DispatchResult {
 			T::SrtOrigin::ensure_origin(origin)?;
+			let expected = T::ExpectedVkFingerprints::get()
+				.iter()
+				.find(|(id, _)| *id == which)
+				.map(|(_, fp)| *fp)
+				.ok_or(Error::<T>::VkFingerprintNotConfigured)?;
+			ensure!(
+				circuit_family_fingerprint == expected,
+				Error::<T>::VkFingerprintMismatch,
+			);
 			let now = frame_system::Pallet::<T>::block_number();
 			match which {
 				CircuitId::PassportAttest => {
@@ -1010,6 +1061,7 @@ pub mod pallet {
 						version: new_version,
 						set_at: now,
 						ceremony_hash,
+						circuit_family_fingerprint,
 					});
 				},
 				CircuitId::LivenessFacematch => {
@@ -1025,6 +1077,7 @@ pub mod pallet {
 						version: new_version,
 						set_at: now,
 						ceremony_hash,
+						circuit_family_fingerprint,
 					});
 				},
 			}

@@ -80,6 +80,22 @@ impl frame_support::traits::Get<&'static [NullifierType]> for TestAcceptedNullif
 	}
 }
 
+/// Sentinel VK fingerprints for tests. Pinned values let
+/// fingerprint-mismatch tests exercise the rejection path with a
+/// distinguishable third value.
+const PASSPORT_VK_FP: H256 = H256([0xF1; 32]);
+const LIVENESS_VK_FP: H256 = H256([0xF2; 32]);
+
+pub struct TestExpectedVkFingerprints;
+impl frame_support::traits::Get<&'static [(CircuitId, H256)]> for TestExpectedVkFingerprints {
+	fn get() -> &'static [(CircuitId, H256)] {
+		&[
+			(CircuitId::PassportAttest, H256([0xF1; 32])),
+			(CircuitId::LivenessFacematch, H256([0xF2; 32])),
+		]
+	}
+}
+
 impl pallet_personhood::Config for Test {
 	type MaxProofAge = TestMaxProofAge;
 	type FixedPopTtl = TestFixedPopTtl;
@@ -88,6 +104,7 @@ impl pallet_personhood::Config for Test {
 	type SrtOrigin = frame_system::EnsureRoot<AccountId>;
 	type AcceptedNullifierTypes = TestAcceptedNullifierTypes;
 	type MaxProofBytes = TestMaxProofBytes;
+	type ExpectedVkFingerprints = TestExpectedVkFingerprints;
 }
 
 // ─── Mock ZkPki ──────────────────────────────────────────────────────────
@@ -308,12 +325,14 @@ fn seed_roots_and_vks() {
 		version: 1,
 		set_at: 1,
 		ceremony_hash: H256::zero(),
+		circuit_family_fingerprint: PASSPORT_VK_FP,
 	});
 	pallet_personhood::LivenessFacematchVk::<Test>::put(VkRecord {
 		bytes: vec![0x04, 0x05, 0x06],
 		version: 1,
 		set_at: 1,
 		ceremony_hash: H256::zero(),
+		circuit_family_fingerprint: LIVENESS_VK_FP,
 	});
 }
 
@@ -838,6 +857,7 @@ fn mint_liveness_vk_not_set_rejected() {
 			version: 1,
 			set_at: 1,
 			ceremony_hash: H256::zero(),
+			circuit_family_fingerprint: PASSPORT_VK_FP,
 		});
 		with_zkpki_state(|s| {
 			s.cert_owners.insert(HW_CERT_THUMB_1, ALICE);
@@ -1005,12 +1025,14 @@ fn mint_csca_root_not_set_rejected() {
 			version: 1,
 			set_at: 1,
 			ceremony_hash: H256::zero(),
+			circuit_family_fingerprint: PASSPORT_VK_FP,
 		});
 		pallet_personhood::LivenessFacematchVk::<Test>::put(VkRecord {
 			bytes: vec![0x02],
 			version: 1,
 			set_at: 1,
 			ceremony_hash: H256::zero(),
+			circuit_family_fingerprint: LIVENESS_VK_FP,
 		});
 		with_zkpki_state(|s| {
 			s.cert_owners.insert(HW_CERT_THUMB_1, ALICE);
@@ -1042,12 +1064,14 @@ fn mint_seats_root_not_set_rejected() {
 			version: 1,
 			set_at: 1,
 			ceremony_hash: H256::zero(),
+			circuit_family_fingerprint: PASSPORT_VK_FP,
 		});
 		pallet_personhood::LivenessFacematchVk::<Test>::put(VkRecord {
 			bytes: vec![0x02],
 			version: 1,
 			set_at: 1,
 			ceremony_hash: H256::zero(),
+			circuit_family_fingerprint: LIVENESS_VK_FP,
 		});
 		with_zkpki_state(|s| {
 			s.cert_owners.insert(HW_CERT_THUMB_1, ALICE);
@@ -1082,12 +1106,14 @@ fn mint_oprf_pk_hash_not_set_rejected() {
 			version: 1,
 			set_at: 1,
 			ceremony_hash: H256::zero(),
+			circuit_family_fingerprint: PASSPORT_VK_FP,
 		});
 		pallet_personhood::LivenessFacematchVk::<Test>::put(VkRecord {
 			bytes: vec![0x02],
 			version: 1,
 			set_at: 1,
 			ceremony_hash: H256::zero(),
+			circuit_family_fingerprint: LIVENESS_VK_FP,
 		});
 		with_zkpki_state(|s| {
 			s.cert_owners.insert(HW_CERT_THUMB_1, ALICE);
@@ -1119,6 +1145,7 @@ fn srt_set_vk_strict_monotonic_enforced() {
 			vec![0x01],
 			1,
 			H256::zero(),
+			PASSPORT_VK_FP,
 		));
 		// Bumping to 2 ok.
 		assert_ok!(Personhood::srt_set_vk(
@@ -1127,6 +1154,7 @@ fn srt_set_vk_strict_monotonic_enforced() {
 			vec![0x02],
 			2,
 			H256::zero(),
+			PASSPORT_VK_FP,
 		));
 		// Skipping to 4 rejected.
 		assert_noop!(
@@ -1136,6 +1164,7 @@ fn srt_set_vk_strict_monotonic_enforced() {
 				vec![0x03],
 				4,
 				H256::zero(),
+				PASSPORT_VK_FP,
 			),
 			pallet_personhood::Error::<Test>::VkVersionRegressed
 		);
@@ -1147,9 +1176,47 @@ fn srt_set_vk_strict_monotonic_enforced() {
 				vec![0x04],
 				2,
 				H256::zero(),
+				PASSPORT_VK_FP,
 			),
 			pallet_personhood::Error::<Test>::VkVersionRegressed
 		);
+	});
+}
+
+#[test]
+fn srt_set_vk_wrong_fingerprint_rejected() {
+	// SRT cannot publish a liveness VK in the passport slot (or vice
+	// versa). The Config-supplied ExpectedVkFingerprints binds each
+	// slot to a single fingerprint; mismatched publications fail
+	// loud with VkFingerprintMismatch.
+	new_test_ext().execute_with(|| {
+		// Try to publish passport-slot VK with the liveness fingerprint.
+		assert_noop!(
+			Personhood::srt_set_vk(
+				RuntimeOrigin::root(),
+				CircuitId::PassportAttest,
+				vec![0x01],
+				1,
+				H256::zero(),
+				LIVENESS_VK_FP,
+			),
+			pallet_personhood::Error::<Test>::VkFingerprintMismatch
+		);
+		// And vice versa.
+		assert_noop!(
+			Personhood::srt_set_vk(
+				RuntimeOrigin::root(),
+				CircuitId::LivenessFacematch,
+				vec![0x01],
+				1,
+				H256::zero(),
+				PASSPORT_VK_FP,
+			),
+			pallet_personhood::Error::<Test>::VkFingerprintMismatch
+		);
+		// Neither slot was populated by the rejected attempts.
+		assert!(pallet_personhood::PassportAttestVk::<Test>::get().is_none());
+		assert!(pallet_personhood::LivenessFacematchVk::<Test>::get().is_none());
 	});
 }
 
@@ -1163,6 +1230,7 @@ fn srt_set_vk_per_circuit_isolated() {
 			vec![0x01],
 			1,
 			H256::zero(),
+			PASSPORT_VK_FP,
 		));
 		// liveness_facematch can still go from nothing to version 1.
 		assert_ok!(Personhood::srt_set_vk(
@@ -1171,6 +1239,7 @@ fn srt_set_vk_per_circuit_isolated() {
 			vec![0x01],
 			1,
 			H256::zero(),
+			LIVENESS_VK_FP,
 		));
 	});
 }
