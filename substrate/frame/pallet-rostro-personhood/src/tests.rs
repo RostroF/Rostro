@@ -25,7 +25,8 @@ use crate::{
 use codec::Encode;
 use frame_support::{
 	assert_noop, assert_ok, derive_impl, parameter_types,
-	traits::{ConstU16, ConstU32, ConstU64},
+	traits::{ConstU16, ConstU32, ConstU64, Get},
+	BoundedVec,
 };
 use sp_core::H256;
 use sp_runtime::{
@@ -62,6 +63,10 @@ parameter_types! {
 	/// chain-side semantics of `FixedPopTtl` are exercised by checking
 	/// `PopCert.ttl_block == minted_at + TestFixedPopTtl`.
 	pub const TestFixedPopTtl: u64 = 100_000;
+	/// Small cap for tests — the mock proof bytes are 32 B each, so
+	/// 1 KiB leaves room to exercise the over-cap rejection path
+	/// without inflating test memory.
+	pub const TestMaxProofBytes: u32 = 1024;
 }
 
 /// Test runtime allowlist. Camino-shape (Salted + SaltedMock) so both
@@ -82,6 +87,7 @@ impl pallet_personhood::Config for Test {
 	type ProofVerifier = MockProofVerifier;
 	type SrtOrigin = frame_system::EnsureRoot<AccountId>;
 	type AcceptedNullifierTypes = TestAcceptedNullifierTypes;
+	type MaxProofBytes = TestMaxProofBytes;
 }
 
 // ─── Mock ZkPki ──────────────────────────────────────────────────────────
@@ -330,13 +336,17 @@ fn submit_mint(
 ) -> sp_runtime::DispatchResult {
 	Personhood::mint_pop(
 		RuntimeOrigin::signed(caller),
-		vec![0xAA; 32],
+		bounded_proof(vec![0xAA; 32]),
 		pinputs,
-		vec![0xBB; 32],
+		bounded_proof(vec![0xBB; 32]),
 		linputs,
 		thumb,
 		dummy_hip(),
 	)
+}
+
+fn bounded_proof(bytes: Vec<u8>) -> BoundedVec<u8, TestMaxProofBytes> {
+	BoundedVec::try_from(bytes).expect("test proof fits MaxProofBytes; qed")
 }
 
 // ─── Tests: happy path ───────────────────────────────────────────────────
@@ -1179,6 +1189,32 @@ fn challenge_domains_are_stable() {
 	assert_eq!(AA_CHALLENGE_DOMAIN, b"rostro-pop-aa-v1");
 	assert_eq!(HIP_CHALLENGE_DOMAIN, b"rostro-pop-hip-v1");
 	assert_ne!(AA_CHALLENGE_DOMAIN, HIP_CHALLENGE_DOMAIN);
+}
+
+#[test]
+fn passport_proof_over_max_bytes_fails_scale_decode() {
+	// MaxProofBytes is enforced at SCALE decode time via the
+	// BoundedVec<u8, T::MaxProofBytes> argument type. A
+	// fee-payer submitting an over-cap proof gets rejected before
+	// any pallet code runs — block-fill DoS is bounded by
+	// MaxProofBytes regardless of per-extrinsic fixed weight.
+	//
+	// Test the actual decode path: encode an over-cap Vec<u8> and
+	// confirm decoding it as BoundedVec<u8, TestMaxProofBytes>
+	// fails. (Constructing a BoundedVec directly via try_from would
+	// also fail, but the production-relevant gate is the decoder.)
+	use codec::{Decode, Encode};
+	let over_cap = vec![0xAAu8; (TestMaxProofBytes::get() + 1) as usize];
+	let encoded = over_cap.encode();
+	let decoded: Result<BoundedVec<u8, TestMaxProofBytes>, _> =
+		Decode::decode(&mut &encoded[..]);
+	assert!(decoded.is_err(), "over-cap BoundedVec must fail SCALE decode");
+	// And the boundary case (exactly at cap) decodes successfully.
+	let at_cap = vec![0xAAu8; TestMaxProofBytes::get() as usize];
+	let encoded = at_cap.encode();
+	let decoded: Result<BoundedVec<u8, TestMaxProofBytes>, _> =
+		Decode::decode(&mut &encoded[..]);
+	assert!(decoded.is_ok(), "at-cap BoundedVec must decode");
 }
 
 #[test]

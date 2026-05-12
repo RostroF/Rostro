@@ -489,6 +489,21 @@ pub mod pallet {
 		/// a mock that controls whether verification succeeds.
 		type ProofVerifier: ProofVerifier<Self::AccountId, BlockNumberFor<Self>>;
 
+		/// Hard cap on the byte length of `passport_proof` and
+		/// `liveness_proof` submitted to `mint_pop`. Enforced at SCALE
+		/// decode time via [`BoundedVec`], so over-cap submissions are
+		/// rejected before any pallet code runs.
+		///
+		/// Bound sizing: Plonky3 STARK proofs are typically 50–200 KB
+		/// depending on circuit + parameter choices; ark-groth16
+		/// proofs are ~192 bytes. Pick a value comfortably above the
+		/// expected STARK upper bound — 256 KB (262_144) is a sensible
+		/// mainnet default. Without this cap, a fee-payer can submit
+		/// a multi-megabyte blob, pay the fixed `mint_pop` weight,
+		/// and force every node to decode + propagate the payload.
+		#[pallet::constant]
+		type MaxProofBytes: Get<u32>;
+
 		/// Allowlist of [`NullifierType`] discriminants this runtime
 		/// will accept on `mint_pop`.
 		///
@@ -732,9 +747,9 @@ pub mod pallet {
 		#[pallet::weight(Weight::from_parts(1_000_000_000, 0))]
 		pub fn mint_pop(
 			origin: OriginFor<T>,
-			passport_proof: Vec<u8>,
+			passport_proof: BoundedVec<u8, T::MaxProofBytes>,
 			passport_inputs: PassportPublicInputs<T::AccountId, BlockNumberFor<T>>,
-			liveness_proof: Vec<u8>,
+			liveness_proof: BoundedVec<u8, T::MaxProofBytes>,
 			liveness_inputs: LivenessPublicInputs<T::AccountId, BlockNumberFor<T>>,
 			hw_cert_thumbprint: H256,
 			hip_proof: CanonicalHipProof,
