@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) Rostro Foundation
+# Vendored from JAR/Grey (https://github.com/jamisha/grey), Apache-2.0.
+# Original copyright: JAR contributors. Required for service-crate target builds
+# (riscv64-javm and riscv64-polkavm) to resolve compiler builtins, panic handler,
+# and the JAVM `_start` entry-point macro.
+
+[package]
+name = "rostro-bench-javm-builtins"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Vendored javm-builtins (Apache-2.0, JAR contributors) — compiler builtins + panic handler + JAVM entry macro for freestanding RISC-V service crates"
+publish = false
+
+[lib]
+name = "javm_builtins"
+path = "src/lib.rs"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_env, values("javm", "polkavm"))', 'cfg(target_os, values("none"))'] }
+
+[workspace]

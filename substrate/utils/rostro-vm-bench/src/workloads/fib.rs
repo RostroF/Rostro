@@ -102,6 +102,40 @@ pub fn polkavm_blob(n: u64) -> Vec<u8> {
 	builder.to_vec().expect("polkavm fib blob build")
 }
 
+/// Build the Fibonacci workload as a WASM module via WAT.
+///
+/// Mirrors the RVM blobs above instruction-class for instruction-class:
+/// three locals for `prev`/`curr`/`i`, one temp, one back-edge branch.
+/// Exports `main` returning the final `curr` as i64. No memory, no host
+/// imports — pure ALU. WAT keeps the comparison apples-to-apples with the
+/// hand-assembled RVM side: same algorithm, no compiler optimization
+/// asymmetry between the two sides of the bench.
+pub fn wat_blob(n: u64) -> Vec<u8> {
+	let wat = format!(
+		r#"
+(module
+  (func (export "main") (result i64)
+    (local $prev i64) (local $curr i64) (local $i i64) (local $tmp i64)
+    (local.set $prev (i64.const 0))
+    (local.set $curr (i64.const 1))
+    (local.set $i (i64.const 0))
+    (block $exit
+      (loop $loop
+        (local.set $tmp (i64.add (local.get $prev) (local.get $curr)))
+        (local.set $prev (local.get $curr))
+        (local.set $curr (local.get $tmp))
+        (local.set $i (i64.add (local.get $i) (i64.const 1)))
+        (br_if $loop (i64.lt_u (local.get $i) (i64.const {n})))
+      )
+    )
+    (local.get $curr)
+  )
+)
+"#
+	);
+	wat::parse_str(&wat).expect("fib wat parse")
+}
+
 /// Native-Rust reference: same iterative recurrence, wrapping arithmetic.
 /// Use to assert correctness against VM-produced A0.
 pub fn expected_result(n: u64) -> u64 {

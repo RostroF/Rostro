@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (C) Rostro Foundation
+# Vendored from polkavm 0.32.0 — see VENDOR.md for source + sync policy.
+
+[workspace]
+resolver = "2"
+members = [
+    "polkavm",
+    "polkavm-assembler",
+    "polkavm-common",
+    "polkavm-derive",
+    "polkavm-derive-impl",
+    "polkavm-derive-impl-macro",
+    "polkavm-linker",
+    "polkavm-linux-raw",
+]

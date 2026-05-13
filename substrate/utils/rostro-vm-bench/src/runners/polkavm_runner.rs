@@ -8,7 +8,15 @@ use super::DEFAULT_GAS_LIMIT;
 
 use polkavm::{
 	BackendKind, Config, Engine, GasMeteringKind, InterruptKind, Module, ModuleConfig, Reg,
+	SandboxKind,
 };
+
+/// Opaque handle returned by [`PolkaVmRunner::precompile`]. Wraps a fully
+/// JIT-compiled (or interpreter-loaded) `polkavm::Module`; subsequent
+/// [`PolkaVmRunner::run_compiled`] calls only do instantiate + execute.
+pub struct PolkaVmCompiled {
+	module: Module,
+}
 
 /// RVM runner using `polkavm::Module::instantiate()` + manual register setup.
 ///
@@ -63,9 +71,70 @@ impl PolkaVmRunner {
 		if std::env::var_os("POLKAVM_SANDBOXING_ENABLED").is_none() {
 			config.set_sandboxing_enabled(false);
 		}
+		// Default to the Generic sandbox. The Linux sandbox spawns a zygote
+		// worker process whose namespace setup times out under WSL2 (see
+		// polkavm_compiler_wsl_limitation memory). Generic skips the worker
+		// entirely and uses an in-process JIT region, which is what we want
+		// for benchmark numbers anyway. The interpreter backend doesn't use
+		// a sandbox, so this is a no-op for it. Users who specifically want
+		// the Linux sandbox can opt in via `POLKAVM_SANDBOX=linux`.
+		if config.sandbox().is_none() {
+			config.set_sandbox(Some(SandboxKind::Generic));
+		}
 		let engine =
 			Engine::new(&config).map_err(|e| format!("polkavm Engine::new ({name}): {e}"))?;
 		Ok(Self { engine, gas_limit: DEFAULT_GAS_LIMIT as i64, name })
+	}
+}
+
+impl PolkaVmRunner {
+	/// Compile `blob` into a reusable [`PolkaVmCompiled`] handle. Skip-the-
+	/// compile path for steady-state (warm) measurements.
+	pub fn precompile(&self, blob: &[u8]) -> Result<PolkaVmCompiled, String> {
+		let mut mc = ModuleConfig::new();
+		mc.set_gas_metering(Some(GasMeteringKind::Sync));
+		let module = Module::new(&self.engine, &mc, blob.to_vec().into())
+			.map_err(|e| format!("polkavm Module::new (precompile): {e}"))?;
+		Ok(PolkaVmCompiled { module })
+	}
+
+	/// Warm-path execute: skips `Module::new` (the compile step). A fresh
+	/// instance is still spun up per call so memory state is isolated.
+	pub fn run_compiled(
+		&mut self,
+		compiled: &PolkaVmCompiled,
+		_input: &[u8],
+	) -> Result<RunOutput, String> {
+		let module = &compiled.module;
+		let mut inst = module
+			.instantiate()
+			.map_err(|e| format!("polkavm instantiate: {}", e))?;
+		inst.set_gas(self.gas_limit);
+
+		let export =
+			module.exports().next().ok_or_else(|| "polkavm: no exports".to_string())?;
+		inst.set_next_program_counter(export.program_counter());
+		inst.set_reg(Reg::RA, 0xFFFF_0000);
+		inst.set_reg(Reg::SP, module.default_sp());
+
+		loop {
+			match inst.run() {
+				Ok(InterruptKind::Finished) => break,
+				Ok(InterruptKind::Ecalli(0)) => break,
+				Ok(InterruptKind::Ecalli(_)) => continue,
+				Ok(InterruptKind::Trap) => return Err("polkavm: trap".to_string()),
+				Ok(InterruptKind::NotEnoughGas) =>
+					return Err("polkavm: out of gas".to_string()),
+				Ok(other) => return Err(format!("polkavm: unexpected interrupt {:?}", other)),
+				Err(e) => return Err(format!("polkavm run error: {}", e)),
+			}
+		}
+
+		let remaining = inst.gas();
+		Ok(RunOutput {
+			result_a0: inst.reg(Reg::A0),
+			gas_consumed: self.gas_limit.saturating_sub(remaining).max(0) as u64,
+		})
 	}
 }
 

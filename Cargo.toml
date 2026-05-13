@@ -284,6 +284,13 @@ members = [
 default-members = [
 ]
 
+# Vendored RostroVM (polkavm fork) is its own workspace — exclude from
+# the substrate workspace so cargo doesn't try to claim its members.
+# See substrate/external/rostrovm/VENDOR.md for sync policy.
+exclude = [
+	"substrate/external/rostrovm",
+]
+
 [workspace.lints.rust]
 suspicious_double_ref_op = { level = "allow", priority = 2 }
 # `substrate_runtime` is a common `cfg` condition name used in the repo.

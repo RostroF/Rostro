@@ -1434,12 +1434,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "build-crate"
+version = "0.1.0"
+
+[[package]]
 name = "build-helper"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bdce191bf3fa4995ce948c8c83b4640a1745457a149e73c6db75b4ffe36aad5f"
 dependencies = [
  "semver 0.6.0",
+]
+
+[[package]]
+name = "build-javm"
+version = "0.1.0"
+dependencies = [
+ "build-crate",
+ "grey-transpiler",
+]
+
+[[package]]
+name = "build-pvm"
+version = "0.1.0"
+dependencies = [
+ "build-crate",
+ "polkavm-linker 0.32.0",
 ]
 
 [[package]]
@@ -9825,6 +9845,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "polkavm"
+version = "0.32.0"
+dependencies = [
+ "libc",
+ "log",
+ "picosimd",
+ "polkavm-assembler 0.32.0",
+ "polkavm-common 0.32.0",
+ "polkavm-linux-raw 0.32.0",
+]
+
+[[package]]
 name = "polkavm-assembler"
 version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9838,6 +9870,15 @@ name = "polkavm-assembler"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f9006f0a135c6d035487fa88fa75b97b32a53d1d914c757f131c8e10a2af295"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "polkavm-assembler"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48db9ab3568744d88514cfd8ca97f549913d17446e822fef20f9bd64598b8625"
 dependencies = [
  "log",
 ]
@@ -9861,6 +9902,24 @@ dependencies = [
  "log",
  "picosimd",
  "polkavm-assembler 0.31.0",
+]
+
+[[package]]
+name = "polkavm-common"
+version = "0.32.0"
+dependencies = [
+ "log",
+ "picosimd",
+ "polkavm-assembler 0.32.0",
+]
+
+[[package]]
+name = "polkavm-common"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7be32b303518704bb6deda7ce5a02feedbdadccccfd03da5bd3fe8eb1cd30694"
+dependencies = [
+ "picosimd",
 ]
 
 [[package]]
@@ -9942,6 +10001,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "polkavm-linker"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89d3ca240b3185eb121ceea2816d8cd9c68b09ff91f3cc2f865e6ad2f259c156"
+dependencies = [
+ "dirs",
+ "gimli 0.31.1",
+ "hashbrown 0.14.5",
+ "log",
+ "object 0.36.7",
+ "polkavm-common 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "regalloc2 0.9.3",
+ "rustc-demangle",
+]
+
+[[package]]
 name = "polkavm-linux-raw"
 version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9952,6 +10027,12 @@ name = "polkavm-linux-raw"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbcd9ed5f77c60f3878289001d3e789da301746249b622bfb2876e2d0fe32c0b"
+
+[[package]]
+name = "polkavm-linux-raw"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8afb212d0effe4097b7243f0828feed74ca49105e3082e9b43dd5c2e89bc91c"
 
 [[package]]
 name = "polling"
@@ -12603,11 +12684,17 @@ dependencies = [
 name = "rostro-vm-bench"
 version = "0.1.0"
 dependencies = [
+ "blake2 0.10.6",
+ "build-javm",
+ "build-pvm",
  "criterion",
  "grey-transpiler",
  "javm",
  "polkavm 0.31.0",
- "polkavm-common 0.31.0",
+ "polkavm 0.32.0",
+ "polkavm-common 0.32.0",
+ "wasmtime 36.0.9",
+ "wat",
 ]
 
 [[package]]
@@ -16088,7 +16175,7 @@ dependencies = [
  "merkleized-metadata",
  "parity-scale-codec",
  "parity-wasm",
- "polkavm-linker",
+ "polkavm-linker 0.31.0",
  "rc-executor",
  "shlex",
  "sp-core 40.0.0",

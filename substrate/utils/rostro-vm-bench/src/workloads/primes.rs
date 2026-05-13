@@ -137,6 +137,61 @@ pub fn polkavm_blob(n: u64) -> Vec<u8> {
 	builder.to_vec().expect("polkavm primes blob build")
 }
 
+/// Build the trial-division primes workload as a WASM module via WAT.
+///
+/// Mirrors the algorithm in the RVM blobs above exactly: outer loop over
+/// `i` in `[3, N+1)`, inner do-while loop over `j` in `[2, i)`, both using
+/// the `mul_by_flag` trick to avoid forward branches — same number of
+/// loop iterations + same instruction classes (rem, set-less-than, mul,
+/// add, branch). Pre-count of `i=2` is preserved.
+///
+/// WASM comparisons return i32, so each `i64.lt_u` result is widened with
+/// `i64.extend_i32_u` before the i64 multiply. That's the only structural
+/// difference vs the RVM side, and it's intrinsic to WASM's type system.
+pub fn wat_blob(n: u64) -> Vec<u8> {
+	let n_plus_1 = n.wrapping_add(1);
+	let wat = format!(
+		r#"
+(module
+  (func (export "main") (result i64)
+    (local $count i64) (local $i i64) (local $j i64)
+    (local $is_prime i64) (local $rem i64)
+    ;; pre-count i=2 if in range
+    (local.set $count (i64.extend_i32_u (i64.lt_u (i64.const 2) (i64.const {n}))))
+    (local.set $i (i64.const 3))
+    (block $outer_exit
+      (loop $outer
+        (local.set $is_prime (i64.const 1))
+        (local.set $j (i64.const 2))
+        (block $inner_exit
+          (loop $inner
+            (local.set $rem (i64.rem_u (local.get $i) (local.get $j)))
+            (local.set $is_prime
+              (i64.mul
+                (local.get $is_prime)
+                (i64.extend_i32_u (i64.lt_u (i64.const 0) (local.get $rem)))))
+            (local.set $j (i64.add (local.get $j) (i64.const 1)))
+            (br_if $inner (i64.lt_u (local.get $j) (local.get $i)))
+          )
+        )
+        (local.set $count
+          (i64.add
+            (local.get $count)
+            (i64.mul
+              (local.get $is_prime)
+              (i64.extend_i32_u (i64.lt_u (local.get $i) (i64.const {n}))))))
+        (local.set $i (i64.add (local.get $i) (i64.const 1)))
+        (br_if $outer (i64.lt_u (local.get $i) (i64.const {n_plus_1})))
+      )
+    )
+    (local.get $count)
+  )
+)
+"#
+	);
+	wat::parse_str(&wat).expect("primes wat parse")
+}
+
 /// Native-Rust reference: count primes in `[2, n)` by naive trial
 /// division. Use to assert correctness against VM-produced A0.
 pub fn expected_result(n: u64) -> u64 {

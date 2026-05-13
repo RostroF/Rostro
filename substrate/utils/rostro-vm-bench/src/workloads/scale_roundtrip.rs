@@ -188,6 +188,80 @@ pub fn polkavm_blob(n: u64) -> Vec<u8> {
 	builder.to_vec().expect("polkavm scale_roundtrip blob build")
 }
 
+/// Build the SCALE-roundtrip workload as a WASM module via WAT.
+///
+/// Memory layout matches the RVM side: input occupies bytes `[0, N*4)` and
+/// output occupies `[N*4, 2*N*4)`. Page count is `ceil(2*N*4 / 65536)`
+/// (WASM page = 64 KiB), with a +1 floor so even tiny N gets a page.
+///
+/// The three loops mirror the RVM algorithm: init stores `i` as u32, the
+/// roundtrip XORs `[in] ^ 0x42` into `[out]`, and the sum widens each u32
+/// into u64 and accumulates. Same loop counts, same back-edge structure.
+pub fn wat_blob(n: u64) -> Vec<u8> {
+	assert!(n >= 1, "scale_roundtrip workload requires n >= 1");
+	let bytes_total: u64 = 2 * n * 4;
+	let pages: u64 = ((bytes_total + 65535) / 65536).max(1);
+	let in_base: u32 = 0;
+	let out_base: u32 = (n * 4) as u32;
+	let n_u32: u32 = n as u32;
+
+	let wat = format!(
+		r#"
+(module
+  (memory {pages})
+  (func (export "main") (result i64)
+    (local $i i32) (local $sum i64) (local $tmp i32)
+
+    ;; init loop: input[i] = i (as u32)
+    (local.set $i (i32.const 0))
+    (block $init_exit
+      (loop $init
+        (i32.store
+          (i32.add (i32.const {in_base}) (i32.shl (local.get $i) (i32.const 2)))
+          (local.get $i))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br_if $init (i32.lt_u (local.get $i) (i32.const {n_u32})))
+      )
+    )
+
+    ;; roundtrip: output[i] = input[i] ^ 0x42
+    (local.set $i (i32.const 0))
+    (block $rt_exit
+      (loop $rt
+        (i32.store
+          (i32.add (i32.const {out_base}) (i32.shl (local.get $i) (i32.const 2)))
+          (i32.xor
+            (i32.load
+              (i32.add (i32.const {in_base}) (i32.shl (local.get $i) (i32.const 2))))
+            (i32.const 0x42)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br_if $rt (i32.lt_u (local.get $i) (i32.const {n_u32})))
+      )
+    )
+
+    ;; sum loop: sum += output[i] (widened to u64)
+    (local.set $i (i32.const 0))
+    (local.set $sum (i64.const 0))
+    (block $sum_exit
+      (loop $sum_loop
+        (local.set $sum
+          (i64.add
+            (local.get $sum)
+            (i64.extend_i32_u
+              (i32.load
+                (i32.add (i32.const {out_base}) (i32.shl (local.get $i) (i32.const 2)))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br_if $sum_loop (i32.lt_u (local.get $i) (i32.const {n_u32})))
+      )
+    )
+    (local.get $sum)
+  )
+)
+"#
+	);
+	wat::parse_str(&wat).expect("scale_roundtrip wat parse")
+}
+
 /// Native-Rust reference: matches the on-VM algorithm exactly.
 pub fn expected_result(n: u64) -> u64 {
 	(0..n).fold(0u64, |acc, i| acc.wrapping_add((i as u32 ^ TRANSFORM_XOR as u32) as u64))

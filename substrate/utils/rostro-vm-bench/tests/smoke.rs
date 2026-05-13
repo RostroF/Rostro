@@ -16,7 +16,7 @@
 //! both VMs handle identically.
 
 use rostro_vm_bench::{
-	runners::{JavmRunner, PolkaVmRunner},
+	runners::{JavmRunner, PolkaVmRunner, WasmtimeRunner},
 	workloads::{fib, primes, scale_roundtrip},
 	RvmRunner,
 };
@@ -128,14 +128,15 @@ fn scale_roundtrip_javm_polkavm_agree() {
 	);
 }
 
-/// All four backends (javm-interpreter / javm-recompiler /
-/// polkavm-interpreter / polkavm-compiler) must agree on fib(10) when
-/// they're available on the host platform.
+/// All available backends — javm-interpreter / javm-recompiler /
+/// polkavm-interpreter / polkavm-compiler / wasmtime-cranelift /
+/// wasmtime-winch — must agree on fib(10) when present on the host.
 #[test]
 fn fib_all_backends_agree() {
 	let n: u64 = 10;
 	let javm_blob = fib::javm_blob(n);
 	let polkavm_blob = fib::polkavm_blob(n);
+	let wat_blob = fib::wat_blob(n);
 	let expected = fib::expected_result(n);
 
 	let runs = [
@@ -146,6 +147,14 @@ fn fib_all_backends_agree() {
 			.expect("interp")
 			.run(&polkavm_blob, &[])
 			.map(|o| ("polkavm-interpreter", o)),
+		WasmtimeRunner::cranelift()
+			.expect("wasmtime cranelift")
+			.run(&wat_blob, &[])
+			.map(|o| ("wasmtime-cranelift", o)),
+		WasmtimeRunner::winch()
+			.expect("wasmtime winch")
+			.run(&wat_blob, &[])
+			.map(|o| ("wasmtime-winch", o)),
 		// polkavm-compiler intentionally omitted: not guaranteed available
 		// on all hosts. Smoke-tested explicitly in `polkavm_runner_names_match_backend`.
 	];
@@ -153,6 +162,41 @@ fn fib_all_backends_agree() {
 	for run in runs {
 		let (name, out) = run.expect("run failed");
 		assert_eq!(out.result_a0, expected, "{name} disagrees with native fib({n})");
+	}
+}
+
+#[test]
+fn wasmtime_runner_names_match_backend() {
+	assert_eq!(WasmtimeRunner::cranelift().expect("cranelift").name(), "wasmtime-cranelift");
+	assert_eq!(WasmtimeRunner::winch().expect("winch").name(), "wasmtime-winch");
+}
+
+#[test]
+fn fib_wasmtime_matches_native_reference() {
+	let n: u64 = 10;
+	let blob = fib::wat_blob(n);
+	let mut runner = WasmtimeRunner::cranelift().expect("cranelift");
+	let out = runner.run(&blob, &[]).expect("wasmtime fib");
+	assert_eq!(out.result_a0, fib::expected_result(n));
+	assert!(out.gas_consumed > 0, "fuel should be consumed");
+}
+
+#[test]
+fn primes_wasmtime_matches_native_reference() {
+	let n: u64 = 30;
+	let blob = primes::wat_blob(n);
+	let mut runner = WasmtimeRunner::cranelift().expect("cranelift");
+	let out = runner.run(&blob, &[]).expect("wasmtime primes");
+	assert_eq!(out.result_a0, primes::expected_result(n));
+}
+
+#[test]
+fn scale_roundtrip_wasmtime_matches_native_reference() {
+	for n in [1u64, 5, 10, 100] {
+		let blob = scale_roundtrip::wat_blob(n);
+		let mut runner = WasmtimeRunner::cranelift().expect("cranelift");
+		let out = runner.run(&blob, &[]).expect("wasmtime scale_roundtrip");
+		assert_eq!(out.result_a0, scale_roundtrip::expected_result(n), "wasmtime scale_roundtrip({n})");
 	}
 }
 

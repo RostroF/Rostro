@@ -19,13 +19,24 @@
 pub mod runners;
 pub mod workloads;
 
+/// Cross-compiled guest blobs from the vendored `services/` crates.
+///
+/// Each service's `build.rs`-generated consts come in three flavors —
+/// `<NAME>_JAVM_BLOB`, `<NAME>_POLKAVM_BLOB`, `<NAME>_WASM_BLOB` — for
+/// apples-to-apples six-way comparison.
+pub mod service_blobs {
+	include!(concat!(env!("OUT_DIR"), "/guest_blobs.rs"));
+}
+
 /// Minimal interface a Rostro Virtual Machine implementation must expose to
 /// be measured.
 ///
 /// Implementations live in [`runners`]: [`runners::JavmRunner`],
-/// [`runners::PolkaVmRunner`]. Each criterion bench under `benches/`
-/// instantiates both and runs the same blob on each, producing latency
-/// + gas-consumption deltas.
+/// [`runners::PolkaVmRunner`] (vendored RostroVM, the optimization target),
+/// [`runners::PolkaVmPristineRunner`] (pristine polkavm 0.32.0 from crates.io,
+/// the reference baseline), and [`runners::WasmtimeRunner`]. Each criterion
+/// bench under `benches/` instantiates the relevant runners and runs the same
+/// blob on each, producing latency + gas-consumption deltas.
 pub trait RvmRunner {
 	/// Display name for the harness output (e.g. `"javm-interpreter"`).
 	fn name(&self) -> &'static str;

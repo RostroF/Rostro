@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# Copyright (C) Rostro Foundation
+#
+# Polynomial evaluation via Horner's method — mirrors the AIR constraint
+# polynomial eval hot loop in p3_uni_stark::verify. Stresses sequential
+# memory reads + chained Goldilocks mul-add — a different access pattern
+# from the closed-form constraint-eval in mini-verifier and from the
+# scattered access in fri-fold-tree.
+
+[package]
+name = "rostro-bench-poly-eval"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Horner's-method polynomial evaluation over Goldilocks at K challenge points."
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+javm-builtins = { package = "rostro-bench-javm-builtins", path = "../javm-builtins" }
+gp = { package = "rostro-bench-goldilocks-poseidon2", path = "../goldilocks-poseidon2" }
+
+[target.'cfg(target_env = "polkavm")'.dependencies]
+polkavm-derive = "0.32.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_env, values("javm", "polkavm"))', 'cfg(target_os, values("none"))', 'cfg(target_arch, values("wasm32"))'] }
+
+[workspace]
