@@ -84,6 +84,11 @@ const SERVICES: &[Service] = &[
 		const_prefix: "DILITHIUM",
 	},
 	Service {
+		dir: "dilithium-verify-only",
+		bin_name: "rostro-bench-dilithium-verify-only",
+		const_prefix: "DILITHIUM_VERIFY_ONLY",
+	},
+	Service {
 		dir: "p521",
 		bin_name: "rostro-bench-p521",
 		const_prefix: "P521",

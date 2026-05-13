@@ -89,9 +89,28 @@ pub fn p521_verify_bench() -> u32 {
 		Err(_) => return 0,
 	};
 
-	match vk.verify_prehash(&PREHASH, &sig) {
-		Ok(_) => 1,
-		Err(_) => 0,
+	// Tier 2 H2 (2026-05-12): dispatch verify via the RostroVM intrinsic on
+	// polkavm targets. Pure-Rust software path retained for other targets.
+	#[cfg(target_env = "polkavm")]
+	{
+		let vk_pt = vk.to_encoded_point(false); // uncompressed: 0x04 || X(66) || Y(66) = 133B
+		let vk_bytes = vk_pt.as_bytes();
+		let sig_bytes = sig.to_bytes();
+		unsafe {
+			crate::polkavm::rostro_p521_ecdsa_verify(
+				vk_bytes.as_ptr() as u32,
+				sig_bytes.as_ptr() as u32,
+				PREHASH.as_ptr() as u32,
+				PREHASH.len() as u32,
+			)
+		}
+	}
+	#[cfg(not(target_env = "polkavm"))]
+	{
+		match vk.verify_prehash(&PREHASH, &sig) {
+			Ok(_) => 1,
+			Err(_) => 0,
+		}
 	}
 }
 

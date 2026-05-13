@@ -46,10 +46,27 @@ pub fn dilithium_verify_bench() -> u32 {
 		Err(_) => return 0,
 	};
 
-	if pk.verify(MESSAGE, &sig, CONTEXT) {
-		1
-	} else {
-		0
+	// Tier 2 H2 (2026-05-12): dispatch verify via the RostroVM intrinsic on
+	// polkavm targets. Pure-Rust software path retained for other targets.
+	#[cfg(target_env = "polkavm")]
+	{
+		use fips204::traits::SerDes;
+		let pk_bytes = pk.into_bytes();
+		let sig_bytes: [u8; ml_dsa_65::SIG_LEN] = sig;
+		unsafe {
+			crate::polkavm::rostro_dilithium_verify(
+				pk_bytes.as_ptr() as u32,
+				MESSAGE.as_ptr() as u32,
+				MESSAGE.len() as u32,
+				sig_bytes.as_ptr() as u32,
+				CONTEXT.as_ptr() as u32,
+				CONTEXT.len() as u32,
+			)
+		}
+	}
+	#[cfg(not(target_env = "polkavm"))]
+	{
+		if pk.verify(MESSAGE, &sig, CONTEXT) { 1 } else { 0 }
 	}
 }
 

@@ -13,7 +13,8 @@ use rostro_vm_bench::{
 		BATCH_INVERSE_JAVM_BLOB, BATCH_INVERSE_POLKAVM_BLOB, BATCH_INVERSE_WASM_BLOB,
 		BLAKE2B_JAVM_BLOB, BLAKE2B_POLKAVM_BLOB, BLAKE2B_WASM_BLOB,
 		CURVE_CONVERSION_JAVM_BLOB, CURVE_CONVERSION_POLKAVM_BLOB, CURVE_CONVERSION_WASM_BLOB,
-		DILITHIUM_JAVM_BLOB, DILITHIUM_POLKAVM_BLOB, DILITHIUM_WASM_BLOB,
+		DILITHIUM_JAVM_BLOB, DILITHIUM_POLKAVM_BLOB, DILITHIUM_VERIFY_ONLY_JAVM_BLOB,
+		DILITHIUM_VERIFY_ONLY_POLKAVM_BLOB, DILITHIUM_VERIFY_ONLY_WASM_BLOB, DILITHIUM_WASM_BLOB,
 		ECRECOVER_JAVM_BLOB, ECRECOVER_POLKAVM_BLOB, ECRECOVER_WASM_BLOB,
 		ED25519_JAVM_BLOB, ED25519_POLKAVM_BLOB, ED25519_WASM_BLOB,
 		FRI_FOLD_TREE_JAVM_BLOB, FRI_FOLD_TREE_LARGE_JAVM_BLOB,
@@ -96,6 +97,89 @@ fn bench_workload(
 			b.iter(|| black_box(r.run_compiled(black_box(&c), &[]).expect("javm-rec-w")));
 		});
 	}
+	{
+		let mut r = PolkaVmRunner::interpreter().expect("pvm-int");
+		let c = r.precompile(polkavm_blob).expect("precompile");
+		warm.bench_function(BenchmarkId::new("polkavm-interpreter", "warm"), |b| {
+			b.iter(|| black_box(r.run_compiled(black_box(&c), &[]).expect("pvm-int-w")));
+		});
+	}
+	if let Ok(mut r) = PolkaVmRunner::compiler() {
+		let c = r.precompile(polkavm_blob).expect("precompile");
+		warm.bench_function(BenchmarkId::new("polkavm-compiler", "warm"), |b| {
+			b.iter(|| black_box(r.run_compiled(black_box(&c), &[]).expect("pvm-com-w")));
+		});
+	}
+	{
+		let mut r = PolkaVmPristineRunner::interpreter().expect("pvm-prist-int");
+		let c = r.precompile(polkavm_blob).expect("precompile");
+		warm.bench_function(BenchmarkId::new("polkavm-pristine-interpreter", "warm"), |b| {
+			b.iter(|| black_box(r.run_compiled(black_box(&c), &[]).expect("pvm-prist-int-w")));
+		});
+	}
+	if let Ok(mut r) = PolkaVmPristineRunner::compiler() {
+		let c = r.precompile(polkavm_blob).expect("precompile");
+		warm.bench_function(BenchmarkId::new("polkavm-pristine-compiler", "warm"), |b| {
+			b.iter(|| black_box(r.run_compiled(black_box(&c), &[]).expect("pvm-prist-com-w")));
+		});
+	}
+	if let Ok(mut r) = WasmtimeRunner::cranelift() {
+		let c = r.precompile(wasm_blob).expect("precompile");
+		warm.bench_function(BenchmarkId::new("wasmtime-cranelift", "warm"), |b| {
+			b.iter(|| black_box(r.run_compiled(black_box(&c), &[]).expect("wt-cl-w")));
+		});
+	}
+	if let Ok(mut r) = WasmtimeRunner::winch() {
+		let c = r.precompile(wasm_blob).expect("precompile");
+		warm.bench_function(BenchmarkId::new("wasmtime-winch", "warm"), |b| {
+			b.iter(|| black_box(r.run_compiled(black_box(&c), &[]).expect("wt-w-w")));
+		});
+	}
+	warm.finish();
+}
+
+/// Variant of [`bench_workload`] for workloads where javm currently can't
+/// complete the program (e.g. ML-DSA-65 stack overflow). Skips javm and
+/// runs only the polkavm + wasmtime backends.
+fn bench_workload_no_javm(
+	c: &mut Criterion,
+	name: &str,
+	_javm_blob: &[u8],
+	polkavm_blob: &[u8],
+	wasm_blob: &[u8],
+) {
+	let mut cold = c.benchmark_group(name);
+	cold.bench_function(BenchmarkId::new("polkavm-interpreter", "cold"), |b| {
+		let mut r = PolkaVmRunner::interpreter().expect("pvm-int");
+		b.iter(|| black_box(r.run(black_box(polkavm_blob), &[]).expect("pvm-int")));
+	});
+	if let Ok(mut r) = PolkaVmRunner::compiler() {
+		cold.bench_function(BenchmarkId::new("polkavm-compiler", "cold"), |b| {
+			b.iter(|| black_box(r.run(black_box(polkavm_blob), &[]).expect("pvm-com")));
+		});
+	}
+	cold.bench_function(BenchmarkId::new("polkavm-pristine-interpreter", "cold"), |b| {
+		let mut r = PolkaVmPristineRunner::interpreter().expect("pvm-prist-int");
+		b.iter(|| black_box(r.run(black_box(polkavm_blob), &[]).expect("pvm-prist-int")));
+	});
+	if let Ok(mut r) = PolkaVmPristineRunner::compiler() {
+		cold.bench_function(BenchmarkId::new("polkavm-pristine-compiler", "cold"), |b| {
+			b.iter(|| black_box(r.run(black_box(polkavm_blob), &[]).expect("pvm-prist-com")));
+		});
+	}
+	if let Ok(mut r) = WasmtimeRunner::cranelift() {
+		cold.bench_function(BenchmarkId::new("wasmtime-cranelift", "cold"), |b| {
+			b.iter(|| black_box(r.run(black_box(wasm_blob), &[]).expect("wt-cl")));
+		});
+	}
+	if let Ok(mut r) = WasmtimeRunner::winch() {
+		cold.bench_function(BenchmarkId::new("wasmtime-winch", "cold"), |b| {
+			b.iter(|| black_box(r.run(black_box(wasm_blob), &[]).expect("wt-w")));
+		});
+	}
+	cold.finish();
+
+	let mut warm = c.benchmark_group(format!("{name}_warm"));
 	{
 		let mut r = PolkaVmRunner::interpreter().expect("pvm-int");
 		let c = r.precompile(polkavm_blob).expect("precompile");
@@ -224,7 +308,26 @@ fn bench_keccak(c: &mut Criterion) {
 }
 
 fn bench_dilithium(c: &mut Criterion) {
-	bench_workload(c, "dilithium", DILITHIUM_JAVM_BLOB, DILITHIUM_POLKAVM_BLOB, DILITHIUM_WASM_BLOB);
+	// javm-interp / javm-recompiler currently page-fault on ML-DSA-65 keygen+
+	// sign+verify (needs ~256 KB stack, javm's region layout doesn't fit
+	// without further surgery — orthogonal to the polkavm intrinsic test).
+	// We skip javm here and bench only the backends that complete.
+	bench_workload_no_javm(
+		c, "dilithium", DILITHIUM_JAVM_BLOB, DILITHIUM_POLKAVM_BLOB, DILITHIUM_WASM_BLOB,
+	);
+}
+
+/// Verify-only ML-DSA-65 bench: hardcoded pk+sig means the in-loop cost is
+/// purely verify. Isolates the polkavm-interp intrinsic delta vs interpreted
+/// verify, which the keygen+sign+verify variant otherwise drowns out.
+fn bench_dilithium_verify_only(c: &mut Criterion) {
+	bench_workload_no_javm(
+		c,
+		"dilithium_verify_only",
+		DILITHIUM_VERIFY_ONLY_JAVM_BLOB,
+		DILITHIUM_VERIFY_ONLY_POLKAVM_BLOB,
+		DILITHIUM_VERIFY_ONLY_WASM_BLOB,
+	);
 }
 
 fn bench_p521(c: &mut Criterion) {
@@ -255,6 +358,7 @@ criterion_group!(
 	bench_ecrecover,
 	bench_keccak,
 	bench_dilithium,
+	bench_dilithium_verify_only,
 	bench_p521,
 	bench_curve_conversion,
 );

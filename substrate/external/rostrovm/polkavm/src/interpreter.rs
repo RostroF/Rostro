@@ -71,6 +71,16 @@ trait Memory {
 
     fn load_impl<T: LoadTy, const DEBUG: bool>(instance: &mut InterpretedInstance, dst: Reg, address: u32) -> Option<Target>;
     fn store_impl<T: StoreTy, const DEBUG: bool>(instance: &mut InterpretedInstance, address: u32, value: u64) -> Option<Target>;
+
+    /// Tier 2 intrinsic zero-copy memory access (2026-05-12).
+    /// Returns a slice into guest memory at [addr, addr+len) ONLY when the
+    /// range is fully contained in a single contiguous region's resident
+    /// data (no synthesized zeros, no cross-region span). Caller falls back
+    /// to `read_memory_into` if `None`. Designed for big-crypto intrinsic
+    /// dispatch arms that pass guest memory directly to native crypto fns —
+    /// no stack-buffer roundtrip.
+    fn borrow_bytes(&self, addr: u32, len: u32) -> Option<&[u8]>;
+    fn borrow_bytes_mut(&mut self, addr: u32, len: u32) -> Option<&mut [u8]>;
 }
 
 #[repr(align(64))]
@@ -762,6 +772,51 @@ impl Memory for StandardMemory {
             Self::store_impl_slow::<T, DEBUG>(instance, address, value)
         }
     }
+
+    fn borrow_bytes(&self, addr: u32, len: u32) -> Option<&[u8]> {
+        let len = len as usize;
+        // Region check mirrors load_impl's region selection. Returns a
+        // contiguous slice only when the range is fully resident in one
+        // region's actual data Vec (no synthesized zeros for non-resident
+        // tails, no cross-region span). Falls back to None otherwise.
+        if addr >= self.aux_data_address {
+            let offset = (addr - self.aux_data_address) as usize;
+            return self.aux.get(offset..offset.checked_add(len)?);
+        }
+        if addr >= self.stack_address_low_resident {
+            let offset = (addr - self.stack_address_low_resident) as usize;
+            return self.stack.get(offset..offset.checked_add(len)?);
+        }
+        if addr >= self.rw_data_address {
+            let offset = (addr - self.rw_data_address) as usize;
+            return self.rw_data.get(offset..offset.checked_add(len)?);
+        }
+        if addr >= self.ro_data_address {
+            let offset = (addr - self.ro_data_address) as usize;
+            return self.ro_data.get(offset..offset.checked_add(len)?);
+        }
+        None
+    }
+
+    fn borrow_bytes_mut(&mut self, addr: u32, len: u32) -> Option<&mut [u8]> {
+        let len = len as usize;
+        // ro_data is read-only; intentionally not exposed as &mut. aux/stack/
+        // rw_data are mutable.
+        if addr >= self.aux_data_address {
+            let offset = (addr - self.aux_data_address) as usize;
+            return self.aux.get_mut(offset..offset.checked_add(len)?);
+        }
+        if addr >= self.stack_address_low_resident {
+            let offset = (addr - self.stack_address_low_resident) as usize;
+            return self.stack.get_mut(offset..offset.checked_add(len)?);
+        }
+        if addr >= self.rw_data_address {
+            let offset = (addr - self.rw_data_address) as usize;
+            return self.rw_data.get_mut(offset..offset.checked_add(len)?);
+        }
+        // ro_data falls through to None — intentional.
+        None
+    }
 }
 
 struct Page {
@@ -1147,6 +1202,18 @@ impl Memory for DynamicMemory {
                 }
             }
         }
+    }
+
+    fn borrow_bytes(&self, _addr: u32, _len: u32) -> Option<&[u8]> {
+        // DynamicMemory is paginated; a [addr, addr+len) range may span pages
+        // and so isn't generally borrowable as a single contiguous slice.
+        // Intrinsic callers fall back to `read_memory_into` (which handles
+        // multi-page reads via copy_nonoverlapping per page).
+        None
+    }
+
+    fn borrow_bytes_mut(&mut self, _addr: u32, _len: u32) -> Option<&mut [u8]> {
+        None
     }
 }
 
@@ -2787,6 +2854,66 @@ impl InterpretedInstance {
                             self.regs[Reg::A0.to_usize()] = goldilocks_inv_native(x);
                             offset += 1;
                         }
+                        ROSTRO_INTRINSIC_P521_ECDSA_VERIFY => {
+                            // ABI: A0=vk_ptr (133B uncompressed sec1: 0x04||X||Y),
+                            //      A1=sig_ptr (132B: r||s), A2=prehash_ptr,
+                            //      A3=prehash_len. Returns A0 = 1 verified, 0 failed.
+                            let vk_ptr = self.regs[Reg::A0.to_usize()] as u32;
+                            let sig_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let prehash_ptr = self.regs[Reg::A2.to_usize()] as u32;
+                            let prehash_len = self.regs[Reg::A3.to_usize()] as u32;
+                            let memory = <M as Memory>::memory_state(self);
+                            let borrow_or_empty = |ptr: u32, len: u32| -> Option<&[u8]> {
+                                if len == 0 { Some(&[]) } else { memory.borrow_bytes(ptr, len) }
+                            };
+                            let result: u64 = (|| {
+                                use p521::ecdsa::{signature::hazmat::PrehashVerifier, Signature, VerifyingKey};
+                                let vk_bytes = memory.borrow_bytes(vk_ptr, 133)?;
+                                let sig_bytes = memory.borrow_bytes(sig_ptr, 132)?;
+                                let prehash = borrow_or_empty(prehash_ptr, prehash_len)?;
+                                let vk = VerifyingKey::from_sec1_bytes(vk_bytes).ok()?;
+                                let sig = Signature::from_slice(sig_bytes).ok()?;
+                                Some(if vk.verify_prehash(prehash, &sig).is_ok() { 1u64 } else { 0u64 })
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_DILITHIUM_VERIFY => {
+                            // ABI: A0=pubkey_ptr (1952B), A1=msg_ptr, A2=msg_len,
+                            //      A3=sig_ptr (3309B), A4=ctx_ptr, A5=ctx_len
+                            // Returns: A0 = 1 on verified, 0 otherwise.
+                            // Zero-copy: borrow bytes directly from guest memory
+                            // into the fips204 deserializer. No stack roundtrip.
+                            let pk_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let msg_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let msg_len = self.regs[Reg::A2.to_usize()] as u32;
+                            let sig_ptr = self.regs[Reg::A3.to_usize()] as u32;
+                            let ctx_ptr = self.regs[Reg::A4.to_usize()] as u32;
+                            let ctx_len = self.regs[Reg::A5.to_usize()] as u32;
+                            let memory = <M as Memory>::memory_state(self);
+                            // Empty slices on the guest side surface as dangling
+                            // pointers (e.g. 0x1 for u8). Short-circuit zero-len
+                            // borrows to an empty host slice rather than chasing
+                            // them through borrow_bytes (which would correctly
+                            // fail the region check).
+                            let borrow_or_empty = |ptr: u32, len: u32| -> Option<&[u8]> {
+                                if len == 0 { Some(&[]) } else { memory.borrow_bytes(ptr, len) }
+                            };
+                            let result: u64 = (|| {
+                                use fips204::ml_dsa_65;
+                                use fips204::traits::{Verifier, SerDes};
+                                let pk_bytes  = memory.borrow_bytes(pk_ptr,  1952)?;
+                                let sig_bytes = memory.borrow_bytes(sig_ptr, 3309)?;
+                                let msg = borrow_or_empty(msg_ptr, msg_len)?;
+                                let ctx = borrow_or_empty(ctx_ptr, ctx_len)?;
+                                let pk_arr: &[u8; 1952] = pk_bytes.try_into().ok()?;
+                                let sig_arr: &[u8; 3309] = sig_bytes.try_into().ok()?;
+                                let pk = ml_dsa_65::PublicKey::try_from_bytes(*pk_arr).ok()?;
+                                Some(if pk.verify(msg, sig_arr, ctx) { 1u64 } else { 0u64 })
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
                         _ => {
                             // Regular host call — exit run loop so host can dispatch.
                             let next_pc = self
@@ -4177,6 +4304,9 @@ pub const ROSTRO_INTRINSIC_GOLDILOCKS_MUL: u32 = 100;
 pub const ROSTRO_INTRINSIC_GOLDILOCKS_ADD: u32 = 101;
 pub const ROSTRO_INTRINSIC_GOLDILOCKS_SUB: u32 = 102;
 pub const ROSTRO_INTRINSIC_GOLDILOCKS_INV: u32 = 103;
+// Big-crypto intrinsics (zero-copy guest-memory access via borrow_bytes).
+pub const ROSTRO_INTRINSIC_DILITHIUM_VERIFY: u32 = 110; // ML-DSA-65 verify
+pub const ROSTRO_INTRINSIC_P521_ECDSA_VERIFY: u32 = 111; // NIST P-521 ECDSA verify (prehashed)
 
 /// Goldilocks field multiplication: `(a * b) mod (2^64 - 2^32 + 1)`.
 ///

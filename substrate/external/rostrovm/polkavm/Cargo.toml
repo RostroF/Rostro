@@ -74,6 +74,19 @@ features = [
 version = "0.2.3"
 optional = true
 
+# Tier 2 H2 big-crypto intrinsics (2026-05-12). Native crypto impls invoked
+# inline from FAST_OP_ECALLI dispatch when the guest calls a reserved
+# `polkavm_import(index = N)` matching `ROSTRO_INTRINSIC_*` in interpreter.rs.
+[dependencies.fips204]
+version = "0.4"
+default-features = false
+features = ["default-rng", "ml-dsa-65"]
+
+[dependencies.p521]
+version = "0.13"
+default-features = false
+features = ["ecdsa", "arithmetic"]
+
 [dev-dependencies.env_logger]
 version = "0.10.0"
 default-features = false
