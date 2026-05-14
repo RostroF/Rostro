@@ -552,7 +552,14 @@ impl StandardMemory {
         }
 
         if address >= Self::memory_state(instance).stack_address_low {
-            match Self::memory_state_mut(instance).prepare_stack_write(cast(address).to_usize(), core::mem::size_of::<T>()) {
+            let prep = Self::memory_state_mut(instance).prepare_stack_write(cast(address).to_usize(), core::mem::size_of::<T>());
+            // prepare_stack_write may have grown the resident stack, which
+            // mutates standard_memory.stack_address_low_resident. Re-sync the
+            // top-level mirror so subsequent fast-path region checks see the
+            // new low-resident boundary. Other 3 addresses are const-after-
+            // init so they don't need re-sync.
+            instance.hot_stack_low_resident = instance.standard_memory.stack_address_low_resident;
+            match prep {
                 PrepareWriteResult::Ok(range) => {
                     if let Some(subslice) = Self::memory_state_mut(instance).stack.get_mut(range) {
                         let value = T::into_bytes(value);
@@ -726,15 +733,23 @@ impl Memory for StandardMemory {
 
     #[cfg_attr(not(debug_assertions), inline(always))]
     fn load_impl<T: LoadTy, const DEBUG: bool>(instance: &mut InterpretedInstance, dst: Reg, address: u32) -> Option<Target> {
+        // Region cascade reads addresses from the top-level mirrors on
+        // `instance` (lifted out of `standard_memory` so they share a hot
+        // cache line with `regs` / `compiled_offset`). Data slices still
+        // come from the substruct.
+        let aux_addr = instance.hot_aux_address;
+        let stack_low = instance.hot_stack_low_resident;
+        let rw_addr = instance.hot_rw_address;
+        let ro_addr = instance.hot_ro_address;
         let state = Self::memory_state(instance);
-        let (offset, slice) = if address >= state.aux_data_address {
-            (cast(address - state.aux_data_address).to_usize(), &state.aux[..])
-        } else if address >= state.stack_address_low_resident {
-            (cast(address - state.stack_address_low_resident).to_usize(), &state.stack[..])
-        } else if address >= state.rw_data_address {
-            (cast(address - state.rw_data_address).to_usize(), &state.rw_data[..])
-        } else if address >= state.ro_data_address {
-            (cast(address - state.ro_data_address).to_usize(), &state.ro_data[..])
+        let (offset, slice) = if address >= aux_addr {
+            (cast(address - aux_addr).to_usize(), &state.aux[..])
+        } else if address >= stack_low {
+            (cast(address - stack_low).to_usize(), &state.stack[..])
+        } else if address >= rw_addr {
+            (cast(address - rw_addr).to_usize(), &state.rw_data[..])
+        } else if address >= ro_addr {
+            (cast(address - ro_addr).to_usize(), &state.ro_data[..])
         } else {
             return Self::load_impl_slow::<T, DEBUG>(instance, dst, address);
         };
@@ -749,14 +764,16 @@ impl Memory for StandardMemory {
 
     #[cfg_attr(not(debug_assertions), inline(always))]
     fn store_impl<T: StoreTy, const DEBUG: bool>(instance: &mut InterpretedInstance, address: u32, value: u64) -> Option<Target> {
-        let (offset, slice) = if address >= Self::memory_state(instance).stack_address_low_resident {
+        let stack_low = instance.hot_stack_low_resident;
+        let rw_addr = instance.hot_rw_address;
+        let (offset, slice) = if address >= stack_low {
             (
-                cast(address - Self::memory_state(instance).stack_address_low_resident).to_usize(),
+                cast(address - stack_low).to_usize(),
                 &mut Self::memory_state_mut(instance).stack[..],
             )
-        } else if address >= Self::memory_state(instance).rw_data_address {
+        } else if address >= rw_addr {
             (
-                cast(address - Self::memory_state(instance).rw_data_address).to_usize(),
+                cast(address - rw_addr).to_usize(),
                 &mut Self::memory_state_mut(instance).rw_data[..],
             )
         } else {
@@ -2233,6 +2250,15 @@ pub(crate) struct InterpretedInstance {
     standard_memory: StandardMemory,
     dynamic_memory: DynamicMemory,
     regs: [u64; Reg::ALL.len()],
+    // Region addresses lifted out of StandardMemory for fast region-check
+    // dispatch in load_impl / store_impl. Kept in sync with the canonical
+    // copies inside standard_memory by `sync_hot_addresses()` at the 2 write
+    // sites: after reset_memory() and after stack growth in store_impl_slow.
+    // DynamicMemory mono leaves these at 0.
+    hot_aux_address: u32,
+    hot_stack_low_resident: u32,
+    hot_rw_address: u32,
+    hot_ro_address: u32,
     program_counter: ProgramCounter,
     program_counter_valid: bool,
     charge_gas_on_entry: bool,
@@ -2266,6 +2292,10 @@ impl InterpretedInstance {
             standard_memory: StandardMemory::new(),
             dynamic_memory: DynamicMemory::new(),
             regs: [0; Reg::ALL.len()],
+            hot_aux_address: 0,
+            hot_stack_low_resident: 0,
+            hot_rw_address: 0,
+            hot_ro_address: 0,
             program_counter: ProgramCounter(!0),
             program_counter_valid: false,
             charge_gas_on_entry: true,
@@ -3089,6 +3119,22 @@ impl InterpretedInstance {
         access_memory_mut!(self, self.memory_kind(), |memory| {
             memory.reset_memory(&self.module);
         });
+        self.sync_hot_addresses();
+    }
+
+    /// Copies the four hot region addresses from `standard_memory` (which
+    /// owns them) into the top-level fields read by `load_impl`/`store_impl`.
+    /// DynamicMemory mono leaves all four at 0; the hot-path readers are
+    /// only inlined into the StandardMemory mono of `run_match`, so this is
+    /// a no-op there. Called after every site that mutates StandardMemory's
+    /// canonical copies: `reset_memory`, `initialize_module`, and the stack
+    /// grow path in `store_impl_slow`.
+    #[inline]
+    fn sync_hot_addresses(&mut self) {
+        self.hot_aux_address = self.standard_memory.aux_data_address;
+        self.hot_stack_low_resident = self.standard_memory.stack_address_low_resident;
+        self.hot_rw_address = self.standard_memory.rw_data_address;
+        self.hot_ro_address = self.standard_memory.ro_data_address;
     }
 
     pub fn reset_interpreter_cache(&mut self) {
@@ -3107,6 +3153,7 @@ impl InterpretedInstance {
             memory.mark_dirty();
             memory.reset_memory(&self.module);
         });
+        self.sync_hot_addresses();
     }
 
     #[inline(always)]
