@@ -1346,6 +1346,38 @@ impl RawInstance {
         }
     }
 
+    /// Emit one `PredecodeEvent` for every entry currently in the predecoded
+    /// array — the complete shape map for everything that's been compiled so
+    /// far. Out-of-band (called after a run): we capture the final state of
+    /// `compiled_decoded`, not the in-flight emission order. For lazy-
+    /// compilation programs, run once first to populate the array.
+    ///
+    /// `None` if the backend isn't interpreted.
+    pub fn trace_predecode_dump(
+        &self,
+        tracer: &mut dyn crate::trace::Tracer,
+    ) -> Option<usize> {
+        let len = self.trace_compiled_decoded_len()?;
+        for offset in 0..len as u32 {
+            if let Some(inst) = self.trace_compiled_inst_at(offset) {
+                let (opcode_name, _shape) = crate::trace::opcode_info(inst.opcode);
+                let evt = crate::trace::PredecodeEvent {
+                    source_pc: inst.pc,
+                    source_op_name: alloc::format!("{} (offset={})", opcode_name, offset),
+                    emit_offset: offset,
+                    emitted: alloc::vec![crate::trace::EmittedEntry {
+                        offset,
+                        opcode_name,
+                        inst,
+                    }],
+                    bb_gas_cost: inst.bb_gas_cost,
+                };
+                tracer.on_predecode(&evt);
+            }
+        }
+        Some(len)
+    }
+
     /// Gets the next program counter.
     ///
     /// This is where the program will resume execution when [`RawInstance::run`] is called.

@@ -97,8 +97,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					let (opcode_name_before, macro_shape_before) = opcode_info(pi.opcode);
 					let (opcode_name_after, _) = opcode_info(inst_after.opcode);
 
+					let next_offset_now = offset_now.unwrap_or(0);
 					let classification = classify(pi, inst_after, opcode_name_after);
-					let side_effect = compute_side_effect(pi, inst_after, opcode_name_after);
+					let side_effect = compute_side_effect(pi, inst_after, opcode_name_after, next_offset_now);
 
 					let evt = DispatchEvent {
 						offset: po,
@@ -163,6 +164,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		println!("  {:<30} {}", cls, count);
 	}
 
+	// v4.1: predecode dump — show the complete shape map for everything
+	// that's been compiled. Use a small console tracer that only prints
+	// predecode (no dispatch noise here).
+	println!("\n════════════════ predecode dump (compiled_decoded) ════════════════");
+	let mut predecode_console = ConsoleTracer { print_regs: false, print_predecode: true };
+	let dumped = inst.trace_predecode_dump(&mut predecode_console).unwrap_or(0);
+	println!("\n  ({} entries in compiled_decoded)", dumped);
+
 	Ok(())
 }
 
@@ -206,6 +215,7 @@ fn compute_side_effect(
 	before: InstFields,
 	after: InstFields,
 	to_opcode_name: &'static str,
+	next_offset: u32,
 ) -> Option<SideEffect> {
 	if before.opcode != after.opcode {
 		return Some(SideEffect::OneShotRewrite {
@@ -231,9 +241,31 @@ fn compute_side_effect(
 			return Some(SideEffect::HostEcalliExit { hostcall_number: id });
 		}
 	}
-	// (We don't yet detect MemoryWrite / BranchOutcome / JumpTo without
-	// instrumenting the actual macro bodies — those require v4.)
-	let _ = to_opcode_name;
+	// v4.2 — branch direction detection. Use AFTER's target/next idx because
+	// UnresolvedFirstTime branches have MAX sentinels in `before`; the
+	// resolution rewrite stamps real values that we only see post-step.
+	//
+	// With step_tracing enabled, each source instruction is preceded by a
+	// FAST_OP_STEP entry. So `next_offset` (the offset where the NEXT step
+	// fired) is one past the actual destination — i.e. target_idx+1 if
+	// taken, next_idx+1 if fallthrough.
+	if to_opcode_name.contains("BRANCH") {
+		let taken_step = after.target_idx.wrapping_add(1);
+		let ft_step = after.next_idx.wrapping_add(1);
+		let taken = next_offset == taken_step;
+		let fallthrough = next_offset == ft_step;
+		let condition = if taken {
+			format!("taken (target_idx={} → STEP@{})", after.target_idx, next_offset)
+		} else if fallthrough {
+			format!("fallthrough (next_idx={} → STEP@{})", after.next_idx, next_offset)
+		} else {
+			format!(
+				"unmatched: next_offset={} vs target_idx+1={} next_idx+1={}",
+				next_offset, taken_step, ft_step
+			)
+		};
+		return Some(SideEffect::BranchOutcome { taken, condition });
+	}
 	None
 }
 
