@@ -61,6 +61,9 @@ mod interpreter;
 mod linker;
 mod rostro_intrinsic_codegen;
 
+/// Research-grade interpreter tracing — see module docs.
+pub mod trace;
+
 /// Rostro intrinsic ABI: ecalli IDs reserved for runtime-internal crypto
 /// intrinsics (`100..1023`) and their native helper bodies. Both the
 /// interpreter (inline FAST_OP_ECALLI dispatch) and external consumers (e.g.,
