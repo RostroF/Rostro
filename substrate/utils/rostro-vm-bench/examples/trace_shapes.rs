@@ -24,12 +24,14 @@
 //!
 //! Usage: `cargo run -p rostro-vm-bench --example trace_shapes --release`
 
+use std::fmt::Write as _;
+
 use polkavm::{
 	BackendKind, Config, Engine, GasMeteringKind, InterruptKind, Module, ModuleConfig, RawInstance,
 	Reg, SandboxKind,
 	trace::{
 		ConsoleTracer, DispatchClassification, DispatchEvent, InstFields, RecordingTracer,
-		SideEffect, Tracer, opcode_info,
+		SideEffect, TraceEvent, Tracer, opcode_info,
 	},
 };
 use rostro_vm_bench::service_blobs::GOLDILOCKS_MUL_POLKAVM_BLOB;
@@ -172,7 +174,114 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let dumped = inst.trace_predecode_dump(&mut predecode_console).unwrap_or(0);
 	println!("\n  ({} entries in compiled_decoded)", dumped);
 
+	// v4.3: JSON dump — write the full event log to /tmp/trace_shapes.json
+	// for post-analysis (diff / aggregate / external visualization).
+	// Also dump the predecode events into a separate recorder for the JSON.
+	let mut predecode_recorder = RecordingTracer::new();
+	let _ = inst.trace_predecode_dump(&mut predecode_recorder);
+
+	let json_path = "/tmp/trace_shapes.json";
+	let mut json_buf = String::new();
+	writeln!(&mut json_buf, "{{")?;
+	writeln!(&mut json_buf, "  \"workload\": \"goldilocks_mul\",")?;
+	writeln!(&mut json_buf, "  \"max_dispatch_events\": {},", MAX_EVENTS)?;
+	writeln!(&mut json_buf, "  \"dispatch_events\": [")?;
+	for (i, evt) in recorder.events.iter().enumerate() {
+		write_event_json(&mut json_buf, evt, i + 1 < recorder.events.len())?;
+	}
+	writeln!(&mut json_buf, "  ],")?;
+	writeln!(&mut json_buf, "  \"predecode_events\": [")?;
+	for (i, evt) in predecode_recorder.events.iter().enumerate() {
+		write_event_json(&mut json_buf, evt, i + 1 < predecode_recorder.events.len())?;
+	}
+	writeln!(&mut json_buf, "  ]")?;
+	writeln!(&mut json_buf, "}}")?;
+	std::fs::write(json_path, &json_buf)?;
+	println!("\n  ✓ JSON dump written: {} ({} bytes)", json_path, json_buf.len());
+
 	Ok(())
+}
+
+/// Hand-rolled JSON writer for one TraceEvent. No serde dep; the format is
+/// straightforward and only needs to round-trip for external analysis tools.
+fn write_event_json(
+	out: &mut String,
+	evt: &TraceEvent,
+	more: bool,
+) -> Result<(), std::fmt::Error> {
+	let comma = if more { "," } else { "" };
+	match evt {
+		TraceEvent::Dispatch(d) => {
+			let regs_b = format_regs_json(&d.regs_before);
+			let regs_a = format_regs_json(&d.regs_after);
+			let inst = format_inst_json(&d.inst);
+			let cls = format_classification_json(&d.classification);
+			let se = match &d.side_effect {
+				Some(s) => format!("{:?}", s).replace('"', "'"),
+				None => String::from("null"),
+			};
+			writeln!(
+				out,
+				"    {{ \"kind\": \"dispatch\", \"offset\": {}, \"opcode_name\": \"{}\", \
+				 \"macro_shape\": \"{:?}\", \"inst\": {}, \"regs_before\": {}, \"regs_after\": {}, \
+				 \"gas_before\": {}, \"gas_after\": {}, \"next_offset\": {}, \
+				 \"side_effect\": \"{}\", \"classification\": \"{}\" }}{}",
+				d.offset, d.opcode_name, d.macro_shape, inst, regs_b, regs_a,
+				d.gas_before, d.gas_after, d.next_offset, se, cls, comma,
+			)?;
+		}
+		TraceEvent::Predecode(p) => {
+			let entries: Vec<String> = p.emitted.iter().map(|e| {
+				format!(
+					"{{ \"offset\": {}, \"opcode_name\": \"{}\", \"inst\": {} }}",
+					e.offset, e.opcode_name, format_inst_json(&e.inst),
+				)
+			}).collect();
+			writeln!(
+				out,
+				"    {{ \"kind\": \"predecode\", \"source_pc\": {}, \"source_op_name\": \"{}\", \
+				 \"emit_offset\": {}, \"bb_gas_cost\": {}, \"emitted\": [{}] }}{}",
+				p.source_pc, p.source_op_name, p.emit_offset, p.bb_gas_cost,
+				entries.join(", "), comma,
+			)?;
+		}
+	}
+	Ok(())
+}
+
+fn format_regs_json(regs: &[u64; 13]) -> String {
+	let names = ["RA", "SP", "T0", "T1", "T2", "S0", "S1", "A0", "A1", "A2", "A3", "A4", "A5"];
+	let pairs: Vec<String> = names.iter().zip(regs.iter())
+		.map(|(n, v)| format!("\"{}\": {}", n, v))
+		.collect();
+	format!("{{ {} }}", pairs.join(", "))
+}
+
+fn format_inst_json(i: &InstFields) -> String {
+	format!(
+		"{{ \"pc\": {}, \"next_pc\": {}, \"next_idx\": {}, \"target_idx\": {}, \
+		 \"bb_gas_cost\": {}, \"opcode\": {}, \"r0\": {}, \"r1\": {}, \"r2\": {}, \
+		 \"imm1\": {}, \"imm2\": {} }}",
+		i.pc, i.next_pc, i.next_idx, i.target_idx,
+		i.bb_gas_cost, i.opcode, i.r0, i.r1, i.r2,
+		i.imm1, i.imm2,
+	)
+}
+
+fn format_classification_json(c: &DispatchClassification) -> String {
+	match c {
+		DispatchClassification::Optimal => "Optimal".into(),
+		DispatchClassification::UnresolvedFirstTime { will_resolve_to } =>
+			format!("UnresolvedFirstTime → {}", will_resolve_to),
+		DispatchClassification::UnresolvedRepeatVisit => "UnresolvedRepeatVisit".into(),
+		DispatchClassification::IntrinsicOptimal { intrinsic_id } =>
+			format!("IntrinsicOptimal[{}]", intrinsic_id),
+		DispatchClassification::HostTrampoline { id, was_rostro_intrinsic } =>
+			format!("HostTrampoline[{} rostro={}]", id, was_rostro_intrinsic),
+		DispatchClassification::CacheEvictionRebuild => "CacheEvictionRebuild".into(),
+		DispatchClassification::GasTrap => "GasTrap".into(),
+		DispatchClassification::Trap => "Trap".into(),
+	}
 }
 
 /// Classify the dispatch based on before/after inst snapshots and opcode names.
