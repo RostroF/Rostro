@@ -13,8 +13,9 @@ use polkavm::{
 		ROSTRO_INTRINSIC_DILITHIUM_VERIFY, ROSTRO_INTRINSIC_GOLDILOCKS_ADD,
 		ROSTRO_INTRINSIC_GOLDILOCKS_INV, ROSTRO_INTRINSIC_GOLDILOCKS_MUL,
 		ROSTRO_INTRINSIC_GOLDILOCKS_SUB, ROSTRO_INTRINSIC_P521_ECDSA_VERIFY,
-		goldilocks_add_native, goldilocks_inv_native, goldilocks_mul_native,
-		goldilocks_sub_native, rostro_dilithium_verify, rostro_p521_ecdsa_verify_prehash,
+		RostroIntrinsicsCodegen, goldilocks_add_native, goldilocks_inv_native,
+		goldilocks_mul_native, goldilocks_sub_native, rostro_dilithium_verify,
+		rostro_p521_ecdsa_verify_prehash,
 	},
 };
 
@@ -132,6 +133,13 @@ pub struct PolkaVmRunner {
 	engine: Engine,
 	gas_limit: i64,
 	name: &'static str,
+	/// Whether to install `RostroIntrinsicsCodegen` on the ModuleConfig.
+	/// Only meaningful for the compiler backend; the interpreter ignores it.
+	use_custom_codegen: bool,
+	/// Sandbox kind that the engine resolved to. Cached so we don't query
+	/// it per `Module::new` call. CustomCodegen needs this to compute
+	/// vmctx-relative offsets.
+	sandbox_kind: SandboxKind,
 }
 
 impl PolkaVmRunner {
@@ -180,9 +188,26 @@ impl PolkaVmRunner {
 		if config.sandbox().is_none() {
 			config.set_sandbox(Some(SandboxKind::Generic));
 		}
+		let sandbox_kind = config.sandbox().unwrap_or(SandboxKind::Generic);
+		// Install RostroIntrinsicsCodegen only on the compiler backend. The
+		// interpreter intercepts intrinsic ecallis inline in run_match and
+		// doesn't consult custom_codegen.
+		let use_custom_codegen = matches!(backend, Some(BackendKind::Compiler));
 		let engine =
 			Engine::new(&config).map_err(|e| format!("polkavm Engine::new ({name}): {e}"))?;
-		Ok(Self { engine, gas_limit: DEFAULT_GAS_LIMIT as i64, name })
+		Ok(Self { engine, gas_limit: DEFAULT_GAS_LIMIT as i64, name, use_custom_codegen, sandbox_kind })
+	}
+
+	/// Apply the standard module config (gas metering + optional Rostro
+	/// intrinsic CustomCodegen on the JIT path). Centralized so `precompile`
+	/// and `run` share the wiring.
+	fn make_module_config(&self) -> ModuleConfig {
+		let mut mc = ModuleConfig::new();
+		mc.set_gas_metering(Some(GasMeteringKind::Sync));
+		if self.use_custom_codegen {
+			mc.set_custom_codegen(RostroIntrinsicsCodegen::new(self.sandbox_kind));
+		}
+		mc
 	}
 }
 
@@ -190,8 +215,7 @@ impl PolkaVmRunner {
 	/// Compile `blob` into a reusable [`PolkaVmCompiled`] handle. Skip-the-
 	/// compile path for steady-state (warm) measurements.
 	pub fn precompile(&self, blob: &[u8]) -> Result<PolkaVmCompiled, String> {
-		let mut mc = ModuleConfig::new();
-		mc.set_gas_metering(Some(GasMeteringKind::Sync));
+		let mc = self.make_module_config();
 		let module = Module::new(&self.engine, &mc, blob.to_vec().into())
 			.map_err(|e| format!("polkavm Module::new (precompile): {e}"))?;
 		Ok(PolkaVmCompiled { module })
@@ -248,8 +272,7 @@ impl RvmRunner for PolkaVmRunner {
 	}
 
 	fn run(&mut self, blob: &[u8], _input: &[u8]) -> Result<RunOutput, String> {
-		let mut mc = ModuleConfig::new();
-		mc.set_gas_metering(Some(GasMeteringKind::Sync));
+		let mc = self.make_module_config();
 		let module = Module::new(&self.engine, &mc, blob.to_vec().into())
 			.map_err(|e| format!("polkavm Module::new: {}", e))?;
 

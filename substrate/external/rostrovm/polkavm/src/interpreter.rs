@@ -4428,6 +4428,27 @@ pub fn goldilocks_inv_native(x: u64) -> u64 {
     result
 }
 
+/// extern "C" wrappers used by `RostroIntrinsicsCodegen` to call goldilocks
+/// natives directly from JIT-emitted code. The default Rust ABI on x86_64
+/// happens to match SysV for `(u64, u64) -> u64` today, but it isn't
+/// guaranteed across compiler versions — these wrappers nail down SysV at
+/// the call site so the JIT's `mov rdi/rsi; call` sequence stays sound.
+pub extern "C" fn rostro_jit_goldilocks_mul(a: u64, b: u64) -> u64 {
+    goldilocks_mul_native(a, b)
+}
+
+pub extern "C" fn rostro_jit_goldilocks_add(a: u64, b: u64) -> u64 {
+    goldilocks_add_native(a, b)
+}
+
+pub extern "C" fn rostro_jit_goldilocks_sub(a: u64, b: u64) -> u64 {
+    goldilocks_sub_native(a, b)
+}
+
+pub extern "C" fn rostro_jit_goldilocks_inv(x: u64) -> u64 {
+    goldilocks_inv_native(x)
+}
+
 /// P-521 ECDSA verify-prehash. Pure-bytes API so both the interpreter
 /// (zero-copy via Memory::borrow_bytes) and the JIT runner (host-side
 /// after `inst.read_memory`) share one verifier body.

@@ -59,6 +59,7 @@ mod config;
 mod gas;
 mod interpreter;
 mod linker;
+mod rostro_intrinsic_codegen;
 
 /// Rostro intrinsic ABI: ecalli IDs reserved for runtime-internal crypto
 /// intrinsics (`100..1023`) and their native helper bodies. Both the
@@ -78,6 +79,13 @@ pub mod rostro_intrinsics {
         goldilocks_sub_native,
         rostro_dilithium_verify, rostro_p521_ecdsa_verify_prehash,
     };
+
+    /// CustomCodegen impl that emits direct intrinsic calls in JIT-compiled
+    /// code, skipping the standard ecalli host trampoline. Goldilocks-only
+    /// for now (IDs 100-103); other IDs fall through to the standard sequence.
+    /// Wire via `ModuleConfig::set_custom_codegen()` (requires
+    /// `Config::set_allow_experimental(true)`).
+    pub use crate::rostro_intrinsic_codegen::RostroIntrinsicsCodegen;
 }
 #[cfg(feature = "std")]
 mod source_cache;
