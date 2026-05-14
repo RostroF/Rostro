@@ -59,6 +59,26 @@ mod config;
 mod gas;
 mod interpreter;
 mod linker;
+
+/// Rostro intrinsic ABI: ecalli IDs reserved for runtime-internal crypto
+/// intrinsics (`100..1023`) and their native helper bodies. Both the
+/// interpreter (inline FAST_OP_ECALLI dispatch) and external consumers (e.g.,
+/// the JIT runner's host-side ecalli match arm) use these helpers so the two
+/// backends produce identical results on guest blobs that opt into the
+/// reserved IDs via `polkavm_import(index = N)`.
+pub mod rostro_intrinsics {
+    pub use crate::interpreter::{
+        ROSTRO_INTRINSIC_DILITHIUM_VERIFY,
+        ROSTRO_INTRINSIC_GOLDILOCKS_ADD,
+        ROSTRO_INTRINSIC_GOLDILOCKS_INV,
+        ROSTRO_INTRINSIC_GOLDILOCKS_MUL,
+        ROSTRO_INTRINSIC_GOLDILOCKS_SUB,
+        ROSTRO_INTRINSIC_P521_ECDSA_VERIFY,
+        goldilocks_add_native, goldilocks_inv_native, goldilocks_mul_native,
+        goldilocks_sub_native,
+        rostro_dilithium_verify, rostro_p521_ecdsa_verify_prehash,
+    };
+}
 #[cfg(feature = "std")]
 mod source_cache;
 mod utils;

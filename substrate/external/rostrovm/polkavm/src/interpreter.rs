@@ -2888,6 +2888,8 @@ impl InterpretedInstance {
                             // ABI: A0=vk_ptr (133B uncompressed sec1: 0x04||X||Y),
                             //      A1=sig_ptr (132B: r||s), A2=prehash_ptr,
                             //      A3=prehash_len. Returns A0 = 1 verified, 0 failed.
+                            // Zero-copy borrow + shared verify body (also reused by
+                            // the JIT runner's host-side dispatch).
                             let vk_ptr = self.regs[Reg::A0.to_usize()] as u32;
                             let sig_ptr = self.regs[Reg::A1.to_usize()] as u32;
                             let prehash_ptr = self.regs[Reg::A2.to_usize()] as u32;
@@ -2897,13 +2899,10 @@ impl InterpretedInstance {
                                 if len == 0 { Some(&[]) } else { memory.borrow_bytes(ptr, len) }
                             };
                             let result: u64 = (|| {
-                                use p521::ecdsa::{signature::hazmat::PrehashVerifier, Signature, VerifyingKey};
                                 let vk_bytes = memory.borrow_bytes(vk_ptr, 133)?;
                                 let sig_bytes = memory.borrow_bytes(sig_ptr, 132)?;
                                 let prehash = borrow_or_empty(prehash_ptr, prehash_len)?;
-                                let vk = VerifyingKey::from_sec1_bytes(vk_bytes).ok()?;
-                                let sig = Signature::from_slice(sig_bytes).ok()?;
-                                Some(if vk.verify_prehash(prehash, &sig).is_ok() { 1u64 } else { 0u64 })
+                                Some(rostro_p521_ecdsa_verify_prehash(vk_bytes, sig_bytes, prehash) as u64)
                             })().unwrap_or(0);
                             self.regs[Reg::A0.to_usize()] = result;
                             offset += 1;
@@ -2912,8 +2911,8 @@ impl InterpretedInstance {
                             // ABI: A0=pubkey_ptr (1952B), A1=msg_ptr, A2=msg_len,
                             //      A3=sig_ptr (3309B), A4=ctx_ptr, A5=ctx_len
                             // Returns: A0 = 1 on verified, 0 otherwise.
-                            // Zero-copy: borrow bytes directly from guest memory
-                            // into the fips204 deserializer. No stack roundtrip.
+                            // Zero-copy borrow + shared verify body (also reused by
+                            // the JIT runner's host-side dispatch).
                             let pk_ptr  = self.regs[Reg::A0.to_usize()] as u32;
                             let msg_ptr = self.regs[Reg::A1.to_usize()] as u32;
                             let msg_len = self.regs[Reg::A2.to_usize()] as u32;
@@ -2930,16 +2929,11 @@ impl InterpretedInstance {
                                 if len == 0 { Some(&[]) } else { memory.borrow_bytes(ptr, len) }
                             };
                             let result: u64 = (|| {
-                                use fips204::ml_dsa_65;
-                                use fips204::traits::{Verifier, SerDes};
                                 let pk_bytes  = memory.borrow_bytes(pk_ptr,  1952)?;
                                 let sig_bytes = memory.borrow_bytes(sig_ptr, 3309)?;
                                 let msg = borrow_or_empty(msg_ptr, msg_len)?;
                                 let ctx = borrow_or_empty(ctx_ptr, ctx_len)?;
-                                let pk_arr: &[u8; 1952] = pk_bytes.try_into().ok()?;
-                                let sig_arr: &[u8; 3309] = sig_bytes.try_into().ok()?;
-                                let pk = ml_dsa_65::PublicKey::try_from_bytes(*pk_arr).ok()?;
-                                Some(if pk.verify(msg, sig_arr, ctx) { 1u64 } else { 0u64 })
+                                Some(rostro_dilithium_verify(pk_bytes, msg, sig_bytes, ctx) as u64)
                             })().unwrap_or(0);
                             self.regs[Reg::A0.to_usize()] = result;
                             offset += 1;
@@ -4371,7 +4365,7 @@ const GOLDILOCKS_P: u64 = 0xFFFFFFFF00000001; // 2^64 - 2^32 + 1
 const GOLDILOCKS_EPSILON: u64 = 0xFFFFFFFF; // 2^64 - p = 2^32 - 1
 
 #[inline(always)]
-fn goldilocks_mul_native(a: u64, b: u64) -> u64 {
+pub fn goldilocks_mul_native(a: u64, b: u64) -> u64 {
     let prod = (a as u128).wrapping_mul(b as u128);
     let lo = prod as u64;
     let hi = (prod >> 64) as u64;
@@ -4397,14 +4391,14 @@ fn goldilocks_mul_native(a: u64, b: u64) -> u64 {
 /// Goldilocks add: result may be non-canonical (in [0, 2^64)). Matches gp's
 /// representation. ~3-5 native x86 instructions.
 #[inline(always)]
-fn goldilocks_add_native(a: u64, b: u64) -> u64 {
+pub fn goldilocks_add_native(a: u64, b: u64) -> u64 {
     let (r, c) = a.overflowing_add(b);
     if c { r.wrapping_add(GOLDILOCKS_EPSILON) } else { r }
 }
 
 /// Goldilocks sub. ~3-5 native instructions.
 #[inline(always)]
-fn goldilocks_sub_native(a: u64, b: u64) -> u64 {
+pub fn goldilocks_sub_native(a: u64, b: u64) -> u64 {
     let (r, c) = a.overflowing_sub(b);
     if c { r.wrapping_sub(GOLDILOCKS_EPSILON) } else { r }
 }
@@ -4415,7 +4409,7 @@ fn goldilocks_sub_native(a: u64, b: u64) -> u64 {
 /// Replaces a ~30µs interpreted square-and-multiply ladder = ~30-75× speedup
 /// per inv.
 #[inline(always)]
-fn goldilocks_inv_native(x: u64) -> u64 {
+pub fn goldilocks_inv_native(x: u64) -> u64 {
     const EXP: u64 = GOLDILOCKS_P - 2; // 0xFFFFFFFEFFFFFFFF
     if x == 0 {
         // Fermat undefined at 0; gp::inv would return 1 (x^0=1) here too.
@@ -4432,6 +4426,39 @@ fn goldilocks_inv_native(x: u64) -> u64 {
         e >>= 1;
     }
     result
+}
+
+/// P-521 ECDSA verify-prehash. Pure-bytes API so both the interpreter
+/// (zero-copy via Memory::borrow_bytes) and the JIT runner (host-side
+/// after `inst.read_memory`) share one verifier body.
+///
+/// `vk_bytes`: 133-byte uncompressed sec1 (`0x04 || X || Y`).
+/// `sig_bytes`: 132-byte raw `r || s`.
+/// `prehash`: caller-supplied prehash (any length the verifier accepts).
+///
+/// Returns `true` on verified, `false` on any failure (parse, length, or
+/// crypto). Crypto-internal errors are intentionally collapsed to `false`
+/// to match the on-chain semantics ("verifies or it doesn't").
+pub fn rostro_p521_ecdsa_verify_prehash(vk_bytes: &[u8], sig_bytes: &[u8], prehash: &[u8]) -> bool {
+    use p521::ecdsa::{signature::hazmat::PrehashVerifier, Signature, VerifyingKey};
+    let Ok(vk) = VerifyingKey::from_sec1_bytes(vk_bytes) else { return false };
+    let Ok(sig) = Signature::from_slice(sig_bytes) else { return false };
+    vk.verify_prehash(prehash, &sig).is_ok()
+}
+
+/// ML-DSA-65 (Dilithium) verify. Pure-bytes API; same single-source-of-truth
+/// rationale as `rostro_p521_ecdsa_verify_prehash`.
+///
+/// `pk_bytes`: 1952-byte ML-DSA-65 public key.
+/// `sig_bytes`: 3309-byte ML-DSA-65 signature.
+/// `msg`, `ctx`: caller-supplied.
+pub fn rostro_dilithium_verify(pk_bytes: &[u8], msg: &[u8], sig_bytes: &[u8], ctx: &[u8]) -> bool {
+    use fips204::ml_dsa_65;
+    use fips204::traits::{SerDes, Verifier};
+    let Ok(pk_arr) = <&[u8; 1952]>::try_from(pk_bytes) else { return false };
+    let Ok(sig_arr) = <&[u8; 3309]>::try_from(sig_bytes) else { return false };
+    let Ok(pk) = ml_dsa_65::PublicKey::try_from_bytes(*pk_arr) else { return false };
+    pk.verify(msg, sig_arr, ctx)
 }
 
 fn trap_impl<const DEBUG: bool>(visitor: &mut InterpretedInstance, program_counter: ProgramCounter) -> Option<Target> {
