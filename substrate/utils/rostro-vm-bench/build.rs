@@ -98,6 +98,11 @@ const SERVICES: &[Service] = &[
 		bin_name: "rostro-bench-curve-conversion",
 		const_prefix: "CURVE_CONVERSION",
 	},
+	Service {
+		dir: "trace-shapes-suite",
+		bin_name: "rostro-bench-trace-shapes-suite",
+		const_prefix: "TRACE_SHAPES_SUITE",
+	},
 ];
 
 fn main() {
