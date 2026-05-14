@@ -34,11 +34,35 @@ use polkavm::{
 		SideEffect, TraceEvent, Tracer, opcode_info,
 	},
 };
-use rostro_vm_bench::service_blobs::GOLDILOCKS_MUL_POLKAVM_BLOB;
-
-const MAX_EVENTS: usize = 30;
+use rostro_vm_bench::service_blobs::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+	let args: Vec<String> = std::env::args().collect();
+	let workload = args.get(1).map(|s| s.as_str()).unwrap_or("goldilocks_mul");
+	let max_events: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(30);
+
+	let blob: &[u8] = match workload {
+		"goldilocks_mul" => GOLDILOCKS_MUL_POLKAVM_BLOB,
+		"ed25519" => ED25519_POLKAVM_BLOB,
+		"ecrecover" => ECRECOVER_POLKAVM_BLOB,
+		"blake2b" => BLAKE2B_POLKAVM_BLOB,
+		"keccak" => KECCAK_POLKAVM_BLOB,
+		"poseidon2_perm" => POSEIDON2_PERM_POLKAVM_BLOB,
+		"poly_eval" => POLY_EVAL_POLKAVM_BLOB,
+		"batch_inverse" => BATCH_INVERSE_POLKAVM_BLOB,
+		"mini_verifier" => MINI_VERIFIER_POLKAVM_BLOB,
+		"fri_fold_tree" => FRI_FOLD_TREE_POLKAVM_BLOB,
+		other => {
+			eprintln!("unknown workload: {}", other);
+			eprintln!("known: goldilocks_mul, ed25519, ecrecover, blake2b, keccak, poseidon2_perm, poly_eval, batch_inverse, mini_verifier, fri_fold_tree");
+			std::process::exit(1);
+		}
+	};
+
+	run_trace(workload, blob, max_events)
+}
+
+fn run_trace(workload: &str, blob: &[u8], max_events: usize) -> Result<(), Box<dyn std::error::Error>> {
 	let mut config = Config::new();
 	config.set_allow_experimental(true);
 	config.set_backend(Some(BackendKind::Interpreter));
@@ -51,12 +75,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut mc = ModuleConfig::new();
 	mc.set_gas_metering(Some(GasMeteringKind::Sync));
 	mc.set_step_tracing(true); // ← key: predecode inserts FAST_OP_STEP between source ops
-	let module = Module::new(&engine, &mc, GOLDILOCKS_MUL_POLKAVM_BLOB.to_vec().into())?;
+	let module = Module::new(&engine, &mc, blob.to_vec().into())?;
 
 	let mut inst = module.instantiate()?;
 	inst.set_gas(1_000_000_000);
 
-	let export = module.exports().next().ok_or("no exports in goldilocks_mul blob")?;
+	let export = module.exports().next().ok_or("no exports in blob")?;
 	inst.set_next_program_counter(export.program_counter());
 	inst.set_reg(Reg::RA, 0xFFFF_0000);
 	inst.set_reg(Reg::SP, module.default_sp());
@@ -65,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut recorder = RecordingTracer::new();
 
 	println!("════════════════════════════════════════════════════════════════════════");
-	println!("  Coin-sort trace v3: goldilocks_mul (first {} source instructions)", MAX_EVENTS);
+	println!("  Coin-sort trace v4: {} (first {} source instructions)", workload, max_events);
 	println!("════════════════════════════════════════════════════════════════════════");
 
 	let mut prev_offset: Option<u32> = None;
@@ -119,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					console.on_dispatch(&evt);
 					recorder.on_dispatch(&evt);
 					event_count += 1;
-					if event_count >= MAX_EVENTS {
+					if event_count >= max_events {
 						println!("\n══════════ stopped after {} events ══════════", event_count);
 						break;
 					}
@@ -180,11 +204,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut predecode_recorder = RecordingTracer::new();
 	let _ = inst.trace_predecode_dump(&mut predecode_recorder);
 
-	let json_path = "/tmp/trace_shapes.json";
+	let json_path = format!("/tmp/trace_shapes_{}.json", workload);
 	let mut json_buf = String::new();
 	writeln!(&mut json_buf, "{{")?;
-	writeln!(&mut json_buf, "  \"workload\": \"goldilocks_mul\",")?;
-	writeln!(&mut json_buf, "  \"max_dispatch_events\": {},", MAX_EVENTS)?;
+	writeln!(&mut json_buf, "  \"workload\": \"{}\",", workload)?;
+	writeln!(&mut json_buf, "  \"max_dispatch_events\": {},", max_events)?;
 	writeln!(&mut json_buf, "  \"dispatch_events\": [")?;
 	for (i, evt) in recorder.events.iter().enumerate() {
 		write_event_json(&mut json_buf, evt, i + 1 < recorder.events.len())?;
@@ -196,8 +220,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	}
 	writeln!(&mut json_buf, "  ]")?;
 	writeln!(&mut json_buf, "}}")?;
-	std::fs::write(json_path, &json_buf)?;
-	println!("\n  ✓ JSON dump written: {} ({} bytes)", json_path, json_buf.len());
+	std::fs::write(&json_path, &json_buf)?;
+	println!("\n  ✓ JSON dump written: {} ({} bytes)", &json_path, json_buf.len());
 
 	Ok(())
 }
