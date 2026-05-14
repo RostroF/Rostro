@@ -1309,6 +1309,43 @@ impl RawInstance {
         access_backend!(self.backend, |backend| backend.program_counter())
     }
 
+    // ── Trace introspection (research only — see `polkavm::trace`) ────────
+    //
+    // These expose predecode-stamped state for the coin-sort tracer. They
+    // only return Some(_) when the backend is the interpreter (the JIT
+    // compiles directly to machine code and has no compiled_decoded array).
+
+    /// Current dispatch index. The next dispatch loop iteration will
+    /// execute the entry at this offset. `None` if backend isn't interpreted.
+    pub fn trace_compiled_offset(&self) -> Option<u32> {
+        match &self.backend {
+            InstanceBackend::Interpreted(inst) => Some(inst.trace_compiled_offset()),
+            #[cfg(any(target_os = "linux", feature = "generic-sandbox"))]
+            _ => None,
+        }
+    }
+
+    /// Number of entries in the predecoded array. Grows as basic blocks
+    /// get compiled lazily during execution. `None` if not interpreted.
+    pub fn trace_compiled_decoded_len(&self) -> Option<usize> {
+        match &self.backend {
+            InstanceBackend::Interpreted(inst) => Some(inst.trace_compiled_decoded_len()),
+            #[cfg(any(target_os = "linux", feature = "generic-sandbox"))]
+            _ => None,
+        }
+    }
+
+    /// Snapshot the predecoded inst at `offset` (one entry in the
+    /// `compiled_decoded` array). `None` if backend isn't interpreted or
+    /// `offset` is out of range.
+    pub fn trace_compiled_inst_at(&self, offset: u32) -> Option<crate::trace::InstFields> {
+        match &self.backend {
+            InstanceBackend::Interpreted(inst) => inst.trace_compiled_inst_at(offset),
+            #[cfg(any(target_os = "linux", feature = "generic-sandbox"))]
+            _ => None,
+        }
+    }
+
     /// Gets the next program counter.
     ///
     /// This is where the program will resume execution when [`RawInstance::run`] is called.

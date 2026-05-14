@@ -2351,6 +2351,44 @@ impl InterpretedInstance {
         self.gas
     }
 
+    // ── Trace introspection (research only — see `polkavm::trace`) ────────
+    //
+    // These let an external tracer read the predecode-stamped state without
+    // exposing the crate-internal `DecodedInst` type. Hot path is unaffected
+    // (these are debug-only API surface; the actual run loop never calls them).
+
+    /// Current `compiled_decoded` index. The next dispatch loop iteration
+    /// will execute `compiled_decoded[compiled_offset()]`.
+    pub fn trace_compiled_offset(&self) -> u32 {
+        self.compiled_offset
+    }
+
+    /// Number of entries in `compiled_decoded` so far. Grows as basic
+    /// blocks get compiled lazily.
+    pub fn trace_compiled_decoded_len(&self) -> usize {
+        self.compiled_decoded.len()
+    }
+
+    /// Snapshot the predecoded inst at `offset` as a public `InstFields`.
+    /// Returns None if `offset` is out of range.
+    pub fn trace_compiled_inst_at(&self, offset: u32) -> Option<crate::trace::InstFields> {
+        let idx = offset as usize;
+        let inst = self.compiled_decoded.get(idx)?;
+        Some(crate::trace::InstFields {
+            pc: inst.pc,
+            next_pc: inst.next_pc,
+            next_idx: inst.next_idx,
+            target_idx: inst.target_idx,
+            bb_gas_cost: inst.bb_gas_cost,
+            opcode: inst.opcode,
+            r0: inst.r0,
+            r1: inst.r1,
+            r2: inst.r2,
+            imm1: inst.imm1,
+            imm2: inst.imm2,
+        })
+    }
+
     pub fn set_gas(&mut self, gas: Gas) {
         self.gas = gas;
     }

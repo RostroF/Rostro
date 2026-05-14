@@ -1,29 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) Rostro Foundation
 
-//! Coin-sort tracer — runs a tiny prefix of a known guest blob through the
+//! Coin-sort tracer v3 — runs a tiny prefix of a known guest blob through the
 //! interpreter with `step_tracing` enabled, emits a structured per-source-
-//! instruction event for each step, and dumps the dispatch path so we can
-//! observe which slot each source instruction was actually sorted into.
+//! instruction event for each step, looks up the actual FAST_OP_* the source
+//! got sorted into, classifies the dispatch path (Optimal / UnresolvedFirstTime
+//! / IntrinsicOptimal / HostTrampoline / Trap), and dumps the result so we can
+//! see exactly which slot each shape took and what happened to it.
 //!
-//! v1 scope (this commit): PC + register diff per instruction. Opcode-name
-//! decoding, macro-shape classification, predecode events, and the optimal-
-//! vs-actual diagnosis come in a follow-up — they need additional pub API
-//! on the polkavm crate (compiled_decoded introspection).
+//! v3 features (vs v1 MVP):
+//! - **Real opcode names** via `polkavm::trace::opcode_info` lookup.
+//! - **Real macro shapes** for each dispatched instruction.
+//! - **Classification** computed from before/after `compiled_decoded[offset]`
+//!   snapshots:
+//!     * `UnresolvedFirstTime { will_resolve_to }` when the inst's opcode at
+//!       `offset` was `FAST_OP_UNRESOLVED_*` before the step and a real
+//!       opcode after (the unresolved arm self-rewrote).
+//!     * `IntrinsicOptimal { intrinsic_id }` when the inst was FAST_OP_ECALLI
+//!       with an imm in 100..1023 (Rostro intrinsic ID range).
+//!     * `HostTrampoline` for ECALLI with imm outside 100..1023.
+//!     * `Trap` for FAST_OP_TRAP arms.
+//!     * `Optimal` for everything else.
 //!
 //! Usage: `cargo run -p rostro-vm-bench --example trace_shapes --release`
-//!
-//! Output: ConsoleTracer pretty-print of the first MAX_EVENTS source-
-//! instruction events from goldilocks_mul. Goldilocks_mul has a small chained
-//! multiply loop — we cap output at 30 events to see the loop structure +
-//! the intrinsic interception pattern without drowning in repetition.
 
 use polkavm::{
 	BackendKind, Config, Engine, GasMeteringKind, InterruptKind, Module, ModuleConfig, RawInstance,
 	Reg, SandboxKind,
 	trace::{
-		ConsoleTracer, DispatchClassification, DispatchEvent, InstFields, MacroShape,
-		RecordingTracer, Tracer,
+		ConsoleTracer, DispatchClassification, DispatchEvent, InstFields, RecordingTracer,
+		SideEffect, Tracer, opcode_info,
 	},
 };
 use rostro_vm_bench::service_blobs::GOLDILOCKS_MUL_POLKAVM_BLOB;
@@ -57,10 +63,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut recorder = RecordingTracer::new();
 
 	println!("════════════════════════════════════════════════════════════════════════");
-	println!("  Coin-sort trace: goldilocks_mul (first {} source instructions)", MAX_EVENTS);
+	println!("  Coin-sort trace v3: goldilocks_mul (first {} source instructions)", MAX_EVENTS);
 	println!("════════════════════════════════════════════════════════════════════════");
 
-	let mut prev_pc: Option<u32> = None;
+	let mut prev_offset: Option<u32> = None;
+	let mut prev_inst: Option<InstFields> = None;
 	let mut prev_regs = snapshot_regs(&inst);
 	let mut prev_gas = inst.gas();
 	let mut event_count = 0;
@@ -70,33 +77,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			InterruptKind::Step => {
 				let regs = snapshot_regs(&inst);
 				let gas = inst.gas();
-				let pc = inst.next_program_counter().map(|p| p.0);
+				let offset_now = inst.trace_compiled_offset();
 
-				if let Some(pc_just_ran) = prev_pc {
+				if let (Some(po), Some(pi)) = (prev_offset, prev_inst) {
+					// FAST_OP_STEP (174) is the trace machinery itself — skip,
+					// it's not a real source-instruction dispatch.
+					if pi.opcode == 174 {
+						let new_offset = offset_now.unwrap_or(0);
+						prev_offset = Some(new_offset);
+						prev_inst = inst.trace_compiled_inst_at(new_offset);
+						prev_regs = regs;
+						prev_gas = gas;
+						continue;
+					}
+					// The instruction at `prev_offset` just executed. Look up
+					// what's there NOW (it may have self-rewritten if it was
+					// an unresolved arm).
+					let inst_after = inst.trace_compiled_inst_at(po).unwrap_or(pi);
+					let (opcode_name_before, macro_shape_before) = opcode_info(pi.opcode);
+					let (opcode_name_after, _) = opcode_info(inst_after.opcode);
+
+					let classification = classify(pi, inst_after, opcode_name_after);
+					let side_effect = compute_side_effect(pi, inst_after, opcode_name_after);
+
 					let evt = DispatchEvent {
-						offset: 0, // not yet exposed via public API; placeholder
-						opcode_name: "(source PVM op — opcode-name lookup is v2)",
-						macro_shape: MacroShape::InlineOther,
-						inst: InstFields {
-							pc: pc_just_ran,
-							next_pc: pc.unwrap_or(0),
-							next_idx: 0,
-							target_idx: 0,
-							bb_gas_cost: 0,
-							opcode: 0,
-							r0: 0,
-							r1: 0,
-							r2: 0,
-							imm1: 0,
-							imm2: 0,
-						},
+						offset: po,
+						opcode_name: opcode_name_before,
+						macro_shape: macro_shape_before,
+						inst: pi,
 						regs_before: prev_regs,
 						regs_after: regs,
 						gas_before: prev_gas,
 						gas_after: gas,
-						next_offset: 0,
-						side_effect: None,
-						classification: DispatchClassification::Optimal,
+						next_offset: offset_now.unwrap_or(0),
+						side_effect,
+						classification,
 					};
 					console.on_dispatch(&evt);
 					recorder.on_dispatch(&evt);
@@ -107,7 +122,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					}
 				}
 
-				prev_pc = pc;
+				// Capture the inst we're about to execute (compiled_offset has
+				// advanced past FAST_OP_STEP, so the entry at the new offset is
+				// the real source inst).
+				let new_offset = offset_now.unwrap_or(0);
+				prev_offset = Some(new_offset);
+				prev_inst = inst.trace_compiled_inst_at(new_offset);
 				prev_regs = regs;
 				prev_gas = gas;
 			}
@@ -134,7 +154,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		}
 	}
 
-	// Post-run summary from RecordingTracer
 	println!("\n════════════════ macro-shape histogram ════════════════");
 	for (shape, count) in recorder.shape_histogram() {
 		println!("  {:<30} {}", shape, count);
@@ -147,22 +166,83 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	Ok(())
 }
 
+/// Classify the dispatch based on before/after inst snapshots and opcode names.
+fn classify(
+	before: InstFields,
+	after: InstFields,
+	opcode_name_after: &'static str,
+) -> DispatchClassification {
+	// FAST_OP_TRAP = 4 (per OPCODE_TABLE)
+	if before.opcode == 4 {
+		return DispatchClassification::Trap;
+	}
+	// FAST_OP_ECALLI = 122 (per OPCODE_TABLE)
+	if before.opcode == 122 {
+		let id = before.imm1 as u32;
+		if (100..=1023).contains(&id) {
+			return DispatchClassification::IntrinsicOptimal { intrinsic_id: id };
+		} else {
+			return DispatchClassification::HostTrampoline {
+				id,
+				was_rostro_intrinsic: false,
+			};
+		}
+	}
+	// Detect UnresolvedFirstTime: the opcode at this offset CHANGED between
+	// before and after the step. The unresolved arm self-rewrote.
+	let (before_name, _) = opcode_info(before.opcode);
+	if before_name.starts_with("FAST_OP_UNRESOLVED_") && before.opcode != after.opcode {
+		return DispatchClassification::UnresolvedFirstTime {
+			will_resolve_to: opcode_name_after,
+		};
+	}
+	if before_name.starts_with("FAST_OP_UNRESOLVED_") && before.opcode == after.opcode {
+		return DispatchClassification::UnresolvedRepeatVisit;
+	}
+	DispatchClassification::Optimal
+}
+
+fn compute_side_effect(
+	before: InstFields,
+	after: InstFields,
+	to_opcode_name: &'static str,
+) -> Option<SideEffect> {
+	if before.opcode != after.opcode {
+		return Some(SideEffect::OneShotRewrite {
+			from_opcode: before.opcode,
+			to_opcode: after.opcode,
+		});
+	}
+	// FAST_OP_ECALLI intrinsic interception
+	if before.opcode == 122 {
+		let id = before.imm1 as u32;
+		if (100..=1023).contains(&id) {
+			let native_fn = match id {
+				100 => "rostro_jit_goldilocks_mul",
+				101 => "rostro_jit_goldilocks_add",
+				102 => "rostro_jit_goldilocks_sub",
+				103 => "rostro_jit_goldilocks_inv",
+				110 => "rostro_dilithium_verify",
+				111 => "rostro_p521_ecdsa_verify_prehash",
+				_ => "(unknown intrinsic)",
+			};
+			return Some(SideEffect::IntrinsicIntercepted { intrinsic_id: id, native_fn });
+		} else {
+			return Some(SideEffect::HostEcalliExit { hostcall_number: id });
+		}
+	}
+	// (We don't yet detect MemoryWrite / BranchOutcome / JumpTo without
+	// instrumenting the actual macro bodies — those require v4.)
+	let _ = to_opcode_name;
+	None
+}
+
 fn snapshot_regs(inst: &RawInstance) -> [u64; 13] {
 	let mut s = [0u64; 13];
 	let regs = [
-		Reg::RA,
-		Reg::SP,
-		Reg::T0,
-		Reg::T1,
-		Reg::T2,
-		Reg::S0,
-		Reg::S1,
-		Reg::A0,
-		Reg::A1,
-		Reg::A2,
-		Reg::A3,
-		Reg::A4,
-		Reg::A5,
+		Reg::RA, Reg::SP, Reg::T0, Reg::T1, Reg::T2,
+		Reg::S0, Reg::S1, Reg::A0, Reg::A1, Reg::A2,
+		Reg::A3, Reg::A4, Reg::A5,
 	];
 	for (i, r) in regs.iter().enumerate() {
 		s[i] = inst.reg(*r);
