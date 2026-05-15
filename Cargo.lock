@@ -3020,6 +3020,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ed25519-compact"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33ce99a9e19c84beb4cc35ece85374335ccc398240712114c85038319ed709bd"
+
+[[package]]
 name = "ed25519-dalek"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9874,7 +9880,9 @@ name = "polkavm"
 version = "0.32.0"
 dependencies = [
  "blake2 0.10.6",
+ "ed25519-compact",
  "fips204",
+ "k256",
  "libc",
  "log",
  "p521",

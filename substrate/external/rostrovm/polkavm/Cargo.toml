@@ -87,6 +87,16 @@ version = "0.13"
 default-features = false
 features = ["ecdsa", "arithmetic"]
 
+# Phase 3 signature-verify precompile deps (2026-05-15).
+[dependencies.ed25519-compact]
+version = "2"
+default-features = false
+
+[dependencies.k256]
+version = "0.13"
+default-features = false
+features = ["ecdsa", "arithmetic"]
+
 # Phase 1 Tier 2 hashing intrinsics (2026-05-14). Native blake2b / keccak
 # invoked inline from FAST_OP_ECALLI dispatch — closes the ~2× wasmtime-
 # cranelift gap on hashing workloads.

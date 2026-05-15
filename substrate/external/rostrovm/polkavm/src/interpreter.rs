@@ -3028,6 +3028,53 @@ impl InterpretedInstance {
                             self.regs[Reg::A0.to_usize()] = result;
                             offset += 1;
                         }
+                        ROSTRO_INTRINSIC_ED25519_VERIFY => {
+                            // ABI: A0=pk_ptr (32B), A1=sig_ptr (64B),
+                            //      A2=msg_ptr, A3=msg_len.
+                            // Returns: A0 = 1 verified, 0 failed.
+                            let pk_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let sig_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let msg_ptr = self.regs[Reg::A2.to_usize()] as u32;
+                            let msg_len = self.regs[Reg::A3.to_usize()] as u32;
+                            let memory = <M as Memory>::memory_state(self);
+                            let borrow_or_empty = |ptr: u32, len: u32| -> Option<&[u8]> {
+                                if len == 0 { Some(&[]) } else { memory.borrow_bytes(ptr, len) }
+                            };
+                            let result: u64 = (|| {
+                                let pk_bytes  = memory.borrow_bytes(pk_ptr, 32)?;
+                                let sig_bytes = memory.borrow_bytes(sig_ptr, 64)?;
+                                let msg = borrow_or_empty(msg_ptr, msg_len)?;
+                                Some(rostro_ed25519_verify(pk_bytes, sig_bytes, msg) as u64)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_SECP256K1_RECOVER => {
+                            // ABI: A0=msg_hash_ptr (32B), A1=sig_ptr (65B: r||s||v),
+                            //      A2=out_pk_ptr (64B output buffer for X||Y).
+                            // Returns: A0 = 1 recovered, 0 failed.
+                            // The owned [u8; 64] buffer decouples the immutable
+                            // input borrow from the mutable output borrow.
+                            let hash_ptr = self.regs[Reg::A0.to_usize()] as u32;
+                            let sig_ptr  = self.regs[Reg::A1.to_usize()] as u32;
+                            let out_ptr  = self.regs[Reg::A2.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                let mut out_pk = [0u8; 64];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let msg_hash = memory.borrow_bytes(hash_ptr, 32)?;
+                                    let sig_bytes = memory.borrow_bytes(sig_ptr, 65)?;
+                                    rostro_secp256k1_recover(msg_hash, sig_bytes, &mut out_pk)
+                                };
+                                if !ok { return Some(0); }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let out = memory_mut.borrow_bytes_mut(out_ptr, 64)?;
+                                out.copy_from_slice(&out_pk);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
                         ROSTRO_INTRINSIC_POSEIDON2_PERM => {
                             // ABI: A0 = state_ptr (8 little-endian u64s = 64 bytes).
                             // Returns: A0 = 0 on success, 1 on memory-access failure.
@@ -4468,6 +4515,11 @@ pub const ROSTRO_INTRINSIC_P521_ECDSA_VERIFY: u32 = 111; // NIST P-521 ECDSA ver
 // ~2× wasmtime-cranelift gap on the most common chain-runtime hashing ops.
 pub const ROSTRO_INTRINSIC_BLAKE2B_256: u32 = 120; // Blake2b-256 (32-byte digest)
 pub const ROSTRO_INTRINSIC_KECCAK_256:  u32 = 121; // Keccak-256 (32-byte digest)
+// Phase 3 signature-verify precompiles (2026-05-15). Close the remaining
+// RVM-INT vs javm-INT gap on sig-verify workloads. Same precompile model as
+// Ethereum ECRECOVER (0x01) and substrate's sp_io::crypto host functions.
+pub const ROSTRO_INTRINSIC_ED25519_VERIFY:    u32 = 122; // RFC 8032 Ed25519 verify
+pub const ROSTRO_INTRINSIC_SECP256K1_RECOVER: u32 = 123; // secp256k1 ECDSA pubkey recover
 // Phase 2 STARK-primitive intrinsics (2026-05-15).
 pub const ROSTRO_INTRINSIC_POSEIDON2_PERM: u32 = 130; // Poseidon2-Goldilocks-WIDTH8 in-place permute
 
@@ -4629,6 +4681,52 @@ pub fn rostro_keccak_256(msg: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
     out.copy_from_slice(hasher.finalize().as_slice());
     out
+}
+
+/// Phase 3 (2026-05-15). RFC 8032 Ed25519 signature verification.
+///
+/// pk_bytes: 32-byte public key.
+/// sig_bytes: 64-byte signature.
+/// msg: arbitrary-length message.
+///
+/// Returns true iff the signature verifies. Any parse/length/crypto failure
+/// returns false (matches on-chain "verifies or it doesn't" semantics).
+#[link_section = ".rostro_intrinsic_bodies"]
+pub fn rostro_ed25519_verify(pk_bytes: &[u8], sig_bytes: &[u8], msg: &[u8]) -> bool {
+    use ed25519_compact::{PublicKey, Signature};
+    let Ok(pk) = PublicKey::from_slice(pk_bytes) else { return false };
+    let Ok(sig) = Signature::from_slice(sig_bytes) else { return false };
+    pk.verify(msg, &sig).is_ok()
+}
+
+/// Phase 3 (2026-05-15). secp256k1 ECDSA public-key recovery — the operation
+/// behind Ethereum's ECRECOVER precompile.
+///
+/// msg_hash: 32-byte message hash (the input is pre-hashed).
+/// sig_bytes: 65 bytes — (r || s || v) where v is the 1-byte recovery id (0 or 1).
+/// out_pk: 64-byte buffer for the recovered uncompressed public key (X || Y).
+///
+/// Returns true on successful recovery. Any parse/length/crypto failure
+/// returns false and `out_pk` is left undefined.
+#[link_section = ".rostro_intrinsic_bodies"]
+pub fn rostro_secp256k1_recover(msg_hash: &[u8], sig_bytes: &[u8], out_pk: &mut [u8]) -> bool {
+    use k256::ecdsa::{RecoveryId, Signature as K256Signature, VerifyingKey};
+    if msg_hash.len() != 32 || sig_bytes.len() != 65 || out_pk.len() != 64 {
+        return false;
+    }
+    let Ok(sig) = K256Signature::from_slice(&sig_bytes[..64]) else { return false };
+    let Some(recid) = RecoveryId::from_byte(sig_bytes[64]) else { return false };
+    let Ok(vk) = VerifyingKey::recover_from_prehash(msg_hash, &sig, recid) else { return false };
+    // Encode as uncompressed sec1 (0x04 || X || Y); strip the leading 0x04
+    // so out_pk is 64 raw bytes — matches Ethereum's ECRECOVER output (the
+    // keccak256(pubkey)[12..] step happens guest-side).
+    let pk_sec1 = vk.to_encoded_point(false);
+    let pk_bytes = pk_sec1.as_bytes();
+    if pk_bytes.len() != 65 || pk_bytes[0] != 0x04 {
+        return false;
+    }
+    out_pk.copy_from_slice(&pk_bytes[1..]);
+    true
 }
 
 // =====================================================================

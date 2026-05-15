@@ -10,12 +10,16 @@ use polkavm::{
 	BackendKind, Config, Engine, GasMeteringKind, InterruptKind, Module, ModuleConfig, RawInstance,
 	Reg, SandboxKind,
 	rostro_intrinsics::{
-		ROSTRO_INTRINSIC_DILITHIUM_VERIFY, ROSTRO_INTRINSIC_GOLDILOCKS_ADD,
+		ROSTRO_INTRINSIC_BLAKE2B_256, ROSTRO_INTRINSIC_DILITHIUM_VERIFY,
+		ROSTRO_INTRINSIC_ED25519_VERIFY, ROSTRO_INTRINSIC_GOLDILOCKS_ADD,
 		ROSTRO_INTRINSIC_GOLDILOCKS_INV, ROSTRO_INTRINSIC_GOLDILOCKS_MUL,
-		ROSTRO_INTRINSIC_GOLDILOCKS_SUB, ROSTRO_INTRINSIC_P521_ECDSA_VERIFY,
-		RostroIntrinsicsCodegen, goldilocks_add_native, goldilocks_inv_native,
-		goldilocks_mul_native, goldilocks_sub_native, rostro_dilithium_verify,
-		rostro_p521_ecdsa_verify_prehash,
+		ROSTRO_INTRINSIC_GOLDILOCKS_SUB, ROSTRO_INTRINSIC_KECCAK_256,
+		ROSTRO_INTRINSIC_P521_ECDSA_VERIFY, ROSTRO_INTRINSIC_POSEIDON2_PERM,
+		ROSTRO_INTRINSIC_SECP256K1_RECOVER, RostroIntrinsicsCodegen, goldilocks_add_native,
+		goldilocks_inv_native, goldilocks_mul_native, goldilocks_sub_native,
+		rostro_blake2b_256, rostro_dilithium_verify, rostro_ed25519_verify,
+		rostro_keccak_256, rostro_p521_ecdsa_verify_prehash, rostro_poseidon2_permute,
+		rostro_secp256k1_recover,
 	},
 };
 
@@ -104,6 +108,96 @@ fn dispatch_rostro_intrinsic(inst: &mut RawInstance, n: u32) -> bool {
 				Some(rostro_dilithium_verify(&pk, &msg, &sig, &ctx) as u64)
 			})()
 			.unwrap_or(0);
+			inst.set_reg(Reg::A0, result);
+			true
+		}
+		ROSTRO_INTRINSIC_BLAKE2B_256 => {
+			// ABI: A0=msg_ptr, A1=msg_len, A2=out_ptr (32B). Result -> A0 = 0
+			// on success, 1 on memory-access failure (mirrors interpreter).
+			let msg_ptr = inst.reg(Reg::A0) as u32;
+			let msg_len = inst.reg(Reg::A1) as u32;
+			let out_ptr = inst.reg(Reg::A2) as u32;
+			let result: u64 = (|| -> Option<u64> {
+				let msg = read_guest_bytes(inst, msg_ptr, msg_len)?;
+				let hash = rostro_blake2b_256(&msg);
+				inst.write_memory(out_ptr, &hash).ok()?;
+				Some(0)
+			})()
+			.unwrap_or(1);
+			inst.set_reg(Reg::A0, result);
+			true
+		}
+		ROSTRO_INTRINSIC_KECCAK_256 => {
+			// ABI: same as BLAKE2B_256.
+			let msg_ptr = inst.reg(Reg::A0) as u32;
+			let msg_len = inst.reg(Reg::A1) as u32;
+			let out_ptr = inst.reg(Reg::A2) as u32;
+			let result: u64 = (|| -> Option<u64> {
+				let msg = read_guest_bytes(inst, msg_ptr, msg_len)?;
+				let hash = rostro_keccak_256(&msg);
+				inst.write_memory(out_ptr, &hash).ok()?;
+				Some(0)
+			})()
+			.unwrap_or(1);
+			inst.set_reg(Reg::A0, result);
+			true
+		}
+		ROSTRO_INTRINSIC_ED25519_VERIFY => {
+			// ABI: A0=pk_ptr (32B), A1=sig_ptr (64B), A2=msg_ptr, A3=msg_len.
+			// Result -> A0 = 1 verified, 0 failed.
+			let pk_ptr = inst.reg(Reg::A0) as u32;
+			let sig_ptr = inst.reg(Reg::A1) as u32;
+			let msg_ptr = inst.reg(Reg::A2) as u32;
+			let msg_len = inst.reg(Reg::A3) as u32;
+			let result: u64 = (|| {
+				let pk = inst.read_memory(pk_ptr, 32).ok()?;
+				let sig = inst.read_memory(sig_ptr, 64).ok()?;
+				let msg = read_guest_bytes(inst, msg_ptr, msg_len)?;
+				Some(rostro_ed25519_verify(&pk, &sig, &msg) as u64)
+			})()
+			.unwrap_or(0);
+			inst.set_reg(Reg::A0, result);
+			true
+		}
+		ROSTRO_INTRINSIC_SECP256K1_RECOVER => {
+			// ABI: A0=hash_ptr (32B), A1=sig_ptr (65B: r||s||v),
+			// A2=out_pk_ptr (64B X||Y). Result -> A0 = 1 recovered, 0 failed.
+			let hash_ptr = inst.reg(Reg::A0) as u32;
+			let sig_ptr = inst.reg(Reg::A1) as u32;
+			let out_ptr = inst.reg(Reg::A2) as u32;
+			let result: u64 = (|| -> Option<u64> {
+				let msg_hash = inst.read_memory(hash_ptr, 32).ok()?;
+				let sig = inst.read_memory(sig_ptr, 65).ok()?;
+				let mut out_pk = [0u8; 64];
+				if !rostro_secp256k1_recover(&msg_hash, &sig, &mut out_pk) {
+					return Some(0);
+				}
+				inst.write_memory(out_ptr, &out_pk).ok()?;
+				Some(1)
+			})()
+			.unwrap_or(0);
+			inst.set_reg(Reg::A0, result);
+			true
+		}
+		ROSTRO_INTRINSIC_POSEIDON2_PERM => {
+			// ABI: A0=state_ptr (8 little-endian u64s = 64 bytes). In-place
+			// permute. Result -> A0 = 0 success, 1 memory-access failure.
+			let state_ptr = inst.reg(Reg::A0) as u32;
+			let result: u64 = (|| -> Option<u64> {
+				let bytes = inst.read_memory(state_ptr, 64).ok()?;
+				let mut state = [0u64; 8];
+				for i in 0..8 {
+					state[i] = u64::from_le_bytes(bytes[i * 8..(i + 1) * 8].try_into().ok()?);
+				}
+				rostro_poseidon2_permute(&mut state);
+				let mut out = [0u8; 64];
+				for i in 0..8 {
+					out[i * 8..(i + 1) * 8].copy_from_slice(&state[i].to_le_bytes());
+				}
+				inst.write_memory(state_ptr, &out).ok()?;
+				Some(0)
+			})()
+			.unwrap_or(1);
 			inst.set_reg(Reg::A0, result);
 			true
 		}
