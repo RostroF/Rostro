@@ -69,8 +69,8 @@ trait Memory {
     fn memory_state(instance: &InterpretedInstance) -> &Self;
     fn memory_state_mut(instance: &mut InterpretedInstance) -> &mut Self;
 
-    fn load_impl<T: LoadTy, const DEBUG: bool>(instance: &mut InterpretedInstance, dst: Reg, address: u32) -> Option<Target>;
-    fn store_impl<T: StoreTy, const DEBUG: bool>(instance: &mut InterpretedInstance, address: u32, value: u64) -> Option<Target>;
+    fn load_impl<T: LoadTy, const DEBUG: bool>(instance: &mut InterpretedInstance, pc: ProgramCounter, dst: Reg, address: u32) -> Option<Target>;
+    fn store_impl<T: StoreTy, const DEBUG: bool>(instance: &mut InterpretedInstance, pc: ProgramCounter, address: u32, value: u64) -> Option<Target>;
 
     /// Tier 2 intrinsic zero-copy memory access (2026-05-12).
     /// Returns a slice into guest memory at [addr, addr+len) ONLY when the
@@ -542,7 +542,7 @@ impl StandardMemory {
 
     #[cold]
     #[inline(never)]
-    fn store_impl_slow<T: StoreTy, const DEBUG: bool>(instance: &mut InterpretedInstance, address: u32, value: u64) -> Option<Target> {
+    fn store_impl_slow<T: StoreTy, const DEBUG: bool>(instance: &mut InterpretedInstance, pc: ProgramCounter, address: u32, value: u64) -> Option<Target> {
         macro_rules! range {
             ($base_address:expr) => {{
                 let offset = cast(address - $base_address).to_usize();
@@ -553,11 +553,6 @@ impl StandardMemory {
 
         if address >= Self::memory_state(instance).stack_address_low {
             let prep = Self::memory_state_mut(instance).prepare_stack_write(cast(address).to_usize(), core::mem::size_of::<T>());
-            // prepare_stack_write may have grown the resident stack, which
-            // mutates standard_memory.stack_address_low_resident. Re-sync the
-            // top-level mirror so subsequent fast-path region checks see the
-            // new low-resident boundary. Other 3 addresses are const-after-
-            // init so they don't need re-sync.
             instance.hot_stack_low_resident = instance.standard_memory.stack_address_low_resident;
             match prep {
                 PrepareWriteResult::Ok(range) => {
@@ -566,11 +561,11 @@ impl StandardMemory {
                         subslice.copy_from_slice(value.as_ref());
                         instance.on_store_ok::<T, DEBUG>()
                     } else {
-                        instance.on_store_trap::<T, DEBUG>(address)
+                        instance.on_store_trap::<T, DEBUG>(pc, address)
                     }
                 }
-                PrepareWriteResult::OutOfRangeAccess => instance.on_store_trap::<T, DEBUG>(address),
-                PrepareWriteResult::MemoryLimitReached => instance.on_store_trap_due_to_memory_limit::<T, DEBUG>(address),
+                PrepareWriteResult::OutOfRangeAccess => instance.on_store_trap::<T, DEBUG>(pc, address),
+                PrepareWriteResult::MemoryLimitReached => instance.on_store_trap_due_to_memory_limit::<T, DEBUG>(pc, address),
             }
         } else if address >= Self::memory_state(instance).rw_data_address {
             let range = range!(Self::memory_state(instance).rw_data_address);
@@ -581,11 +576,11 @@ impl StandardMemory {
             }
 
             if range.end > Self::memory_state(instance).rw_data_size {
-                return instance.on_store_trap::<T, DEBUG>(address);
+                return instance.on_store_trap::<T, DEBUG>(pc, address);
             }
 
             if !Self::memory_state_mut(instance).rw_data_resize(range.end) {
-                return instance.on_store_trap_due_to_memory_limit::<T, DEBUG>(address);
+                return instance.on_store_trap_due_to_memory_limit::<T, DEBUG>(pc, address);
             }
 
             if let Some(subslice) = Self::memory_state_mut(instance).rw_data.get_mut(range) {
@@ -593,22 +588,23 @@ impl StandardMemory {
                 subslice.copy_from_slice(value.as_ref());
                 instance.on_store_ok::<T, DEBUG>()
             } else {
-                instance.on_store_trap::<T, DEBUG>(address)
+                instance.on_store_trap::<T, DEBUG>(pc, address)
             }
         } else {
-            instance.on_store_trap::<T, DEBUG>(address)
+            instance.on_store_trap::<T, DEBUG>(pc, address)
         }
     }
 
     fn load_rw_data_slow<T: LoadTy, const DEBUG: bool>(
         instance: &mut InterpretedInstance,
+        pc: ProgramCounter,
         dst: Reg,
         address: u32,
         range: Range<usize>,
     ) -> Option<Target> {
         let state = Self::memory_state(instance);
         if range.end > state.rw_data_size {
-            instance.on_load_trap::<T, DEBUG>(address)
+            instance.on_load_trap::<T, DEBUG>(pc, address)
         } else {
             let mut buffer = T::Slice::default();
 
@@ -626,13 +622,14 @@ impl StandardMemory {
 
     fn load_ro_data_slow<T: LoadTy, const DEBUG: bool>(
         instance: &mut InterpretedInstance,
+        pc: ProgramCounter,
         dst: Reg,
         address: u32,
         range: Range<usize>,
     ) -> Option<Target> {
         let state = Self::memory_state(instance);
         if range.end > state.ro_data_size {
-            instance.on_load_trap::<T, DEBUG>(address)
+            instance.on_load_trap::<T, DEBUG>(pc, address)
         } else {
             let mut buffer = T::Slice::default();
             let src_range = range.start.min(state.ro_data.len())..range.end.min(state.ro_data.len());
@@ -643,6 +640,7 @@ impl StandardMemory {
 
     fn load_stack_slow<T: LoadTy, const DEBUG: bool>(
         instance: &mut InterpretedInstance,
+        pc: ProgramCounter,
         dst: Reg,
         address: u32,
         offset: usize,
@@ -650,7 +648,7 @@ impl StandardMemory {
         let state = Self::memory_state(instance);
         let offset_end = offset + core::mem::size_of::<T>();
         if offset_end > state.stack_size {
-            instance.on_load_trap::<T, DEBUG>(address)
+            instance.on_load_trap::<T, DEBUG>(pc, address)
         } else {
             let resident_offset = state.stack_size - state.stack.len();
             let non_resident_range = offset.min(resident_offset)..offset_end.min(resident_offset);
@@ -663,13 +661,14 @@ impl StandardMemory {
 
     fn load_aux_slow<T: LoadTy, const DEBUG: bool>(
         instance: &mut InterpretedInstance,
+        pc: ProgramCounter,
         dst: Reg,
         address: u32,
         range: Range<usize>,
     ) -> Option<Target> {
         let state = Self::memory_state(instance);
         if range.end > state.accessible_aux_size {
-            instance.on_load_trap::<T, DEBUG>(address)
+            instance.on_load_trap::<T, DEBUG>(pc, address)
         } else {
             let mut buffer = T::Slice::default();
             let src_range = range.start.min(state.aux.len())..range.end.min(state.aux.len());
@@ -680,7 +679,7 @@ impl StandardMemory {
 
     #[cold]
     #[inline(never)]
-    fn load_impl_slow<T: LoadTy, const DEBUG: bool>(instance: &mut InterpretedInstance, dst: Reg, address: u32) -> Option<Target> {
+    fn load_impl_slow<T: LoadTy, const DEBUG: bool>(instance: &mut InterpretedInstance, pc: ProgramCounter, dst: Reg, address: u32) -> Option<Target> {
         macro_rules! range {
             ($base_address:expr) => {{
                 let offset = cast(address - $base_address).to_usize();
@@ -692,17 +691,17 @@ impl StandardMemory {
         let state = Self::memory_state(instance);
         if address >= state.aux_data_address {
             let range = range!(state.aux_data_address);
-            Self::load_aux_slow::<T, DEBUG>(instance, dst, address, range)
+            Self::load_aux_slow::<T, DEBUG>(instance, pc, dst, address, range)
         } else if address >= state.stack_address_low {
-            Self::load_stack_slow::<T, DEBUG>(instance, dst, address, cast(address - state.stack_address_low).to_usize())
+            Self::load_stack_slow::<T, DEBUG>(instance, pc, dst, address, cast(address - state.stack_address_low).to_usize())
         } else if address >= state.rw_data_address {
             let range = range!(state.rw_data_address);
-            Self::load_rw_data_slow::<T, DEBUG>(instance, dst, address, range)
+            Self::load_rw_data_slow::<T, DEBUG>(instance, pc, dst, address, range)
         } else if address >= state.ro_data_address {
             let range = range!(state.ro_data_address);
-            Self::load_ro_data_slow::<T, DEBUG>(instance, dst, address, range)
+            Self::load_ro_data_slow::<T, DEBUG>(instance, pc, dst, address, range)
         } else {
-            instance.on_load_trap::<T, DEBUG>(address)
+            instance.on_load_trap::<T, DEBUG>(pc, address)
         }
     }
 
@@ -732,11 +731,7 @@ impl Memory for StandardMemory {
     }
 
     #[cfg_attr(not(debug_assertions), inline(always))]
-    fn load_impl<T: LoadTy, const DEBUG: bool>(instance: &mut InterpretedInstance, dst: Reg, address: u32) -> Option<Target> {
-        // Region cascade reads addresses from the top-level mirrors on
-        // `instance` (lifted out of `standard_memory` so they share a hot
-        // cache line with `regs` / `compiled_offset`). Data slices still
-        // come from the substruct.
+    fn load_impl<T: LoadTy, const DEBUG: bool>(instance: &mut InterpretedInstance, pc: ProgramCounter, dst: Reg, address: u32) -> Option<Target> {
         let aux_addr = instance.hot_aux_address;
         let stack_low = instance.hot_stack_low_resident;
         let rw_addr = instance.hot_rw_address;
@@ -751,19 +746,19 @@ impl Memory for StandardMemory {
         } else if address >= ro_addr {
             (cast(address - ro_addr).to_usize(), &state.ro_data[..])
         } else {
-            return Self::load_impl_slow::<T, DEBUG>(instance, dst, address);
+            return Self::load_impl_slow::<T, DEBUG>(instance, pc, dst, address);
         };
 
         let range = offset..offset + core::mem::size_of::<T>();
         if let Some(subslice) = slice.get(range) {
             instance.on_load_ok::<T, DEBUG>(dst, address, T::from_slice(subslice))
         } else {
-            Self::load_impl_slow::<T, DEBUG>(instance, dst, address)
+            Self::load_impl_slow::<T, DEBUG>(instance, pc, dst, address)
         }
     }
 
     #[cfg_attr(not(debug_assertions), inline(always))]
-    fn store_impl<T: StoreTy, const DEBUG: bool>(instance: &mut InterpretedInstance, address: u32, value: u64) -> Option<Target> {
+    fn store_impl<T: StoreTy, const DEBUG: bool>(instance: &mut InterpretedInstance, pc: ProgramCounter, address: u32, value: u64) -> Option<Target> {
         let stack_low = instance.hot_stack_low_resident;
         let rw_addr = instance.hot_rw_address;
         let (offset, slice) = if address >= stack_low {
@@ -777,7 +772,7 @@ impl Memory for StandardMemory {
                 &mut Self::memory_state_mut(instance).rw_data[..],
             )
         } else {
-            return Self::store_impl_slow::<T, DEBUG>(instance, address, value);
+            return Self::store_impl_slow::<T, DEBUG>(instance, pc, address, value);
         };
 
         let range = offset..offset + core::mem::size_of::<T>();
@@ -786,7 +781,7 @@ impl Memory for StandardMemory {
             subslice.copy_from_slice(value.as_ref());
             instance.on_store_ok::<T, DEBUG>()
         } else {
-            Self::store_impl_slow::<T, DEBUG>(instance, address, value)
+            Self::store_impl_slow::<T, DEBUG>(instance, pc, address, value)
         }
     }
 
@@ -1108,14 +1103,14 @@ impl Memory for DynamicMemory {
     }
 
     #[cfg_attr(not(debug_assertions), inline(always))]
-    fn load_impl<T: LoadTy, const DEBUG: bool>(instance: &mut InterpretedInstance, dst: Reg, address: u32) -> Option<Target> {
+    fn load_impl<T: LoadTy, const DEBUG: bool>(instance: &mut InterpretedInstance, pc: ProgramCounter, dst: Reg, address: u32) -> Option<Target> {
         let length = cast(core::mem::size_of::<T>()).assert_always_fits_in_u32();
         let Some(address_end) = address.checked_add(length) else {
             let page_address = Self::memory_state(instance).round_to_page_size_down(0xffffffff);
             if Self::memory_state(instance).pages.contains_key(&page_address) {
-                return instance.on_load_trap::<T, DEBUG>(address);
+                return instance.on_load_trap::<T, DEBUG>(pc, address);
             } else {
-                return instance.on_load_segfault::<T, DEBUG>(address, page_address, false);
+                return instance.on_load_segfault::<T, DEBUG>(pc, address, page_address, false);
             }
         };
 
@@ -1127,7 +1122,7 @@ impl Memory for DynamicMemory {
                 let value = T::from_slice(&page[offset..offset + core::mem::size_of::<T>()]);
                 instance.on_load_ok::<T, DEBUG>(dst, address, value)
             } else {
-                instance.on_load_segfault::<T, DEBUG>(address, page_address_lo, false)
+                instance.on_load_segfault::<T, DEBUG>(pc, address, page_address_lo, false)
             }
         } else {
             let mut iter = Self::memory_state(instance).pages.range(page_address_lo..=page_address_hi);
@@ -1145,7 +1140,7 @@ impl Memory for DynamicMemory {
                     buffer[lo_len..].copy_from_slice(&hi[..hi_len]);
                     instance.on_load_ok::<T, DEBUG>(dst, address, T::from_slice(buffer))
                 }
-                (None, _) => instance.on_load_segfault::<T, DEBUG>(address, page_address_lo, false),
+                (None, _) => instance.on_load_segfault::<T, DEBUG>(pc, address, page_address_lo, false),
                 (Some((page_address, _)), _) => {
                     let missing_page_address = if *page_address == page_address_lo {
                         page_address_hi
@@ -1153,20 +1148,20 @@ impl Memory for DynamicMemory {
                         page_address_lo
                     };
 
-                    instance.on_load_segfault::<T, DEBUG>(address, missing_page_address, false)
+                    instance.on_load_segfault::<T, DEBUG>(pc, address, missing_page_address, false)
                 }
             }
         }
     }
 
-    fn store_impl<T: StoreTy, const DEBUG: bool>(instance: &mut InterpretedInstance, address: u32, value: u64) -> Option<Target> {
+    fn store_impl<T: StoreTy, const DEBUG: bool>(instance: &mut InterpretedInstance, pc: ProgramCounter, address: u32, value: u64) -> Option<Target> {
         let length = cast(core::mem::size_of::<T>()).assert_always_fits_in_u32();
         let Some(address_end) = address.checked_add(length) else {
             let page_address = Self::memory_state(instance).round_to_page_size_down(0xffffffff);
             if Self::memory_state(instance).pages.contains_key(&page_address) {
-                return instance.on_store_trap::<T, DEBUG>(address);
+                return instance.on_store_trap::<T, DEBUG>(pc, address);
             } else {
-                return instance.on_store_segfault::<T, DEBUG>(address, page_address, false);
+                return instance.on_store_segfault::<T, DEBUG>(pc, address, page_address, false);
             }
         };
 
@@ -1175,7 +1170,7 @@ impl Memory for DynamicMemory {
         if page_address_lo == page_address_hi {
             if let Some(page) = Self::memory_state_mut(instance).pages.get_mut(&page_address_lo) {
                 if page.is_read_only {
-                    return instance.on_store_segfault::<T, DEBUG>(address, page_address_lo, true);
+                    return instance.on_store_segfault::<T, DEBUG>(pc, address, page_address_lo, true);
                 }
 
                 let offset = cast(address).to_usize() - cast(page_address_lo).to_usize();
@@ -1184,7 +1179,7 @@ impl Memory for DynamicMemory {
                 page[offset..offset + value.len()].copy_from_slice(value);
                 instance.on_store_ok::<T, DEBUG>()
             } else {
-                instance.on_store_segfault::<T, DEBUG>(address, page_address_lo, false)
+                instance.on_store_segfault::<T, DEBUG>(pc, address, page_address_lo, false)
             }
         } else {
             let page_size = cast(Self::memory_state(instance).page_size).to_usize();
@@ -1196,7 +1191,7 @@ impl Memory for DynamicMemory {
                 (Some((_, lo)), Some((_, hi))) => {
                     if lo.is_read_only || hi.is_read_only {
                         let page_address = if lo.is_read_only { page_address_lo } else { page_address_hi };
-                        return instance.on_store_segfault::<T, DEBUG>(address, page_address, true);
+                        return instance.on_store_segfault::<T, DEBUG>(pc, address, page_address, true);
                     }
 
                     let value = T::into_bytes(value);
@@ -1207,7 +1202,7 @@ impl Memory for DynamicMemory {
                     hi[..hi_len].copy_from_slice(&value[lo_len..]);
                     instance.on_store_ok::<T, DEBUG>()
                 }
-                (None, _) => instance.on_store_segfault::<T, DEBUG>(address, page_address_lo, false),
+                (None, _) => instance.on_store_segfault::<T, DEBUG>(pc, address, page_address_lo, false),
                 (Some((page_address, _)), _) => {
                     let missing_page_address = if *page_address == page_address_lo {
                         page_address_hi
@@ -1215,7 +1210,7 @@ impl Memory for DynamicMemory {
                         page_address_lo
                     };
 
-                    instance.on_store_segfault::<T, DEBUG>(address, missing_page_address, false)
+                    instance.on_store_segfault::<T, DEBUG>(pc, address, missing_page_address, false)
                 }
             }
         }
@@ -1595,8 +1590,7 @@ macro_rules! arm_load_nonindirect {
     ($self:tt, $inst:ident, $offset:ident; $T:ty) => {{
         let dst = transmute_reg($inst.r0 as u32);
         let address = $inst.imm1 as u32;
-        $self.program_counter = ProgramCounter($inst.pc);
-        if <M as Memory>::load_impl::<$T, DEBUG>($self, dst, address).is_some() {
+        if <M as Memory>::load_impl::<$T, DEBUG>($self, ProgramCounter($inst.pc), dst, address).is_some() {
             $offset += 1;
         } else {
             $self.compiled_offset = $offset;
@@ -1611,8 +1605,7 @@ macro_rules! arm_load_indirect {
         let base = transmute_reg($inst.r1 as u32);
         let address =
             ($self.regs[base as usize] as u32).wrapping_add($inst.imm1 as u32);
-        $self.program_counter = ProgramCounter($inst.pc);
-        if <M as Memory>::load_impl::<$T, DEBUG>($self, dst, address).is_some() {
+        if <M as Memory>::load_impl::<$T, DEBUG>($self, ProgramCounter($inst.pc), dst, address).is_some() {
             $offset += 1;
         } else {
             $self.compiled_offset = $offset;
@@ -1627,8 +1620,7 @@ macro_rules! arm_store_nonindirect {
         let src = transmute_reg($inst.r0 as u32);
         let value = $self.regs[src as usize];
         let address = $inst.imm1 as u32;
-        $self.program_counter = ProgramCounter($inst.pc);
-        if <M as Memory>::store_impl::<$T, DEBUG>($self, address, value).is_some() {
+        if <M as Memory>::store_impl::<$T, DEBUG>($self, ProgramCounter($inst.pc), address, value).is_some() {
             $offset += 1;
         } else {
             $self.compiled_offset = $offset;
@@ -1645,8 +1637,7 @@ macro_rules! arm_store_indirect {
         let value = $self.regs[src as usize];
         let address =
             ($self.regs[base as usize] as u32).wrapping_add($inst.imm1 as u32);
-        $self.program_counter = ProgramCounter($inst.pc);
-        if <M as Memory>::store_impl::<$T, DEBUG>($self, address, value).is_some() {
+        if <M as Memory>::store_impl::<$T, DEBUG>($self, ProgramCounter($inst.pc), address, value).is_some() {
             $offset += 1;
         } else {
             $self.compiled_offset = $offset;
@@ -1660,8 +1651,7 @@ macro_rules! arm_store_imm {
     ($self:tt, $inst:ident, $offset:ident; $T:ty) => {{
         let address = $inst.imm1 as u32;
         let value = $inst.imm2 as u32 as i32 as i64 as u64;
-        $self.program_counter = ProgramCounter($inst.pc);
-        if <M as Memory>::store_impl::<$T, DEBUG>($self, address, value).is_some() {
+        if <M as Memory>::store_impl::<$T, DEBUG>($self, ProgramCounter($inst.pc), address, value).is_some() {
             $offset += 1;
         } else {
             $self.compiled_offset = $offset;
@@ -1696,8 +1686,7 @@ macro_rules! arm_store_imm_indirect {
         let address =
             ($self.regs[base as usize] as u32).wrapping_add($inst.imm1 as u32);
         let value = $inst.imm2 as u32 as i32 as i64 as u64;
-        $self.program_counter = ProgramCounter($inst.pc);
-        if <M as Memory>::store_impl::<$T, DEBUG>($self, address, value).is_some() {
+        if <M as Memory>::store_impl::<$T, DEBUG>($self, ProgramCounter($inst.pc), address, value).is_some() {
             $offset += 1;
         } else {
             $self.compiled_offset = $offset;
@@ -2516,15 +2505,33 @@ impl InterpretedInstance {
     }
 
     pub fn run(&mut self) -> Result<InterruptKind, Error> {
-        // H4 (2026-05-12): only `M` is generic now. 2 monomorphizations of
-        // run_match (StandardMemory, DynamicMemory). `debug_mode` no longer
-        // affects dispatch — trace logging in helpers is off when called via
-        // run_match. Re-enable via a separate path if dev tracing is needed.
+        // Phase 1 Pin Order Fix (2026-05-14): dispatch via per-memory-type
+        // wrappers. Each wrapper has its own #[link_section] so the linker
+        // gives StandardMemory and DynamicMemory variants of run_match
+        // independently-pinned addresses, regardless of LLVM symbol hash
+        // sort order. Was previously: self.run_match::<M>(), which produced
+        // two monomorphizations in one section sorted by LLVM hash.
         Ok(if self.module.is_dynamic_paging() {
-            self.run_match::<DynamicMemory>()
+            self.run_match_dynamic()
         } else {
-            self.run_match::<StandardMemory>()
+            self.run_match_standard()
         })
+    }
+
+    /// StandardMemory-monomorphized run_match. Body is the generic run_match
+    /// inlined at compile time. Pinned at 0x300000 via .rostro_run_match_std.
+    #[inline(never)]
+    #[link_section = ".rostro_run_match_std"]
+    fn run_match_standard(&mut self) -> InterruptKind {
+        self.run_match_generic::<StandardMemory>()
+    }
+
+    /// DynamicMemory-monomorphized run_match. Pinned at 0x340000 via
+    /// .rostro_run_match_dyn.
+    #[inline(never)]
+    #[link_section = ".rostro_run_match_dyn"]
+    fn run_match_dynamic(&mut self) -> InterruptKind {
+        self.run_match_generic::<DynamicMemory>()
     }
 
 
@@ -2552,8 +2559,11 @@ impl InterpretedInstance {
     ///   the resolved opcode on first execution).
     /// - `Rostro intrinsics` (ecalli 100..1023): intercepted in FAST_OP_ECALLI
     ///   and dispatched inline to native intrinsic bodies — no run-loop exit.
-    #[inline(never)]
-    fn run_match<M: Memory>(&mut self) -> InterruptKind {
+    /// Generic run_match body. Inlined into the per-memory-type wrappers
+    /// (run_match_standard / run_match_dynamic). Each wrapper has its own
+    /// #[link_section] giving deterministic pin addresses.
+    #[inline(always)]
+    fn run_match_generic<M: Memory>(&mut self) -> InterruptKind {
         // H4 (2026-05-12): `const DEBUG: bool` removed from the generic params.
         // Halves run_match's monomorphizations (M × DEBUG = 4 → just M = 2),
         // shrinking the binary body that competes for I-cache. Trade-off:
@@ -2973,6 +2983,48 @@ impl InterpretedInstance {
                                 let ctx = borrow_or_empty(ctx_ptr, ctx_len)?;
                                 Some(rostro_dilithium_verify(pk_bytes, msg, sig_bytes, ctx) as u64)
                             })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BLAKE2B_256 => {
+                            // ABI: A0=msg_ptr, A1=msg_len, A2=out_ptr (32-byte output buffer).
+                            // Returns: A0 = 0 on success, A0 = 1 on memory-access failure.
+                            // The hash is owned (stack-allocated [u8; 32]), so we can
+                            // release the immutable input borrow before taking the
+                            // mutable output borrow — no aliasing conflict.
+                            let msg_ptr = self.regs[Reg::A0.to_usize()] as u32;
+                            let msg_len = self.regs[Reg::A1.to_usize()] as u32;
+                            let out_ptr = self.regs[Reg::A2.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                let hash = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let msg = if msg_len == 0 { &[][..] } else { memory.borrow_bytes(msg_ptr, msg_len)? };
+                                    rostro_blake2b_256(msg)
+                                };
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let out = memory_mut.borrow_bytes_mut(out_ptr, 32)?;
+                                out.copy_from_slice(&hash);
+                                Some(0)
+                            })().unwrap_or(1);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_KECCAK_256 => {
+                            // ABI: same as BLAKE2B_256.
+                            let msg_ptr = self.regs[Reg::A0.to_usize()] as u32;
+                            let msg_len = self.regs[Reg::A1.to_usize()] as u32;
+                            let out_ptr = self.regs[Reg::A2.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                let hash = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let msg = if msg_len == 0 { &[][..] } else { memory.borrow_bytes(msg_ptr, msg_len)? };
+                                    rostro_keccak_256(msg)
+                                };
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let out = memory_mut.borrow_bytes_mut(out_ptr, 32)?;
+                                out.copy_from_slice(&hash);
+                                Some(0)
+                            })().unwrap_or(1);
                             self.regs[Reg::A0.to_usize()] = result;
                             offset += 1;
                         }
@@ -3620,15 +3672,13 @@ impl InterpretedInstance {
         base: Option<Reg>,
         offset: u32,
     ) -> Option<Target> {
-        self.program_counter = program_counter;
-
         assert!(core::mem::size_of::<T>() >= 1);
 
         let address = base
             .map_or(0, |base| cast(self.regs[base.to_usize()]).truncate_to_u32())
             .wrapping_add(offset);
 
-        M::load_impl::<T, DEBUG>(self, dst, address)
+        M::load_impl::<T, DEBUG>(self, program_counter, dst, address)
     }
 
     #[inline(never)]
@@ -3650,17 +3700,17 @@ impl InterpretedInstance {
     #[must_use]
     #[cold]
     #[inline(never)]
-    fn on_load_trap<T: LoadTy, const DEBUG: bool>(&mut self, address: u32) -> Option<Target> {
+    fn on_load_trap<T: LoadTy, const DEBUG: bool>(&mut self, pc: ProgramCounter, address: u32) -> Option<Target> {
         if DEBUG {
             log::debug!(
                 "Load of {length} bytes from 0x{address:x} failed: trap! (pc = {program_counter}, cycle = {cycle})",
                 length = core::mem::size_of::<T>(),
-                program_counter = self.program_counter,
+                program_counter = pc,
                 cycle = self.cycle_counter
             );
         }
 
-        trap_impl::<DEBUG>(self, self.program_counter)
+        trap_impl::<DEBUG>(self, pc)
     }
 
     #[must_use]
@@ -3668,6 +3718,7 @@ impl InterpretedInstance {
     #[inline(never)]
     fn on_load_segfault<T: LoadTy, const DEBUG: bool>(
         &mut self,
+        pc: ProgramCounter,
         address: u32,
         page_address: u32,
         is_write_protected: bool,
@@ -3676,12 +3727,12 @@ impl InterpretedInstance {
             log::debug!(
                 "Load of {length} bytes from 0x{address:x} failed: segfault! (pc = {program_counter}, cycle = {cycle})",
                 length = core::mem::size_of::<T>(),
-                program_counter = self.program_counter,
+                program_counter = pc,
                 cycle = self.cycle_counter
             );
         }
 
-        self.segfault_impl(self.program_counter, page_address, is_write_protected)
+        self.segfault_impl(pc, page_address, is_write_protected)
     }
 
     #[cfg_attr(not(debug_assertions), inline(always))]
@@ -3692,8 +3743,6 @@ impl InterpretedInstance {
         base: Option<Reg>,
         offset: u32,
     ) -> Option<Target> {
-        self.program_counter = program_counter;
-
         assert!(core::mem::size_of::<T>() >= 1);
 
         let address = base
@@ -3720,7 +3769,7 @@ impl InterpretedInstance {
             }
         };
 
-        M::store_impl::<T, DEBUG>(self, address, value)
+        M::store_impl::<T, DEBUG>(self, program_counter, address, value)
     }
 
     #[must_use]
@@ -3732,39 +3781,40 @@ impl InterpretedInstance {
     #[must_use]
     #[cold]
     #[inline(never)]
-    fn on_store_trap<T: StoreTy, const DEBUG: bool>(&mut self, address: u32) -> Option<Target> {
+    fn on_store_trap<T: StoreTy, const DEBUG: bool>(&mut self, pc: ProgramCounter, address: u32) -> Option<Target> {
         if DEBUG {
             log::debug!(
                 "Store of {length} bytes to 0x{address:x} failed: trap! (pc = {program_counter}, cycle = {cycle})",
                 length = core::mem::size_of::<T>(),
-                program_counter = self.program_counter,
+                program_counter = pc,
                 cycle = self.cycle_counter
             );
         }
 
-        trap_impl::<DEBUG>(self, self.program_counter)
+        trap_impl::<DEBUG>(self, pc)
     }
 
     #[must_use]
     #[cold]
     #[inline(never)]
-    fn on_store_trap_due_to_memory_limit<T: StoreTy, const DEBUG: bool>(&mut self, address: u32) -> Option<Target> {
+    fn on_store_trap_due_to_memory_limit<T: StoreTy, const DEBUG: bool>(&mut self, pc: ProgramCounter, address: u32) -> Option<Target> {
         if DEBUG {
             log::debug!(
                 "Store of {length} bytes to 0x{address:x} failed: trap due to memory limits! (pc = {program_counter}, cycle = {cycle})",
                 length = core::mem::size_of::<T>(),
-                program_counter = self.program_counter,
+                program_counter = pc,
                 cycle = self.cycle_counter
             );
         }
 
-        trap_impl::<DEBUG>(self, self.program_counter)
+        trap_impl::<DEBUG>(self, pc)
     }
 
     #[cold]
     #[inline(never)]
     fn on_store_segfault<T: StoreTy, const DEBUG: bool>(
         &mut self,
+        pc: ProgramCounter,
         address: u32,
         page_address: u32,
         is_write_protected: bool,
@@ -3773,12 +3823,12 @@ impl InterpretedInstance {
             log::debug!(
                 "Store of {length} bytes to 0x{address:x} failed: segfault! (pc = {program_counter}, cycle = {cycle})",
                 length = core::mem::size_of::<T>(),
-                program_counter = self.program_counter,
+                program_counter = pc,
                 cycle = self.cycle_counter
             );
         }
 
-        self.segfault_impl(self.program_counter, page_address, is_write_protected)
+        self.segfault_impl(pc, page_address, is_write_protected)
     }
 
     #[cfg_attr(not(debug_assertions), inline(always))]
@@ -4386,6 +4436,11 @@ pub const ROSTRO_INTRINSIC_GOLDILOCKS_INV: u32 = 103;
 // Big-crypto intrinsics (zero-copy guest-memory access via borrow_bytes).
 pub const ROSTRO_INTRINSIC_DILITHIUM_VERIFY: u32 = 110; // ML-DSA-65 verify
 pub const ROSTRO_INTRINSIC_P521_ECDSA_VERIFY: u32 = 111; // NIST P-521 ECDSA verify (prehashed)
+// Phase 1 hashing intrinsics (2026-05-14). Take a message slice from guest
+// memory, write a fixed-size digest back to a guest output buffer. Closes the
+// ~2× wasmtime-cranelift gap on the most common chain-runtime hashing ops.
+pub const ROSTRO_INTRINSIC_BLAKE2B_256: u32 = 120; // Blake2b-256 (32-byte digest)
+pub const ROSTRO_INTRINSIC_KECCAK_256:  u32 = 121; // Keccak-256 (32-byte digest)
 
 /// Goldilocks field multiplication: `(a * b) mod (2^64 - 2^32 + 1)`.
 ///
@@ -4518,6 +4573,31 @@ pub fn rostro_dilithium_verify(pk_bytes: &[u8], msg: &[u8], sig_bytes: &[u8], ct
     let Ok(sig_arr) = <&[u8; 3309]>::try_from(sig_bytes) else { return false };
     let Ok(pk) = ml_dsa_65::PublicKey::try_from_bytes(*pk_arr) else { return false };
     pk.verify(msg, sig_arr, ctx)
+}
+
+/// Phase 1 Tier 2 (2026-05-14). Blake2b-256 hash. Returns 32 bytes.
+///
+/// Shared between interpreter dispatch (FAST_OP_ECALLI intercept) and the
+/// JIT runner's host-side dispatch (rostro_intrinsic_codegen.rs).
+pub fn rostro_blake2b_256(msg: &[u8]) -> [u8; 32] {
+    use blake2::digest::{consts::U32, Digest};
+    use blake2::Blake2b;
+    let mut hasher = Blake2b::<U32>::new();
+    hasher.update(msg);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(hasher.finalize().as_slice());
+    out
+}
+
+/// Phase 1 Tier 2 (2026-05-14). Keccak-256 hash. Returns 32 bytes.
+pub fn rostro_keccak_256(msg: &[u8]) -> [u8; 32] {
+    use sha3::digest::Digest;
+    use sha3::Keccak256;
+    let mut hasher = Keccak256::new();
+    hasher.update(msg);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(hasher.finalize().as_slice());
+    out
 }
 
 fn trap_impl<const DEBUG: bool>(visitor: &mut InterpretedInstance, program_counter: ProgramCounter) -> Option<Target> {

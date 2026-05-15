@@ -9873,6 +9873,7 @@ dependencies = [
 name = "polkavm"
 version = "0.32.0"
 dependencies = [
+ "blake2 0.10.6",
  "fips204",
  "libc",
  "log",
@@ -9881,6 +9882,7 @@ dependencies = [
  "polkavm-assembler 0.32.0",
  "polkavm-common 0.32.0",
  "polkavm-linux-raw 0.32.0",
+ "sha3",
 ]
 
 [[package]]

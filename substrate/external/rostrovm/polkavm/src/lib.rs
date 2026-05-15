@@ -72,15 +72,18 @@ pub mod trace;
 /// reserved IDs via `polkavm_import(index = N)`.
 pub mod rostro_intrinsics {
     pub use crate::interpreter::{
+        ROSTRO_INTRINSIC_BLAKE2B_256,
         ROSTRO_INTRINSIC_DILITHIUM_VERIFY,
         ROSTRO_INTRINSIC_GOLDILOCKS_ADD,
         ROSTRO_INTRINSIC_GOLDILOCKS_INV,
         ROSTRO_INTRINSIC_GOLDILOCKS_MUL,
         ROSTRO_INTRINSIC_GOLDILOCKS_SUB,
+        ROSTRO_INTRINSIC_KECCAK_256,
         ROSTRO_INTRINSIC_P521_ECDSA_VERIFY,
         goldilocks_add_native, goldilocks_inv_native, goldilocks_mul_native,
         goldilocks_sub_native,
-        rostro_dilithium_verify, rostro_p521_ecdsa_verify_prehash,
+        rostro_blake2b_256, rostro_dilithium_verify, rostro_keccak_256,
+        rostro_p521_ecdsa_verify_prehash,
     };
 
     /// CustomCodegen impl that emits direct intrinsic calls in JIT-compiled

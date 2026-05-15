@@ -106,6 +106,14 @@ const SERVICES: &[Service] = &[
 ];
 
 fn main() {
+	// Per-memory-type pinned sections (Phase 1 fix 2026-05-14): each
+	// monomorphization of run_match has its own #[link_section] so the linker
+	// gives them independently-pinned addresses regardless of LLVM symbol-hash
+	// sort order. StandardMemory at 0x300000 (production hot path);
+	// DynamicMemory at 0x340000 (separate cache region, won't compete).
+	println!("cargo:rustc-link-arg=-Wl,--section-start=.rostro_run_match_std=0x300000");
+	println!("cargo:rustc-link-arg=-Wl,--section-start=.rostro_run_match_dyn=0x340000");
+
 	let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
 	let mut decls = String::new();
 
