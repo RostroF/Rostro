@@ -3028,6 +3028,33 @@ impl InterpretedInstance {
                             self.regs[Reg::A0.to_usize()] = result;
                             offset += 1;
                         }
+                        ROSTRO_INTRINSIC_POSEIDON2_PERM => {
+                            // ABI: A0 = state_ptr (8 little-endian u64s = 64 bytes).
+                            // Returns: A0 = 0 on success, 1 on memory-access failure.
+                            // Reads 8 u64s, runs the full permutation natively,
+                            // writes 8 u64s back to the same address.
+                            let state_ptr = self.regs[Reg::A0.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                let mut state: [u64; POSEIDON2_WIDTH] = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let bytes = memory.borrow_bytes(state_ptr, 64)?;
+                                    let mut s = [0u64; POSEIDON2_WIDTH];
+                                    for i in 0..POSEIDON2_WIDTH {
+                                        s[i] = u64::from_le_bytes(bytes[i*8..(i+1)*8].try_into().ok()?);
+                                    }
+                                    s
+                                };
+                                rostro_poseidon2_permute(&mut state);
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let out = memory_mut.borrow_bytes_mut(state_ptr, 64)?;
+                                for i in 0..POSEIDON2_WIDTH {
+                                    out[i*8..(i+1)*8].copy_from_slice(&state[i].to_le_bytes());
+                                }
+                                Some(0)
+                            })().unwrap_or(1);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
                         _ => {
                             // Regular host call — exit run loop so host can dispatch.
                             let next_pc = self
@@ -4441,6 +4468,8 @@ pub const ROSTRO_INTRINSIC_P521_ECDSA_VERIFY: u32 = 111; // NIST P-521 ECDSA ver
 // ~2× wasmtime-cranelift gap on the most common chain-runtime hashing ops.
 pub const ROSTRO_INTRINSIC_BLAKE2B_256: u32 = 120; // Blake2b-256 (32-byte digest)
 pub const ROSTRO_INTRINSIC_KECCAK_256:  u32 = 121; // Keccak-256 (32-byte digest)
+// Phase 2 STARK-primitive intrinsics (2026-05-15).
+pub const ROSTRO_INTRINSIC_POSEIDON2_PERM: u32 = 130; // Poseidon2-Goldilocks-WIDTH8 in-place permute
 
 /// Goldilocks field multiplication: `(a * b) mod (2^64 - 2^32 + 1)`.
 ///
@@ -4579,6 +4608,7 @@ pub fn rostro_dilithium_verify(pk_bytes: &[u8], msg: &[u8], sig_bytes: &[u8], ct
 ///
 /// Shared between interpreter dispatch (FAST_OP_ECALLI intercept) and the
 /// JIT runner's host-side dispatch (rostro_intrinsic_codegen.rs).
+#[link_section = ".rostro_intrinsic_bodies"]
 pub fn rostro_blake2b_256(msg: &[u8]) -> [u8; 32] {
     use blake2::digest::{consts::U32, Digest};
     use blake2::Blake2b;
@@ -4590,6 +4620,7 @@ pub fn rostro_blake2b_256(msg: &[u8]) -> [u8; 32] {
 }
 
 /// Phase 1 Tier 2 (2026-05-14). Keccak-256 hash. Returns 32 bytes.
+#[link_section = ".rostro_intrinsic_bodies"]
 pub fn rostro_keccak_256(msg: &[u8]) -> [u8; 32] {
     use sha3::digest::Digest;
     use sha3::Keccak256;
@@ -4598,6 +4629,162 @@ pub fn rostro_keccak_256(msg: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
     out.copy_from_slice(hasher.finalize().as_slice());
     out
+}
+
+// =====================================================================
+// Phase 2 Tier 2 (2026-05-15). Poseidon2-Goldilocks WIDTH=8 permutation.
+// Bit-exact with Plonky3's `default_goldilocks_poseidon2_8`. Vendored from
+// the bench harness's gp::poseidon2 reference. Uses goldilocks_*_native
+// directly — no ecalli round-trip. Replaces ~240+ goldilocks ecalli calls
+// plus orchestration with one ecalli + the native body.
+// =====================================================================
+
+const POSEIDON2_WIDTH: usize = 8;
+
+const POSEIDON2_RC_INITIAL: [[u64; POSEIDON2_WIDTH]; 4] = [
+    [
+        0xdd5743e7f2a5a5d9, 0xcb3a864e58ada44b, 0xffa2449ed32f8cdc, 0x42025f65d6bd13ee,
+        0x7889175e25506323, 0x34b98bb03d24b737, 0xbdcc535ecc4faa2a, 0x5b20ad869fc0d033,
+    ],
+    [
+        0xf1dda5b9259dfcb4, 0x27515210be112d59, 0x4227d1718c766c3f, 0x26d333161a5bd794,
+        0x49b938957bf4b026, 0x4a56b5938b213669, 0x1120426b48c8353d, 0x6b323c3f10a56cad,
+    ],
+    [
+        0xce57d6245ddca6b2, 0xb1fc8d402bba1eb1, 0xb5c5096ca959bd04, 0x6db55cd306d31f7f,
+        0xc49d293a81cb9641, 0x1ce55a4fe979719f, 0xa92e60a9d178a4d1, 0x002cc64973bcfd8c,
+    ],
+    [
+        0xcea721cce82fb11b, 0xe5b55eb8098ece81, 0x4e30525c6f1ddd66, 0x43c6702827070987,
+        0xaca68430a7b5762a, 0x3674238634df9c93, 0x88cee1c825e33433, 0xde99ae8d74b57176,
+    ],
+];
+
+const POSEIDON2_RC_FINAL: [[u64; POSEIDON2_WIDTH]; 4] = [
+    [
+        0x014ef1197d341346, 0x9725e20825d07394, 0xfdb25aef2c5bae3b, 0xbe5402dc598c971e,
+        0x93a5711f04cdca3d, 0xc45a9a5b2f8fb97b, 0xfe8946a924933545, 0x2af997a27369091c,
+    ],
+    [
+        0xaa62c88e0b294011, 0x058eb9d810ce9f74, 0xb3cb23eced349ae4, 0xa3648177a77b4a84,
+        0x43153d905992d95d, 0xf4e2a97cda44aa4b, 0x5baa2702b908682f, 0x082923bdf4f750d1,
+    ],
+    [
+        0x98ae09a325893803, 0xf8a6475077968838, 0xceb0735bf00b2c5f, 0x0a1a5d953888e072,
+        0x2fcb190489f94475, 0xb5be06270dec69fc, 0x739cb934b09acf8b, 0x537750b75ec7f25b,
+    ],
+    [
+        0xe9dd318bae1f3961, 0xf7462137299efe1a, 0xb1f6b8eee9adb940, 0xbdebcc8a809dfe6b,
+        0x40fc1f791b178113, 0x3ac1c3362d014864, 0x9a016184bdb8aeba, 0x95f2394459fbc25e,
+    ],
+];
+
+const POSEIDON2_RC_INTERNAL: [u64; 22] = [
+    0x488897d85ff51f56, 0x1140737ccb162218, 0xa7eeb9215866ed35, 0x9bd2976fee49fcc9,
+    0xc0c8f0de580a3fcc, 0x4fb2dae6ee8fc793, 0x343a89f35f37395b, 0x223b525a77ca72c8,
+    0x56ccb62574aaa918, 0xc4d507d8027af9ed, 0xa080673cf0b7e95c, 0xf0184884eb70dcf8,
+    0x044f10b0cb3d5c69, 0xe9e3f7993938f186, 0x1b761c80e772f459, 0x606cec607a1b5fac,
+    0x14a0c2e1d45f03cd, 0x4eace8855398574f, 0xf905ca7103eff3e6, 0xf8c8f8d20862c059,
+    0xb524fe8bdd678e5a, 0xfbb7865901a1ec41,
+];
+
+const POSEIDON2_MATRIX_DIAG: [u64; POSEIDON2_WIDTH] = [
+    0xfffffffeffffffff, 0x0000000000000001, 0x0000000000000002, 0x7fffffff80000001,
+    0x0000000000000003, 0x7fffffff80000000, 0xfffffffefffffffe, 0xfffffffefffffffd,
+];
+
+#[inline(always)]
+fn poseidon2_sbox(x: u64) -> u64 {
+    let x2 = goldilocks_mul_native(x, x);
+    let x4 = goldilocks_mul_native(x2, x2);
+    let x6 = goldilocks_mul_native(x4, x2);
+    goldilocks_mul_native(x6, x)
+}
+
+#[inline(always)]
+fn poseidon2_apply_mat4(x: &mut [u64; 4]) {
+    let t01 = goldilocks_add_native(x[0], x[1]);
+    let t23 = goldilocks_add_native(x[2], x[3]);
+    let t0123 = goldilocks_add_native(t01, t23);
+    let t01123 = goldilocks_add_native(t0123, x[1]);
+    let t01233 = goldilocks_add_native(t0123, x[3]);
+    let new_x3 = goldilocks_add_native(t01233, goldilocks_add_native(x[0], x[0]));
+    let new_x1 = goldilocks_add_native(t01123, goldilocks_add_native(x[2], x[2]));
+    x[0] = goldilocks_add_native(t01123, t01);
+    x[2] = goldilocks_add_native(t01233, t23);
+    x[1] = new_x1;
+    x[3] = new_x3;
+}
+
+#[inline(always)]
+fn poseidon2_mds_light(state: &mut [u64; POSEIDON2_WIDTH]) {
+    let (head, tail) = state.split_at_mut(4);
+    let h: &mut [u64; 4] = head.try_into().unwrap();
+    let t: &mut [u64; 4] = tail.try_into().unwrap();
+    poseidon2_apply_mat4(h);
+    poseidon2_apply_mat4(t);
+    let sums: [u64; 4] = [
+        goldilocks_add_native(state[0], state[4]),
+        goldilocks_add_native(state[1], state[5]),
+        goldilocks_add_native(state[2], state[6]),
+        goldilocks_add_native(state[3], state[7]),
+    ];
+    let mut i = 0;
+    while i < POSEIDON2_WIDTH {
+        state[i] = goldilocks_add_native(state[i], sums[i & 3]);
+        i += 1;
+    }
+}
+
+#[inline(always)]
+fn poseidon2_external_round(state: &mut [u64; POSEIDON2_WIDTH], rc: &[u64; POSEIDON2_WIDTH]) {
+    let mut i = 0;
+    while i < POSEIDON2_WIDTH {
+        state[i] = poseidon2_sbox(goldilocks_add_native(state[i], rc[i]));
+        i += 1;
+    }
+    poseidon2_mds_light(state);
+}
+
+#[inline(always)]
+fn poseidon2_internal_round(state: &mut [u64; POSEIDON2_WIDTH], rc: u64) {
+    state[0] = poseidon2_sbox(goldilocks_add_native(state[0], rc));
+    let mut sum = state[0];
+    let mut i = 1;
+    while i < POSEIDON2_WIDTH {
+        sum = goldilocks_add_native(sum, state[i]);
+        i += 1;
+    }
+    i = 0;
+    while i < POSEIDON2_WIDTH {
+        state[i] = goldilocks_add_native(
+            goldilocks_mul_native(state[i], POSEIDON2_MATRIX_DIAG[i]),
+            sum,
+        );
+        i += 1;
+    }
+}
+
+/// Phase 2 Tier 2 (2026-05-15). Full Poseidon2-Goldilocks-WIDTH8 permutation
+/// in place. Bit-exact with the bench harness's gp::permute.
+#[link_section = ".rostro_intrinsic_bodies"]
+pub fn rostro_poseidon2_permute(state: &mut [u64; POSEIDON2_WIDTH]) {
+    poseidon2_mds_light(state);
+    let mut r = 0;
+    while r < 4 {
+        poseidon2_external_round(state, &POSEIDON2_RC_INITIAL[r]);
+        r += 1;
+    }
+    let mut r = 0;
+    while r < 22 {
+        poseidon2_internal_round(state, POSEIDON2_RC_INTERNAL[r]);
+        r += 1;
+    }
+    let mut r = 0;
+    while r < 4 {
+        poseidon2_external_round(state, &POSEIDON2_RC_FINAL[r]);
+        r += 1;
+    }
 }
 
 fn trap_impl<const DEBUG: bool>(visitor: &mut InterpretedInstance, program_counter: ProgramCounter) -> Option<Target> {

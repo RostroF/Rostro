@@ -165,7 +165,24 @@ fn internal_round(state: &mut [u64; WIDTH], rc: u64) {
 }
 
 /// Full Poseidon2-Goldilocks-WIDTH8 permutation in place.
+///
+/// On polkavm: dispatched via the RostroVM `rostro_poseidon2_permute`
+/// intrinsic (ecalli index 130). The host runs the 30-round permutation
+/// natively in one ecalli, replacing ~240+ separate goldilocks ecalli
+/// calls plus round-orchestration overhead.
 pub fn permute(state: &mut [u64; WIDTH]) {
+	#[cfg(target_env = "polkavm")]
+	{
+		unsafe { crate::polkavm::rostro_poseidon2_permute(state.as_mut_ptr()); }
+	}
+	#[cfg(not(target_env = "polkavm"))]
+	{
+		permute_native(state);
+	}
+}
+
+/// Pure-Rust permutation body — used by javm + wasm32 (the bench controls).
+pub fn permute_native(state: &mut [u64; WIDTH]) {
 	mds_light(state);
 	let mut r = 0;
 	while r < 4 {

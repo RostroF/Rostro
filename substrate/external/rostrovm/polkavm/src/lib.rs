@@ -80,10 +80,11 @@ pub mod rostro_intrinsics {
         ROSTRO_INTRINSIC_GOLDILOCKS_SUB,
         ROSTRO_INTRINSIC_KECCAK_256,
         ROSTRO_INTRINSIC_P521_ECDSA_VERIFY,
+        ROSTRO_INTRINSIC_POSEIDON2_PERM,
         goldilocks_add_native, goldilocks_inv_native, goldilocks_mul_native,
         goldilocks_sub_native,
         rostro_blake2b_256, rostro_dilithium_verify, rostro_keccak_256,
-        rostro_p521_ecdsa_verify_prehash,
+        rostro_p521_ecdsa_verify_prehash, rostro_poseidon2_permute,
     };
 
     /// CustomCodegen impl that emits direct intrinsic calls in JIT-compiled

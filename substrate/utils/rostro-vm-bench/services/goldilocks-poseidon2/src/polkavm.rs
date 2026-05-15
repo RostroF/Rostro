@@ -15,6 +15,7 @@
 //!   101 = goldilocks_add   — u64+u64 → u64 (non-canonical, like gp::add)
 //!   102 = goldilocks_sub   — u64-u64 → u64 (non-canonical)
 //!   103 = goldilocks_inv   — Fermat inverse, ~127 mul-cost ops
+//!   130 = poseidon2_perm   — full WIDTH=8 permutation, in-place
 
 #[polkavm_derive::polkavm_import]
 extern "C" {
@@ -29,4 +30,10 @@ extern "C" {
 
     #[polkavm_import(index = 103)]
     pub fn rostro_goldilocks_inv(x: u64) -> u64;
+
+    /// Phase 2 Tier 2 (2026-05-15) — full Poseidon2-Goldilocks-WIDTH8
+    /// permutation. In-place; state_ptr points to 8 little-endian u64s
+    /// (64 bytes). Returns 0 on success, 1 on memory-access failure.
+    #[polkavm_import(index = 130)]
+    pub fn rostro_poseidon2_permute(state_ptr: *mut u64) -> u32;
 }
