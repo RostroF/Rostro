@@ -48,6 +48,14 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+// Phase Star B8: declare a 512 KiB minimum stack to the polkavm linker.
+// The polkavm-linker default is 8 KiB (`VM_MIN_PAGE_SIZE * 2`), which
+// the typed `serde_json::from_slice::<RuntimeGenesisConfig>` path blows
+// during `GenesisBuilder_build_state`. Same fix as rostro-runtime (B7);
+// gated to PVM target only.
+#[cfg(all(any(target_arch = "riscv32", target_arch = "riscv64"), target_feature = "e"))]
+polkavm_derive::min_stack_size!(512 * 1024);
+
 extern crate alloc;
 
 use alloc::{borrow::Cow, vec, vec::Vec};

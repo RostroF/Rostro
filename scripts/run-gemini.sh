@@ -14,12 +14,20 @@
 
 set -euo pipefail
 
+# Phase Star B8: required at runtime to load the PVM runtime blob.
+# `RuntimeBlob::new` rejects PolkaVM-magic blobs unless this is set.
+export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NODE_BIN="${ROSTRO_NODE:-${REPO_ROOT}/target/release/rostro-node}"
+# Phase Star B8: switched from rostro-node to gemini-node. gemini-node is
+# the Sassafras-flavoured binary that loads `gemini-runtime` (compiled
+# to PVM via SUBSTRATE_RUNTIME_TARGET=riscv). rostro-node runs the
+# Aura-based rostro-runtime and has no `gemini-local` chain spec.
+NODE_BIN="${GEMINI_NODE:-${REPO_ROOT}/target/release/gemini-node}"
 
 if [[ ! -x "$NODE_BIN" ]]; then
-	echo "rostro-node binary not found at $NODE_BIN" >&2
-	echo "  build it first:  cargo build --release -p rostro-node" >&2
+	echo "gemini-node binary not found at $NODE_BIN" >&2
+	echo "  build it first:  SUBSTRATE_ENABLE_POLKAVM=1 cargo build --release -p gemini-node" >&2
 	exit 1
 fi
 
@@ -40,10 +48,21 @@ BOB_BASE="${REPO_ROOT}/.gemini/bob"
 
 mkdir -p "$ALICE_BASE" "$BOB_BASE"
 
+# Phase Star B8: gemini's Sassafras (bandersnatch) authority key isn't
+# injected by the stock `--alice` / `--bob` keyring flags — those only
+# cover sr25519/ed25519/ecdsa. Inject the bandersnatch keys via
+# gemini-node's `insert-sassafras-key` subcommand before launch. Safe
+# to re-run: keystore inserts are idempotent for the same SURI.
+echo "injecting Alice + Bob Sassafras (bandersnatch) keys..."
+"$NODE_BIN" insert-sassafras-key \
+	--suri //Alice --base-path "$ALICE_BASE" --chain-id gemini-local
+"$NODE_BIN" insert-sassafras-key \
+	--suri //Bob --base-path "$BOB_BASE" --chain-id gemini-local
+
 # Common arguments. --no-mdns avoids cross-machine surprises during the
 # lab; we explicitly set the bootnodes multiaddr.
 COMMON_ARGS=(
-	--chain gemini
+	--chain local
 	--no-mdns
 	--validator
 	--rpc-cors=all
