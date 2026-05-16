@@ -13559,6 +13559,7 @@ dependencies = [
  "log",
  "polkavm 0.32.0",
  "rostro-executor-fixture-storage-roundtrip",
+ "rostro-runtime",
  "sp-core",
  "sp-io",
  "sp-state-machine",

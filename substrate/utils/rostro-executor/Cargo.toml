@@ -36,3 +36,8 @@ sp-state-machine = { workspace = true, default-features = true }
 sp-core = { workspace = true, default-features = true }
 # PVM-compiled guest fixture for the B3 gate.
 rostro-executor-fixture-storage-roundtrip = { workspace = true, default-features = true }
+# B5 gate: confirm the real rostro-runtime blob loads against the executor.
+# This dev-dep builds rostro-runtime as either WASM or PVM depending on
+# `SUBSTRATE_RUNTIME_TARGET`; the B5 test is `#[ignore]`-gated so the
+# default `cargo test` run on a WASM-built workspace doesn't trip on it.
+rostro-runtime = { workspace = true, default-features = true }
