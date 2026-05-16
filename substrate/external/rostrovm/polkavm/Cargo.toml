@@ -48,6 +48,14 @@ path = "src/lib.rs"
 name = "integration_tests"
 path = "tests/integration_tests.rs"
 
+# Audit A6 — Known Answer Tests for Tier 2 crypto intrinsics. One spec-
+# published vector per intrinsic; catches dep behavioral drift across
+# version bumps (the snapshot semantics of A7 hold only against the
+# pinned Cargo.lock; KAT keeps the trust live).
+[[test]]
+name = "kat_vectors"
+path = "tests/kat_vectors.rs"
+
 [dependencies.log]
 version = "0.4.20"
 

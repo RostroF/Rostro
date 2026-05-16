@@ -4,9 +4,9 @@
 **Scope:** Native precompile bodies and dispatch wiring added in Phase 1, 2, and 3 of the RostroVM optimization arc — `ROSTRO_INTRINSIC_*` IDs 100-103 (goldilocks), 110 (dilithium), 111 (p521), 120 (blake2b), 121 (keccak), 122 (ed25519), 123 (secp256k1_recover), 130 (poseidon2).
 **Reviewers:** ProdigalWon + Claude
 **Status:**
-- A1 + A2 + A11 + A10 + A12 + A13 mitigations LANDED 2026-05-15 (see "Implementation status" below).
-- A3 + A4 + A5 + A6 + A8 are pass / defense-in-depth.
-- A7 (panic propagation) and A9 (Goldilocks ABI contract) remain OPEN — design calls deferred for separate sessions.
+- A1 + A2 + A6 + A7 + A10 + A11 + A12 + A13 mitigations LANDED 2026-05-15 (see "Implementation status" below).
+- A3 + A4 + A5 + A8 are pass / defense-in-depth.
+- A9 (Goldilocks ABI contract) remains OPEN — design call deferred for separate session.
 
 ---
 
@@ -110,24 +110,39 @@ Both should ship; the hard cap is the backstop for the per-byte calculation in c
 - `Cargo.lock` is checked in; all version resolutions are fixed.
 - `default-features = false` on all crypto deps prevents accidental feature drift.
 
-**Mitigations recommended:**
-- Add an integration test that runs a corpus of known-answer-test vectors (RFC 8032 Ed25519, NIST ECDSA, RFC 7693 Blake2b, FIPS 202 Keccak, FIPS 204 ML-DSA) and asserts byte-exact match. Run on every PR. Catches dep upgrades that quietly change behavior.
-- Document in the audit memo that any version bump on these crates requires re-running the KAT suite + a fresh audit pass.
+**Mitigation LANDED 2026-05-15:** `polkavm/tests/kat_vectors.rs` runs as part of `cargo test` for the polkavm crate. 13 KAT assertions across blake2b, keccak, ed25519, secp256k1_recover, goldilocks, and poseidon2 — each tied to a spec-published vector (RFC 8032 for Ed25519, RFC 7693 / RustCrypto for blake2, FIPS 202 / Ethereum for Keccak, k256+EIP-2 for secp256k1) or to a documented audit-time library output (where multiple parameterizations exist in the wild and the spec is ambiguous).
+
+Includes negative-case KATs (`kat_ed25519_verify_rejects_tampered_msg`, `kat_secp256k1_recover_rejects_high_s`, `kat_secp256k1_recover_rejects_recid_2`) — these verify that A10/A11/A12 input-validation rejections are still firing.
+
+Dilithium and P-521 KATs are deferred until their service fixtures are extracted (the workload-level AGREE matrix is the proxy until then). Recorded as a follow-up.
+
+**Status:** CLOSED.
 
 ---
 
-## A7 — Panic propagation from native body to host (Audit-and-bound)
+## A7 — Panic propagation from native body to host (CLOSED 2026-05-15)
 
-**Risk:** If a native body panics (e.g., a RustCrypto crate hits an internal assertion on adversarial input), the panic unwinds through the interpreter into the host. In a substrate-runtime context this kills the runtime call; if it happens during block production it could crash the node, with `panic = "abort"` settings it WILL crash the node — chain-halt vector.
+**Risk:** If a native body panics (e.g., a RustCrypto crate hits an internal assertion on adversarial input), the panic unwinds through the interpreter into the host. In a substrate-runtime context this is caught by `sp-panic-handler` (workspace `panic = "unwind"` is required for that). The runtime call fails; the node stays up. The remaining concern is *cross-validator behavioral divergence* — if validator A's library panics on input X and B's doesn't, they apply different state changes.
 
-**Audit findings:**
-- All bodies use Result-returning constructors (`from_slice`, `from_byte`, `recover_from_prehash`) and `let-else` to convert errors to `false` / fail-code returns.
-- None of our wrapper bodies have explicit `unwrap()` / `panic!()` / `assert!()`.
-- Internal panics within the dep crates on adversarial input are theoretically possible but no known issue. Audited tier of pure-Rust crypto crates.
+**Audit findings:** Verify-path-scoped scan across each crypto crate's call graph:
 
-**Mitigation recommended:**
-- Wrap each native body in `std::panic::catch_unwind` and return the fail-code on panic. Adds ~10 ns overhead per call. Trades a possible chain-halt for a guest-observable verify-fail.
-- Alternatively: ensure host process is built with `panic = "abort"` consistently across all binaries so any panic kills cleanly rather than corrupting state.
+| Crate | Verify-path operations | Findings | Verdict |
+|---|---|---|---|
+| `ed25519-zebra` 4.2.0 | `VerificationKey::try_from`, `verify` | All ops return `Option`/`Choice`/`Result`. No unguarded unwrap/panic. | SAFE |
+| `curve25519-dalek` 4.1.3 | `CompressedEdwardsY::decompress`, `Scalar::from_canonical_bytes`, `vartime_double_scalar_mul_basepoint`, `mul_by_cofactor`, `is_identity` | Asserts/unwraps exist but ONLY in Elligator, basepoint table construction, and test code — none in the actual verify path. | SAFE |
+| `k256` 0.13.4 / `ecdsa` 0.16.9 | `Signature::from_slice`, `RecoveryId::from_byte`, `recover_from_prehash` | `R.unwrap()` (ecdsa-0.16.9/src/recovery.rs:305) is guarded by `R.is_none()` check at line 301. `r.invert()` operates on a scalar guaranteed nonzero by `Signature::from_scalars`' check at lib.rs:254. | SAFE |
+| `blake2` 0.10.6 | `Blake2b::<U32>::new`, `update`, `finalize` | Asserts/unwraps are all in `with_params` (we use plain `new()`, not that path). | SAFE |
+| `sha3` 0.10.9 | `Keccak256::new`, `update`, `finalize` | `debug_assert_eq!(block.len() % 8, 0)` (state.rs:43) — debug-only, no production panic. The `try_into().unwrap()` on the next line is invariant-protected: the surrounding chunks-of-8 loop guarantees `b.len() == 8` by construction. | SAFE |
+| `fips204` 0.4.6 | `ml_dsa_65::PublicKey::try_from_bytes`, `verify` | All `expect()` calls reference static spec parameters (L, tau, omega = ML-DSA-65 constants), not user input. "Cannot fail; L is static parameter" annotations confirm. | SAFE |
+| `p521` 0.13.3 / `ecdsa` 0.16.9 | `verify_prehash` (same generic ecdsa impl as k256) | All `panic!()` in test harness (Wycheproof blob runner) or `#[test]` functions. None in production verify path. | SAFE |
+
+**Decision: no `catch_unwind` wraps.** All verify paths return errors via `Result`/`Option` discipline on adversarial-but-well-formed input. Wrapping would add 5-10 ns per heavy intrinsic call AND introduce a behavior choice that doesn't help: substrate's `sp-panic-handler` already catches genuine panics at the outer runtime boundary; an inner wrap would just shift WHERE the same outcome is produced, not change what validators see.
+
+**Defense-in-depth, kept:** `sp-panic-handler` at the substrate-runtime boundary. Cross-validator behavioral consistency is enforced by the Cargo.lock pin + the audit's snapshot semantics.
+
+**Caveat — this is a snapshot.** The audit holds against current versions; any dep version bump invalidates it. A6 (KAT corpus) is the active line of defense against behavioral drift through dep upgrades — re-running KAT vectors after every bump catches behavioral changes even when no explicit panic is involved.
+
+**Status:** CLOSED.
 
 ---
 
