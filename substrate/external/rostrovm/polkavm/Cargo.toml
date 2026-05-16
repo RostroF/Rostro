@@ -88,9 +88,16 @@ default-features = false
 features = ["ecdsa", "arithmetic"]
 
 # Phase 3 signature-verify precompile deps (2026-05-15).
-[dependencies.ed25519-compact]
-version = "2"
+# ed25519-zebra is the Zcash Foundation's ZIP-215 reference implementation
+# (Apache-2.0 + MIT). Chosen over ed25519-compact (MIT-only, malleability-
+# permissive verify) per audit findings A10 / A12 / A13. ZIP-215 enforces
+# s < L canonicality and a deterministic cofactored verify equation —
+# eliminates the cross-impl divergence class. See
+# docs/SECURITY-AUDIT-TIER2-INTRINSICS.md.
+[dependencies.ed25519-zebra]
+version = "4.2"
 default-features = false
+features = ["std"]
 
 [dependencies.k256]
 version = "0.13"

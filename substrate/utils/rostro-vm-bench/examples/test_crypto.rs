@@ -5,6 +5,8 @@ use rostro_vm_bench::{
 		BLAKE2B_JAVM_BLOB, BLAKE2B_POLKAVM_BLOB, BLAKE2B_WASM_BLOB,
 		DILITHIUM_JAVM_BLOB, DILITHIUM_POLKAVM_BLOB, DILITHIUM_VERIFY_ONLY_JAVM_BLOB,
 		DILITHIUM_VERIFY_ONLY_POLKAVM_BLOB, DILITHIUM_VERIFY_ONLY_WASM_BLOB, DILITHIUM_WASM_BLOB,
+		ECRECOVER_JAVM_BLOB, ECRECOVER_POLKAVM_BLOB, ECRECOVER_WASM_BLOB,
+		ED25519_JAVM_BLOB, ED25519_POLKAVM_BLOB, ED25519_WASM_BLOB,
 		FRI_FOLD_TREE_JAVM_BLOB, FRI_FOLD_TREE_LARGE_JAVM_BLOB,
 		FRI_FOLD_TREE_LARGE_POLKAVM_BLOB, FRI_FOLD_TREE_LARGE_WASM_BLOB,
 		FRI_FOLD_TREE_POLKAVM_BLOB, FRI_FOLD_TREE_WASM_BLOB,
@@ -166,6 +168,28 @@ fn main() {
 		P521_JAVM_BLOB,
 		P521_POLKAVM_BLOB,
 		P521_WASM_BLOB,
+		Some(1),
+	);
+	// ed25519_verify: 1 = signature verified. The chain-side (polkavm) variant
+	// uses ed25519-zebra via the Tier 2 precompile (ZIP-215 semantics); the
+	// javm + wasm32 control variants use ed25519-compact compiled into the
+	// guest. RFC 8032 test vectors should produce identical outcomes across
+	// both crates — AGREE here is the cross-impl correctness check.
+	check_workload(
+		"ed25519_verify",
+		ED25519_JAVM_BLOB,
+		ED25519_POLKAVM_BLOB,
+		ED25519_WASM_BLOB,
+		Some(1),
+	);
+	// secp256k1_recover: 1 = pubkey recovered. polkavm variant uses the
+	// strict-rejection k256 precompile (low-s + recovery_id ∈ {0,1}). Test
+	// fixture is low-s with v=0, so all backends must AGREE on 1.
+	check_workload(
+		"ecrecover",
+		ECRECOVER_JAVM_BLOB,
+		ECRECOVER_POLKAVM_BLOB,
+		ECRECOVER_WASM_BLOB,
 		Some(1),
 	);
 }

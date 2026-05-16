@@ -4772,20 +4772,47 @@ pub fn rostro_keccak_256(msg: &[u8]) -> [u8; 32] {
     out
 }
 
-/// Phase 3 (2026-05-15). RFC 8032 Ed25519 signature verification.
+/// Phase 3 (2026-05-15). Ed25519 signature verification, ZIP-215 semantics.
 ///
 /// pk_bytes: 32-byte public key.
-/// sig_bytes: 64-byte signature.
+/// sig_bytes: 64-byte signature (R || s).
 /// msg: arbitrary-length message.
 ///
 /// Returns true iff the signature verifies. Any parse/length/crypto failure
-/// returns false (matches on-chain "verifies or it doesn't" semantics).
+/// returns false.
+///
+/// Backed by `ed25519-zebra` (Zcash Foundation, dual MIT/Apache-2.0). ZIP-215
+/// is the consensus spec that resolved Ed25519's cross-implementation
+/// divergence: it rejects non-canonical s (s >= L), rejects bad R encodings,
+/// and uses the cofactored verification equation `[8](R - R') == 0` so the
+/// verify outcome is deterministic across all conforming implementations.
+///
+/// Audit notes (see docs/SECURITY-AUDIT-TIER2-INTRINSICS.md):
+/// - A10 (signature malleability via high-s) — CLOSED. zebra rejects s >= L.
+/// - A12 (small-order pubkey forgery) — partially closed at the VM layer:
+///   ZIP-215 standardizes verify behavior on small-order pks, so the outcome
+///   is deterministic across all validators. Rejecting small-order pks at
+///   the IDENTITY-BINDING boundary (pallet registering an account/cert/PoP)
+///   remains a separate, pallet-layer concern. Treat 32-byte pk as a string
+///   of bits, not as "proven possessed."
+/// - A13 (license hygiene) — CLOSED. zebra is dual MIT/Apache-2.0.
 #[link_section = ".rostro_intrinsic_bodies"]
 pub fn rostro_ed25519_verify(pk_bytes: &[u8], sig_bytes: &[u8], msg: &[u8]) -> bool {
-    use ed25519_compact::{PublicKey, Signature};
-    let Ok(pk) = PublicKey::from_slice(pk_bytes) else { return false };
-    let Ok(sig) = Signature::from_slice(sig_bytes) else { return false };
-    pk.verify(msg, &sig).is_ok()
+    use ed25519_zebra::{Signature, VerificationKey};
+    if pk_bytes.len() != 32 || sig_bytes.len() != 64 {
+        return false;
+    }
+    let pk_arr: [u8; 32] = match pk_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let sig_arr: [u8; 64] = match sig_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let Ok(vk) = VerificationKey::try_from(pk_arr) else { return false };
+    let sig = Signature::from(sig_arr);
+    vk.verify(&sig, msg).is_ok()
 }
 
 /// Phase 3 (2026-05-15). secp256k1 ECDSA public-key recovery — the operation
@@ -4796,15 +4823,35 @@ pub fn rostro_ed25519_verify(pk_bytes: &[u8], sig_bytes: &[u8], msg: &[u8]) -> b
 /// out_pk: 64-byte buffer for the recovered uncompressed public key (X || Y).
 ///
 /// Returns true on successful recovery. Any parse/length/crypto failure
-/// returns false and `out_pk` is left undefined.
+/// returns false. `out_pk` is only written on success (else left as-passed-in).
+///
+/// Strict Ethereum-compat input validation (audit finding A11, 2026-05-15):
+/// - Rejects `recovery_id > 1`. The `2`/`3` bit ("r was x-reduced") is legal
+///   under SEC1 but never produced by Ethereum's signing path; accepting it
+///   would mean the same `(hash, r, s)` byte string recovers DIFFERENT pubkeys
+///   on Rostro vs. Ethereum — cross-chain divergence.
+/// - Rejects high-s signatures (`s > n/2`) per EIP-2 / BIP-146. Closes the
+///   `(hash, r, s)` ↔ `(hash, r, n-s)` malleability: both would otherwise
+///   recover valid (but different) pubkeys, breaking any sig-as-nonce usage.
 #[link_section = ".rostro_intrinsic_bodies"]
 pub fn rostro_secp256k1_recover(msg_hash: &[u8], sig_bytes: &[u8], out_pk: &mut [u8]) -> bool {
     use k256::ecdsa::{RecoveryId, Signature as K256Signature, VerifyingKey};
     if msg_hash.len() != 32 || sig_bytes.len() != 65 || out_pk.len() != 64 {
         return false;
     }
+    // A11: reject recovery_id outside {0, 1}.
+    let v = sig_bytes[64];
+    if v > 1 {
+        return false;
+    }
     let Ok(sig) = K256Signature::from_slice(&sig_bytes[..64]) else { return false };
-    let Some(recid) = RecoveryId::from_byte(sig_bytes[64]) else { return false };
+    // A11: reject high-s. `normalize_s()` returns `Some(low)` iff the input
+    // was high-s; we reject (rather than normalize-and-continue) so the
+    // ABI is "exactly one canonical sig per (msg, pk)" — matches Ethereum.
+    if sig.normalize_s().is_some() {
+        return false;
+    }
+    let Some(recid) = RecoveryId::from_byte(v) else { return false };
     let Ok(vk) = VerifyingKey::recover_from_prehash(msg_hash, &sig, recid) else { return false };
     // Encode as uncompressed sec1 (0x04 || X || Y); strip the leading 0x04
     // so out_pk is 64 raw bytes — matches Ethereum's ECRECOVER output (the

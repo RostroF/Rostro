@@ -3,7 +3,10 @@
 **Audit date:** 2026-05-15
 **Scope:** Native precompile bodies and dispatch wiring added in Phase 1, 2, and 3 of the RostroVM optimization arc — `ROSTRO_INTRINSIC_*` IDs 100-103 (goldilocks), 110 (dilithium), 111 (p521), 120 (blake2b), 121 (keccak), 122 (ed25519), 123 (secp256k1_recover), 130 (poseidon2).
 **Reviewers:** ProdigalWon + Claude
-**Status:** A1 + A2 mitigations LANDED 2026-05-15 (see "Implementation status" below). A3-A8 are pass / defense-in-depth — tracked as follow-ups.
+**Status:**
+- A1 + A2 + A11 + A10 + A12 + A13 mitigations LANDED 2026-05-15 (see "Implementation status" below).
+- A3 + A4 + A5 + A6 + A8 are pass / defense-in-depth.
+- A7 (panic propagation) and A9 (Goldilocks ABI contract) remain OPEN — design calls deferred for separate sessions.
 
 ---
 
@@ -128,6 +131,110 @@ Both should ship; the hard cap is the backstop for the per-byte calculation in c
 
 ---
 
+## A9 — Goldilocks intrinsic ABI canonicality contract is undocumented (Medium)
+
+**Where:** `polkavm/src/interpreter.rs:4631-4707` (native bodies).
+
+**Audit:**
+- `goldilocks_add_native` and `goldilocks_sub_native` deliberately return non-canonical values in `[0, 2^64)`, matching the `gp` reference crate's convention. The comment at `interpreter.rs:4654-4655` states this for `add` but **does not state it at the intrinsic's ABI surface** (the ID constant, the dispatch arm, or `rostro_intrinsics::*` re-export).
+- `goldilocks_mul_native` and `goldilocks_inv_native` canonicalize implicitly (mul reduces the full 128-bit product; inv multiplies through `x^(p-2)`).
+- Inputs are NEVER canonicalized at the boundary — any u64 is accepted as a "field element."
+
+**Injection vector:** if a caller (e.g., the Plonky3 STARK verifier on-chain) compares field elements with raw `u64 ==` instead of `canonical(a) == canonical(b)`, an attacker can supply non-canonical values such that `a ≠ b` byte-wise but `a ≡ b (mod p)`. A proof that should fail can pass, or vice versa.
+
+**Severity:** Medium. Not a direct chain-halt; it's a verifier-soundness foot-gun. Severity rises to Critical if any consensus-affecting caller (e.g., the PoP STARK verifier mint path) commits the bug.
+
+**Mitigation options** (deferred — design call, not auto-fixable):
+1. Document the ABI contract loudly at `rostro_intrinsics::*` and in each native body's docstring; add a `canonicalize(x: u64) -> u64` helper in the same module.
+2. Canonicalize inputs inside `add_native` / `sub_native`. Adds ~2 ns/op, ~5-10% slowdown on STARK-heavy workloads.
+3. Canonicalize on a SEPARATE `*_canonical` variant; let high-perf STARK callers keep the fast path, force consensus-affecting callers onto the safe path.
+
+**Status:** OPEN. Recorded; awaiting design decision (the choice affects PoP verifier ergonomics + STARK bench numbers).
+
+---
+
+## A10 — Ed25519 signature malleability accepted (Medium-High)
+
+**Where:** `polkavm/src/interpreter.rs:4694-4699` (`rostro_ed25519_verify`), backed by `ed25519-compact` 2.2.0.
+
+**Audit:** `ed25519-compact`'s verify (`ed25519.rs:239-255`):
+1. Uses `(expected_r - GeP3::from(r)).has_small_order()` — the **cofactored** equation. Accepts up to 8 valid (R, s) pairs per (message, pubkey) because the order-8 cofactor group is consumed by the `has_small_order` check.
+2. Does NOT check `s < L` (group order). `(R, s)` and `(R, s + L)` both verify because `s ≡ s + L (mod L)` in the verification equation. Doubles the malleability count to ~16 sigs per message.
+
+**Injection vector:** any chain code that uses a signature as a uniqueness key (replay protection, deduplication, "signature-as-nonce") accepts multiple "distinct" signatures for the same logical sign event. Cross-component divergence is also a risk: if dotwave (or any other Rostro client) uses `ed25519-dalek` strict-verify, and the chain accepts cofactored, the same byte string can produce different verify outcomes across the two components.
+
+**Reference:** Henry de Valence's "It's 255:19AM. Do you know what your validators are doing?" (2020) — the canonical write-up of the ed25519 cross-implementation problem. ZIP-215 is the consensus spec that resolved it for Zcash; `ed25519-zebra` (Zcash Foundation, MIT/Apache-2.0) is the reference implementation.
+
+**Severity:** Medium-High. Critical if Rostro uses ed25519 sigs as nonces (currently planned: BTOW uses Ed25519 as an SS58 scheme — needs review).
+
+**Mitigation:** Switched from `ed25519-compact` to `ed25519-zebra` 4.2.0 (Zcash Foundation, dual MIT/Apache-2.0). ZIP-215 verify enforces `s < L` canonicality and a deterministic cofactored verify equation `[8](R - R') == 0`. The malleability vector is closed — any byte-distinct sig that previously verified via the `s + L` or cofactor-group equivalent now fails.
+
+**Sig-as-nonce grep (2026-05-15):** substrate/frame doesn't use signature-as-nonce anywhere — tx pool dedupes by `(account, nonce)`, multisig by `call_hash`, im-online by `session_key + block_number`. So A10's severity downgrades from "replay-attack surface" to "cross-impl determinism + defense-in-depth." Still load-bearing for the latter; ZIP-215 makes the verify outcome a deterministic function of the input bytes across all conforming validator implementations.
+
+**Status:** CLOSED via Path 2 (dep swap).
+
+---
+
+## A11 — secp256k1 ECDSA recovery accepts high-s and non-Ethereum recovery_id (Medium-High)
+
+**Where:** `polkavm/src/interpreter.rs:4712-4729` (`rostro_secp256k1_recover`), backed by `k256` 0.13.4.
+
+**Audit:**
+- `k256::ecdsa::VerifyingKey::recover_from_prehash` (via `ecdsa-0.16.9/src/recovery.rs:281-316`) does NOT call `normalize_s()` and does NOT reject `s > n/2`. EIP-2 (Ethereum's signature malleability fix, 2017) requires this rejection; Bitcoin Core enforces it via BIP-146.
+- `RecoveryId::from_byte` accepts all 4 values in `{0, 1, 2, 3}`. The `2/3` bit signals "r was x-reduced" (the original `r` value was larger than the curve order). Ethereum's ECRECOVER precompile only accepts v ∈ {0, 1} (mapping to 27/28 in legacy encoding); accepting 2/3 produces a different pubkey for the same `(hash, r, s)` byte string vs. Ethereum.
+
+**Injection vectors:**
+1. **Intra-chain malleability.** `(hash, r, s, 0)` and `(hash, r, n-s, 1)` both recover valid (but different!) pubkeys. Same payload, two valid sigs. Replay attack on any sig-as-nonce path.
+2. **Cross-chain divergence with Ethereum.** A signature byte string that's REJECTED by Ethereum's ECRECOVER (high-s, or recovery_id 2/3) is ACCEPTED here. If Rostro ever processes an Ethereum-signed message (cross-chain bridge, signed-msg auth, etc.), the divergent outcome is a chain-fork vector at the policy layer.
+
+**Severity:** Medium-High. Critical for any future ETH-bridge surface; currently Medium for pure-Rostro consensus.
+
+**Mitigation (LOCKED 2026-05-15, implementation in this commit):** strict Ethereum-compat rejection. Wrap `recover_from_prehash` with pre-checks:
+- `recovery_id` byte must be `0` or `1` — reject `2`, `3`.
+- `s` must satisfy `s ≤ n/2` (low-s). `Signature::normalize_s()` returns `Some(normalized)` iff the original was high-s; reject if `Some`.
+
+Matches Ethereum's ECRECOVER policy + EIP-2.
+
+**Status:** IMPLEMENTED in this commit.
+
+---
+
+## A12 — Small-order Ed25519 pubkeys verify arbitrary signatures (High if used as identity)
+
+**Where:** `polkavm/src/interpreter.rs:4694-4699` (`rostro_ed25519_verify`).
+
+**Audit:** `PublicKey::from_slice` in `ed25519-compact` (`ed25519.rs:29-36`) checks ONLY length (32 bytes). It does NOT validate that the bytes decode to a valid Edwards point, and does NOT reject the 8 small-order points on the curve (the identity point, the 4-torsion points, the 8-torsion points).
+
+If `pk` is a small-order point, the cofactored verification equation reduces to `s*B = R` (the `h*A` term vanishes under cofactor multiplication because `A` has small order). Any `(R, s)` satisfying `s*B = R` verifies — and there are infinitely many such pairs (pick any `s`, compute `R = s*B`).
+
+**Injection vector:** an attacker submits a "signed" message with a small-order pubkey + a self-crafted `(R, s)` that satisfies `s*B = R`. The signature "verifies." If the chain treats the pubkey as an identity (account binding, PoP claim, validator key, etc.), the attacker has produced a forged identity-bearing signature.
+
+**Severity:** HIGH. Most Rostro paths plan to bind pubkeys to identities (BTOW SS58 accounts, validator keys, PoP `bound_account`).
+
+**Mitigation:** Path 2 (ed25519-zebra) — partially closed at the VM layer.
+
+ZIP-215 *standardizes verify behavior on small-order pubkeys* — the outcome is deterministic across all conforming validators, so consensus is preserved. But ZIP-215 does NOT *reject* small-order pubkeys at the verify primitive; it explicitly accepts them, leaving the rejection to the application layer where pubkey-to-identity binding happens.
+
+**For Rostro, this means:** any pallet that binds an Ed25519 pubkey to an identity (BTOW SS58 account binding, PoP `bound_account`, validator registration, RNS owner key, etc.) MUST reject small-order pubkeys at the binding boundary. Identity-binding code should call something like `is_small_order_ed25519(pk_bytes)` and refuse the binding if true. This is a separate, pallet-layer concern.
+
+**Status:**
+- VM-layer (verify primitive): CLOSED via Path 2. Verify is now deterministic across implementations.
+- Pallet-layer (identity binding): OPEN — to be addressed when the identity-binding pallets are written. Track in pallet design memos, not here.
+
+---
+
+## A13 — `ed25519-compact` is MIT-only, not Apache-2.0 compatible (License hygiene)
+
+**Where:** `polkavm/Cargo.toml` line 91-93.
+
+**Audit:** Rostro's stated license posture is Apache-2.0 across the surviving tree (per `CLAUDE.md`). `ed25519-compact` is licensed MIT-only (`Cargo.toml::license = "MIT"`). MIT is compatible *for use* in an Apache-2.0 project, but the NOTICE accumulation gets more complex than dual MIT/Apache-2.0 deps (which we have for `k256`, `blake2`, `sha3`, `fips204`).
+
+**Recommendation:** switch to `ed25519-zebra` (Zcash Foundation, MIT OR Apache-2.0) — aligns the license posture with the rest of the crypto deps AND closes A10/A12 for free.
+
+**Status:** CLOSED. `ed25519-zebra` 4.2.0 (dual MIT/Apache-2.0) replaces `ed25519-compact` (MIT-only). License posture now uniform across all Tier 2 crypto deps.
+
+---
+
 ## A8 — Timing side channels (Out-of-scope for chain consensus, flag for host operators)
 
 **Risk:** Non-constant-time crypto in `k256` (ECDSA verify and pubkey recovery historically have variable-time branches in pure-Rust BigInt impls) could leak information about ephemeral secrets if any host code processes private keys near these intrinsics.
@@ -212,17 +319,19 @@ For `blake2b_256`, `keccak_256`, `ed25519_verify`, charge `base_gas + per_byte_g
 
 ---
 
-## Implementation status (A1 + A2 landed)
+## Implementation status (A1 + A2 + A10 + A11 + A12 [VM-layer] + A13 landed)
 
 Implemented in commit forthcoming on `vm-research`:
 
 - **New module:** `polkavm/src/rostro_intrinsic_gas.rs` — `INTRINSIC_GAS` table (flat + per-byte) indexed by intrinsic ID; `MAX_INTRINSIC_MSG_LEN = 4 MiB`; `intrinsic_surplus_gas(id, msg_len) -> Option<i64>` helper. Module-level unit tests cover the lookup, cap rejection, and boundary cases.
 - **Interpreter dispatch (`interpreter.rs:2900-3104`):** Each Tier 2 arm now charges its intrinsic-specific surplus over the standard 1-gas ecalli before running the native body. Variable-length intrinsics (blake2b, keccak, ed25519) reject `msg_len > MAX_INTRINSIC_MSG_LEN` with the existing memory-access failure code path (`1` for hashing, `0` for ed25519). Gas underflow during surplus charge calls `handle_gas_underflow`, mirroring the per-block underflow path.
 - **JIT-runner dispatch (`runners/polkavm_runner.rs`):** Mirrors the interpreter logic via a new `DispatchOutcome { Ran, Unknown, OutOfGas }` enum + `charge_intrinsic_surplus` helper. Main run loop honors `OutOfGas` by aborting with the standard out-of-gas error — necessary because the ecrecover-style "function returns to host immediately after ecalli" pattern would otherwise let an uncharged call slip past the gas check.
+- **A10 + A12 (VM-layer) + A13 dep swap:** `polkavm/Cargo.toml` now uses `ed25519-zebra` 4.2 (dual MIT/Apache-2.0) instead of `ed25519-compact` 2 (MIT-only). `rostro_ed25519_verify` (`interpreter.rs:4686-4733`) rewritten to use zebra's `VerificationKey::try_from + verify` API. ZIP-215 enforcement is internal to zebra; no wrapper checks needed. Single `curve25519-dalek 4.1.3` is shared between zebra (consensus) and the workspace's existing ed25519-dalek path (javm side) — `cargo tree -i curve25519-dalek` confirms no duplicate.
+- **A11 strict secp256k1:** `rostro_secp256k1_recover` (`interpreter.rs:4734-4778`) rejects `recovery_id > 1` and high-s signatures via `Signature::normalize_s().is_some()`. Matches Ethereum ECRECOVER + EIP-2 / BIP-146.
 - **Validation tooling:**
   - `examples/measure_intrinsic_native_cost.rs` — direct native-body timing (calibration anchor).
-  - `examples/verify_audit_a1_a2.rs` — end-to-end VM check: confirms gas-charged amount matches the table on a successful call (ed25519 = 50,013 gas, ecrecover = 160,039 gas) AND that a budget below the surplus cost traps with "out of gas" on both INT and JIT.
-  - `examples/test_crypto.rs` — pre-existing AGREE matrix across all 6 backends. 11/11 workloads still AGREE after the audit fixes.
+  - `examples/verify_audit_a1_a2.rs` — end-to-end VM check: confirms gas-charged amount matches the table on a successful call (ed25519 = 50,013 gas, ecrecover = 160,039 gas), gas underflow traps with "out of gas" on both INT and JIT, AND secp256k1_recover rejects recovery_id ∈ {2, 3} + high-s.
+  - `examples/test_crypto.rs` — extended AGREE matrix now includes `ed25519_verify` and `ecrecover` workloads. All 13 workloads AGREE across all 6 backends — zebra (consensus side) vs. ed25519-compact (control side) match on the RFC 8032 test vector.
 
 ### Test outcomes
 
