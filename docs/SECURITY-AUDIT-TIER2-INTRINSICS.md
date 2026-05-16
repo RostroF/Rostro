@@ -219,7 +219,14 @@ ZIP-215 *standardizes verify behavior on small-order pubkeys* — the outcome is
 
 **Status:**
 - VM-layer (verify primitive): CLOSED via Path 2. Verify is now deterministic across implementations.
-- Pallet-layer (identity binding): OPEN — to be addressed when the identity-binding pallets are written. Track in pallet design memos, not here.
+- Pallet-layer (identity binding): **OPEN** — the relevant pallets EXIST in the main Rostro tree and currently perform no small-order Ed25519 pubkey rejection. Audit follow-up to be tracked in the main repo, not here. Known binding sites:
+  - `substrate/utils/rostro-multi-key/src/lib.rs` — `RostroSigner::Ed25519(ed25519::Public)` accepts any 32-byte pubkey (Solana/Cosmos-style raw address derivation per BTOW Option-C).
+  - `substrate/frame/pallet-rostro-personhood/` — `bound_account` is committed to as an AIR public input by `mint_pop`; the SS58 it binds to must be backed by a real key, which for Ed25519-derived accounts means the underlying pubkey must reject the 8 small-order points.
+  - `~/Polkadot/pns-pallets/` (RNS) — owner-key registration. Same concern applies for any Ed25519 owner-key path.
+
+  Fix sketch when the pallet-side audit runs: add an `is_low_order_ed25519(pk: &[u8; 32]) -> bool` helper (decode via `ed25519_zebra::VerificationKey::try_from` + check torsion, or precompute the 8 small-order encodings and reject by exact match — the second is cheaper, 8 byte-array compares). Wire at every identity-binding extrinsic entry point.
+
+  **vm-research is the wrong tree to land this fix in** — the intrinsic surface is now ZIP-215-deterministic, which is all VM-research can offer. The application-layer rejection happens where identity binding happens, in the main Rostro repo.
 
 ---
 
@@ -360,7 +367,12 @@ Once the gas table is locked:
 
 ## Open follow-up items (post-mitigation)
 
+In the **vm-research tree** (this repo):
 - Add `SECURITY-AUDIT-TIER2-INTRINSICS-CHANGELOG.md` entry whenever a new intrinsic ID is added; require a gas calibration measurement before merging.
 - Wire a CI job that diffs `INTRINSIC_GAS` against the calibration baseline and fails the PR if costs move >10% without an explicit re-calibration commit.
 - Add KAT vectors as a separate test target so re-running them on every dep bump is one command.
 - Revisit panic propagation (A7) — decide between `catch_unwind` wrap vs `panic = "abort"` discipline.
+- A9 (Goldilocks ABI canonicality contract) — design call on document-only vs canonicalize-in-body.
+
+In the **main Rostro tree** (separate audit pass, not vm-research's scope):
+- A12 pallet layer — small-order Ed25519 pubkey rejection at `rostro-multi-key` (Ed25519 signer construction), `pallet-rostro-personhood` (`bound_account` ingest), and `~/Polkadot/pns-pallets/` (RNS owner-key registration). VM-layer ZIP-215 verify is deterministic but accepts small-order pks by design; identity-binding pallets are where rejection must live.
