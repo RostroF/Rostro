@@ -39,7 +39,11 @@ members = [
 	"substrate/client/db",
 	"substrate/client/executor",
 	"substrate/client/executor/common",
-	"substrate/client/executor/polkavm",
+	# substrate/client/executor/polkavm — excluded from the workspace.
+	# The crate's source stays as upstream-Polkadot reference for the
+	# phase-star `rostro-executor` (Apache-2.0, substrate/utils/) work.
+	# It does not compile against polkavm 0.32+ without adding `unsafe`
+	# to the GPL3 host-fn shim (memory accessors became &mut self).
 	"substrate/client/executor/runtime-test",
 	"substrate/client/executor/wasmtime",
 	"substrate/client/informant",
@@ -744,10 +748,10 @@ p3-uni-stark      = { path = "substrate/external/plonky3/uni-stark", default-fea
 p3-util           = { path = "substrate/external/plonky3/util", default-features = false }
 pbkdf2 = { version = "0.12.2", default-features = false }
 pin-project = { version = "1.1.3" }
-polkavm = { version = "0.31.0", default-features = false }
-polkavm-common = { version = "0.31.0", default-features = false }
-polkavm-derive = "0.31.0"
-polkavm-linker = "0.31.0"
+polkavm = { path = "substrate/external/rostrovm/polkavm", default-features = false }
+polkavm-common = { path = "substrate/external/rostrovm/polkavm-common", default-features = false }
+polkavm-derive = { path = "substrate/external/rostrovm/polkavm-derive" }
+polkavm-linker = { path = "substrate/external/rostrovm/polkavm-linker" }
 portpicker = { version = "0.1.1" }
 pretty_assertions = { version = "1.3.0" }
 primitive-types = { version = "0.13.1", default-features = false, features = [
@@ -818,7 +822,6 @@ rc-consensus-pow = { path = "substrate/client/consensus/pow", default-features =
 rc-consensus-slots = { path = "substrate/client/consensus/slots", default-features = false }
 rc-executor = { path = "substrate/client/executor", default-features = false }
 rc-executor-common = { path = "substrate/client/executor/common", default-features = false }
-rc-executor-polkavm = { path = "substrate/client/executor/polkavm", default-features = false }
 rc-executor-wasmtime = { path = "substrate/client/executor/wasmtime", default-features = false }
 rc-informant = { path = "substrate/client/informant", default-features = false }
 rc-keystore = { path = "substrate/client/keystore", default-features = false }

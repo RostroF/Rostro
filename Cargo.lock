@@ -1603,7 +1603,7 @@ name = "build-pvm"
 version = "0.1.0"
 dependencies = [
  "build-crate",
- "polkavm-linker 0.32.0",
+ "polkavm-linker 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -10744,20 +10744,18 @@ dependencies = [
 
 [[package]]
 name = "polkavm-derive"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d944b6b4e792c2a120232b52bd6f2c9dd3071d3f48462afb2b5d00cb9f7ac9"
+version = "0.32.0"
 dependencies = [
  "polkavm-derive-impl-macro",
 ]
 
 [[package]]
 name = "polkavm-derive-impl"
-version = "0.31.0"
+version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c14b030150f81dfde110997b6fafc19741998130908fdab85f1a66bb735025"
+checksum = "a396e7939ae0a723cabf639c23f0704423c8e470d01f52ad0cecf2dc283387f0"
 dependencies = [
- "polkavm-common 0.31.0",
+ "polkavm-common 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "proc-macro2",
  "quote",
  "syn 2.0.98",
@@ -10765,9 +10763,9 @@ dependencies = [
 
 [[package]]
 name = "polkavm-derive-impl-macro"
-version = "0.31.0"
+version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3fcadb13edfcc3b4046fcd2d292597782f5b7a2af140e6363fbf71fe196b425"
+checksum = "19eb3426df09ad4820b9beecd5c6754c5249b8fc5c6e94f0f559fbf7ce082fc3"
 dependencies = [
  "polkavm-derive-impl",
  "syn 2.0.98",
@@ -10775,16 +10773,14 @@ dependencies = [
 
 [[package]]
 name = "polkavm-linker"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1ae3f7aff1af110dcd0f105d783b10ff25cd2837abe411ea4d88ae5cd193b49"
+version = "0.32.0"
 dependencies = [
  "dirs",
  "gimli 0.31.1",
  "hashbrown 0.14.5",
  "log",
  "object 0.36.7",
- "polkavm-common 0.31.0",
+ "polkavm-common 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regalloc2 0.9.3",
  "rustc-demangle",
 ]
@@ -12164,7 +12160,6 @@ dependencies = [
  "parking_lot 0.12.3",
  "paste",
  "rc-executor-common",
- "rc-executor-polkavm",
  "rc-executor-wasmtime",
  "rc-runtime-test",
  "rc-tracing",
@@ -12194,23 +12189,12 @@ dependencies = [
 name = "rc-executor-common"
 version = "0.44.0"
 dependencies = [
- "polkavm 0.31.0",
+ "polkavm 0.32.0",
  "rc-allocator",
  "sp-maybe-compressed-blob",
  "sp-wasm-interface",
  "thiserror 1.0.65",
  "wasm-instrument",
-]
-
-[[package]]
-name = "rc-executor-polkavm"
-version = "0.41.0"
-dependencies = [
- "log",
- "polkavm 0.31.0",
- "rc-executor-common",
- "sp-runtime-interface",
- "sp-wasm-interface",
 ]
 
 [[package]]
@@ -16671,7 +16655,7 @@ dependencies = [
  "merkleized-metadata",
  "parity-scale-codec",
  "parity-wasm",
- "polkavm-linker 0.31.0",
+ "polkavm-linker 0.32.0",
  "rc-executor",
  "shlex",
  "sp-core",
