@@ -14,7 +14,7 @@ workspace = true
 
 [features]
 default = ["std"]
-std = ["polkavm/std"]
+std = ["polkavm/std", "sp-wasm-interface/std"]
 
 [dependencies]
 # Vendored rostrovm fork (polkavm 0.32 + Tier 2 intrinsics + audit
@@ -24,3 +24,15 @@ std = ["polkavm/std"]
 polkavm = { workspace = true, default-features = false, features = ["std", "generic-sandbox"] }
 thiserror = { workspace = true }
 sp-weights = { workspace = true, default-features = true }
+# Function / FunctionContext / HostFunctions / Value / ValueType /
+# Pointer types — the substrate ABI surface we bridge to PVM.
+sp-wasm-interface = { workspace = true, default-features = false, features = ["std"] }
+log = { workspace = true, default-features = true }
+
+[dev-dependencies]
+# sp-io's storage::HostFunctions is what we test the dispatcher against.
+sp-io = { workspace = true, default-features = true }
+sp-state-machine = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true }
+# PVM-compiled guest fixture for the B3 gate.
+rostro-executor-fixture-storage-roundtrip = { workspace = true, default-features = true }

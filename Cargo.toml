@@ -298,6 +298,7 @@ members = [
 	"substrate/utils/rostro-client",
 	"substrate/utils/rostro-curve25519",
 	"substrate/utils/rostro-executor",
+	"substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip",
 	"substrate/utils/rostro-poseidon-air",
 	"substrate/utils/rostro-poseidon-sponge-air",
 	"substrate/utils/rostro-hash-to-field-air",
@@ -675,6 +676,7 @@ zk-pki-runtime = { path = "substrate/utils/zkpki-runtime", default-features = fa
 zk-pki-tpm = { path = "substrate/utils/zkpki-tpm", default-features = false }
 rostro-curve25519 = { path = "substrate/utils/rostro-curve25519", default-features = false }
 rostro-executor = { path = "substrate/utils/rostro-executor", default-features = false }
+rostro-executor-fixture-storage-roundtrip = { path = "substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip", default-features = false }
 rostro-poseidon-air = { path = "substrate/utils/rostro-poseidon-air", default-features = false }
 rostro-poseidon-sponge-air = { path = "substrate/utils/rostro-poseidon-sponge-air", default-features = false }
 rostro-hash-to-field-air = { path = "substrate/utils/rostro-hash-to-field-air", default-features = false }

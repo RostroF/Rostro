@@ -31,7 +31,13 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use polkavm::{Config, Engine, GasMeteringKind, InterruptKind, Module, ModuleConfig, Reg};
+extern crate alloc;
+
+pub mod host_fn;
+
+pub use host_fn::{register_substrate_host_functions, RostroFunctionContext};
+
+use polkavm::{CallError, Config, Engine, GasMeteringKind, InterruptKind, Linker, Module, ModuleConfig, Reg};
 
 // ─── Error ─────────────────────────────────────────────────────────────────
 
@@ -79,6 +85,15 @@ pub enum Error {
 	/// fork has drifted.
 	#[error("unexpected single-step interrupt")]
 	UnexpectedStep,
+	/// Host-function registration against the polkavm linker failed
+	/// (duplicate name, etc.). Pre-instantiation.
+	#[error("linker setup: {0}")]
+	LinkerSetup(String),
+	/// A registered host function returned an error during dispatch
+	/// (e.g. memory access out of bounds, substrate `Function::execute`
+	/// returned `Err`).
+	#[error("host fn error: {0}")]
+	HostFn(String),
 }
 
 // ─── Gas ───────────────────────────────────────────────────────────────────
@@ -176,6 +191,55 @@ impl RostroExecutor {
 				InterruptKind::Ecalli(id) => return Err(Error::UnhandledEcalli(id)),
 				InterruptKind::Step => return Err(Error::UnexpectedStep),
 			}
+		}
+	}
+}
+
+impl RostroExecutor {
+	/// Call an exported function with substrate host functions wired
+	/// through the dispatcher. Generic over `HF: HostFunctions` so the
+	/// same executor instance can run against different host-fn sets
+	/// (storage-only in tests, full `sp_io::SubstrateHostFunctions` in
+	/// production).
+	///
+	/// Externalities must be set up by the caller via
+	/// [`sp_state_machine::BasicExternalities::execute_with_storage`] or
+	/// equivalent — this method only drives the guest run loop. The
+	/// host-fn shims read thread-local externalities, same as substrate's
+	/// WASM execution path.
+	pub fn call_with_host_fns<HF>(
+		&self,
+		export_name: &str,
+		gas_limit: i64,
+	) -> Result<CallOutcome, Error>
+	where
+		HF: sp_wasm_interface::HostFunctions,
+	{
+		let mut linker = Linker::<(), String>::new();
+		host_fn::register_substrate_host_functions::<(), HF>(&mut linker)
+			.map_err(|e| Error::LinkerSetup(e.to_string()))?;
+
+		let instance_pre = linker
+			.instantiate_pre(&self.module)
+			.map_err(|e| Error::Instantiate(e.to_string()))?;
+
+		let mut instance = instance_pre
+			.instantiate()
+			.map_err(|e| Error::Instantiate(e.to_string()))?;
+
+		instance.set_gas(gas_limit);
+
+		match instance.call_typed::<()>(&mut (), export_name, ()) {
+			Ok(()) => {
+				let a0 = instance.reg(Reg::A0);
+				let gas_consumed = gas_limit.saturating_sub(instance.gas());
+				Ok(CallOutcome { a0, gas_consumed })
+			},
+			Err(CallError::Trap) => Err(Error::Trap),
+			Err(CallError::NotEnoughGas) => Err(Error::OutOfGas),
+			Err(CallError::Error(e)) => Err(Error::RunLoop(e.to_string())),
+			Err(CallError::User(msg)) => Err(Error::HostFn(msg)),
+			Err(CallError::Step) => Err(Error::UnexpectedStep),
 		}
 	}
 }

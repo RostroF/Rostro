@@ -13556,9 +13556,24 @@ dependencies = [
 name = "rostro-executor"
 version = "0.1.0"
 dependencies = [
+ "log",
  "polkavm 0.32.0",
+ "rostro-executor-fixture-storage-roundtrip",
+ "sp-core",
+ "sp-io",
+ "sp-state-machine",
+ "sp-wasm-interface",
  "sp-weights",
  "thiserror 1.0.65",
+]
+
+[[package]]
+name = "rostro-executor-fixture-storage-roundtrip"
+version = "0.1.0"
+dependencies = [
+ "polkavm-derive",
+ "sp-io",
+ "substrate-wasm-builder",
 ]
 
 [[package]]
