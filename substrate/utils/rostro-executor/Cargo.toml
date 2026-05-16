@@ -14,9 +14,13 @@ workspace = true
 
 [features]
 default = ["std"]
-std = []
+std = ["polkavm/std"]
 
 [dependencies]
-# B2 will wire in: polkavm, sp-wasm-interface, rc-executor-common (or its
-# successor). B3 will add: sp-io, sp-runtime-interface, sp-core for the
-# host-fn shim. Empty for now — B1 is the scaffold gate.
+# Vendored rostrovm fork (polkavm 0.32 + Tier 2 intrinsics + audit
+# hardening). `generic-sandbox` is required for the JIT path on Linux
+# x86_64 and is a no-op on the interpreter — matches how rostro-vm-bench
+# pulls the fork.
+polkavm = { workspace = true, default-features = false, features = ["std", "generic-sandbox"] }
+thiserror = { workspace = true }
+sp-weights = { workspace = true, default-features = true }

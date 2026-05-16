@@ -13553,6 +13553,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-executor"
+version = "0.1.0"
+dependencies = [
+ "polkavm 0.32.0",
+ "sp-weights",
+ "thiserror 1.0.65",
+]
+
+[[package]]
 name = "rostro-frame"
 version = "0.15.0"
 dependencies = [
