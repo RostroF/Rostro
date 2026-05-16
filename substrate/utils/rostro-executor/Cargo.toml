@@ -1,0 +1,22 @@
+[package]
+name = "rostro-executor"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "PVM runtime executor for Rostro. Apache-2.0 replacement for the GPL-3.0 rc-executor-polkavm. Implements the substrate runtime executor surface against the vendored rostrovm fork (polkavm 0.32 + Tier 2 intrinsics) so a runtime cross-compiled to PVM can be loaded, executed, and have its host calls routed through the same sp-io surface a WASM runtime uses. Phase Star deliverable: WASM is retired from the runtime path once this crate is wired in and proven on the testbed."
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+# B2 will wire in: polkavm, sp-wasm-interface, rc-executor-common (or its
+# successor). B3 will add: sp-io, sp-runtime-interface, sp-core for the
+# host-fn shim. Empty for now — B1 is the scaffold gate.
