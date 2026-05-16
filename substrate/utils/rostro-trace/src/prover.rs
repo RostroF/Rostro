@@ -21,7 +21,7 @@ use p3_challenger::DuplexChallenger;
 use p3_commit::ExtensionMmcs;
 use p3_dft::Radix2DitParallel;
 use p3_field::{extension::BinomialExtensionField, Field};
-use p3_fri::{create_test_fri_params, TwoAdicFriPcs};
+use p3_fri::{FriParameters, TwoAdicFriPcs};
 use p3_goldilocks::{default_goldilocks_poseidon2_8, Goldilocks, Poseidon2Goldilocks};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
@@ -79,7 +79,7 @@ pub fn make_config() -> Config {
 	let val_mmcs = ValMmcs::new(hash, compress, 0);
 	let challenge_mmcs = ChallengeMmcs::new(val_mmcs.clone());
 	let dft = Dft::default();
-	let fri_params = create_test_fri_params(challenge_mmcs, 2);
+	let fri_params = FriParameters::new_testing(challenge_mmcs, 2);
 	let pcs = Pcs::new(dft, val_mmcs, fri_params);
 	let challenger = Challenger::new(perm);
 	Config::new(pcs, challenger)
