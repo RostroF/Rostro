@@ -1,0 +1,72 @@
+[package]
+name = "rostro-vm-bench"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "A/B benchmark harness for RVM (Rostro Virtual Machine) implementations (javm vs polkavm) on Rostro-shop-shaped workloads"
+authors = ["Rostro Foundation"]
+publish = false
+
+[dependencies]
+javm = { path = "/home/coder/jar/grey/crates/javm" }
+# Override the workspace `default-features = false` to opt into polkavm's
+# `std` feature — required for the JIT compiler backend on x86_64 Linux
+# (see polkavm-0.31.0/src/lib.rs `if_compiler_is_supported!` cfg gate).
+# The workspace pin is no-std because the substrate executor uses it that
+# way; we don't have the same constraint, so we get the compiler backend.
+# RostroVM = vendored polkavm 0.32.0 fork at substrate/external/rostrovm/.
+# Direct path-dep instead of workspace = true so we consume the vendored copy
+# regardless of what the substrate workspace pin says. See
+# substrate/external/rostrovm/VENDOR.md for sync policy.
+polkavm = { path = "../../external/rostrovm/polkavm", default-features = false, features = ["std", "generic-sandbox"] }
+polkavm-common = { path = "../../external/rostrovm/polkavm-common", features = ["alloc"] }
+# Pristine polkavm from crates.io — the reference baseline against which the
+# vendored RostroVM fork is benchmarked. Renamed via `package = ...` so it
+# imports as `polkavm_pristine` and doesn't collide with the vendored `polkavm`
+# symbol above. See memory entry rostrovm_option_a_external_reference.md for
+# the methodology decision.
+#
+# Version note: we want pristine 0.32.0 (the exact base the fork was vendored
+# from), but it is YANKED on crates.io as of 2026-05-12. Falling back to 0.31.0
+# means the reference includes the upstream 0.31 → 0.32 evolution as
+# measurement noise; the methodological upgrade is to vendor 0.32.0 from the
+# cargo cache into substrate/external/polkavm-pristine-0.32.0/ as a path-dep.
+# Deferred until 0.31→0.32 noise is shown to matter.
+polkavm-pristine = { package = "polkavm", version = "=0.31.0", default-features = false, features = ["std", "generic-sandbox"] }
+grey-transpiler = { path = "/home/coder/jar/grey/crates/grey-transpiler" }
+# WASM side of the comparison. The workspace pins wasmtime with
+# `default-features = false` for the substrate executor's needs; here we opt
+# into the JIT compiler + runtime so we can exercise it head-to-head with
+# polkavm-compiler. `winch` gives us a baseline (non-optimizing) compiler
+# variant analogous to polkavm-interpreter vs polkavm-compiler.
+wasmtime = { workspace = true, features = ["runtime", "cranelift", "winch"] }
+wat = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+# Native-side reference implementations for crypto bench correctness checks.
+blake2 = "0.10"
+
+# Cross-compile guest service crates (real-Rust crypto) into PVM blobs.
+# These are Wei Tang's helpers from the JAR/Grey tree (Apache-2.0); we path-
+# dep them from /home/coder/jar/ at build time so the same toolchain that
+# produces grey-bench's blobs produces ours. See `build.rs`.
+[build-dependencies]
+build-pvm = { path = "/home/coder/jar/grey/crates/build-pvm" }
+build-javm = { path = "/home/coder/jar/grey/crates/build-javm" }
+
+[[bench]]
+name = "fib_bench"
+harness = false
+
+[[bench]]
+name = "primes_bench"
+harness = false
+
+[[bench]]
+name = "scale_roundtrip_bench"
+harness = false
+
+[[bench]]
+name = "crypto_bench"
+harness = false

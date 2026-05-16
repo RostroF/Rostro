@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) Rostro Foundation
+# Verify-only variant of the dilithium bench. Hardcoded pk + sig (generated
+# natively from the same fixed-seed RNG as the keygen+sign bench) means the
+# in-loop body is *only* the verify path — so the polkavm-interp intrinsic
+# vs no-intrinsic delta isn't masked by keygen+sign dispatch cost.
+
+[package]
+name = "rostro-bench-dilithium-verify-only"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "ML-DSA-65 verify-only benchmark (precomputed pk+sig)"
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65"] }
+javm-builtins = { package = "rostro-bench-javm-builtins", path = "../javm-builtins" }
+
+[target.'cfg(target_env = "polkavm")'.dependencies]
+polkavm-derive = "0.32.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_env, values("javm", "polkavm"))', 'cfg(target_os, values("none"))', 'cfg(target_arch, values("wasm32"))'] }
+
+[workspace]

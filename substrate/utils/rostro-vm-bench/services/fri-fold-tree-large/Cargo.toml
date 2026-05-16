@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# Copyright (C) Rostro Foundation
+#
+# Cache-pressure variant of fri-fold-tree — TRACE_LOG=20 (1M leaves,
+# 16 MB tree). At this size the tree exceeds typical L2 caches and
+# starts hitting L3 / RAM. Compares against the L=12 variant to expose
+# how much the per-perm cost grows when working set doesn't fit in L2.
+
+[package]
+name = "rostro-bench-fri-fold-tree-large"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Cache-pressure variant of FRI fold tree — 16 MB tree exceeds L2."
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+javm-builtins = { package = "rostro-bench-javm-builtins", path = "../javm-builtins" }
+gp = { package = "rostro-bench-goldilocks-poseidon2", path = "../goldilocks-poseidon2" }
+
+[target.'cfg(target_env = "polkavm")'.dependencies]
+polkavm-derive = "0.32.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_env, values("javm", "polkavm"))', 'cfg(target_os, values("none"))', 'cfg(target_arch, values("wasm32"))'] }
+
+[workspace]

@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# Copyright (C) Rostro Foundation
+#
+# Shared no_std no-atomics Goldilocks field + Poseidon2-WIDTH8 permutation
+# library used by the rostro-bench-{mini-verifier,goldilocks-mul,poseidon2-perm}
+# benchmark services. Hand-written instead of using `p3-goldilocks` /
+# `p3-poseidon2` because Plonky3 transitively pulls in `tracing`, which
+# requires atomic-pointer-width support — incompatible with javm's
+# `max-atomic-width: 0` target.
+#
+# Bit-exact with Plonky3's `default_goldilocks_poseidon2_8`: same round
+# constants, same MDS matrices, same x^7 S-box.
+#
+# Designed to be PR-able into JAR/Grey's `grey/services/benches/` set
+# alongside its consumers.
+
+[package]
+name = "rostro-bench-goldilocks-poseidon2"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Goldilocks field + Poseidon2-WIDTH8 permutation. No deps, no atomics — compiles to javm/polkavm/wasm32. Bit-exact with p3-goldilocks default Poseidon2."
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+# Tier 2 H2 (2026-05-12): polkavm-derive for declaring intrinsic imports.
+# When this crate is linked into a polkavm guest blob, the imports declared
+# in `src/polkavm.rs` (rostro_goldilocks_mul/add/sub/inv) are wired by the
+# polkavm linker so gp::field functions can dispatch through them instead of
+# running the software impl. Software fallback retained for non-polkavm targets.
+[target.'cfg(target_env = "polkavm")'.dependencies]
+polkavm-derive = "0.32.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_env, values("javm", "polkavm"))', 'cfg(target_os, values("none"))', 'cfg(target_arch, values("wasm32"))'] }
+
+[workspace]

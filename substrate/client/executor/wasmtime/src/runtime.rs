@@ -17,6 +17,28 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 //! Defines the compiled Wasm runtime that uses Wasmtime internally.
+//!
+//! # Strip-mall isolation
+//!
+//! This executor runs the canonical Rostro chain runtime inside the
+//! `gemini-node` process. Operator-supplied "shop" code runs in a separate
+//! sandboxed process (the "shop sidecar") and never instantiates a runtime
+//! via this executor. The two roles are isolated at the **process** boundary,
+//! not the engine boundary:
+//!
+//! - Shops cannot reach this executor's `Engine`, `Module`, or pool — they
+//!   live in a different binary.
+//! - Shops communicate with the chain only via IPC to `gemini-node`, which
+//!   submits transactions on the shop's behalf; gas is paid in local Rostro
+//!   currency.
+//! - Shop binary integrity is enforced by the on-chain hash commitment plus
+//!   a p2p challenge protocol; tampering with infrastructure binaries is
+//!   detected and disconnects the operator.
+//!
+//! Design intent: Minecraft-style creative freedom inside the sandbox, zero
+//! tolerance for tampering with infrastructure. Do **not** collapse this
+//! isolation by adding a shop-execution path to this executor; shop execution
+//! (whether wasmtime or PolkaVM) lives in the shop sidecar binary, not here.
 
 use crate::{
 	host::HostState,
@@ -201,11 +223,51 @@ fn setup_wasmtime_caching(
 	use std::fs;
 
 	let wasmtime_cache_root = cache_path.join("wasmtime");
+
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::DirBuilderExt;
+		fs::DirBuilder::new()
+			.recursive(true)
+			.mode(0o700)
+			.create(&wasmtime_cache_root)
+			.map_err(|err| format!("cannot create the dirs to cache: {}", err))?;
+	}
+	#[cfg(not(unix))]
 	fs::create_dir_all(&wasmtime_cache_root)
 		.map_err(|err| format!("cannot create the dirs to cache: {}", err))?;
 
+	// The wasmtime cache stores Cranelift-emitted native code; a writable or
+	// foreign-owned cache dir is a sandbox-escape vector (poisoned cache entry →
+	// arbitrary native code execution inside this process). Refuse to use the
+	// cache if hygiene is wrong; the caller treats this as a non-fatal warning,
+	// so the engine still runs — just uncached.
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::MetadataExt;
+		let meta = fs::metadata(&wasmtime_cache_root)
+			.map_err(|err| format!("cannot stat cache dir: {}", err))?;
+		let current_uid = rustix::process::getuid().as_raw();
+		if meta.uid() != current_uid {
+			return Err(format!(
+				"wasmtime cache dir {} is owned by uid {} (expected {}); refusing to use",
+				wasmtime_cache_root.display(),
+				meta.uid(),
+				current_uid,
+			));
+		}
+		let mode = meta.mode() & 0o777;
+		if mode != 0o700 {
+			return Err(format!(
+				"wasmtime cache dir {} has mode {:o} (expected 700); refusing to use",
+				wasmtime_cache_root.display(),
+				mode,
+			));
+		}
+	}
+
 	let mut cache_config = CacheConfig::new();
-	cache_config.with_directory(cache_path);
+	cache_config.with_directory(&wasmtime_cache_root);
 
 	let cache =
 		Cache::new(cache_config).map_err(|err| format!("failed to initiate Cache: {err:?}"))?;
@@ -254,7 +316,10 @@ fn common_config(semantics: &Semantics) -> std::result::Result<wasmtime::Config,
 	// they should be introduced here as well.
 	config.wasm_reference_types(semantics.wasm_reference_types);
 	config.wasm_simd(semantics.wasm_simd);
-	config.wasm_relaxed_simd(semantics.wasm_simd);
+	// Hard-off: relaxed-simd is non-deterministic by design; was previously coupled
+	// to wasm_simd which would have been a latent consensus break the moment any
+	// runtime touched a relaxed-simd opcode.
+	config.wasm_relaxed_simd(false);
 	config.wasm_bulk_memory(semantics.wasm_bulk_memory);
 	config.wasm_multi_value(semantics.wasm_multi_value);
 	config.wasm_multi_memory(false);
@@ -279,6 +344,12 @@ fn common_config(semantics: &Semantics) -> std::result::Result<wasmtime::Config,
 		},
 		HeapAllocStrategy::Static { .. } => u64::MAX,
 	});
+
+	// Defeat CVE-2026-34988 preconditions (memory_guard_size = 0 AND
+	// memory_reservation < 4 GiB) permanently; wasmtime defaults can shift
+	// across versions and silently re-enter the vulnerable shape.
+	config.memory_reservation(4 * 1024 * 1024 * 1024);
+	config.memory_guard_size(2 * 1024 * 1024 * 1024);
 
 	if use_pooling {
 		const MAX_WASM_PAGES: u64 = 0x10000;

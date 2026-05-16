@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# Copyright (C) Rostro Foundation
+#
+# Batch field inversion via Montgomery's trick — N+1 muls + 1 inversion
+# instead of N inversions. Mirrors the verifier hot path that computes
+# `(x - challenge)^-1` for many denominators in the quotient polynomial
+# evaluation. Exposes how each VM handles:
+#   - Square-and-multiply exponentiation (the single inversion at the
+#     core of the trick — ~127 dependent muls/squares with branchy bit
+#     dispatch on the exponent)
+#   - Sequential mul chains for prefix products + back-pass
+
+[package]
+name = "rostro-bench-batch-inverse"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Montgomery batch-inversion of N Goldilocks elements."
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+javm-builtins = { package = "rostro-bench-javm-builtins", path = "../javm-builtins" }
+gp = { package = "rostro-bench-goldilocks-poseidon2", path = "../goldilocks-poseidon2" }
+
+[target.'cfg(target_env = "polkavm")'.dependencies]
+polkavm-derive = "0.32.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_env, values("javm", "polkavm"))', 'cfg(target_os, values("none"))', 'cfg(target_arch, values("wasm32"))'] }
+
+[workspace]

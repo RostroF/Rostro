@@ -306,6 +306,7 @@ members = [
 	"substrate/utils/rostro-rpc-shield",
 	"substrate/utils/rostro-sassafras-redteam",
 	"substrate/utils/rostro-trace",
+	"substrate/utils/rostro-vm-bench",
 	"substrate/utils/prometheus",
 	"substrate/utils/substrate-bip39",
 	"substrate/utils/zkpki-client",
@@ -320,6 +321,13 @@ members = [
 ]
 
 default-members = [
+]
+
+# Vendored RostroVM (polkavm fork) is its own workspace — exclude from
+# the substrate workspace so cargo doesn't try to claim its members.
+# See substrate/external/rostrovm/VENDOR.md for sync policy.
+exclude = [
+	"substrate/external/rostrovm",
 ]
 
 [workspace.lints.rust]
@@ -1004,7 +1012,7 @@ wasm-instrument = { version = "0.4", default-features = false }
 wasm-opt = { version = "0.116" }
 wasm-timer = { version = "0.2.5" }
 wasmi = { version = "0.32.3", default-features = false }
-wasmtime = { version = "35.0.0", default-features = false }
+wasmtime = { version = "36.0.7", default-features = false }
 wat = { version = "1.0.0" }
 x25519-dalek = { version = "2.0" }
 x509-cert = { version = "0.2", default-features = false }
