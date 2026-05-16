@@ -60,6 +60,7 @@ mod gas;
 mod interpreter;
 mod linker;
 mod rostro_intrinsic_codegen;
+mod rostro_intrinsic_gas;
 
 /// Research-grade interpreter tracing — see module docs.
 pub mod trace;
@@ -96,6 +97,14 @@ pub mod rostro_intrinsics {
     /// Wire via `ModuleConfig::set_custom_codegen()` (requires
     /// `Config::set_allow_experimental(true)`).
     pub use crate::rostro_intrinsic_codegen::RostroIntrinsicsCodegen;
+
+    /// Gas pricing for the Tier 2 intrinsics. See
+    /// `docs/SECURITY-AUDIT-TIER2-INTRINSICS.md` for calibration and
+    /// threat-model rationale.
+    pub use crate::rostro_intrinsic_gas::{
+        flat_gas, intrinsic_surplus_gas, per_byte_gas, ERR_MSG_LEN_TOO_LARGE,
+        MAX_INTRINSIC_MSG_LEN,
+    };
 }
 #[cfg(feature = "std")]
 mod source_cache;

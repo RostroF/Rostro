@@ -17,9 +17,9 @@ use polkavm::{
 		ROSTRO_INTRINSIC_P521_ECDSA_VERIFY, ROSTRO_INTRINSIC_POSEIDON2_PERM,
 		ROSTRO_INTRINSIC_SECP256K1_RECOVER, RostroIntrinsicsCodegen, goldilocks_add_native,
 		goldilocks_inv_native, goldilocks_mul_native, goldilocks_sub_native,
-		rostro_blake2b_256, rostro_dilithium_verify, rostro_ed25519_verify,
-		rostro_keccak_256, rostro_p521_ecdsa_verify_prehash, rostro_poseidon2_permute,
-		rostro_secp256k1_recover,
+		intrinsic_surplus_gas, rostro_blake2b_256, rostro_dilithium_verify,
+		rostro_ed25519_verify, rostro_keccak_256, rostro_p521_ecdsa_verify_prehash,
+		rostro_poseidon2_permute, rostro_secp256k1_recover,
 	},
 };
 
@@ -36,6 +36,52 @@ fn read_guest_bytes(inst: &mut RawInstance, addr: u32, len: u32) -> Option<Vec<u
 	}
 }
 
+/// Outcome of [`dispatch_rostro_intrinsic`]. The main run loop must abort the
+/// instance run on `OutOfGas`, because the ecrecover-style call pattern
+/// (function returns to host immediately after the ecalli) can let an
+/// uncharged intrinsic complete the workload before any further gas check
+/// fires.
+#[derive(Debug, Eq, PartialEq)]
+enum DispatchOutcome {
+	/// Intrinsic ran. Caller continues the run loop.
+	Ran,
+	/// Not a Rostro intrinsic. Caller falls through to stub-and-continue.
+	Unknown,
+	/// Gas underflow charging the intrinsic surplus. Caller must abort the
+	/// run loop and return an out-of-gas error to the user.
+	OutOfGas,
+}
+
+/// Charge the intrinsic-specific gas surplus on the JIT path and check the
+/// msg_len cap (audit A1+A2 mitigation; see
+/// docs/SECURITY-AUDIT-TIER2-INTRINSICS.md).
+///
+/// Returns:
+/// - `Ok(())` — gas deducted; caller proceeds with the native body.
+/// - `Err(GasOutcome::MsgLenOverflow)` — msg_len > MAX_INTRINSIC_MSG_LEN;
+///   caller writes its fail code to A0 and skips the body.
+/// - `Err(GasOutcome::GasUnderflow)` — insufficient gas; caller signals
+///   `DispatchOutcome::OutOfGas` to abort the main loop.
+enum GasOutcome {
+	MsgLenOverflow,
+	GasUnderflow,
+}
+
+fn charge_intrinsic_surplus(
+	inst: &mut RawInstance,
+	id: u32,
+	msg_len: u32,
+) -> Result<(), GasOutcome> {
+	let surplus = intrinsic_surplus_gas(id, msg_len).ok_or(GasOutcome::MsgLenOverflow)?;
+	let remaining = inst.gas();
+	if remaining < surplus {
+		inst.set_gas(0);
+		return Err(GasOutcome::GasUnderflow);
+	}
+	inst.set_gas(remaining - surplus);
+	Ok(())
+}
+
 /// Dispatch a Rostro intrinsic ecalli on the host side.
 ///
 /// The interpreter intercepts these IDs (100..1023) inside `FAST_OP_ECALLI` so
@@ -46,37 +92,43 @@ fn read_guest_bytes(inst: &mut RawInstance, addr: u32, len: u32) -> Option<Vec<u
 /// workload (goldilocks_mul, poseidon2_perm, mini_verifier, fri_fold_tree,
 /// poly_eval, batch_inverse, …).
 ///
-/// Returns `true` if `n` was a recognized Rostro intrinsic and dispatched;
-/// `false` for everything else (unknown / non-Rostro host calls — caller
-/// should preserve its existing stub-and-continue behavior).
-fn dispatch_rostro_intrinsic(inst: &mut RawInstance, n: u32) -> bool {
+/// Also charges per-intrinsic gas surplus and enforces the msg_len cap
+/// (audit A1+A2 mitigation).
+fn dispatch_rostro_intrinsic(inst: &mut RawInstance, n: u32) -> DispatchOutcome {
 	match n {
 		ROSTRO_INTRINSIC_GOLDILOCKS_MUL => {
+			// Surplus is 0 (intrinsic costs 1 gas, already paid via ecalli).
 			let a = inst.reg(Reg::A0);
 			let b = inst.reg(Reg::A1);
 			inst.set_reg(Reg::A0, goldilocks_mul_native(a, b));
-			true
+			DispatchOutcome::Ran
 		}
 		ROSTRO_INTRINSIC_GOLDILOCKS_ADD => {
 			let a = inst.reg(Reg::A0);
 			let b = inst.reg(Reg::A1);
 			inst.set_reg(Reg::A0, goldilocks_add_native(a, b));
-			true
+			DispatchOutcome::Ran
 		}
 		ROSTRO_INTRINSIC_GOLDILOCKS_SUB => {
 			let a = inst.reg(Reg::A0);
 			let b = inst.reg(Reg::A1);
 			inst.set_reg(Reg::A0, goldilocks_sub_native(a, b));
-			true
+			DispatchOutcome::Ran
 		}
 		ROSTRO_INTRINSIC_GOLDILOCKS_INV => {
+			if charge_intrinsic_surplus(inst, ROSTRO_INTRINSIC_GOLDILOCKS_INV, 0).is_err() {
+				return DispatchOutcome::OutOfGas;
+			}
 			let x = inst.reg(Reg::A0);
 			inst.set_reg(Reg::A0, goldilocks_inv_native(x));
-			true
+			DispatchOutcome::Ran
 		}
 		ROSTRO_INTRINSIC_P521_ECDSA_VERIFY => {
 			// ABI: A0=vk_ptr (133B), A1=sig_ptr (132B), A2=prehash_ptr,
 			// A3=prehash_len. Result -> A0 = 1 verified, 0 failed.
+			if charge_intrinsic_surplus(inst, ROSTRO_INTRINSIC_P521_ECDSA_VERIFY, 0).is_err() {
+				return DispatchOutcome::OutOfGas;
+			}
 			let vk_ptr = inst.reg(Reg::A0) as u32;
 			let sig_ptr = inst.reg(Reg::A1) as u32;
 			let prehash_ptr = inst.reg(Reg::A2) as u32;
@@ -89,11 +141,14 @@ fn dispatch_rostro_intrinsic(inst: &mut RawInstance, n: u32) -> bool {
 			})()
 			.unwrap_or(0);
 			inst.set_reg(Reg::A0, result);
-			true
+			DispatchOutcome::Ran
 		}
 		ROSTRO_INTRINSIC_DILITHIUM_VERIFY => {
 			// ABI: A0=pk_ptr (1952B), A1=msg_ptr, A2=msg_len, A3=sig_ptr (3309B),
 			// A4=ctx_ptr, A5=ctx_len. Result -> A0 = 1 verified, 0 failed.
+			if charge_intrinsic_surplus(inst, ROSTRO_INTRINSIC_DILITHIUM_VERIFY, 0).is_err() {
+				return DispatchOutcome::OutOfGas;
+			}
 			let pk_ptr = inst.reg(Reg::A0) as u32;
 			let msg_ptr = inst.reg(Reg::A1) as u32;
 			let msg_len = inst.reg(Reg::A2) as u32;
@@ -109,14 +164,22 @@ fn dispatch_rostro_intrinsic(inst: &mut RawInstance, n: u32) -> bool {
 			})()
 			.unwrap_or(0);
 			inst.set_reg(Reg::A0, result);
-			true
+			DispatchOutcome::Ran
 		}
 		ROSTRO_INTRINSIC_BLAKE2B_256 => {
 			// ABI: A0=msg_ptr, A1=msg_len, A2=out_ptr (32B). Result -> A0 = 0
-			// on success, 1 on memory-access failure (mirrors interpreter).
+			// on success, 1 on memory-access failure or msg_len cap exceeded.
 			let msg_ptr = inst.reg(Reg::A0) as u32;
 			let msg_len = inst.reg(Reg::A1) as u32;
 			let out_ptr = inst.reg(Reg::A2) as u32;
+			match charge_intrinsic_surplus(inst, ROSTRO_INTRINSIC_BLAKE2B_256, msg_len) {
+				Err(GasOutcome::GasUnderflow) => return DispatchOutcome::OutOfGas,
+				Err(GasOutcome::MsgLenOverflow) => {
+					inst.set_reg(Reg::A0, 1);
+					return DispatchOutcome::Ran;
+				}
+				Ok(()) => {}
+			}
 			let result: u64 = (|| -> Option<u64> {
 				let msg = read_guest_bytes(inst, msg_ptr, msg_len)?;
 				let hash = rostro_blake2b_256(&msg);
@@ -125,13 +188,21 @@ fn dispatch_rostro_intrinsic(inst: &mut RawInstance, n: u32) -> bool {
 			})()
 			.unwrap_or(1);
 			inst.set_reg(Reg::A0, result);
-			true
+			DispatchOutcome::Ran
 		}
 		ROSTRO_INTRINSIC_KECCAK_256 => {
 			// ABI: same as BLAKE2B_256.
 			let msg_ptr = inst.reg(Reg::A0) as u32;
 			let msg_len = inst.reg(Reg::A1) as u32;
 			let out_ptr = inst.reg(Reg::A2) as u32;
+			match charge_intrinsic_surplus(inst, ROSTRO_INTRINSIC_KECCAK_256, msg_len) {
+				Err(GasOutcome::GasUnderflow) => return DispatchOutcome::OutOfGas,
+				Err(GasOutcome::MsgLenOverflow) => {
+					inst.set_reg(Reg::A0, 1);
+					return DispatchOutcome::Ran;
+				}
+				Ok(()) => {}
+			}
 			let result: u64 = (|| -> Option<u64> {
 				let msg = read_guest_bytes(inst, msg_ptr, msg_len)?;
 				let hash = rostro_keccak_256(&msg);
@@ -140,15 +211,23 @@ fn dispatch_rostro_intrinsic(inst: &mut RawInstance, n: u32) -> bool {
 			})()
 			.unwrap_or(1);
 			inst.set_reg(Reg::A0, result);
-			true
+			DispatchOutcome::Ran
 		}
 		ROSTRO_INTRINSIC_ED25519_VERIFY => {
 			// ABI: A0=pk_ptr (32B), A1=sig_ptr (64B), A2=msg_ptr, A3=msg_len.
-			// Result -> A0 = 1 verified, 0 failed.
+			// Result -> A0 = 1 verified, 0 failed (also 0 when msg_len > cap).
 			let pk_ptr = inst.reg(Reg::A0) as u32;
 			let sig_ptr = inst.reg(Reg::A1) as u32;
 			let msg_ptr = inst.reg(Reg::A2) as u32;
 			let msg_len = inst.reg(Reg::A3) as u32;
+			match charge_intrinsic_surplus(inst, ROSTRO_INTRINSIC_ED25519_VERIFY, msg_len) {
+				Err(GasOutcome::GasUnderflow) => return DispatchOutcome::OutOfGas,
+				Err(GasOutcome::MsgLenOverflow) => {
+					inst.set_reg(Reg::A0, 0);
+					return DispatchOutcome::Ran;
+				}
+				Ok(()) => {}
+			}
 			let result: u64 = (|| {
 				let pk = inst.read_memory(pk_ptr, 32).ok()?;
 				let sig = inst.read_memory(sig_ptr, 64).ok()?;
@@ -157,11 +236,14 @@ fn dispatch_rostro_intrinsic(inst: &mut RawInstance, n: u32) -> bool {
 			})()
 			.unwrap_or(0);
 			inst.set_reg(Reg::A0, result);
-			true
+			DispatchOutcome::Ran
 		}
 		ROSTRO_INTRINSIC_SECP256K1_RECOVER => {
 			// ABI: A0=hash_ptr (32B), A1=sig_ptr (65B: r||s||v),
 			// A2=out_pk_ptr (64B X||Y). Result -> A0 = 1 recovered, 0 failed.
+			if charge_intrinsic_surplus(inst, ROSTRO_INTRINSIC_SECP256K1_RECOVER, 0).is_err() {
+				return DispatchOutcome::OutOfGas;
+			}
 			let hash_ptr = inst.reg(Reg::A0) as u32;
 			let sig_ptr = inst.reg(Reg::A1) as u32;
 			let out_ptr = inst.reg(Reg::A2) as u32;
@@ -177,11 +259,14 @@ fn dispatch_rostro_intrinsic(inst: &mut RawInstance, n: u32) -> bool {
 			})()
 			.unwrap_or(0);
 			inst.set_reg(Reg::A0, result);
-			true
+			DispatchOutcome::Ran
 		}
 		ROSTRO_INTRINSIC_POSEIDON2_PERM => {
 			// ABI: A0=state_ptr (8 little-endian u64s = 64 bytes). In-place
 			// permute. Result -> A0 = 0 success, 1 memory-access failure.
+			if charge_intrinsic_surplus(inst, ROSTRO_INTRINSIC_POSEIDON2_PERM, 0).is_err() {
+				return DispatchOutcome::OutOfGas;
+			}
 			let state_ptr = inst.reg(Reg::A0) as u32;
 			let result: u64 = (|| -> Option<u64> {
 				let bytes = inst.read_memory(state_ptr, 64).ok()?;
@@ -199,9 +284,9 @@ fn dispatch_rostro_intrinsic(inst: &mut RawInstance, n: u32) -> bool {
 			})()
 			.unwrap_or(1);
 			inst.set_reg(Reg::A0, result);
-			true
+			DispatchOutcome::Ran
 		}
-		_ => false,
+		_ => DispatchOutcome::Unknown,
 	}
 }
 
@@ -341,8 +426,15 @@ impl PolkaVmRunner {
 				Ok(InterruptKind::Ecalli(n)) => {
 					// Try Rostro intrinsics (IDs 100..1023). If unknown,
 					// fall through to stub-and-continue (matches prior
-					// behavior for non-Rostro host calls).
-					let _ = dispatch_rostro_intrinsic(&mut inst, n);
+					// behavior for non-Rostro host calls). Out-of-gas in
+					// the intrinsic surplus charge aborts the run loop
+					// here — see audit A1 mitigation note in
+					// dispatch_rostro_intrinsic.
+					match dispatch_rostro_intrinsic(&mut inst, n) {
+						DispatchOutcome::Ran | DispatchOutcome::Unknown => {}
+						DispatchOutcome::OutOfGas =>
+							return Err("polkavm: out of gas".to_string()),
+					}
 				}
 				Ok(InterruptKind::Trap) => return Err("polkavm: trap".to_string()),
 				Ok(InterruptKind::NotEnoughGas) =>
@@ -396,8 +488,15 @@ impl RvmRunner for PolkaVmRunner {
 				Ok(InterruptKind::Ecalli(n)) => {
 					// Try Rostro intrinsics (IDs 100..1023). If unknown,
 					// fall through to stub-and-continue (matches prior
-					// behavior for non-Rostro host calls).
-					let _ = dispatch_rostro_intrinsic(&mut inst, n);
+					// behavior for non-Rostro host calls). Out-of-gas in
+					// the intrinsic surplus charge aborts the run loop
+					// here — see audit A1 mitigation note in
+					// dispatch_rostro_intrinsic.
+					match dispatch_rostro_intrinsic(&mut inst, n) {
+						DispatchOutcome::Ran | DispatchOutcome::Unknown => {}
+						DispatchOutcome::OutOfGas =>
+							return Err("polkavm: out of gas".to_string()),
+					}
 				}
 				Ok(InterruptKind::Trap) => return Err("polkavm: trap".to_string()),
 				Ok(InterruptKind::NotEnoughGas) =>

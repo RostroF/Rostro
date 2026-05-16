@@ -6,6 +6,7 @@
 use crate::api::{MemoryAccessError, MemoryProtection, Module, RegValue, SetCacheSizeLimitArgs};
 use crate::error::Error;
 use crate::gas::{CostModelKind, GasVisitor};
+use crate::rostro_intrinsic_gas::intrinsic_surplus_gas;
 use crate::utils::{FlatMap, InterruptKind, Segfault};
 use crate::{Gas, GasMeteringKind, ProgramCounter};
 use alloc::boxed::Box;
@@ -2906,10 +2907,17 @@ impl InterpretedInstance {
                     // loop exit, so each intrinsic is one fast-arm dispatch +
                     // the native body (vs ~20-30 dispatches for the decomposed
                     // PVM implementation).
+                    // Audit A1+A2 mitigation: charge intrinsic-specific surplus
+                    // gas (above the standard 1-gas ecalli charge already paid
+                    // via the block accounting), and reject variable-length
+                    // intrinsics with msg_len > MAX_INTRINSIC_MSG_LEN. See
+                    // docs/SECURITY-AUDIT-TIER2-INTRINSICS.md and
+                    // rostro_intrinsic_gas.rs for the gas table and rationale.
                     match hostcall_number {
                         ROSTRO_INTRINSIC_GOLDILOCKS_MUL => {
                             // Arg ABI matches RISC-V/polkavm calling convention:
                             // a0 = first arg, a1 = second arg, a0 = return.
+                            // Gas surplus = 0 (intrinsic costs 1 gas, already paid).
                             let a = self.regs[Reg::A0.to_usize()];
                             let b = self.regs[Reg::A1.to_usize()];
                             self.regs[Reg::A0.to_usize()] = goldilocks_mul_native(a, b);
@@ -2928,6 +2936,14 @@ impl InterpretedInstance {
                             offset += 1;
                         }
                         ROSTRO_INTRINSIC_GOLDILOCKS_INV => {
+                            let surplus = intrinsic_surplus_gas(ROSTRO_INTRINSIC_GOLDILOCKS_INV, 0)
+                                .expect("goldilocks_inv has no msg_len cap");
+                            let new_gas = self.gas - surplus;
+                            if new_gas < 0 {
+                                self.compiled_offset = offset;
+                                return self.handle_gas_underflow::<DEBUG>(inst.pc, new_gas);
+                            }
+                            self.gas = new_gas;
                             let x = self.regs[Reg::A0.to_usize()];
                             self.regs[Reg::A0.to_usize()] = goldilocks_inv_native(x);
                             offset += 1;
@@ -2938,6 +2954,14 @@ impl InterpretedInstance {
                             //      A3=prehash_len. Returns A0 = 1 verified, 0 failed.
                             // Zero-copy borrow + shared verify body (also reused by
                             // the JIT runner's host-side dispatch).
+                            let surplus = intrinsic_surplus_gas(ROSTRO_INTRINSIC_P521_ECDSA_VERIFY, 0)
+                                .expect("p521 verify has no msg_len cap");
+                            let new_gas = self.gas - surplus;
+                            if new_gas < 0 {
+                                self.compiled_offset = offset;
+                                return self.handle_gas_underflow::<DEBUG>(inst.pc, new_gas);
+                            }
+                            self.gas = new_gas;
                             let vk_ptr = self.regs[Reg::A0.to_usize()] as u32;
                             let sig_ptr = self.regs[Reg::A1.to_usize()] as u32;
                             let prehash_ptr = self.regs[Reg::A2.to_usize()] as u32;
@@ -2961,6 +2985,18 @@ impl InterpretedInstance {
                             // Returns: A0 = 1 on verified, 0 otherwise.
                             // Zero-copy borrow + shared verify body (also reused by
                             // the JIT runner's host-side dispatch).
+                            //
+                            // Gas: flat cost; dilithium has no msg_len-driven DoS
+                            // surface within practical bounds (the sig itself is
+                            // ~3 KB; msg/ctx are small).
+                            let surplus = intrinsic_surplus_gas(ROSTRO_INTRINSIC_DILITHIUM_VERIFY, 0)
+                                .expect("dilithium has no msg_len cap");
+                            let new_gas = self.gas - surplus;
+                            if new_gas < 0 {
+                                self.compiled_offset = offset;
+                                return self.handle_gas_underflow::<DEBUG>(inst.pc, new_gas);
+                            }
+                            self.gas = new_gas;
                             let pk_ptr  = self.regs[Reg::A0.to_usize()] as u32;
                             let msg_ptr = self.regs[Reg::A1.to_usize()] as u32;
                             let msg_len = self.regs[Reg::A2.to_usize()] as u32;
@@ -2988,24 +3024,36 @@ impl InterpretedInstance {
                         }
                         ROSTRO_INTRINSIC_BLAKE2B_256 => {
                             // ABI: A0=msg_ptr, A1=msg_len, A2=out_ptr (32-byte output buffer).
-                            // Returns: A0 = 0 on success, A0 = 1 on memory-access failure.
+                            // Returns: A0 = 0 on success, A0 = 1 on memory-access failure
+                            // (or msg_len > MAX_INTRINSIC_MSG_LEN, treated as memory-fail).
                             // The hash is owned (stack-allocated [u8; 32]), so we can
                             // release the immutable input borrow before taking the
                             // mutable output borrow — no aliasing conflict.
                             let msg_ptr = self.regs[Reg::A0.to_usize()] as u32;
                             let msg_len = self.regs[Reg::A1.to_usize()] as u32;
                             let out_ptr = self.regs[Reg::A2.to_usize()] as u32;
-                            let result: u64 = (|| -> Option<u64> {
-                                let hash = {
-                                    let memory = <M as Memory>::memory_state(self);
-                                    let msg = if msg_len == 0 { &[][..] } else { memory.borrow_bytes(msg_ptr, msg_len)? };
-                                    rostro_blake2b_256(msg)
-                                };
-                                let memory_mut = <M as Memory>::memory_state_mut(self);
-                                let out = memory_mut.borrow_bytes_mut(out_ptr, 32)?;
-                                out.copy_from_slice(&hash);
-                                Some(0)
-                            })().unwrap_or(1);
+                            let result: u64 = match intrinsic_surplus_gas(ROSTRO_INTRINSIC_BLAKE2B_256, msg_len) {
+                                None => 1,
+                                Some(surplus) => {
+                                    let new_gas = self.gas - surplus;
+                                    if new_gas < 0 {
+                                        self.compiled_offset = offset;
+                                        return self.handle_gas_underflow::<DEBUG>(inst.pc, new_gas);
+                                    }
+                                    self.gas = new_gas;
+                                    (|| -> Option<u64> {
+                                        let hash = {
+                                            let memory = <M as Memory>::memory_state(self);
+                                            let msg = if msg_len == 0 { &[][..] } else { memory.borrow_bytes(msg_ptr, msg_len)? };
+                                            rostro_blake2b_256(msg)
+                                        };
+                                        let memory_mut = <M as Memory>::memory_state_mut(self);
+                                        let out = memory_mut.borrow_bytes_mut(out_ptr, 32)?;
+                                        out.copy_from_slice(&hash);
+                                        Some(0)
+                                    })().unwrap_or(1)
+                                }
+                            };
                             self.regs[Reg::A0.to_usize()] = result;
                             offset += 1;
                         }
@@ -3014,38 +3062,63 @@ impl InterpretedInstance {
                             let msg_ptr = self.regs[Reg::A0.to_usize()] as u32;
                             let msg_len = self.regs[Reg::A1.to_usize()] as u32;
                             let out_ptr = self.regs[Reg::A2.to_usize()] as u32;
-                            let result: u64 = (|| -> Option<u64> {
-                                let hash = {
-                                    let memory = <M as Memory>::memory_state(self);
-                                    let msg = if msg_len == 0 { &[][..] } else { memory.borrow_bytes(msg_ptr, msg_len)? };
-                                    rostro_keccak_256(msg)
-                                };
-                                let memory_mut = <M as Memory>::memory_state_mut(self);
-                                let out = memory_mut.borrow_bytes_mut(out_ptr, 32)?;
-                                out.copy_from_slice(&hash);
-                                Some(0)
-                            })().unwrap_or(1);
+                            let result: u64 = match intrinsic_surplus_gas(ROSTRO_INTRINSIC_KECCAK_256, msg_len) {
+                                None => 1,
+                                Some(surplus) => {
+                                    let new_gas = self.gas - surplus;
+                                    if new_gas < 0 {
+                                        self.compiled_offset = offset;
+                                        return self.handle_gas_underflow::<DEBUG>(inst.pc, new_gas);
+                                    }
+                                    self.gas = new_gas;
+                                    (|| -> Option<u64> {
+                                        let hash = {
+                                            let memory = <M as Memory>::memory_state(self);
+                                            let msg = if msg_len == 0 { &[][..] } else { memory.borrow_bytes(msg_ptr, msg_len)? };
+                                            rostro_keccak_256(msg)
+                                        };
+                                        let memory_mut = <M as Memory>::memory_state_mut(self);
+                                        let out = memory_mut.borrow_bytes_mut(out_ptr, 32)?;
+                                        out.copy_from_slice(&hash);
+                                        Some(0)
+                                    })().unwrap_or(1)
+                                }
+                            };
                             self.regs[Reg::A0.to_usize()] = result;
                             offset += 1;
                         }
                         ROSTRO_INTRINSIC_ED25519_VERIFY => {
                             // ABI: A0=pk_ptr (32B), A1=sig_ptr (64B),
                             //      A2=msg_ptr, A3=msg_len.
-                            // Returns: A0 = 1 verified, 0 failed.
+                            // Returns: A0 = 1 verified, 0 failed (also 0 when
+                            // msg_len > MAX_INTRINSIC_MSG_LEN, indistinguishable
+                            // from "verify failed" — guest cannot probe the cap
+                            // without paying base gas).
                             let pk_ptr  = self.regs[Reg::A0.to_usize()] as u32;
                             let sig_ptr = self.regs[Reg::A1.to_usize()] as u32;
                             let msg_ptr = self.regs[Reg::A2.to_usize()] as u32;
                             let msg_len = self.regs[Reg::A3.to_usize()] as u32;
-                            let memory = <M as Memory>::memory_state(self);
-                            let borrow_or_empty = |ptr: u32, len: u32| -> Option<&[u8]> {
-                                if len == 0 { Some(&[]) } else { memory.borrow_bytes(ptr, len) }
+                            let result: u64 = match intrinsic_surplus_gas(ROSTRO_INTRINSIC_ED25519_VERIFY, msg_len) {
+                                None => 0,
+                                Some(surplus) => {
+                                    let new_gas = self.gas - surplus;
+                                    if new_gas < 0 {
+                                        self.compiled_offset = offset;
+                                        return self.handle_gas_underflow::<DEBUG>(inst.pc, new_gas);
+                                    }
+                                    self.gas = new_gas;
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let borrow_or_empty = |ptr: u32, len: u32| -> Option<&[u8]> {
+                                        if len == 0 { Some(&[]) } else { memory.borrow_bytes(ptr, len) }
+                                    };
+                                    (|| {
+                                        let pk_bytes  = memory.borrow_bytes(pk_ptr, 32)?;
+                                        let sig_bytes = memory.borrow_bytes(sig_ptr, 64)?;
+                                        let msg = borrow_or_empty(msg_ptr, msg_len)?;
+                                        Some(rostro_ed25519_verify(pk_bytes, sig_bytes, msg) as u64)
+                                    })().unwrap_or(0)
+                                }
                             };
-                            let result: u64 = (|| {
-                                let pk_bytes  = memory.borrow_bytes(pk_ptr, 32)?;
-                                let sig_bytes = memory.borrow_bytes(sig_ptr, 64)?;
-                                let msg = borrow_or_empty(msg_ptr, msg_len)?;
-                                Some(rostro_ed25519_verify(pk_bytes, sig_bytes, msg) as u64)
-                            })().unwrap_or(0);
                             self.regs[Reg::A0.to_usize()] = result;
                             offset += 1;
                         }
@@ -3055,6 +3128,14 @@ impl InterpretedInstance {
                             // Returns: A0 = 1 recovered, 0 failed.
                             // The owned [u8; 64] buffer decouples the immutable
                             // input borrow from the mutable output borrow.
+                            let surplus = intrinsic_surplus_gas(ROSTRO_INTRINSIC_SECP256K1_RECOVER, 0)
+                                .expect("secp256k1_recover has no msg_len cap");
+                            let new_gas = self.gas - surplus;
+                            if new_gas < 0 {
+                                self.compiled_offset = offset;
+                                return self.handle_gas_underflow::<DEBUG>(inst.pc, new_gas);
+                            }
+                            self.gas = new_gas;
                             let hash_ptr = self.regs[Reg::A0.to_usize()] as u32;
                             let sig_ptr  = self.regs[Reg::A1.to_usize()] as u32;
                             let out_ptr  = self.regs[Reg::A2.to_usize()] as u32;
@@ -3080,6 +3161,14 @@ impl InterpretedInstance {
                             // Returns: A0 = 0 on success, 1 on memory-access failure.
                             // Reads 8 u64s, runs the full permutation natively,
                             // writes 8 u64s back to the same address.
+                            let surplus = intrinsic_surplus_gas(ROSTRO_INTRINSIC_POSEIDON2_PERM, 0)
+                                .expect("poseidon2_perm has no msg_len cap");
+                            let new_gas = self.gas - surplus;
+                            if new_gas < 0 {
+                                self.compiled_offset = offset;
+                                return self.handle_gas_underflow::<DEBUG>(inst.pc, new_gas);
+                            }
+                            self.gas = new_gas;
                             let state_ptr = self.regs[Reg::A0.to_usize()] as u32;
                             let result: u64 = (|| -> Option<u64> {
                                 let mut state: [u64; POSEIDON2_WIDTH] = {
