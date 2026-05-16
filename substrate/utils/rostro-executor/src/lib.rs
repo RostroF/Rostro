@@ -33,8 +33,10 @@
 
 extern crate alloc;
 
+pub mod code_executor;
 pub mod host_fn;
 
+pub use code_executor::RostroCodeExecutor;
 pub use host_fn::{register_substrate_host_functions, RostroFunctionContext};
 
 use polkavm::{CallError, Config, Engine, GasMeteringKind, InterruptKind, Linker, Module, ModuleConfig, Reg};

@@ -75,6 +75,13 @@ pallet-rostro-proof-anchor = { workspace = true, default-features = true }
 # Trace observer (advisory; no proof generation in this node-side hook yet)
 rostro-trace = { path = "../../utils/rostro-trace" }
 
+# Phase Star B6: rostro-executor is wired in as a workspace dep so the
+# binary builds with the Apache-2.0 PVM executor available. The actual
+# swap in the service-builder type alias (currently
+# `rc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>`) lands in
+# B7 once we exercise the PVM runtime end-to-end on the testbed.
+rostro-executor = { workspace = true, default-features = true }
+
 [build-dependencies]
 substrate-build-script-utils = { workspace = true, default-features = true }
 

@@ -13557,12 +13557,15 @@ name = "rostro-executor"
 version = "0.1.0"
 dependencies = [
  "log",
+ "parity-scale-codec",
  "polkavm 0.32.0",
  "rostro-executor-fixture-storage-roundtrip",
  "rostro-runtime",
  "sp-core",
+ "sp-externalities",
  "sp-io",
  "sp-state-machine",
+ "sp-version",
  "sp-wasm-interface",
  "sp-weights",
  "thiserror 1.0.65",
@@ -13708,6 +13711,7 @@ dependencies = [
  "rc-transaction-pool",
  "rc-transaction-pool-api",
  "rns-types",
+ "rostro-executor",
  "rostro-runtime",
  "rostro-trace",
  "serde_json",
