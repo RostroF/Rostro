@@ -1,0 +1,32 @@
+[package]
+name = "rostro-sassafras-redteam"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Sassafras adversarial test harness — Phase 4 of the Fagan inspection. Connects to running gemini-node JSON-RPC + Prometheus endpoints, exercises each finding from the threat-landscape catalog with reproducible attacks. Documents which findings are reachable end-to-end, providing real evidence for the risk model."
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "rostro-sassafras-redteam"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { workspace = true, features = ["derive"] }
+codec = { workspace = true, features = ["derive"], default-features = true }
+hex = { workspace = true, default-features = true }
+jsonrpsee = { workspace = true, features = ["http-client", "ws-client"] }
+serde = { workspace = true, features = ["derive"], default-features = true }
+serde_json = { workspace = true, default-features = true }
+sp-consensus-sassafras = { workspace = true, default-features = true, features = ["serde"] }
+sp-core = { workspace = true, default-features = true, features = ["bandersnatch-experimental"] }
+sp-runtime = { workspace = true, default-features = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tracing = { workspace = true, default-features = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"], default-features = true }

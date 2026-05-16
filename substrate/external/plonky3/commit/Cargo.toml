@@ -1,0 +1,34 @@
+[package]
+name = "p3-commit"
+description = "A framework for implementing various cryptographic commitment schemes, including non-hiding variants."
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+p3-field = { path = "../field", version = "0.5.1" }
+p3-matrix = { path = "../matrix", version = "0.5.1" }
+p3-multilinear-util = { path = "../multilinear-util", version = "0.5.1" }
+p3-util = { path = "../util", version = "0.5.1" }
+
+itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+serde = { version = "1.0", default-features = false }
+
+# for testing
+p3-challenger = { path = "../challenger", version = "0.5.1", optional = true }
+p3-dft = { path = "../dft", version = "0.5.1", optional = true }
+
+[dev-dependencies]
+p3-challenger = { path = "../challenger" }
+p3-dft = { path = "../dft" }
+
+[features]
+default = ["test-utils"]
+test-utils = ["p3-challenger", "p3-dft"]
+
+[lints]
+workspace = true

@@ -1,0 +1,42 @@
+[package]
+name = "p3-uni-stark"
+description = "A minimal univariate STARK framework providing core components for proof generation and verification."
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+p3-air = { path = "../air", version = "0.5.1" }
+p3-challenger = { path = "../challenger", version = "0.5.1" }
+p3-commit = { path = "../commit", version = "0.5.1" }
+p3-field = { path = "../field", version = "0.5.1" }
+p3-matrix = { path = "../matrix", version = "0.5.1" }
+p3-maybe-rayon = { path = "../maybe-rayon", version = "0.5.1" }
+p3-util = { path = "../util", version = "0.5.1" }
+
+itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+thiserror = { version = "2.0", default-features = false }
+tracing = { version = "0.1.44", default-features = false, features = ["attributes"] }
+
+[dev-dependencies]
+p3-challenger = { path = "../challenger" }
+p3-commit = { path = "../commit", features = ["test-utils"] }
+p3-dft = { path = "../dft" }
+p3-fri = { path = "../fri" }
+p3-matrix = { path = "../matrix" }
+p3-merkle-tree = { path = "../merkle-tree" }
+p3-symmetric = { path = "../symmetric" }
+
+postcard = { version = "1.1.3", default-features = false, features = ["alloc"] }
+rand = { version = "0.10.0", default-features = false }
+
+[features]
+parallel = ["p3-maybe-rayon/parallel"]
+
+[lints]
+workspace = true

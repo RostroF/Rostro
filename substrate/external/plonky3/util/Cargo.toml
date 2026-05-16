@@ -1,0 +1,37 @@
+[package]
+name = "p3-util"
+description = "A collection of utility functions and tools for low-level operations, such as bit manipulation and array transformations."
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+rayon = { version = "1.11.0", optional = true }
+serde = { version = "1.0", default-features = false }
+transpose = "0.2"
+
+[dev-dependencies]
+criterion = "0.8"
+p3-field = { path = "../field" }
+p3-goldilocks = { path = "../goldilocks" }
+proptest = "1.10"
+rand = { version = "0.10.0", default-features = false }
+serde_json = "1.0.149"
+
+[features]
+parallel = ["rayon"]
+
+[[bench]]
+name = "bit_reverse"
+harness = false
+
+[[bench]]
+name = "transpose"
+harness = false
+
+[lints]
+workspace = true

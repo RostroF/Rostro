@@ -18,8 +18,6 @@
 //! Utilities related to VRF input, pre-output and signatures.
 
 use crate::{Randomness, TicketBody, TicketId};
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 use codec::Encode;
 use sp_consensus_slots::Slot;
 
@@ -29,7 +27,39 @@ pub use sp_core::bandersnatch::{
 };
 
 /// Ring size (aka authorities count) for Sassafras consensus.
-pub const RING_SIZE: usize = 1024;
+///
+/// **Rostro divergence from upstream Substrate (was 1024).**
+///
+/// This is the *maximum* number of active validators per epoch the
+/// ring-VRF can accommodate, baked into the KZG URS at genesis. Picking
+/// it is a one-time chain-spec decision; raising it later requires a
+/// runtime upgrade with a fresh ceremony at the larger degree, since
+/// you cannot extend a published KZG SRS to higher powers without
+/// knowing the trapdoor τ.
+///
+/// Rostro picks **512** for v1 (vs. Polkadot's 1024) because:
+///
+/// 1. The required URS size is `pcs_domain_size(R) = 3 *
+///    piop_domain_size(R) + 1`, where `piop_domain_size` is the next
+///    power of two after `R + 4 + 252` (252 = bandersnatch scalar bit
+///    size). For R=512 that's 3073 G1 powers; for R=1024 it's 6145.
+/// 2. Ethereum's EIP-4844 KZG ceremony output (the largest publicly
+///    available BLS12-381 ceremony, ~141k contributors) provides 4096
+///    G1 powers — sufficient for R=512 with headroom, insufficient for
+///    R=1024.
+/// 3. Sovereign chains in this validator-economics class (NPoS, low
+///    hundreds to mid-hundreds of active validators) sit comfortably
+///    inside R=512. Polkadot's R=1024 was sized for their 1000+
+///    validators-per-era target, which is a Polkadot-scale parameter.
+/// 4. If Rostro grows past this ceiling years from now, the runtime
+///    upgrade path is real: re-ceremony at higher degree, ticket-pool
+///    flush across the boundary, validator-key rotation as needed.
+///
+/// A future Rostro fork that targets Polkadot-class validator counts
+/// would change this constant + run a larger ceremony. Code that
+/// references `RING_SIZE` directly (rather than hard-coding 512 or
+/// 1024) automatically scales.
+pub const RING_SIZE: usize = 512;
 
 /// Bandersnatch VRF [`RingContext`] specialization for Sassafras using [`RING_SIZE`].
 pub type RingContext = sp_core::bandersnatch::ring_vrf::RingContext<RING_SIZE>;

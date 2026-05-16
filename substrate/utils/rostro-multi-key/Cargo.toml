@@ -1,0 +1,44 @@
+[package]
+name = "rostro-multi-key"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Multi-scheme signer + signature primitive for Rostro. Supports Sr25519, Ed25519, and Ecdsa, with Option-C AccountId derivation: Ed25519 source-matches Solana/Aptos/Sui/Cosmos (raw pubkey); Ecdsa source-matches Ethereum (last 20 bytes of keccak256(uncompressed pubkey), zero-padded to 32); Sr25519 uses domain-separated blake2_256(0x01 || pubkey) to keep its namespace distinct from Ed25519. EIP-191 wrap variant for MetaMask-style personal_sign."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { workspace = true, features = ["derive", "max-encoded-len"] }
+scale-info = { workspace = true, features = ["derive"] }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
+# k256 is used to decompress compressed secp256k1 pubkeys for the
+# Eth-style AccountId derivation. sp-core itself uses k256 for no_std
+# ecdsa recovery, so this is the same crate substrate already vendors.
+k256 = { workspace = true, features = ["alloc", "ecdsa"] }
+
+[dev-dependencies]
+hex = "0.4"
+sp-core = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"k256/std",
+	"scale-info/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
+	"sp-std/std",
+	"serde",
+	"serde/std",
+]

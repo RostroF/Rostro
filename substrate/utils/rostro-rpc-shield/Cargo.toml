@@ -1,0 +1,17 @@
+[package]
+name = "rostro-rpc-shield"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Defense-in-depth RPC middleware for Rostro nodes. Per-/24 source rate limiter, per-method rate limiter, escalating penalty tracker, state_call method allowlist, response size cap, and inflight concurrency cap. Designed against the threat model from Phase 4 of the Sassafras Fagan inspection: F-25-sub (validate_transaction panic flood), F-NEW-1 (offchain-host-fn panic class), F-NEW-2 (ring_context bandwidth amplification), F-6 (sort_segments DoS). Gate-stack design draws on the snorkel DNS resolver pattern."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]

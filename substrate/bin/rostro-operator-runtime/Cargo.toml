@@ -1,0 +1,56 @@
+[package]
+name = "rostro-operator-runtime"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Sidecar process that hosts an operator's private WASM blob alongside gemini-node. Loaded from a local file path at startup, executes operator-defined methods via wasmtime, exposes a small set of host functions, and speaks a SCALE-framed request/response protocol over stdin/stdout (so a parent process — gemini-node, an installer, a test harness — can drive it without any platform-specific socket plumbing). v1 minimum: Ping smoke test + invoking a no-arg WASM export, with `log` as the only host function. Richer ABI (typed args/results, storage, signature requests, http) lands in subsequent versions. Apache-2.0; no Substrate-client dependencies — the sidecar is intentionally a small portable artifact independent of the chain client."
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "rostro-operator-runtime"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+codec = { features = ["derive"], workspace = true, default-features = true }
+env_logger = { workspace = true }
+log = { workspace = true, default-features = true }
+thiserror = { workspace = true }
+# wasmtime — explicitly enable every default feature EXCEPT `wat`. The
+# wat feature pulls wat ^1.235.0; wasmer 4.4 (transitively pulled by
+# ark-circom in the zkpki vendoring) pins `wat = "=1.0.71"` exactly.
+# Same major version family, mutually exclusive constraints — Cargo
+# can't unify. Disabling wasmtime's wat feature drops it from the
+# graph; we don't actually use wasmtime's WAT parser here (test
+# fixtures are pre-compiled byte arrays in runtime.rs).
+wasmtime = { workspace = true, default-features = false, features = [
+	"addr2line",
+	"async",
+	"cache",
+	"component-model",
+	"coredump",
+	"cranelift",
+	"debug-builtins",
+	"demangle",
+	"gc",
+	"gc-drc",
+	"gc-null",
+	"parallel-compilation",
+	"pooling-allocator",
+	"profiling",
+	"runtime",
+	"stack-switching",
+	"std",
+	"threads",
+] }
+
+[dev-dependencies]
+
+[features]
+default = []

@@ -1,0 +1,31 @@
+[package]
+name = "p3-mds"
+description = "A collection of methods allowing for fast multiplication by MDS matrices."
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+p3-dft = { path = "../dft", version = "0.5.1" }
+p3-field = { path = "../field", version = "0.5.1" }
+p3-symmetric = { path = "../symmetric", version = "0.5.1" }
+p3-util = { path = "../util", version = "0.5.1" }
+
+rand = { version = "0.10.0", default-features = false }
+
+[dev-dependencies]
+p3-goldilocks = { path = "../goldilocks" }
+
+criterion = "0.8"
+proptest = "1.10"
+
+[[bench]]
+name = "mds"
+harness = false
+
+[lints]
+workspace = true

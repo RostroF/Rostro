@@ -17,6 +17,7 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 extern crate alloc;
 
 pub mod configs;
+pub mod ring_proof;
 
 use alloc::{vec, vec::Vec};
 use sp_api::impl_runtime_apis;
@@ -165,6 +166,20 @@ construct_runtime!(
 
 		// Rostro
 		ProofVerifier: pallet_proof_verifier,
+
+		// On-chain registry of canonical type fingerprints. Anchors the
+		// recognizer architecture for rostro-client (Tier-2). v0 ships the
+		// storage primitive + genesis seed; metadata-ir extension and
+		// runtime-upgrade gate land in follow-up commits.
+		RostroTypeRegistry: pallet_rostro_type_registry,
+
+		// Inherent that anchors the per-window execution proof into the
+		// block header as a `DigestItem::Consensus(*b"rstr", proof)`.
+		// Block authors pull the latest proof bytes node-side via
+		// `RostroProofInherentDataProvider`; the inherent here deposits
+		// the digest log. Consensus-engine-agnostic — composes with Aura
+		// today and Sassafras when Phase Ring lands.
+		RostroProofAnchor: pallet_rostro_proof_anchor,
 
 		// Rostro Name Service (RNS).
 		// Four sub-pallets live inside the pallet-rns-registrar crate; they're
@@ -343,3 +358,9 @@ impl_runtime_apis! {
 
 pub use pallet_grandpa::AuthorityId as GrandpaId;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
+
+// Phase Ring R1: Sassafras authority type re-exported for downstream
+// (chainspec, node-service) reference. The pallet itself is *not* yet wired
+// into `construct_runtime!` — see the comment in `Cargo.toml`. R3 lands the
+// live integration alongside the chainspec switch.
+pub use sp_consensus_sassafras::AuthorityId as SassafrasId;

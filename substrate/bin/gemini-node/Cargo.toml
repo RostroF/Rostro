@@ -1,0 +1,102 @@
+[package]
+name = "gemini-node"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Gemini node — Sassafras + GRANDPA over gemini-runtime. Phase Ring R3.6 testbed."
+publish = false
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[[bin]]
+name = "gemini-node"
+path = "src/main.rs"
+
+[dependencies]
+async-channel = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true }
+hex = { workspace = true, default-features = true }
+serde_json = { workspace = true, default-features = true }
+jsonrpsee = { workspace = true, features = ["server"] }
+log = { workspace = true, default-features = true }
+tokio = { workspace = true, default-features = true }
+tracing = { workspace = true, default-features = true }
+
+# rc-* (client) crates
+rc-basic-authorship = { workspace = true, default-features = true }
+rc-cli = { workspace = true, default-features = true }
+rc-client-api = { workspace = true, default-features = true }
+rc-consensus = { workspace = true, default-features = true }
+rc-consensus-grandpa = { workspace = true, default-features = true }
+rc-consensus-slots = { workspace = true, default-features = true }
+rc-executor = { workspace = true, default-features = true }
+rc-keystore = { workspace = true, default-features = true }
+rc-network = { workspace = true, default-features = true }
+rc-network-sync = { workspace = true, default-features = true }
+rc-offchain = { workspace = true, default-features = true }
+rc-rpc-api = { workspace = true, default-features = true }
+rc-rpc-server = { workspace = true, default-features = true }
+rc-service = { workspace = true, default-features = true }
+rc-telemetry = { workspace = true, default-features = true }
+rc-transaction-pool = { workspace = true, default-features = true }
+rc-transaction-pool-api = { workspace = true, default-features = true }
+
+# Frame
+codec = { workspace = true, default-features = true, features = ["derive"] }
+frame-support = { workspace = true, default-features = true }
+frame-system = { workspace = true, default-features = true }
+pallet-rns-registrar = { workspace = true, default-features = true }
+pallet-rostro-canonical-files = { workspace = true, default-features = true }
+pallet-rostro-rpc-method-policy = { workspace = true, default-features = true }
+pallet-sassafras = { workspace = true, default-features = true }
+pallet-transaction-payment = { workspace = true, default-features = true }
+pallet-transaction-payment-rpc = { workspace = true, default-features = true }
+substrate-frame-rpc-system = { workspace = true, default-features = true }
+
+# Primitives
+sp-api = { workspace = true, default-features = true }
+sp-block-builder = { workspace = true, default-features = true }
+sp-blockchain = { workspace = true, default-features = true }
+sp-consensus-aura = { workspace = true, default-features = true }
+sp-consensus-grandpa = { workspace = true, default-features = true }
+sp-consensus-sassafras = { workspace = true, default-features = true, features = ["serde"] }
+sp-consensus-slots = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true, features = ["bandersnatch-experimental"] }
+sp-keystore = { workspace = true, default-features = true, features = ["bandersnatch-experimental"] }
+sp-genesis-builder = { workspace = true, default-features = true }
+sp-inherents = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
+sp-keyring = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+sp-timestamp = { workspace = true, default-features = true }
+
+# Rostro consensus client (Apache-2.0; we rely on it for the import-queue Verifier impl)
+rostro-consensus-sassafras = { path = "../../utils/rostro-consensus-sassafras", default-features = true }
+
+# Apache-2.0 RPC shield primitives. Substrate's `rc-rpc-server` already
+# depends on this for the middleware adapter; we depend on it directly
+# so `policy_refresh` can use the same `MethodPolicy` enum.
+rostro-rpc-shield = { path = "../../utils/rostro-rpc-shield" }
+
+# Apache-2.0 canonical-fetch protocol primitives. `file_check` uses the
+# `LocalDirectoryFetchTransport` to drive the heal flow when
+# `--canonical-files-dir` is set; libp2p binding lands in a follow-up.
+rostro-canonical-fetch = { path = "../../utils/rostro-canonical-fetch" }
+
+# The runtime
+gemini-runtime = { workspace = true, default-features = true }
+
+[build-dependencies]
+substrate-build-script-utils = { workspace = true, default-features = true }
+
+[features]
+default = []

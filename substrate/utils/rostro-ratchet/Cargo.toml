@@ -1,0 +1,26 @@
+[package]
+name = "rostro-ratchet"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Pairwise Signal Double Ratchet, written from spec (https://signal.org/docs/specifications/doubleratchet/). Provides per-message forward secrecy and post-compromise security for Rostro's gossip layer. Library only at v0; sc-network-gossip integration is its own follow-up phase."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+hkdf = { workspace = true, default-features = true }
+hmac = { workspace = true, default-features = true }
+rand_core = { workspace = true, features = ["std"] }
+sha2 = { workspace = true, default-features = true }
+thiserror = { workspace = true }
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
+zeroize = { workspace = true, default-features = true }
+
+[dev-dependencies]
+rand = "0.8"

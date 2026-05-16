@@ -1,0 +1,25 @@
+[package]
+name = "rostro-supervisor"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Cross-platform process supervisor for Rostro nodes (Phase 7b step 1). Spawns the child node binary, watches its exit status, and on the swap-and-restart exit code rotates a staged binary into place and re-spawns. Owns Pattern A of Phase 7b's auto-heal lifecycle: clean exit + supervised restart, strict zero-overlap on PIDs so a node can never be connected to the network from two processes simultaneously. Apache-2.0; minimal deps (no Substrate-client dependencies) so it works on Linux, macOS, and Windows alike."
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "rostro-supervisor"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+env_logger = { workspace = true }
+log = { workspace = true, default-features = true }
+
+[features]
+default = []

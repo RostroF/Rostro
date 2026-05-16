@@ -1,0 +1,24 @@
+[package]
+name = "rostro-range-check"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "u16-range lookup table AIR over Goldilocks. Provides every value in [0, 2^16) on a named bus; caller AIRs split u32 trace columns into (low_u16, high_u16) and lookup each half. Standard LogUp range-check pattern; the only viable enforcement for u32 PoP witness columns under the one-u32-per-Goldilocks-element packing convention."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+p3-air        = { workspace = true }
+p3-field      = { workspace = true }
+p3-goldilocks = { workspace = true }
+p3-lookup     = { workspace = true }
+p3-matrix     = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

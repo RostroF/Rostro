@@ -1,0 +1,29 @@
+[package]
+name = "p3-poseidon1"
+description = "A generic implementation of the Poseidon1 permutation for cryptographic hash constructions."
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+p3-field = { path = "../field", version = "0.5.1" }
+p3-symmetric = { path = "../symmetric", version = "0.5.1" }
+
+rand = { version = "0.10.0", default-features = false }
+
+[dev-dependencies]
+p3-goldilocks = { path = "../goldilocks" }
+p3-util = { path = "../util" }
+
+criterion = "0.8"
+
+[[bench]]
+name = "poseidon1"
+harness = false
+
+[lints]
+workspace = true

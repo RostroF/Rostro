@@ -42,7 +42,7 @@ pub use jsonrpsee::{
 	core::id_providers::{RandomIntegerIdProvider, RandomStringIdProvider},
 	server::{middleware::rpc::RpcServiceBuilder, BatchRequestConfig},
 };
-pub use middleware::{Metrics, MiddlewareLayer, NodeHealthProxyLayer, RpcMetrics};
+pub use middleware::{Metrics, MiddlewareLayer, NodeHealthProxyLayer, RostroShieldLayer, RpcMetrics};
 pub use utils::{RpcEndpoint, RpcMethods};
 
 const MEGABYTE: u32 = 1024 * 1024;
@@ -194,6 +194,16 @@ where
 		let service_builder = builder.to_service_builder();
 		let deny_unsafe = deny_unsafe(&local_addr, &rpc_methods);
 
+		// CRITICAL: construct the shield ONCE per server, before the
+		// per-connection accept loop. RostroShieldLayer holds an
+		// Arc<Shield> internally; clones share the same rate-limit /
+		// penalty / inflight state. If we constructed the layer inside
+		// the accept loop, every new HTTP connection would get a fresh
+		// shield with empty state, and an attacker that reconnects per
+		// request would bypass the per-/24 source rate limit
+		// completely. (Verified during Phase 5 bug-testing.)
+		let rostro_shield_layer = RostroShieldLayer::from_env();
+
 		tokio_handle.spawn(async move {
 			loop {
 				let (sock, remote_addr) = tokio::select! {
@@ -213,6 +223,7 @@ where
 				let cfg2 = cfg.clone();
 				let service_builder2 = service_builder.clone();
 				let rate_limit_whitelisted_ips2 = rate_limit_whitelisted_ips.clone();
+				let rostro_shield_layer2 = rostro_shield_layer.clone();
 
 				let svc =
 					tower::service_fn(move |mut req: http::Request<hyper::body::Incoming>| {
@@ -256,9 +267,19 @@ where
 							),
 						};
 
+						// RostroShieldLayer is added LAST so it becomes the
+						// INNERMOST layer in the wrapped service (tower's Stack
+						// applies last-added closest to the base service). With
+						// Shield innermost, its `S` resolves to `RpcService`
+						// which is `Clone` — satisfying the `S: Clone` bound on
+						// our `RpcServiceT` impl. Inserting it earlier in the
+						// chain makes `S` resolve to `Either<Middleware<RpcService>,
+						// RpcService>`, and substrate's `Middleware` is not
+						// `Clone`, breaking the bound.
 						let rpc_middleware = RpcServiceBuilder::new()
 							.rpc_logger(request_logger_limit)
-							.option_layer(middleware_layer.clone());
+							.option_layer(middleware_layer.clone())
+							.option_layer(rostro_shield_layer2.clone());
 						let mut svc = service_builder
 							.set_rpc_middleware(rpc_middleware)
 							.build(methods, stop_handle);

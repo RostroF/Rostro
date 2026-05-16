@@ -7,16 +7,23 @@
 //! reference) with `sp_*`/`sc_*` renamed to `rp_*`/`rc_*` per Rostro's
 //! pallet-boundary refactor.
 
-use futures::FutureExt;
-use rc_client_api::{Backend, BlockBackend};
+use futures::{FutureExt, StreamExt};
+use pallet_rostro_proof_anchor::ROSTRO_PROOF_INHERENT_ID;
+use rc_client_api::{Backend, BlockBackend, BlockchainEvents};
 use rc_consensus_aura::{ImportQueueParams, SlotProportion, StartAuraParams};
 use rc_consensus_grandpa::{GrandpaPruningFilter, SharedVoterState};
 use rc_service::{error::Error as ServiceError, Configuration, TaskManager, WarpSyncConfig};
 use rc_telemetry::{Telemetry, TelemetryWorker};
 use rc_transaction_pool_api::OffchainTransactionPoolFactory;
 use rostro_runtime::{self, opaque::Block, RuntimeApi};
+use rostro_trace::{prove_chain_window, verify_chain_window, BlockTraceRow};
 use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
-use std::{sync::Arc, time::Duration};
+use sp_inherents::{InherentData, InherentIdentifier};
+use sp_runtime::traits::Header as HeaderT;
+use std::{
+	sync::{Arc, Mutex},
+	time::Duration,
+};
 
 pub(crate) type FullClient = rc_service::TFullClient<
 	Block,
@@ -225,6 +232,19 @@ pub fn new_full<
 		})
 	};
 
+	// Capture base_path before `spawn_tasks` moves `config`. Used by the
+	// trace observer below for proof persistence.
+	let proofs_dir = config.base_path.path().join("proofs");
+
+	// Shared state for the per-block-window proof: the trace observer
+	// writes the latest postcard-encoded proof here after each successful
+	// prove + self-verify; the inherent data provider (constructed below
+	// in the Aura authoring path) consumes it via `take()` when the
+	// proposer asks for inherent data on a slot. `Arc<Mutex<...>>` is
+	// fine because the only operations are an occasional `set` and an
+	// occasional `take` — no contention.
+	let latest_proof: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+
 	let _rpc_handlers = rc_service::spawn_tasks(rc_service::SpawnTasksParams {
 		network: Arc::new(network.clone()),
 		client: client.clone(),
@@ -240,6 +260,20 @@ pub fn new_full<
 		telemetry: telemetry.as_mut(),
 		tracing_execute_block: None,
 	})?;
+
+	// ── Trace observer + per-block prover (advisory) ───────────────────────
+	// Subscribes to block-import notifications, emits a `BlockTraceRow`
+	// per imported block, runs the Plonky3 prover over each 8-block
+	// window, self-verifies, and persists the proof to
+	// `<base-path>/proofs/`. Advisory only — no header digest, no
+	// consensus gating. Disk persistence makes the artifact available to
+	// downstream tooling (light clients, audit, RPC) without touching
+	// consensus.
+	task_manager.spawn_handle().spawn(
+		"rostro-trace-observer",
+		Some("rostro-trace"),
+		spawn_trace_observer(client.clone(), proofs_dir, latest_proof.clone()).boxed(),
+	);
 
 	if role.is_authority() {
 		let proposer_factory = rc_basic_authorship::ProposerFactory::new(
@@ -259,14 +293,23 @@ pub fn new_full<
 				select_chain,
 				block_import,
 				proposer_factory,
-				create_inherent_data_providers: move |_, ()| async move {
-					let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-					let slot =
-						sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-							*timestamp,
-							slot_duration,
-						);
-					Ok((slot, timestamp))
+				create_inherent_data_providers: {
+					let latest_proof = latest_proof.clone();
+					move |_, ()| {
+						let latest_proof = latest_proof.clone();
+						async move {
+							let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+							let slot =
+								sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
+									*timestamp,
+									slot_duration,
+								);
+							let rostro_proof = RostroProofInherentDataProvider {
+								latest_proof,
+							};
+							Ok((slot, timestamp, rostro_proof))
+						}
+					}
 				},
 				force_authoring,
 				backoff_authoring_blocks,
@@ -321,4 +364,231 @@ pub fn new_full<
 	}
 
 	Ok(task_manager)
+}
+
+/// Window size for the per-block prover loop. Plonky3 uni-stark requires
+/// `log_min_height > log_final_poly_len + log_blowup`; with the v0
+/// `create_test_fri_params(_, 2)` setup (log_blowup=2, log_final_poly_len=2),
+/// the smallest viable trace is 8 rows (log_min_height after blowup = 5,
+/// 5 > 4 ✓). 8 rows ≈ 48 seconds of chain at the 6-second slot budget.
+/// Tunable upward as we benchmark; v1 may bump to 64 to amortize prover cost.
+const PROVE_WINDOW_ROWS: usize = 8;
+
+/// Subscribe to block-import notifications, build a `BlockTraceRow` per
+/// imported block, accumulate them into a window, generate a STARK proof
+/// every `PROVE_WINDOW_ROWS` blocks, and persist each proof to disk.
+///
+/// v0 is **advisory**: proofs are generated, re-verified locally, written
+/// to `<base_path>/proofs/window_<start>-<end>.proof.postcard`, and logged
+/// via `tracing`. They are NOT attached to block headers, NOT gossiped,
+/// NOT enforced. Disk persistence makes the artifact exfiltrate-able for
+/// downstream tooling (light clients, audit logs, RPC endpoints) without
+/// touching consensus. Real header-digest attachment is a follow-up phase.
+///
+/// Errors during row construction, prove/verify, or persistence are logged
+/// at warn level and do not break the observer loop — the chain keeps
+/// producing blocks regardless of advisory proof health.
+async fn spawn_trace_observer(
+	client: Arc<FullClient>,
+	proofs_dir: std::path::PathBuf,
+	latest_proof: Arc<Mutex<Option<Vec<u8>>>>,
+) {
+	if let Err(e) = std::fs::create_dir_all(&proofs_dir) {
+		tracing::warn!(
+			target: "rostro-trace",
+			path = ?proofs_dir,
+			error = %e,
+			"failed to create proofs directory; disk persistence disabled",
+		);
+	}
+
+	let mut stream = client.import_notification_stream();
+	let mut window: Vec<BlockTraceRow> = Vec::with_capacity(PROVE_WINDOW_ROWS);
+
+	while let Some(notification) = stream.next().await {
+		let row = match build_trace_row(&client, &notification) {
+			Ok(row) => row,
+			Err(e) => {
+				tracing::warn!(
+					target: "rostro-trace",
+					block_hash = ?notification.hash,
+					error = %e,
+					"failed to build trace row",
+				);
+				continue;
+			},
+		};
+
+		tracing::info!(
+			target: "rostro-trace",
+			block_number = row.block_number,
+			extrinsic_count = row.extrinsic_count,
+			block_hash = ?notification.hash,
+			"trace row emitted",
+		);
+
+		window.push(row);
+
+		if window.len() >= PROVE_WINDOW_ROWS {
+			let drained: Vec<BlockTraceRow> = window.drain(..).collect();
+			let first = drained.first().expect("non-empty").block_number;
+			let last = drained.last().expect("non-empty").block_number;
+
+			let prove_start = std::time::Instant::now();
+			match prove_chain_window(&drained) {
+				Ok((proof, meta)) => {
+					let prove_elapsed = prove_start.elapsed();
+					let verify_start = std::time::Instant::now();
+					match verify_chain_window(&proof) {
+						Ok(()) => {
+							let verify_elapsed = verify_start.elapsed();
+							let persisted = persist_proof(&proofs_dir, first, last, &proof);
+							// Stage the proof for the next block author's
+							// inherent. Overwrites whatever was queued —
+							// only the freshest proof rides at any time.
+							let encoded = postcard::to_allocvec(&proof).ok();
+							let staged_for_inherent = encoded.is_some();
+							if let Some(bytes) = encoded {
+								if let Ok(mut guard) = latest_proof.lock() {
+									*guard = Some(bytes);
+								}
+							}
+							tracing::info!(
+								target: "rostro-trace",
+								window_first_block = first,
+								window_last_block = last,
+								trace_rows = meta.trace_rows,
+								proof_bytes = meta.proof_bytes,
+								prove_ms = prove_elapsed.as_millis() as u64,
+								verify_ms = verify_elapsed.as_millis() as u64,
+								persisted = ?persisted,
+								staged_for_inherent,
+								"chain-window proof generated, self-verified, persisted, staged",
+							);
+						},
+						Err(e) => {
+							tracing::warn!(
+								target: "rostro-trace",
+								window_first_block = first,
+								window_last_block = last,
+								error = ?e,
+								"chain-window proof failed self-verify",
+							);
+						},
+					}
+				},
+				Err(e) => {
+					tracing::warn!(
+						target: "rostro-trace",
+						window_first_block = first,
+						window_last_block = last,
+						error = ?e,
+						"chain-window prove failed",
+					);
+				},
+			}
+		}
+	}
+}
+
+/// Inherent-data provider that yields the most-recently-staged execution
+/// proof to the block author's proposer. Reads (and consumes via `take()`)
+/// the shared `latest_proof` slot the trace observer writes to. If no proof
+/// is staged at slot time, the inherent is skipped — block authoring still
+/// proceeds normally.
+struct RostroProofInherentDataProvider {
+	latest_proof: Arc<Mutex<Option<Vec<u8>>>>,
+}
+
+#[async_trait::async_trait]
+impl sp_inherents::InherentDataProvider for RostroProofInherentDataProvider {
+	async fn provide_inherent_data(
+		&self,
+		inherent_data: &mut InherentData,
+	) -> Result<(), sp_inherents::Error> {
+		let proof = self.latest_proof.lock().ok().and_then(|mut g| g.take());
+		if let Some(bytes) = proof {
+			inherent_data
+				.put_data(ROSTRO_PROOF_INHERENT_ID, &bytes)
+				.map_err(|e| sp_inherents::Error::Application(Box::new(e)))?;
+		}
+		Ok(())
+	}
+
+	async fn try_handle_error(
+		&self,
+		identifier: &InherentIdentifier,
+		_error: &[u8],
+	) -> Option<Result<(), sp_inherents::Error>> {
+		if *identifier == ROSTRO_PROOF_INHERENT_ID {
+			// Anchoring is advisory at v0; never fatal.
+			Some(Ok(()))
+		} else {
+			None
+		}
+	}
+}
+
+/// Persist a STARK proof to disk under `<proofs_dir>/window_<start>-<end>.proof.postcard`.
+/// Returns the path on success or an error string on failure.
+fn persist_proof(
+	proofs_dir: &std::path::Path,
+	first_block: u32,
+	last_block: u32,
+	proof: &rostro_trace::Proof,
+) -> Result<std::path::PathBuf, String> {
+	let file_name = format!("window_{:010}-{:010}.proof.postcard", first_block, last_block);
+	let path = proofs_dir.join(&file_name);
+	let bytes = postcard::to_allocvec(proof)
+		.map_err(|e| format!("postcard encode failed: {}", e))?;
+	std::fs::write(&path, &bytes)
+		.map_err(|e| format!("write to {}: {}", path.display(), e))?;
+	Ok(path)
+}
+
+fn build_trace_row(
+	client: &Arc<FullClient>,
+	notification: &rc_client_api::BlockImportNotification<Block>,
+) -> Result<BlockTraceRow, String> {
+	let header = &notification.header;
+	let post_state_root: [u8; 32] = (*header.state_root()).into();
+	let block_hash: [u8; 32] = notification.hash.into();
+	let parent_hash: [u8; 32] = (*header.parent_hash()).into();
+	let extrinsics_root: [u8; 32] = (*header.extrinsics_root()).into();
+	let block_number: u32 = (*header.number())
+		.try_into()
+		.map_err(|_| "block_number does not fit in u32".to_string())?;
+
+	// Look up the parent header to recover its post-state-root, which is
+	// our pre-state-root. Genesis has no parent — fall back to all zeros.
+	let pre_state_root: [u8; 32] = if block_number == 0 {
+		[0u8; 32]
+	} else {
+		(*client
+			.header(*header.parent_hash())
+			.map_err(|e| format!("parent header lookup failed: {}", e))?
+			.ok_or_else(|| "parent header missing".to_string())?
+			.state_root())
+			.into()
+	};
+
+	// Body fetch is best-effort. If the block body is unavailable locally
+	// (some prune configurations), we record extrinsic_count = 0 rather
+	// than failing the whole observation.
+	let extrinsic_count: u32 = client
+		.block_body(notification.hash)
+		.ok()
+		.flatten()
+		.map(|body| body.len() as u32)
+		.unwrap_or(0);
+
+	Ok(BlockTraceRow {
+		block_number,
+		extrinsic_count,
+		pre_state_root,
+		post_state_root,
+		block_hash,
+		parent_hash,
+		extrinsics_root,
+	})
 }

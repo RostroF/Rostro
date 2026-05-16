@@ -34,10 +34,12 @@ use jsonrpsee::{
 mod metrics;
 mod node_health;
 mod rate_limit;
+mod rostro_shield;
 
 pub use metrics::*;
 pub use node_health::*;
 pub use rate_limit::*;
+pub use rostro_shield::{RostroShieldLayer, RostroShieldMiddleware};
 
 const MAX_JITTER: Duration = Duration::from_millis(50);
 const MAX_RETRIES: usize = 10;

@@ -1,0 +1,41 @@
+[package]
+name = "p3-poseidon2-air"
+description = "An AIR implementation of the Poseidon2 cryptographic hash function for use in zero-knowledge proof systems."
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+p3-air = { path = "../air", version = "0.5.1" }
+p3-field = { path = "../field", version = "0.5.1" }
+p3-matrix = { path = "../matrix", version = "0.5.1" }
+p3-maybe-rayon = { path = "../maybe-rayon", version = "0.5.1" }
+p3-poseidon2 = { path = "../poseidon2", version = "0.5.1" }
+
+rand = { version = "0.10.0", default-features = false }
+tracing = { version = "0.1.44", default-features = false, features = ["attributes"] }
+
+[dev-dependencies]
+p3-challenger = { path = "../challenger" }
+p3-commit = { path = "../commit" }
+p3-dft = { path = "../dft" }
+p3-fri = { path = "../fri" }
+p3-merkle-tree = { path = "../merkle-tree" }
+p3-symmetric = { path = "../symmetric" }
+p3-uni-stark = { path = "../uni-stark" }
+
+tracing-forest = { version = "0.3.1", features = ["ansi", "smallvec"] }
+tracing-subscriber = { version = "0.3.22", default-features = false, features = ["alloc", "std", "env-filter"] }
+
+[target.'cfg(target_family = "unix")'.dev-dependencies]
+tikv-jemallocator = "0.6"
+
+[features]
+parallel = ["p3-maybe-rayon/parallel"]
+
+[lints]
+workspace = true

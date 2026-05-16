@@ -1,0 +1,32 @@
+[package]
+name = "rostro-hash-to-field-air"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Hash-to-field for F_p25519 over a Goldilocks Plonky3 stack. Per-call: maps a single Goldilocks input (typically the OPRF private_nullifier) to two F_p25519 elements (u_0, u_1) via two domain-separated Poseidon2 sponge calls and Barrett reduction. Follows RFC 9380 §5.3 RO mode for Edwards25519 (count=2, m=1, L=48 bytes), with the Poseidon2 substitution for expand_message documented in the suite ID. Building block for hash_to_curve and the OPRF nullifier path."
+publish = false
+
+[dependencies]
+num-bigint    = { version = "0.4", default-features = false }
+num-integer   = { version = "0.1", default-features = false }
+p3-air        = { workspace = true }
+p3-field      = { workspace = true }
+p3-goldilocks = { workspace = true }
+p3-lookup     = { workspace = true }
+p3-matrix     = { workspace = true }
+rostro-curve25519 = { workspace = true }
+rostro-poseidon-sponge-air = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+num-traits = { version = "0.2", default-features = false }
+rand = { version = "0.8", default-features = false, features = ["std_rng"] }
+
+[features]
+default = ["std"]
+std = []

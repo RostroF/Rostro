@@ -1,0 +1,37 @@
+[package]
+name = "p3-dft"
+description = "A collection of discrete Fourier transform (DFT) implementations for finite fields."
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+p3-field = { path = "../field", version = "0.5.1" }
+p3-matrix = { path = "../matrix", version = "0.5.1" }
+p3-maybe-rayon = { path = "../maybe-rayon", version = "0.5.1" }
+p3-util = { path = "../util", version = "0.5.1" }
+
+itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+spin = "0.10.0"
+tracing = { version = "0.1.44", default-features = false, features = ["attributes"] }
+
+[dev-dependencies]
+p3-goldilocks = { path = "../goldilocks" }
+
+criterion = "0.8"
+proptest = "1.10"
+rand = { version = "0.10.0", default-features = false }
+
+[features]
+parallel = ["p3-maybe-rayon/parallel"]
+
+[[bench]]
+name = "fft"
+harness = false
+
+[lints]
+workspace = true

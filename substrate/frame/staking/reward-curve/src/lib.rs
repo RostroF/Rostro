@@ -79,7 +79,7 @@ pub fn build(input: TokenStream) -> TokenStream {
 	let declaration = generate_piecewise_linear(points);
 	let test_module = generate_test_module(&input);
 
-	let imports = match crate_name("rp-runtime") {
+	let imports = match crate_name("sp-runtime") {
 		Ok(FoundCrate::Itself) => quote!(
 			#[doc(hidden)]
 			pub use sp_runtime as _sp_runtime;

@@ -1,0 +1,31 @@
+[package]
+name = "rostro-client"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Native Rostro chain client. Recognizes canonical types by fingerprint match against the on-chain WellKnownTypeFingerprints registry rather than by hardcoded path strings — see ~/.claude/projects/-home-coder-Rostro/memory/recognizer_architecture_decision.md. Decouples Rostro from @polkadot/api's PATHS_ALIAS path-trust assumption."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { workspace = true, default-features = true, features = ["derive"] }
+frame-metadata = { workspace = true, default-features = true, features = ["current"] }
+jsonrpsee = { workspace = true, features = ["ws-client"] }
+rostro-canonicalize = { path = "../rostro-canonicalize" }
+scale-decode = { workspace = true, default-features = true }
+scale-info = { workspace = true, default-features = true, features = ["derive"] }
+scale-value = { workspace = true, default-features = true }
+serde = { workspace = true, default-features = true, features = ["derive"] }
+sp-core = { workspace = true, default-features = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+hex = "0.4"
+sp-runtime = { workspace = true, default-features = true }
+sp-weights = { workspace = true, default-features = true }

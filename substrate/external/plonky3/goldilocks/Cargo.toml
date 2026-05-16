@@ -1,0 +1,42 @@
+[package]
+name = "p3-goldilocks"
+description = "An implementation of the Goldilocks prime field F_p, where p = 2^64 - 2^32 + 1."
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+p3-challenger = { path = "../challenger", version = "0.5.1" }
+p3-dft = { path = "../dft", version = "0.5.1" }
+p3-field = { path = "../field", version = "0.5.1" }
+p3-mds = { path = "../mds", version = "0.5.1" }
+p3-poseidon1 = { path = "../poseidon1", version = "0.5.1" }
+p3-poseidon2 = { path = "../poseidon2", version = "0.5.1" }
+p3-symmetric = { path = "../symmetric", version = "0.5.1" }
+p3-util = { path = "../util", version = "0.5.1" }
+
+num-bigint = { version = "0.4.6", default-features = false }
+paste = "1.0.15"
+rand = { version = "0.10.0", default-features = false }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+
+[dev-dependencies]
+
+criterion = "0.8"
+proptest = "1.10"
+rand = { version = "0.10.0", default-features = false }
+
+[[bench]]
+name = "bench_field"
+harness = false
+
+[[bench]]
+name = "extension"
+harness = false
+
+[lints]
+workspace = true

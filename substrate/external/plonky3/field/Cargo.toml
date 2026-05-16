@@ -1,0 +1,34 @@
+[package]
+name = "p3-field"
+description = "A modular framework for finite fields, including support for generic binomial extensions, SIMD-packed field arithmetic."
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+p3-maybe-rayon = { path = "../maybe-rayon", version = "0.5.1" }
+p3-util = { path = "../util", version = "0.5.1" }
+
+itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+num-bigint = { version = "0.4.6", default-features = false }
+paste = "1.0.15"
+rand = { version = "0.10.0", default-features = false }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+tracing = { version = "0.1.44", default-features = false, features = ["attributes"] }
+
+[dev-dependencies]
+criterion = "0.8"
+p3-goldilocks = { path = "../goldilocks" }
+proptest = "1.10"
+
+[[bench]]
+name = "batch_inverse"
+path = "benches/batch_inverse.rs"
+harness = false
+
+[lints]
+workspace = true

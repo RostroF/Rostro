@@ -1,0 +1,34 @@
+[package]
+name = "zk-pki-integrity"
+description = "ZK-PKI integrity attestation blob: verifies a Dotwave ceremony ran inside the genuine Dotwave app, within the offer window, with no debugger and an unmodified Android Keystore. Closes the custom-app mimicry attack."
+version = "0.1.0"
+license = "Apache-2.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+codec             = { features = ["derive"], workspace = true }
+scale-info        = { features = ["derive"], workspace = true }
+frame-support     = { workspace = true }
+sp-io             = { workspace = true }
+sp-std            = { workspace = true }
+zk-pki-primitives = { workspace = true }
+
+[dev-dependencies]
+# Test-only: we need P-256 signing (SigningKey) to fabricate fixtures.
+# Crate itself only verifies via DevicePublicKey; signing lives here only.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-support/std",
+    "sp-io/std",
+    "sp-std/std",
+    "zk-pki-primitives/std",
+]

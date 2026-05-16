@@ -1,0 +1,45 @@
+[package]
+name = "zk-pki-hip"
+description = "Hardware Integrity Proof verifier for ZK-PKI. no_std."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+codec          = { features = ["derive"], workspace = true }
+scale-info     = { features = ["derive"], workspace = true }
+frame-support  = { workspace = true }
+sp-core        = { workspace = true }
+sp-io          = { workspace = true }
+sp-std         = { workspace = true }
+zk-pki-primitives = { workspace = true }
+
+# ECDSA P-256 for AIK and EK signature verification.
+# Audit caveat inherits from zk-pki-primitives — unaudited EC
+# arithmetic, acceptable for Paseo testnet.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+# ECDSA signing for synthesized test proofs. std-only.
+p256 = { version = "0.13", features = ["ecdsa"] }
+rand_core = { version = "0.6", features = ["std"] }
+sp-io = { workspace = true, default-features = true }
+frame-support = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-support/std",
+    "scale-info/std",
+    "sp-core/std",
+    "sp-io/std",
+    "sp-std/std",
+    "zk-pki-primitives/std",
+    "p256/std",
+    "sha2/std",
+]

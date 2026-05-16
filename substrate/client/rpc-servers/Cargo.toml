@@ -28,6 +28,7 @@ jsonrpsee = { features = ["server"], workspace = true }
 log = { workspace = true, default-features = true }
 prometheus-endpoint = { default-features = true, workspace = true }
 rc-rpc-api = { workspace = true }
+rostro-rpc-shield = { path = "../../utils/rostro-rpc-shield" }
 serde = { workspace = true }
 serde_json = { workspace = true, default-features = true }
 tokio = { features = ["parking_lot"], workspace = true, default-features = true }

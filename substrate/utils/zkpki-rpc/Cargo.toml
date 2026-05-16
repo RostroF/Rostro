@@ -1,0 +1,30 @@
+[package]
+name = "zk-pki-rpc"
+description = "JSON-RPC node extension and off-chain query layer for ZK-PKI."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+codec             = { features = ["derive"], workspace = true }
+jsonrpsee         = { workspace = true, features = ["server", "macros"] }
+sp-api            = { workspace = true }
+sp-blockchain     = { workspace = true }
+sp-core           = { workspace = true }
+sp-runtime        = { workspace = true }
+zk-pki-primitives = { workspace = true }
+zk-pki-pallet     = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "sp-api/std",
+    "sp-core/std",
+    "sp-runtime/std",
+    "zk-pki-primitives/std",
+    "zk-pki-pallet/std",
+]

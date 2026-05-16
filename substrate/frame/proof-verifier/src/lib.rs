@@ -60,13 +60,28 @@ pub mod pallet {
 	/// based on actual circuit measurements.
 	pub const MAX_VERIFYING_KEY_LEN: u32 = 64 * 1024;
 
+	/// Minimum verifying-key blob size in bytes. Conservative floor that
+	/// rejects single-byte garbage without blocking small future circuits.
+	/// Will be tuned upward as we benchmark real Plonky3 verifying keys.
+	pub const MIN_VERIFYING_KEY_LEN: u32 = 16;
+
 	/// Maximum size in bytes of a proof the pallet will verify in one
 	/// extrinsic. Plonky3 STARK proofs are typically 50-200 KB; we allow up
 	/// to 512 KB to leave headroom for larger circuits.
 	pub const MAX_PROOF_LEN: u32 = 512 * 1024;
 
+	/// Minimum proof blob size in bytes. Real STARK proofs are kilobytes;
+	/// floor of 16 catches obviously-malformed input. Will be tuned upward
+	/// as circuit-family-specific lower bounds emerge from benchmarks.
+	pub const MIN_PROOF_LEN: u32 = 16;
+
 	/// Maximum size in bytes of public-input bytes for a single proof.
 	pub const MAX_PUBLIC_INPUTS_LEN: u32 = 64 * 1024;
+
+	/// Minimum circuit-family identifier length in bytes. Identifiers are
+	/// human-readable routing keys (e.g. `execution-proof-v1`); single- and
+	/// two-byte identifiers are too terse to be self-documenting.
+	pub const MIN_CIRCUIT_FAMILY_LEN: u32 = 3;
 
 	/// Information about a registered verifying key.
 	#[derive(
@@ -161,17 +176,51 @@ pub mod pallet {
 		VerifierAlreadyRegistered,
 		/// The verifying key exceeds [`MAX_VERIFYING_KEY_LEN`] bytes.
 		VerifyingKeyTooLarge,
+		/// The verifying key is empty. Empty bytes hash to a deterministic
+		/// constant; accepting this would create a registered "verifier"
+		/// that proves nothing.
+		EmptyVerifyingKey,
+		/// The verifying key bytes are all zero. Known-invalid sentinel —
+		/// no real circuit's verifying key is the zero blob.
+		ZeroVerifyingKey,
+		/// The verifying key is shorter than [`MIN_VERIFYING_KEY_LEN`].
+		/// Real Plonky3 verifying keys are well above this floor; the
+		/// floor catches obviously-malformed input and will be tuned
+		/// upward as we benchmark.
+		VerifyingKeyTooShort,
 		/// The proof exceeds [`MAX_PROOF_LEN`] bytes.
 		ProofTooLarge,
+		/// The proof bytes are empty. A real STARK proof is non-empty.
+		EmptyProof,
+		/// The proof is shorter than [`MIN_PROOF_LEN`]. Real STARK proofs
+		/// are kilobytes; the floor catches obvious garbage.
+		ProofTooShort,
 		/// The public inputs exceed [`MAX_PUBLIC_INPUTS_LEN`] bytes.
 		PublicInputsTooLarge,
 		/// The circuit-family identifier exceeds 64 bytes.
 		CircuitFamilyTooLarge,
+		/// The circuit-family identifier is empty. Circuit family is a
+		/// dispatch key for downstream pallets; the empty string routes
+		/// nowhere.
+		EmptyCircuitFamily,
+		/// The circuit-family identifier is shorter than
+		/// [`MIN_CIRCUIT_FAMILY_LEN`]. Identifiers must be self-documenting
+		/// human-readable strings.
+		CircuitFamilyTooShort,
+		/// The supplied verifier-key hash is the all-zero sentinel. Rejected
+		/// at the boundary even though storage lookup would also fail —
+		/// types prove shape, not semantics.
+		ZeroKeyHash,
 		/// The proof failed verification.
 		InvalidProof,
 		/// Verification could not be performed (deserialization or runtime
 		/// error before the cryptographic check).
 		VerifierError,
+		/// Real Plonky3 verification is not yet implemented; the extrinsic
+		/// fails closed. Returning `Ok(())` from a stub verifier was a
+		/// security gap caught in the 2026-05-04 red-team; do not relax
+		/// this until `p3_uni_stark::verify` is wired in.
+		VerifierNotImplemented,
 	}
 
 	#[pallet::call]
@@ -190,6 +239,20 @@ pub mod pallet {
 			circuit_family: BoundedVec<u8, ConstU32<64>>,
 		) -> DispatchResult {
 			T::RegistrarOrigin::ensure_origin(origin.clone())?;
+			ensure!(!verifying_key.is_empty(), Error::<T>::EmptyVerifyingKey);
+			ensure!(
+				verifying_key.len() >= MIN_VERIFYING_KEY_LEN as usize,
+				Error::<T>::VerifyingKeyTooShort
+			);
+			ensure!(
+				verifying_key.iter().any(|b| *b != 0),
+				Error::<T>::ZeroVerifyingKey
+			);
+			ensure!(!circuit_family.is_empty(), Error::<T>::EmptyCircuitFamily);
+			ensure!(
+				circuit_family.len() >= MIN_CIRCUIT_FAMILY_LEN as usize,
+				Error::<T>::CircuitFamilyTooShort
+			);
 			// Try to extract a signing account if the origin happens to
 			// also be signed; otherwise `None` (root or non-account
 			// governance origin).
@@ -233,6 +296,7 @@ pub mod pallet {
 			key_hash: VerifierKeyHash,
 		) -> DispatchResult {
 			T::RegistrarOrigin::ensure_origin(origin)?;
+			ensure!(key_hash != [0u8; 32], Error::<T>::ZeroKeyHash);
 			ensure!(
 				Verifiers::<T>::contains_key(key_hash),
 				Error::<T>::VerifierNotRegistered
@@ -244,35 +308,39 @@ pub mod pallet {
 
 		/// Verify a Plonky3 STARK proof against a registered verifying key.
 		///
-		/// Returns `Ok(())` if verification succeeds, or
-		/// [`Error::InvalidProof`] if the proof is invalid.
+		/// **Until Plonky3 verification lands, this extrinsic fails closed**:
+		/// every call returns `Error::VerifierNotImplemented` after passing
+		/// the input-validation and storage-lookup checks. Returning `Ok(())`
+		/// from a stub verifier was identified as a critical security gap
+		/// during the 2026-05-04 white-box red-team — any downstream pallet
+		/// that began trusting the dispatch result or the `ProofVerified`
+		/// event would be silently bypassable. Fail-closed avoids that
+		/// trap; the path remains live so wiring work can continue without
+		/// landing a soundness regression in the meantime.
 		///
-		/// **NOTE**: actual Plonky3 verification logic lands in a follow-up
-		/// commit. This first-pass scaffolding validates the wiring
-		/// (deserialization, storage lookup, event emission) but always
-		/// returns `Ok(())` for any registered verifier. Real cryptographic
-		/// verification dispatches per circuit family in the next iteration.
+		/// When the real verifier lands it dispatches on `info.circuit_family`
+		/// to invoke the correct `p3_uni_stark::verify` call with the right
+		/// `StarkConfig` and AIR.
 		#[pallet::call_index(2)]
 		#[pallet::weight(T::WeightInfo::verify_proof())]
 		pub fn verify_proof(
 			origin: OriginFor<T>,
 			key_hash: VerifierKeyHash,
-			_proof: BoundedVec<u8, ConstU32<MAX_PROOF_LEN>>,
+			proof: BoundedVec<u8, ConstU32<MAX_PROOF_LEN>>,
 			_public_inputs: BoundedVec<u8, ConstU32<MAX_PUBLIC_INPUTS_LEN>>,
 		) -> DispatchResult {
-			let submitter = ensure_signed(origin)?;
+			let _submitter = ensure_signed(origin)?;
+			ensure!(key_hash != [0u8; 32], Error::<T>::ZeroKeyHash);
+			ensure!(!proof.is_empty(), Error::<T>::EmptyProof);
+			ensure!(proof.len() >= MIN_PROOF_LEN as usize, Error::<T>::ProofTooShort);
+			// `_public_inputs` may legitimately be empty for circuits with no
+			// public inputs; do not validate.
 
 			let _info = Verifiers::<T>::get(key_hash)
 				.ok_or(Error::<T>::VerifierNotRegistered)?;
 
 			// TODO(stage3-plonky3-base): real Plonky3 verification.
-			// Dispatch on `info.circuit_family` to invoke the correct
-			// `p3_uni_stark::verify` call with the appropriate StarkConfig
-			// and AIR. For now, reaching this point is a successful
-			// "wiring is correct" verification.
-
-			Self::deposit_event(Event::ProofVerified { key_hash, submitter });
-			Ok(())
+			Err(Error::<T>::VerifierNotImplemented.into())
 		}
 	}
 }

@@ -1,0 +1,54 @@
+[package]
+name = "pallet-rostro-governance"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Rostro bicameral governance v1. One cert = one vote (cert gating stubbed at AccountId until PoP lands), upper house seated by country, lower house round-robin assigned (round-robin stubbed at sequential for v1; ICAO derivation lands with PoP), ranked-choice instant-runoff per chamber, concurrent-assent inter-chamber resolution. Voting extrinsics carry Pays::No for free-vote semantics. Quorum-failure escalation, strike system, recall, money-out-of-politics filter, and ZK-anonymous voting are subsequent phases (8b–8e) that compose with this scaffold."
+publish = false
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { features = ["derive", "max-encoded-len"], workspace = true }
+log = { workspace = true }
+scale-info = { features = ["derive"], workspace = true }
+
+frame-benchmarking = { optional = true, workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"frame-benchmarking?/std",
+	"frame-support/std",
+	"frame-system/std",
+	"log/std",
+	"scale-info/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
+]
+runtime-benchmarks = [
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]

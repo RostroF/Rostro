@@ -1,0 +1,25 @@
+[package]
+name = "p3-challenger"
+description = "A Fiat–Shamir transcript and challenger framework used to derive random challenges in proof systems."
+version = "0.5.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Plonky3/Plonky3"
+homepage = "https://github.com/Plonky3/Plonky3"
+keywords = ["cryptography", "SNARK", "PLONK", "FRI", "plonky3"]
+categories = ["cryptography::cryptocurrencies"]
+
+[dependencies]
+p3-field = { path = "../field", version = "0.5.1" }
+p3-maybe-rayon = { path = "../maybe-rayon", version = "0.5.1" }
+p3-monty-31 = { path = "../monty-31", version = "0.5.1" }
+p3-symmetric = { path = "../symmetric", version = "0.5.1" }
+p3-util = { path = "../util", version = "0.5.1" }
+
+tracing = { version = "0.1.44", default-features = false, features = ["attributes"] }
+
+[dev-dependencies]
+p3-goldilocks = { path = "../goldilocks" }
+
+[lints]
+workspace = true

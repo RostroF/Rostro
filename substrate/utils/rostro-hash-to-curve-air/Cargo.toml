@@ -1,0 +1,29 @@
+[package]
+name = "rostro-hash-to-curve-air"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Hash-to-curve composition for Edwards25519 over the Rostro Goldilocks-Plonky3 stack. Per call: maps a Goldilocks `private_nullifier` (typically the OPRF input) to a prime-order point on Edwards25519 by composing hash_to_field + 2× Elligator2 map + point add + 3× point double (cofactor clear ×8). Locks the RFC 9380 §5.2 RO-mode shape with the Poseidon2 substitution for expand_message documented in the hash_to_field DST."
+publish = false
+
+[dependencies]
+p3-air        = { workspace = true }
+p3-field      = { workspace = true }
+p3-goldilocks = { workspace = true }
+p3-lookup     = { workspace = true }
+p3-matrix     = { workspace = true }
+rostro-curve25519 = { workspace = true }
+rostro-hash-to-field-air = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+rand = { version = "0.8", default-features = false, features = ["std_rng"] }
+
+[features]
+default = ["std"]
+std = []

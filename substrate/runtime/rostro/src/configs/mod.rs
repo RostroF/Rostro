@@ -55,8 +55,12 @@ parameter_types! {
 	pub const SS58Prefix: u8 = 42;
 }
 
+/// Runtime-upgrade migrations. The type-registry gate runs last so any
+/// SRT-approved fingerprint updates earlier in the tuple have already landed
+/// before we assert the post-upgrade invariant.
 #[allow(unused_parens)]
-type SingleBlockMigrations = ();
+type SingleBlockMigrations =
+	(pallet_rostro_type_registry::migrations::EnforceWellKnownFingerprints<Runtime>,);
 
 // ─── frame_system ───────────────────────────────────────────────────────────
 
@@ -308,6 +312,17 @@ impl pallet_proof_verifier::Config for Runtime {
 	type RegistrarOrigin = frame_system::EnsureRoot<AccountId>;
 	type WeightInfo = ();
 }
+
+// ─── pallet_rostro_type_registry ────────────────────────────────────────────
+
+impl pallet_rostro_type_registry::Config for Runtime {
+	// TODO(srt): retarget at `pallet-rostro-security-response-team` when it lands.
+	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
+}
+
+// ─── pallet_rostro_proof_anchor ─────────────────────────────────────────────
+
+impl pallet_rostro_proof_anchor::Config for Runtime {}
 
 // ───────────────────────────────────────────────────────────────────────────
 //                              RNS
