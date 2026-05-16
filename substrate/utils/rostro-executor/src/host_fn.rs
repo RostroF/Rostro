@@ -41,6 +41,30 @@ use sp_wasm_interface::{
 	WordSize,
 };
 
+std::thread_local! {
+	/// Last panic message registered by the guest, surviving across host-fn
+	/// invocations within a single `call_inner`. The substrate runtime's
+	/// `panic_handler::abort_on_panic` host fn is `#[trap_on_return]` —
+	/// the message is registered *just before* the guest traps, but the
+	/// `RostroFunctionContext` that captured it is dropped by the time the
+	/// trap surfaces. Stashing it here lets `call_inner` pair the trap
+	/// with the original panic message.
+	static LAST_PANIC_MESSAGE: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Clear the per-call panic-message slot. Call once at the top of each
+/// runtime invocation so panic messages from a previous call don't bleed
+/// through.
+pub fn reset_last_panic_message() {
+	LAST_PANIC_MESSAGE.with(|cell| *cell.borrow_mut() = None);
+}
+
+/// Drain the most recent panic message registered by the guest, if any.
+/// Called by `call_inner` on `CallError::Trap` to enrich the error.
+pub fn take_last_panic_message() -> Option<String> {
+	LAST_PANIC_MESSAGE.with(|cell| cell.borrow_mut().take())
+}
+
 /// `FunctionContext` impl backed by a [`Caller`](polkavm::Caller). Uses
 /// [`RefCell`] for interior mutability so substrate's `&self` memory
 /// accessors can call polkavm's `&mut self` accessors safely.
@@ -94,17 +118,53 @@ impl<'caller, 'a, UD: 'static> FunctionContext for RostroFunctionContext<'caller
 	fn allocate_memory(&mut self, size: WordSize) -> SpResult<Pointer<u8>> {
 		// PVM's `sbrk` is a one-way grow (no free) — perfectly fine for a
 		// substrate runtime call that's torn down at the end of execution.
-		// `sbrk(0)` returns the current break without growing; `sbrk(size)`
-		// extends it. The pre-growth break is the allocation address.
-		// Substrate's `Option<u32>` host-fn returns hit this path.
+		//
+		// Layout contract enforced here, matching what substrate's
+		// `RuntimeAllocator` in sp-io/src/global_alloc.rs expects from a
+		// freeing-bump-style host allocator:
+		//
+		// 1. **8-byte header** before every returned pointer. The runtime
+		//    writes a 2-byte alignment-offset at `(returned_ptr - 2)`; the
+		//    header is the scratch space that absorbs that write. Without
+		//    it the offset bytes overwrite the previous allocation's tail
+		//    (observed: zeroed bytes mid-buffer in JSON output from
+		//    GenesisBuilder_get_preset).
+		//
+		// 2. **8-byte returned-pointer alignment.** The runtime calls
+		//    `align_offset(align)` on what we return and applies the shift;
+		//    if our pointer isn't already 8-aligned the shift then offsets
+		//    the 2-byte offset-write into the *middle* of the data buffer,
+		//    corrupting in-flight allocations a second way.
+		//
+		// 3. **8-byte heap-top alignment after sbrk.** Pad the payload up
+		//    to a multiple of 8 so the next allocation also lands on an
+		//    8-byte boundary — without this padding, e.g. `malloc(12382)`
+		//    leaves the break 6 bytes off and the next caller hits problem
+		//    (2) above.
+		//
+		// Together these mirror the WASM-path freeing-bump allocator's
+		// 8-byte header + 8-byte alignment invariants.
+		const ALIGN: u32 = 8;
+		const HEADER_SIZE: u32 = 8;
+		let payload_padded = size
+			.checked_add(ALIGN - 1)
+			.map(|x| x & !(ALIGN - 1))
+			.ok_or_else(|| format!("allocate_memory({size}): payload-pad overflow"))?;
 		let mut caller = self.caller.borrow_mut();
 		let before = caller
 			.instance
 			.sbrk(0)
 			.map_err(|e| format!("sbrk(0): {e}"))?
 			.expect("PVM contract: sbrk(0) always returns Some");
-		match caller.instance.sbrk(size).map_err(|e| format!("sbrk({size}): {e}"))? {
-			Some(_) => Ok(Pointer::new(before)),
+		// Leading pad so that `before + leading_pad + HEADER_SIZE` is
+		// 8-aligned (i.e. the returned pointer is 8-aligned).
+		let leading_pad = (ALIGN - ((before + HEADER_SIZE) & (ALIGN - 1))) & (ALIGN - 1);
+		let total = leading_pad
+			.checked_add(HEADER_SIZE)
+			.and_then(|x| x.checked_add(payload_padded))
+			.ok_or_else(|| format!("allocate_memory({size}): total-size overflow"))?;
+		match caller.instance.sbrk(total).map_err(|e| format!("sbrk({total}): {e}"))? {
+			Some(_) => Ok(Pointer::new(before + leading_pad + HEADER_SIZE)),
 			None => Err(format!("allocate_memory({size}): out of guest memory")),
 		}
 	}
@@ -119,7 +179,12 @@ impl<'caller, 'a, UD: 'static> FunctionContext for RostroFunctionContext<'caller
 	}
 
 	fn register_panic_error_message(&mut self, message: &str) {
-		self.panic_message = Some(message.to_string());
+		// Stash on the per-context slot (kept for symmetry with the
+		// substrate API contract) and also push to the thread-local so
+		// `call_inner` can surface the message in the trap error.
+		let owned = message.to_string();
+		LAST_PANIC_MESSAGE.with(|cell| *cell.borrow_mut() = Some(owned.clone()));
+		self.panic_message = Some(owned);
 	}
 }
 
@@ -211,9 +276,12 @@ fn dispatch_substrate_function<UD: 'static>(
 		let mut args_iter = args.iter().take(n_args).copied();
 		let result = function.execute(&mut ctx, &mut args_iter);
 		// Borrow on `caller` is held by `ctx`; release before we write
-		// the result back below.
+		// the result back below. The message is also stashed on the
+		// thread-local `LAST_PANIC_MESSAGE` slot by
+		// `register_panic_error_message`, so `call_inner` can pair it
+		// with the trap that follows.
 		if let Some(panic_msg) = ctx.take_panic_message() {
-			log::debug!(target: "rostro-executor",
+			log::debug!(target: "rostro_executor",
 				"host fn '{}' registered panic message: {}",
 				function.name(), panic_msg);
 		}

@@ -39,9 +39,12 @@
 use alloc::{string::String, sync::Arc, vec::Vec};
 use core::marker::PhantomData;
 
+use codec::Decode;
 use polkavm::{CallError, Config, Engine, Module, ModuleConfig, Reg, SandboxKind};
+use rc_executor::{error as rc_executor_error, RuntimeVersionOf};
 use sp_core::traits::{CallContext, CodeExecutor, ReadRuntimeVersion, RuntimeCode};
 use sp_externalities::Externalities;
+use sp_version::RuntimeVersion;
 use sp_wasm_interface::HostFunctions;
 
 use crate::host_fn;
@@ -134,14 +137,33 @@ impl<H: HostFunctions + 'static> RostroCodeExecutor<H> {
 		}
 
 		// Drive the run loop under thread-local externalities so the sp-io
-		// host fns see the caller's state.
+		// host fns see the caller's state. Clear the panic-message slot
+		// first so any leftover from a previous call doesn't bleed into
+		// this trap error.
+		host_fn::reset_last_panic_message();
 		let result = sp_externalities::set_and_run_with_externalities(ext, || {
 			instance.call_typed::<(u32, u32)>(&mut (), pc, (data_pointer, data_length))
 		});
 
 		match result {
 			Ok(()) => {},
-			Err(CallError::Trap) => return Err(format!("guest trap in '{method}'")),
+			Err(CallError::Trap) => {
+				let pc_str = instance
+					.program_counter()
+					.map(|p| format!("0x{:08x}", p.0))
+					.unwrap_or_else(|| "<unknown>".into());
+				let panic_msg = host_fn::take_last_panic_message()
+					.map(|m| format!(" panic_msg=\"{m}\""))
+					.unwrap_or_default();
+				// Polkavm logs source location via `log::log!(log_level, ...)`
+				// at the requested level; route to `Error` so the substrate
+				// node logger (which is set up by the time we reach a runtime
+				// call) prints the symbol+line that bracketed the trap.
+				if let Some(pc) = instance.program_counter() {
+					module.debug_print_location(log::Level::Error, pc);
+				}
+				return Err(format!("guest trap in '{method}' at pc={pc_str}{panic_msg}"));
+			},
 			Err(CallError::NotEnoughGas) =>
 				return Err(format!("out of gas in '{method}'")),
 			Err(CallError::Step) =>
@@ -199,5 +221,32 @@ impl<H: HostFunctions + 'static> CodeExecutor for RostroCodeExecutor<H> {
 				),
 		};
 		(self.call_inner(ext, blob.as_ref(), method, data), false)
+	}
+}
+
+impl<H: HostFunctions + 'static> RuntimeVersionOf for RostroCodeExecutor<H> {
+	fn runtime_version(
+		&self,
+		ext: &mut dyn Externalities,
+		runtime_code: &RuntimeCode,
+	) -> rc_executor_error::Result<RuntimeVersion> {
+		// Slow path only: actually call `Core_version`. The WASM executor has
+		// an embedded-version fast path that reads the `runtime_version`
+		// custom section; polkavm-linker may or may not preserve that
+		// section, so it's parked until the testbed measures the cost
+		// (see PHASE-STAR-HANDOFF.md "Open decisions").
+		let blob = runtime_code.code_fetcher.fetch_runtime_code().ok_or_else(|| {
+			rc_executor_error::Error::ApiError(
+				"RostroCodeExecutor::runtime_version: no runtime code".into(),
+			)
+		})?;
+		let encoded = self
+			.call_inner(ext, blob.as_ref(), "Core_version", &[])
+			.map_err(|e| rc_executor_error::Error::ApiError(e.into()))?;
+		RuntimeVersion::decode(&mut encoded.as_slice()).map_err(|e| {
+			rc_executor_error::Error::ApiError(
+				format!("RostroCodeExecutor::runtime_version: SCALE decode failed: {e}").into(),
+			)
+		})
 	}
 }

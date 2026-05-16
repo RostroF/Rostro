@@ -66,6 +66,20 @@ rns-runtime-api = { workspace = true }
 rns-types = { workspace = true }
 
 # Primitives
+# `improved_panic_error_reporting` routes runtime panics through
+# `panic_handler::abort_on_panic` (a normal host fn) instead of the
+# log+unreachable() path; that's the only way `rostro-executor`'s trap
+# handler can surface a panic message back to the chain spec. Without
+# this feature, panics from genesis-state construction become opaque
+# `guest trap` errors.
+sp-io = { workspace = true, features = ["improved_panic_error_reporting"] }
+# Phase Star B7: declare a 512 KiB minimum stack via
+# `polkavm_derive::min_stack_size!`. Polkavm-linker's default is
+# `VM_MIN_PAGE_SIZE * 2` = 8 KiB, which is enough for tiny PVM
+# guests but blows the stack inside serde_json's typed deserialiser
+# for the full `RuntimeGenesisConfig` struct. 512 KiB matches what
+# the rostro-vm-bench dilithium services use as a known-good ceiling.
+polkavm-derive = { workspace = true }
 sp-api = { workspace = true }
 sp-block-builder = { workspace = true }
 sp-debug-derive = { workspace = true }
@@ -99,6 +113,7 @@ std = [
 	"frame-system/std",
 	"frame-try-runtime?/std",
 	"log/std",
+	"sp-io/std",
 	"pallet-aura/std",
 	"pallet-authorship/std",
 	"pallet-balances/std",

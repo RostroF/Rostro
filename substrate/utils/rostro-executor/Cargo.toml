@@ -31,15 +31,19 @@ sp-wasm-interface = { workspace = true, default-features = false, features = ["s
 # Externalities + set_and_run_with_externalities live in sp-externalities.
 sp-core = { workspace = true, default-features = true }
 sp-externalities = { workspace = true, default-features = true }
+# B7: RuntimeVersionOf trait + error::Result type (required by the
+# `rc_service::new_full_parts` bound) live in rc-executor. sp-version +
+# codec are needed to SCALE-decode the Core_version return into a typed
+# RuntimeVersion.
+rc-executor = { workspace = true, default-features = true }
+sp-version = { workspace = true, default-features = true }
+codec = { workspace = true, default-features = true }
 log = { workspace = true, default-features = true }
 
 [dev-dependencies]
 # sp-io's storage::HostFunctions is what we test the dispatcher against.
 sp-io = { workspace = true, default-features = true }
 sp-state-machine = { workspace = true, default-features = true }
-# B6 gate: decode the SCALE-encoded RuntimeVersion returned by Core_version.
-sp-version = { workspace = true, default-features = true }
-codec = { workspace = true, default-features = true }
 # PVM-compiled guest fixture for the B3 gate.
 rostro-executor-fixture-storage-roundtrip = { workspace = true, default-features = true }
 # B5 gate: confirm the real rostro-runtime blob loads against the executor.
