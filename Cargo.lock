@@ -13573,6 +13573,7 @@ name = "rostro-executor-fixture-storage-roundtrip"
 version = "0.1.0"
 dependencies = [
  "polkavm-derive",
+ "sp-core",
  "sp-io",
  "substrate-wasm-builder",
 ]

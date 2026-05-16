@@ -15,6 +15,8 @@ workspace = true
 
 [dependencies]
 sp-io = { workspace = true }
+# B3b: ed25519 Signature/Public types for crypto::ed25519_verify.
+sp-core = { workspace = true }
 
 [target.'cfg(target_env = "polkavm")'.dependencies]
 # Direct polkavm-derive for the `polkavm_export` attribute. sp-io's runtime
@@ -29,6 +31,7 @@ substrate-wasm-builder = { optional = true, workspace = true, default-features =
 [features]
 default = ["std"]
 std = [
+	"sp-core/std",
 	"sp-io/std",
 	"substrate-wasm-builder",
 ]
