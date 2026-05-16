@@ -39,6 +39,7 @@ impl SubstrateCli for Cli {
 		Ok(match id {
 			"" | "dev" | "gemini-dev" => Box::new(chain_spec::development_config()?),
 			"local" | "gemini-local" => Box::new(chain_spec::local_config()?),
+			"star" | "gemini-star" => Box::new(chain_spec::star_config()?),
 			path => Box::new(chain_spec::ChainSpec::from_json_file(
 				std::path::PathBuf::from(path),
 			)?),

@@ -109,6 +109,36 @@ pub fn local_config() -> Result<ChainSpec, String> {
 	.build())
 }
 
+// ─── `star` chain spec — Phase Star 5-node bringup ────────────────────────
+
+/// Five-authority gemini for the Phase Star milestone. Alice + Bob +
+/// Charlie + Dave + Eve as Sassafras + GRANDPA validators. Used by
+/// `scripts/run-star.sh` to stand up the namesake star topology:
+/// Alice is the bootnode, the other four leaves dial her. All five
+/// produce Sassafras blocks and finalize via GRANDPA.
+pub fn star_config() -> Result<ChainSpec, String> {
+	Ok(ChainSpec::builder(
+		WASM_BINARY.ok_or_else(|| "gemini wasm not available".to_string())?,
+		None,
+	)
+	.with_name("Gemini Star")
+	.with_id("gemini-star")
+	.with_chain_type(ChainType::Local)
+	.with_genesis_config_patch(testnet_genesis(
+		vec![
+			authority_keys_from_seed("Alice"),
+			authority_keys_from_seed("Bob"),
+			authority_keys_from_seed("Charlie"),
+			authority_keys_from_seed("Dave"),
+			authority_keys_from_seed("Eve"),
+		],
+		get_account_id_from_seed("Alice"),
+		dev_endowed_accounts(),
+	))
+	.with_properties(properties())
+	.build())
+}
+
 fn properties() -> rc_service::Properties {
 	let mut p = rc_service::Properties::new();
 	p.insert("tokenSymbol".into(), "ROS".into());
