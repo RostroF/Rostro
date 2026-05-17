@@ -177,7 +177,7 @@ cargo +nightly fmt
 ```
 
 Production builds use the standard cargo workflow. Runtime blobs are
-cross-compiled to PolkaVM (RISC-V), not WebAssembly, via the
+cross-compiled to RISC-V, not WebAssembly, via the
 `SUBSTRATE_RUNTIME_TARGET=riscv` environment variable:
 
 ```sh
@@ -185,14 +185,21 @@ SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p rostro-node
 SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p gemini-node
 ```
 
-This produces a `PVM\0`-magic blob at
+This produces a runtime blob at
 `target/release/rbuild/<runtime>/<runtime>-blob.polkavm` and embeds it
-in the node binary. The node-side runtime executor is
-[`rostro-executor`](./substrate/utils/rostro-executor/) (Apache-2.0).
+in the node binary. The node-side runtime executor is **RostroVM (RVM)**
+— Rostro's Apache-2.0 fork of PolkaVM with the Tier-2 crypto intrinsics,
+runtime-allocator-contract fix, and audit hardening that the chain
+runtime needs. Source: [`substrate/external/rostrovm/`](./substrate/external/rostrovm/);
+substrate-side adapter: [`rostro-executor`](./substrate/utils/rostro-executor/).
+
+The `.polkavm` extension and `PVM\0` blob magic are inherited identifiers
+from the upstream encoding spec; the executor consuming them is Rostro's.
+Likewise the rustc target name `riscv64emac-unknown-none-polkavm`.
 
 ## Running a node
 
-Two binaries today, both pointed at a PolkaVM-compiled runtime via
+Two binaries today, both pointed at a RostroVM-executable runtime via
 [`rostro-executor`](./substrate/utils/rostro-executor/):
 
 | Binary | Runtime | Consensus | Use |
@@ -201,7 +208,7 @@ Two binaries today, both pointed at a PolkaVM-compiled runtime via
 | `gemini-node` | `gemini-runtime` | Sassafras + GRANDPA | multi-node peering testbeds |
 
 At runtime, set `SUBSTRATE_ENABLE_POLKAVM=1` so substrate's runtime-blob
-loader accepts the `PVM\0` magic. The convenience scripts below already
+loader accepts the RISC-V blob magic. The convenience scripts below already
 export it.
 
 ### Single-node solochain (`rostro-node`)
