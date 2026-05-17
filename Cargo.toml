@@ -39,11 +39,13 @@ members = [
 	"substrate/client/db",
 	"substrate/client/executor",
 	"substrate/client/executor/common",
-	# substrate/client/executor/polkavm — excluded from the workspace.
-	# The crate's source stays as upstream-Polkadot reference for the
-	# phase-star `rostro-executor` (Apache-2.0, substrate/utils/) work.
-	# It does not compile against polkavm 0.32+ without adding `unsafe`
-	# to the GPL3 host-fn shim (memory accessors became &mut self).
+	# substrate/client/executor/polkavm — DELETED in B9 (phase-star).
+	# The upstream-Polkadot reference is fully replaced by `rostro-executor`
+	# (Apache-2.0, substrate/utils/rostro-executor/). Apart from the
+	# license swap, the Apache replacement also closes the runtime-side
+	# `RuntimeAllocator` contract violation the upstream impl had
+	# (no 8-byte header + 8-aligned ptr from sbrk → mid-buffer
+	# corruption during genesis state construction).
 	"substrate/client/executor/runtime-test",
 	"substrate/client/executor/wasmtime",
 	"substrate/client/informant",
