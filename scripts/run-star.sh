@@ -109,6 +109,19 @@ echo "injecting Sassafras bandersnatch keys for all 5 nodes..."
 "$NODE_BIN" insert-sassafras-key --suri //Dave    --base-path "$DAVE_BASE"    --chain-id gemini-star
 "$NODE_BIN" insert-sassafras-key --suri //Eve     --base-path "$EVE_BASE"     --chain-id gemini-star
 
+# GRANDPA Ed25519 keys for each validator. The `--alice` etc. dev
+# flags do NOT auto-inject GRANDPA keys into the local keystore in
+# this runtime; we have to do it explicitly. Without these,
+# GRANDPA voting can't happen (no local signing key) AND the
+# validator-channel asker thinks we're not a validator (no GRANDPA
+# pubkey in the keystore to claim).
+echo "injecting GRANDPA Ed25519 keys for all 5 nodes..."
+"$NODE_BIN" key insert --suri //Alice   --key-type gran --scheme ed25519 --base-path "$ALICE_BASE"   --chain star
+"$NODE_BIN" key insert --suri //Bob     --key-type gran --scheme ed25519 --base-path "$BOB_BASE"     --chain star
+"$NODE_BIN" key insert --suri //Charlie --key-type gran --scheme ed25519 --base-path "$CHARLIE_BASE" --chain star
+"$NODE_BIN" key insert --suri //Dave    --key-type gran --scheme ed25519 --base-path "$DAVE_BASE"    --chain star
+"$NODE_BIN" key insert --suri //Eve     --key-type gran --scheme ed25519 --base-path "$EVE_BASE"     --chain star
+
 # `--canonical-files-dir` makes the running binary advertise the heal-
 # fetch server and serve canonical bytes to peers. Same dir is the
 # heal source if our own verifier finds a mismatch on boot.

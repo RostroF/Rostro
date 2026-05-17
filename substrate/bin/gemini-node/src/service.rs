@@ -335,27 +335,22 @@ pub fn new_full<
 		),
 	);
 
-	// Phase Z4: validator-channel asker + notification task. The
-	// asker initiates handshakes for new peers (only if WE are a
-	// validator with a local GRANDPA key); the notification task
-	// owns the NotificationService and handles both inbound
-	// decrypt and outbound heartbeat send via tokio::select!.
+	// Phase Z4: validator-channel notification task. Single task
+	// owns the NotificationService and handles four things via
+	// tokio::select!: handshake initiation on new substreams,
+	// inbound decrypt, inbound substream validation, and periodic
+	// heartbeat send. Only spawned when WE are a validator (have a
+	// local GRANDPA key); otherwise the notification service is
+	// dropped on the floor (non-validators don't participate).
 	if let Some(local_auth) = local_validator_authority.as_ref() {
-		task_manager.spawn_handle().spawn(
-			"rostro-validator-channel-asker",
-			Some("rostro"),
-			crate::validator_channel::run_handshake_asker(
-				network.clone(),
-				keystore_container.keystore(),
-				local_auth.clone(),
-				validator_channel_sessions.clone(),
-			),
-		);
 		task_manager.spawn_handle().spawn(
 			"rostro-validator-channel-notifications",
 			Some("rostro"),
 			crate::validator_channel::run_notification_task(
 				vc_notification_service,
+				network.clone(),
+				keystore_container.keystore(),
+				local_auth.clone(),
 				validator_channel_sessions.clone(),
 				local_auth.pubkey,
 			),

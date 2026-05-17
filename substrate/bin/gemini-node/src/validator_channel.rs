@@ -56,12 +56,12 @@ use rc_network::{
 	peer_store::PeerStoreProvider,
 	request_responses::{IncomingRequest, OutgoingResponse},
 	service::traits::{
-		NetworkEventStream, NetworkPeers, NetworkRequest, NetworkStateInfo, NotificationEvent,
-		NotificationService, ValidationResult,
+		NetworkRequest, NetworkStateInfo, NotificationEvent, NotificationService,
+		ValidationResult,
 	},
 	service::NotificationMetrics,
 	types::ProtocolName,
-	Event, IfDisconnected, NetworkBackend, PeerId,
+	IfDisconnected, NetworkBackend, PeerId,
 };
 use rostro_validator_channel::{
 	handshake_preimage, handshake_shared_secret, verify_handshake, HandshakeError,
@@ -319,103 +319,7 @@ where
 	)
 }
 
-// ───── Asker side: subscribe to events + initiate handshakes ───────────
-
-/// Asker task. Subscribes to NetworkEventStream; on every new peer
-/// (deduplicated via the session map), if the lower-PeerId-initiates
-/// rule says we initiate, sends our HandshakePayload via the
-/// handshake request-response protocol. On accept, establishes a
-/// Session as INITIATOR in the shared map.
-pub async fn run_handshake_asker<N>(
-	network: Arc<N>,
-	keystore: KeystorePtr,
-	local_authority: LocalAuthorityKey,
-	sessions: SharedSessions,
-) where
-	N: NetworkEventStream
-		+ NetworkRequest
-		+ NetworkPeers
-		+ NetworkStateInfo
-		+ Send
-		+ Sync
-		+ 'static
-		+ ?Sized,
-{
-	let mut events = network.event_stream("rostro-validator-channel-asker");
-	let pending: PendingEphemerals = Arc::new(Mutex::new(HashMap::new()));
-	let local_peer_id = network.local_peer_id();
-
-	log::info!(
-		target: "rostro-validator-channel",
-		"validator-channel asker started; local authority 0x{}…",
-		hex_prefix(&local_authority.pubkey, 8),
-	);
-
-	while let Some(event) = events.next().await {
-		match event {
-			Event::NotificationStreamOpened { remote, .. } => {
-				if sessions.lock().contains_key(&remote) {
-					continue;
-				}
-				if pending.lock().contains_key(&remote) {
-					continue;
-				}
-				if !should_initiate(&local_peer_id, &remote) {
-					continue;
-				}
-
-				let our_eph_secret = X25519SecretKey::random_from_rng(OsRng);
-				let our_eph_pub = X25519PublicKey::from(&our_eph_secret);
-				let preimage =
-					handshake_preimage(&local_authority.pubkey, our_eph_pub.as_bytes());
-				let sp_pubkey = sp_ed25519::Public::from(local_authority.pubkey);
-				let signature =
-					match keystore.ed25519_sign(GRANDPA_KEY_TYPE, &sp_pubkey, &preimage) {
-						Ok(Some(s)) => s,
-						_ => {
-							log::warn!(
-								target: "rostro-validator-channel",
-								"could not sign our handshake (missing key?); skipping {}",
-								remote,
-							);
-							continue;
-						},
-					};
-				let our_payload = HandshakePayload {
-					claimed_pubkey: local_authority.pubkey,
-					ephemeral_x25519: *our_eph_pub.as_bytes(),
-					signature: signature.0,
-				};
-				pending.lock().insert(remote, our_eph_secret);
-
-				let net = network.clone();
-				let pending_for_task = pending.clone();
-				let sessions_for_task = sessions.clone();
-				let request_bytes = our_payload.encode();
-				tokio::spawn(async move {
-					handle_handshake_outbound(
-						net,
-						remote,
-						request_bytes,
-						pending_for_task,
-						sessions_for_task,
-					)
-					.await;
-				});
-			},
-			Event::NotificationStreamClosed { remote, .. } => {
-				sessions.lock().remove(&remote);
-				pending.lock().remove(&remote);
-			},
-			_ => {},
-		}
-	}
-
-	log::warn!(
-		target: "rostro-validator-channel",
-		"event stream ended; asker exiting",
-	);
-}
+// ───── Outbound handshake helper (used by run_notification_task) ──────
 
 async fn handle_handshake_outbound<N>(
 	network: Arc<N>,
@@ -503,13 +407,50 @@ async fn handle_handshake_outbound<N>(
 
 // ───── Notification task (single owner of the NotificationService) ─────
 
-/// Single task owning the NotificationService. Handles both inbound
-/// decrypt and outbound heartbeat send via `tokio::select!`.
-pub async fn run_notification_task(
+/// Single task owning the NotificationService. Handles four things
+/// in one `tokio::select!` loop:
+///
+/// 1. **Handshake initiation** on
+///    [`NotificationEvent::NotificationStreamOpened`] — when the
+///    peer-set machinery opens a notification substream with a peer,
+///    if the lower-PeerId-initiates rule says we go first, we send
+///    a handshake via the request/response protocol. On success,
+///    register an initiator [`Session`] in the shared map.
+/// 2. **Inbound decrypt** on
+///    [`NotificationEvent::NotificationReceived`]: decrypt the
+///    [`WireMessage`] with the peer's `Session` and log the
+///    plaintext.
+/// 3. **Inbound substream validation** on
+///    [`NotificationEvent::ValidateInboundSubstream`]: accept any
+///    inbound substream. The cryptographic auth happens at the
+///    request/response handshake layer, not at substream-open.
+/// 4. **Heartbeat send** on a periodic timer: encrypt a small
+///    "I'm alive at t=…" message with each established session and
+///    push via `send_sync_notification`.
+///
+/// This module was previously split into a separate
+/// `run_handshake_asker` (subscribed to
+/// [`NetworkEventStream::event_stream`]) plus a notification task.
+/// That design didn't work because Substrate's
+/// `NetworkService::event_stream` no longer emits
+/// `NotificationStreamOpened` events for individual notification
+/// protocols — those events now come **only** via the per-protocol
+/// `NotificationService::next_event` channel. Consolidating both
+/// concerns into one task that owns the NotificationService is
+/// the correct pattern under the current sc-network API.
+pub async fn run_notification_task<N>(
 	mut notification_service: Box<dyn NotificationService>,
+	network: Arc<N>,
+	keystore: KeystorePtr,
+	local_authority: LocalAuthorityKey,
 	sessions: SharedSessions,
 	our_pubkey: [u8; 32],
-) {
+) where
+	N: NetworkRequest + NetworkStateInfo + Send + Sync + 'static + ?Sized,
+{
+	let local_peer_id = network.local_peer_id();
+	let pending: PendingEphemerals = Arc::new(Mutex::new(HashMap::new()));
+
 	let mut interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
 	// `interval.tick()` returns immediately on first call; skip it.
 	interval.tick().await;
@@ -518,6 +459,70 @@ pub async fn run_notification_task(
 		tokio::select! {
 			event = notification_service.next_event() => {
 				match event {
+					Some(NotificationEvent::NotificationStreamOpened { peer, .. }) => {
+						// New peer-set substream for our protocol. Use this as
+						// our trigger to run the X3DH-lite handshake.
+						if sessions.lock().contains_key(&peer) {
+							continue;
+						}
+						if pending.lock().contains_key(&peer) {
+							continue;
+						}
+						if !should_initiate(&local_peer_id, &peer) {
+							log::debug!(
+								target: "rostro-validator-channel",
+								"peer {} has lower PeerId; they initiate the handshake",
+								peer,
+							);
+							continue;
+						}
+
+						let our_eph_secret = X25519SecretKey::random_from_rng(OsRng);
+						let our_eph_pub = X25519PublicKey::from(&our_eph_secret);
+						let preimage =
+							handshake_preimage(&local_authority.pubkey, our_eph_pub.as_bytes());
+						let sp_pubkey = sp_ed25519::Public::from(local_authority.pubkey);
+						let signature = match keystore.ed25519_sign(
+							GRANDPA_KEY_TYPE,
+							&sp_pubkey,
+							&preimage,
+						) {
+							Ok(Some(s)) => s,
+							_ => {
+								log::warn!(
+									target: "rostro-validator-channel",
+									"could not sign our handshake (missing key?); skipping {}",
+									peer,
+								);
+								continue;
+							},
+						};
+						let our_payload = HandshakePayload {
+							claimed_pubkey: local_authority.pubkey,
+							ephemeral_x25519: *our_eph_pub.as_bytes(),
+							signature: signature.0,
+						};
+						pending.lock().insert(peer, our_eph_secret);
+
+						let net = network.clone();
+						let pending_for_task = pending.clone();
+						let sessions_for_task = sessions.clone();
+						let request_bytes = our_payload.encode();
+						tokio::spawn(async move {
+							handle_handshake_outbound(
+								net,
+								peer,
+								request_bytes,
+								pending_for_task,
+								sessions_for_task,
+							)
+							.await;
+						});
+					},
+					Some(NotificationEvent::NotificationStreamClosed { peer }) => {
+						sessions.lock().remove(&peer);
+						pending.lock().remove(&peer);
+					},
 					Some(NotificationEvent::NotificationReceived { peer, notification }) => {
 						let wire = match WireMessage::decode(&mut &notification[..]) {
 							Ok(m) => m,

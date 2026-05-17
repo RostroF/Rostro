@@ -71,6 +71,16 @@ echo "injecting Sassafras keys for 5 validators (skipping frank)..."
 "$NODE_BIN" insert-sassafras-key --suri //Dave    --base-path "$DAVE_BASE"    --chain-id gemini-star
 "$NODE_BIN" insert-sassafras-key --suri //Eve     --base-path "$EVE_BASE"     --chain-id gemini-star
 
+# GRANDPA Ed25519 keys for the 5 validators (NOT frank). Required for
+# GRANDPA voting AND for the validator-channel asker to recognize the
+# local node as a validator.
+echo "injecting GRANDPA Ed25519 keys for 5 validators (skipping frank)..."
+"$NODE_BIN" key insert --suri //Alice   --key-type gran --scheme ed25519 --base-path "$ALICE_BASE"   --chain star
+"$NODE_BIN" key insert --suri //Bob     --key-type gran --scheme ed25519 --base-path "$BOB_BASE"     --chain star
+"$NODE_BIN" key insert --suri //Charlie --key-type gran --scheme ed25519 --base-path "$CHARLIE_BASE" --chain star
+"$NODE_BIN" key insert --suri //Dave    --key-type gran --scheme ed25519 --base-path "$DAVE_BASE"    --chain star
+"$NODE_BIN" key insert --suri //Eve     --key-type gran --scheme ed25519 --base-path "$EVE_BASE"     --chain star
+
 ALICE_PEER_ID="12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"
 BOOTNODES_MULTIADDR="/ip4/127.0.0.1/tcp/30333/p2p/${ALICE_PEER_ID}"
 
