@@ -176,50 +176,106 @@ SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets
 cargo +nightly fmt
 ```
 
-Production builds use the standard cargo workflow. Specific build targets
-(`camino-runtime`, `canaria-runtime`, `rostro-runtime`) are added as the
-runtime integration lands.
+Production builds use the standard cargo workflow. Runtime blobs are
+cross-compiled to PolkaVM (RISC-V), not WebAssembly, via the
+`SUBSTRATE_RUNTIME_TARGET=riscv` environment variable:
+
+```sh
+SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p rostro-node
+SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p gemini-node
+```
+
+This produces a `PVM\0`-magic blob at
+`target/release/rbuild/<runtime>/<runtime>-blob.polkavm` and embeds it
+in the node binary. The node-side runtime executor is
+[`rostro-executor`](./substrate/utils/rostro-executor/) (Apache-2.0).
 
 ## Running a node
 
-`gemini-node` is the current testbed binary — Sassafras + GRANDPA consensus
-over `gemini-runtime`. Two-node bring-up:
+Two binaries today, both pointed at a PolkaVM-compiled runtime via
+[`rostro-executor`](./substrate/utils/rostro-executor/):
+
+| Binary | Runtime | Consensus | Use |
+|---|---|---|---|
+| `rostro-node` | `rostro-runtime` | Aura + GRANDPA | single-node solochain iteration |
+| `gemini-node` | `gemini-runtime` | Sassafras + GRANDPA | multi-node peering testbeds |
+
+At runtime, set `SUBSTRATE_ENABLE_POLKAVM=1` so substrate's runtime-blob
+loader accepts the `PVM\0` magic. The convenience scripts below already
+export it.
+
+### Single-node solochain (`rostro-node`)
 
 ```sh
-cargo build --release -p gemini-node
-
-# Insert each validator's bandersnatch authority key into its keystore.
-./target/release/gemini-node insert-sassafras-key --suri "//Alice" --base-path /tmp/gemini-alice
-./target/release/gemini-node insert-sassafras-key --suri "//Bob"   --base-path /tmp/gemini-bob
-
-# Spin up Alice.
-ROSTRO_RPC_SHIELD=1 ./target/release/gemini-node \
-  --chain local --base-path /tmp/gemini-alice --alice \
-  --port 30334 --rpc-port 9934 --validator \
-  --node-key 0000000000000000000000000000000000000000000000000000000000000001 \
-  --no-mdns
-
-# Spin up Bob, peering with Alice.
-ROSTRO_RPC_SHIELD=1 ./target/release/gemini-node \
-  --chain local --base-path /tmp/gemini-bob --bob \
-  --port 30335 --rpc-port 9935 --validator \
-  --node-key 0000000000000000000000000000000000000000000000000000000000000002 \
-  --bootnodes /ip4/127.0.0.1/tcp/30334/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp \
-  --no-mdns
+SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p rostro-node
+SUBSTRATE_ENABLE_POLKAVM=1 ./target/release/rostro-node \
+  --dev --tmp --alice --rpc-port 9944
 ```
 
-The chain produces blocks at ~10/min (6s slot, sub-block finality). Validators
-run a host-side ticket-generation worker that submits ring-VRF tickets on each
-epoch transition, populating the on-chain ticket pool that drives Sassafras's
-anonymous slot assignment.
+Block production at 6 s slots, GRANDPA finality at a 2-block lag. The
+runtime upgrade path is exercised by submitting
+`sudo.sudo(system.set_code(<new-blob>))` against a running node.
 
-`ROSTRO_RPC_SHIELD=1` activates the `rostro-rpc-shield` defense-in-depth RPC
-middleware, which gates state-call dispatches against an on-chain
-SRT-controlled allowlist of public-safe methods and applies per-/24 source
-rate limiting. Validators additionally enforce **topology, not just
-configuration** — public RPC is served by separate non-validator nodes; the
-validator binary hard-rejects non-loopback RPC binding and unsafe RPC methods
-at boot.
+### Twin lab (2 validators, `gemini-node` + Sassafras)
+
+The "twin" lab is the simplest peered topology — Alice + Bob run as
+authorities and finalize each other's blocks. Driven by the
+self-contained script:
+
+```sh
+SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p gemini-node
+./scripts/run-gemini.sh
+```
+
+The script injects each validator's bandersnatch authority key (stock
+`--alice` / `--bob` only cover sr25519/ed25519/ecdsa), then spawns Alice
+on port 30333 / RPC 9944 and Bob on port 30334 / RPC 9945, dialing
+Alice as the bootnode. Ctrl-C kills both.
+
+### Five-node star (Phase Star milestone)
+
+The phase-shipping topology: Alice as the bootnode + Bob/Charlie/Dave/Eve
+as leaves all dialing Alice, all five running as Sassafras + GRANDPA
+authorities.
+
+```sh
+SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p gemini-node
+./scripts/run-star.sh
+```
+
+Ports 30333-30337 (P2P) and 9944-9948 (RPC) per node, each with its own
+base path under `.star/`. Each node sees the other four as peers; blocks
+rotate across the five-element authority set; GRANDPA finalizes at the
+2-3 block lag.
+
+### Doing it by hand
+
+If you'd rather not use the scripts, the equivalent of one validator is:
+
+```sh
+# Inject the validator's bandersnatch authority key into its keystore.
+./target/release/gemini-node insert-sassafras-key \
+  --suri "//Alice" --base-path /tmp/gemini-alice --chain-id gemini-local
+
+# Boot the validator.
+SUBSTRATE_ENABLE_POLKAVM=1 ROSTRO_RPC_SHIELD=1 \
+  ./target/release/gemini-node \
+  --chain local --base-path /tmp/gemini-alice --alice --validator \
+  --port 30333 --rpc-port 9944 --no-mdns \
+  --node-key 0000000000000000000000000000000000000000000000000000000000000001
+```
+
+Validators run a host-side ticket-generation worker that submits
+ring-VRF tickets on each epoch transition, populating the on-chain
+ticket pool that drives Sassafras's anonymous slot assignment.
+
+`ROSTRO_RPC_SHIELD=1` activates the `rostro-rpc-shield` defense-in-depth
+RPC middleware, which gates state-call dispatches against an on-chain
+SRT-controlled allowlist of public-safe methods and applies per-/24
+source rate limiting. Validators additionally enforce **topology, not
+just configuration** — public RPC is served by separate non-validator
+nodes; the validator binary hard-rejects non-loopback RPC binding and
+unsafe RPC methods at boot.
 
 ## Road to mainnet
 
@@ -239,7 +295,5 @@ Security-sensitive issues should be reported per [SECURITY.md](./SECURITY.md).
 ## Acknowledgements
 
 Rostro inherits substantial work from the Substrate and Polkadot SDK
-communities, and the post-cull VM acceleration work draws on Wei's
-Apache-licensed [Grey](https://github.com/jarchain/jar/tree/master/grey)
-implementation. The Rostro Foundation is grateful to those contributors;
+communities. The Rostro Foundation is grateful to those contributors;
 attributions are preserved in copyright headers throughout the source tree.
