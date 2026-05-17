@@ -6,6 +6,7 @@
 
 #![warn(missing_docs)]
 
+mod active_authority_set;
 mod attest_asker;
 mod attest_protocol;
 mod canonical_fetch_protocol;

@@ -296,6 +296,7 @@ members = [
 	"substrate/utils/merkle-mountain-range",
 	"substrate/utils/rns-ddns",
 	"substrate/utils/rostro-canonical-fetch",
+	"substrate/utils/rostro-validator-channel",
 	"substrate/utils/rostro-canonicalize",
 	"substrate/utils/rostro-client",
 	"substrate/utils/rostro-curve25519",
@@ -447,6 +448,7 @@ bytes = { version = "1.4.0", default-features = false }
 cargo_metadata = { version = "0.15.4" }
 cfg-expr = { version = "0.15.5" }
 cfg-if = { version = "1.0" }
+chacha20poly1305 = { version = "0.10.1", default-features = false }
 chain-spec-builder = { path = "substrate/bin/utils/chain-spec-builder", default-features = false, package = "staging-chain-spec-builder" }
 chrono = { version = "0.4.31" }
 cid = { version = "0.11.1" }

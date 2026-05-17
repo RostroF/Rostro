@@ -1,0 +1,40 @@
+[package]
+name = "rostro-validator-channel"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Double Ratchet session primitives for the validator-only encrypted gossip channel. Pairwise sessions between active validators carry GRANDPA + chatter encrypted message-by-message with per-message forward secrecy and post-compromise security via Signal's Double Ratchet construction. Crate is pure protocol + crypto — no libp2p, no sc-network. The gemini-node libp2p binding lives in a separate module."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
+chacha20poly1305 = { workspace = true }
+hkdf = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+ed25519-zebra = { workspace = true }
+# OS-RNG for DH-ratchet ephemeral keygen. Needs the `getrandom`
+# feature to expose `rand_core::OsRng`.
+rand_core = { workspace = true, features = ["getrandom"] }
+
+[dev-dependencies]
+# Fixed-seed RNG for deterministic ratchet roundtrip tests.
+rand_chacha = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"chacha20poly1305/std",
+	"hkdf/std",
+	"sha2/std",
+	"zeroize/std",
+	"ed25519-zebra/std",
+]
