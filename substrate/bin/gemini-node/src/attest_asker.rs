@@ -45,13 +45,12 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use codec::{Decode, Encode};
-use futures::StreamExt;
 use parking_lot::Mutex;
 use rand::RngCore;
 use rc_network::{
 	service::traits::{NetworkPeers, NetworkRequest},
 	types::ProtocolName,
-	Event, IfDisconnected, NetworkEventStream, PeerId, ReputationChange,
+	IfDisconnected, PeerId, ReputationChange,
 };
 use rostro_canonical_fetch::attest::{
 	drift_action, verify, AttestationOutcome, AttestationRequest, AttestationResponse,
@@ -59,11 +58,13 @@ use rostro_canonical_fetch::attest::{
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_runtime::traits::Block as BlockT;
+use tokio::sync::broadcast;
 
 use pallet_rostro_canonical_files::CanonicalFilesApi;
 
 use crate::attest_protocol::ATTEST_PROTOCOL_NAME;
 use crate::connect_gate::{DriftLedger, PeerGateState};
+use crate::validator_channel::PeerPresenceEvent;
 
 /// Shared per-peer drift ledger. Wrapped because both the asker (this
 /// file) and any future strict-drop filter need read access; only the
@@ -77,60 +78,67 @@ fn fatal_rep_change() -> ReputationChange {
 	ReputationChange::new_fatal("canonical-files attest mismatch")
 }
 
-/// Long-running task entry point. Pass the spawn handle through if you
-/// want per-peer attests to run concurrently; v0 keeps them serial in
-/// the main event loop for simpler error handling on the 5-node star.
+/// Long-running task entry point. Consumes peer-connect events from
+/// the validator-channel notification task's broadcast
+/// [`PeerPresenceEvent`] channel — `NetworkService::event_stream` no
+/// longer delivers `NotificationStreamOpened` (Substrate commented
+/// it out at `substrate/client/network/src/service.rs:1664-1672`),
+/// so we route through the only NotificationService in our tree
+/// that does see those events.
 pub async fn run_attest_asker<C, N, Block>(
 	network: Arc<N>,
 	client: Arc<C>,
 	drift_ledger: SharedDriftLedger,
+	mut presence_rx: broadcast::Receiver<PeerPresenceEvent>,
 ) where
 	Block: BlockT,
 	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
 	C::Api: CanonicalFilesApi<Block>,
-	N: NetworkEventStream + NetworkRequest + NetworkPeers + Send + Sync + 'static + ?Sized,
+	N: NetworkRequest + NetworkPeers + Send + Sync + 'static + ?Sized,
 {
-	let mut events = network.event_stream("rostro-attest-asker");
 	let mut attested_peers: HashSet<PeerId> = HashSet::new();
 
 	log::info!(
 		target: "rostro-attest-asker",
-		"canonical-files connect-time asker started; subscribing to peer events",
+		"canonical-files connect-time asker started; subscribing to peer-presence events",
 	);
 
-	while let Some(event) = events.next().await {
-		match event {
-			Event::NotificationStreamOpened { remote, .. } => {
-				if attested_peers.contains(&remote) {
+	loop {
+		match presence_rx.recv().await {
+			Ok(PeerPresenceEvent::Connected(peer)) => {
+				if attested_peers.contains(&peer) {
 					continue;
 				}
-				attested_peers.insert(remote);
-				drift_ledger.lock().set(remote, PeerGateState::Pending);
+				attested_peers.insert(peer);
+				drift_ledger.lock().set(peer, PeerGateState::Pending);
 
 				// Run attest serially in the event loop. Each attest
 				// is a single request/response roundtrip with a 5s
-				// timeout; the 5-node star sees one attest per peer
-				// per session, so blocking is fine. If this becomes
-				// a hot path, switch to `task_manager.spawn_handle`
-				// for per-peer concurrency.
-				attest_one_peer(&network, &client, &drift_ledger, remote).await;
+				// timeout; light load. If this becomes a hot path
+				// switch to `task_manager.spawn_handle` for per-peer
+				// concurrency.
+				attest_one_peer(&network, &client, &drift_ledger, peer).await;
 			},
-			Event::NotificationStreamClosed { remote, .. } => {
-				// Peer left a notification protocol. They may still
-				// be on others; only drop ledger state on the last
-				// stream-close. For v0 simplicity we clean up
-				// optimistically — re-attest on next reconnect.
-				attested_peers.remove(&remote);
-				drift_ledger.lock().forget(&remote);
+			Ok(PeerPresenceEvent::Disconnected(peer)) => {
+				attested_peers.remove(&peer);
+				drift_ledger.lock().forget(&peer);
 			},
-			_ => {},
+			Err(broadcast::error::RecvError::Lagged(n)) => {
+				log::warn!(
+					target: "rostro-attest-asker",
+					"presence channel lagged: {} events dropped",
+					n,
+				);
+			},
+			Err(broadcast::error::RecvError::Closed) => {
+				log::warn!(
+					target: "rostro-attest-asker",
+					"presence channel closed; asker exiting",
+				);
+				return;
+			},
 		}
 	}
-
-	log::warn!(
-		target: "rostro-attest-asker",
-		"event stream ended; asker exiting",
-	);
 }
 
 async fn attest_one_peer<C, N, Block>(

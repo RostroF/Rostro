@@ -316,15 +316,27 @@ pub fn new_full<
 			metrics,
 		})?;
 
+	// Phase Z4 + Phase 7 v2 fix (2026-05-17): single broadcast
+	// channel for peer-presence events. The validator-channel
+	// notification task is the only thing in our tree that
+	// reliably sees `NotificationStreamOpened`/`Closed` events
+	// (sc-network's `NetworkService::event_stream` no longer
+	// emits them — see
+	// `substrate/client/network/src/service.rs:1664-1672`).
+	// Subscribers like the canonical-files attest asker consume
+	// from this channel instead.
+	let (presence_tx, _presence_rx_seed) =
+		tokio::sync::broadcast::channel::<crate::validator_channel::PeerPresenceEvent>(256);
+
 	// Phase 7 v2 Piece 3c/3d: connect-time canonical-files attest
-	// asker. Subscribes to peer events; on every new peer issues an
-	// AttestationRequest, verifies the response against on-chain
-	// canonical_root, and ban+disconnects on any non-Match outcome.
+	// asker. Consumes peer-connect events from `presence_tx`
+	// (sourced by the validator-channel notification task).
 	// State recorded in the drift ledger so a future strict-drop
 	// filter (channel-split workstream) can consult per-peer status.
 	let drift_ledger: crate::attest_asker::SharedDriftLedger = Arc::new(
 		parking_lot::Mutex::new(crate::connect_gate::DriftLedger::new()),
 	);
+	let attest_presence_rx = presence_tx.subscribe();
 	task_manager.spawn_handle().spawn(
 		"rostro-attest-asker",
 		Some("rostro"),
@@ -332,34 +344,32 @@ pub fn new_full<
 			network.clone(),
 			client.clone(),
 			drift_ledger,
+			attest_presence_rx,
 		),
 	);
 
-	// Phase Z4: validator-channel notification task. Single task
-	// owns the NotificationService and handles four things via
-	// tokio::select!: handshake initiation on new substreams,
-	// inbound decrypt, inbound substream validation, and periodic
-	// heartbeat send. Only spawned when WE are a validator (have a
-	// local GRANDPA key); otherwise the notification service is
-	// dropped on the floor (non-validators don't participate).
-	if let Some(local_auth) = local_validator_authority.as_ref() {
-		task_manager.spawn_handle().spawn(
-			"rostro-validator-channel-notifications",
-			Some("rostro"),
-			crate::validator_channel::run_notification_task(
-				vc_notification_service,
-				network.clone(),
-				keystore_container.keystore(),
-				local_auth.clone(),
-				validator_channel_sessions.clone(),
-				local_auth.pubkey,
-			),
-		);
-	} else {
-		// Drop the notification service handle on the floor — we're
-		// not a validator, won't generate or decrypt traffic.
-		drop(vc_notification_service);
-	}
+	// Phase Z4: validator-channel notification task. Owns the
+	// validator-channel notification protocol's NotificationService.
+	// Handles in one `tokio::select!`: handshake initiation +
+	// inbound decrypt + inbound-substream validation + periodic
+	// heartbeat send + peer-presence broadcast.
+	//
+	// **Always spawned**, regardless of validator status. When
+	// `local_validator_authority` is `None` the handshake-init
+	// branch is skipped but the task still publishes peer-presence
+	// events that downstream tasks (attest_asker) depend on.
+	task_manager.spawn_handle().spawn(
+		"rostro-validator-channel-notifications",
+		Some("rostro"),
+		crate::validator_channel::run_notification_task(
+			vc_notification_service,
+			network.clone(),
+			keystore_container.keystore(),
+			local_validator_authority.clone(),
+			validator_channel_sessions.clone(),
+			presence_tx,
+		),
+	);
 
 	if config.offchain_worker.enabled {
 		let offchain_workers =

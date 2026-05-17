@@ -101,6 +101,27 @@ pub enum HandshakeReply {
 	Reject,
 }
 
+/// Peer-presence event published by [`run_notification_task`] for any
+/// task that needs an "I saw a peer connect" signal. The notification
+/// task is the only thing in our tree that reliably sees these events
+/// — sc-network's `NetworkService::event_stream` no longer emits
+/// `NotificationStreamOpened`/`Closed` (commented out in
+/// `substrate/client/network/src/service.rs:1664-1672`). Forwarding
+/// them on a broadcast channel lets [`crate::attest_asker`] and any
+/// future module subscribe without re-discovering the upstream
+/// breakage or adding a new GPL-3.0 client/ dependency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeerPresenceEvent {
+	Connected(PeerId),
+	Disconnected(PeerId),
+}
+
+/// Sender side of the peer-presence broadcast. Build with
+/// `tokio::sync::broadcast::channel(N)` in service.rs and pass into
+/// [`run_notification_task`]; consumers get receivers via
+/// `tx.subscribe()`.
+pub type PeerPresenceSender = tokio::sync::broadcast::Sender<PeerPresenceEvent>;
+
 /// Shared per-peer Session map. Populated when a handshake succeeds;
 /// drained on disconnect.
 pub type SharedSessions = Arc<Mutex<HashMap<PeerId, Session>>>;
@@ -442,14 +463,22 @@ pub async fn run_notification_task<N>(
 	mut notification_service: Box<dyn NotificationService>,
 	network: Arc<N>,
 	keystore: KeystorePtr,
-	local_authority: LocalAuthorityKey,
+	local_authority: Option<LocalAuthorityKey>,
 	sessions: SharedSessions,
-	our_pubkey: [u8; 32],
+	presence_tx: PeerPresenceSender,
 ) where
 	N: NetworkRequest + NetworkStateInfo + Send + Sync + 'static + ?Sized,
 {
 	let local_peer_id = network.local_peer_id();
 	let pending: PendingEphemerals = Arc::new(Mutex::new(HashMap::new()));
+
+	// `our_pubkey` is only used inside the validator-channel-internal
+	// heartbeat formatter; for non-validators we have no sessions so
+	// no heartbeats fire — the zero pubkey is a safe placeholder.
+	let our_pubkey: [u8; 32] = local_authority
+		.as_ref()
+		.map(|a| a.pubkey)
+		.unwrap_or([0u8; 32]);
 
 	let mut interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
 	// `interval.tick()` returns immediately on first call; skip it.
@@ -460,8 +489,18 @@ pub async fn run_notification_task<N>(
 			event = notification_service.next_event() => {
 				match event {
 					Some(NotificationEvent::NotificationStreamOpened { peer, .. }) => {
-						// New peer-set substream for our protocol. Use this as
-						// our trigger to run the X3DH-lite handshake.
+						// Broadcast for any subscriber that needs a
+						// "peer connected" signal (e.g.
+						// [`crate::attest_asker`]). `send` only fails
+						// when there are no receivers — fine, we drop
+						// the event in that case.
+						let _ = presence_tx.send(PeerPresenceEvent::Connected(peer));
+
+						// Validator-only branch: initiate the X3DH-lite
+						// handshake. Non-validators (local_authority
+						// == None) emit presence and stop here.
+						let Some(ref local_auth) = local_authority else { continue };
+
 						if sessions.lock().contains_key(&peer) {
 							continue;
 						}
@@ -480,8 +519,8 @@ pub async fn run_notification_task<N>(
 						let our_eph_secret = X25519SecretKey::random_from_rng(OsRng);
 						let our_eph_pub = X25519PublicKey::from(&our_eph_secret);
 						let preimage =
-							handshake_preimage(&local_authority.pubkey, our_eph_pub.as_bytes());
-						let sp_pubkey = sp_ed25519::Public::from(local_authority.pubkey);
+							handshake_preimage(&local_auth.pubkey, our_eph_pub.as_bytes());
+						let sp_pubkey = sp_ed25519::Public::from(local_auth.pubkey);
 						let signature = match keystore.ed25519_sign(
 							GRANDPA_KEY_TYPE,
 							&sp_pubkey,
@@ -498,7 +537,7 @@ pub async fn run_notification_task<N>(
 							},
 						};
 						let our_payload = HandshakePayload {
-							claimed_pubkey: local_authority.pubkey,
+							claimed_pubkey: local_auth.pubkey,
 							ephemeral_x25519: *our_eph_pub.as_bytes(),
 							signature: signature.0,
 						};
@@ -520,6 +559,7 @@ pub async fn run_notification_task<N>(
 						});
 					},
 					Some(NotificationEvent::NotificationStreamClosed { peer }) => {
+						let _ = presence_tx.send(PeerPresenceEvent::Disconnected(peer));
 						sessions.lock().remove(&peer);
 						pending.lock().remove(&peer);
 					},
