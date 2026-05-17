@@ -71,7 +71,7 @@ pub const PICKUP_KEY_GROUP_DOMAIN: &[u8] = b"rostro/chat/pickup-key/group/v1";
 /// Random per-message identifier. Sender-generated, opaque to relays.
 /// 256-bit space → collision is cosmologically improbable, no
 /// uniqueness check needed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub struct MessageId(pub [u8; 32]);
 
 impl MessageId {

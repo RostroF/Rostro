@@ -57,5 +57,6 @@ extern crate alloc;
 
 pub mod descriptor;
 pub mod envelope;
+pub mod store_protocol;
 pub mod stripe;
 pub mod verify;
