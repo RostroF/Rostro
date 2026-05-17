@@ -117,6 +117,15 @@ parking_lot = { workspace = true, default-features = true }
 # thread-local RNG, OS-seeded.
 rand = { workspace = true, default-features = true }
 
+# Phase Z (validator-channel) deps: pure crypto + protocol via the
+# rostro-validator-channel crate; X25519 ephemeral DH at the
+# gemini-node call-sites needs x25519-dalek directly; rand_core for
+# the OS RNG used during ephemeral keygen. (tokio is already a dep
+# above with default-features, which gives us rt + time.)
+rostro-validator-channel = { path = "../../utils/rostro-validator-channel" }
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
+rand_core = { workspace = true, features = ["getrandom"] }
+
 # The runtime
 gemini-runtime = { workspace = true, default-features = true }
 

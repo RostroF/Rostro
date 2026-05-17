@@ -174,9 +174,52 @@ pub fn new_full<
 		rc_consensus_grandpa::grandpa_peers_set_config::<_, N>(
 			grandpa_protocol_name.clone(),
 			metrics.clone(),
-			peer_store_handle,
+			peer_store_handle.clone(),
 		);
 	net_config.add_notification_protocol(grandpa_protocol_config);
+
+	// Phase Z4: validator-channel protocols. Register BEFORE
+	// build_network consumes net_config. Both protocols are
+	// registered unconditionally; the handshake-server side
+	// rejects requests from non-validators, and the asker only
+	// initiates when this node has a local GRANDPA key (i.e. is
+	// a validator itself). NotificationService is held aside; the
+	// task that owns it is spawned after build_network.
+	let validator_channel_sessions: crate::validator_channel::SharedSessions =
+		Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new()));
+	let local_validator_authority = crate::validator_channel::LocalAuthorityKey::from_keystore(
+		&keystore_container.keystore(),
+	);
+	let (vc_notification_config, vc_notification_service) =
+		crate::validator_channel::build_notification_protocol::<N, _>(
+			metrics.clone(),
+			peer_store_handle.clone(),
+		);
+	net_config.add_notification_protocol(vc_notification_config);
+	if let Some(local_auth) = local_validator_authority.clone() {
+		let (vc_handshake_config, vc_handshake_handler) =
+			crate::validator_channel::build_handshake_server::<N, _, _>(
+				client.clone(),
+				keystore_container.keystore(),
+				local_auth,
+				validator_channel_sessions.clone(),
+			);
+		net_config.add_request_response_protocol(vc_handshake_config);
+		task_manager.spawn_handle().spawn(
+			"rostro-validator-channel-handshake-server",
+			Some("rostro"),
+			vc_handshake_handler,
+		);
+		log::info!(
+			target: "rostro-validator-channel",
+			"validator-channel handshake server registered (we are a validator)",
+		);
+	} else {
+		log::info!(
+			target: "rostro-validator-channel",
+			"validator-channel handshake server NOT registered (no local GRANDPA key)",
+		);
+	}
 
 	// Phase 7 v2 Piece 3a/3b: per-peer rate limiter shared between
 	// the attest server (drops over-limit incoming requests) and the
@@ -291,6 +334,37 @@ pub fn new_full<
 			drift_ledger,
 		),
 	);
+
+	// Phase Z4: validator-channel asker + notification task. The
+	// asker initiates handshakes for new peers (only if WE are a
+	// validator with a local GRANDPA key); the notification task
+	// owns the NotificationService and handles both inbound
+	// decrypt and outbound heartbeat send via tokio::select!.
+	if let Some(local_auth) = local_validator_authority.as_ref() {
+		task_manager.spawn_handle().spawn(
+			"rostro-validator-channel-asker",
+			Some("rostro"),
+			crate::validator_channel::run_handshake_asker(
+				network.clone(),
+				keystore_container.keystore(),
+				local_auth.clone(),
+				validator_channel_sessions.clone(),
+			),
+		);
+		task_manager.spawn_handle().spawn(
+			"rostro-validator-channel-notifications",
+			Some("rostro"),
+			crate::validator_channel::run_notification_task(
+				vc_notification_service,
+				validator_channel_sessions.clone(),
+				local_auth.pubkey,
+			),
+		);
+	} else {
+		// Drop the notification service handle on the floor — we're
+		// not a validator, won't generate or decrypt traffic.
+		drop(vc_notification_service);
+	}
 
 	if config.offchain_worker.enabled {
 		let offchain_workers =

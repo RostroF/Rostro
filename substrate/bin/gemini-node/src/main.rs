@@ -20,6 +20,7 @@ mod role;
 mod rpc;
 mod service;
 mod ticket_submitter;
+mod validator_channel;
 
 fn main() -> rc_cli::Result<()> {
 	command::run()
