@@ -178,16 +178,26 @@ pub fn new_full<
 		);
 	net_config.add_notification_protocol(grandpa_protocol_config);
 
+	// Phase 7 v2 Piece 3a/3b: per-peer rate limiter shared between
+	// the attest server (drops over-limit incoming requests) and the
+	// asker side (Piece 3c). 2 requests / 5-min window / 300s
+	// cooldown per peer — see `canonical_files_gate_grief_defense`.
+	let attest_rate_limiter: crate::attest_protocol::SharedRateLimiter =
+		Arc::new(parking_lot::Mutex::new(
+			crate::connect_gate::RateLimiter::with_defaults(),
+		));
+
 	// Phase 7b step 5: server-side handler for canonical-root
 	// attestation. Peers can query us with a nonce; we reply with our
 	// locally-computed `CanonicalFilesApi::canonical_root()` value
-	// echoing the nonce and our role hint. No-op until peers actually
-	// ask. Active mutual attestation on connect lands once Phase 6.9
-	// hardware-rooted measurement makes the claim unforgeable.
+	// echoing the nonce and our role hint. Over-limit requests are
+	// silently dropped via the rate limiter. Active mutual attestation
+	// on connect lands in Piece 3c.
 	let (attest_protocol_config, attest_handler) =
 		crate::attest_protocol::build_attest_protocol::<N, _, _>(
 			client.clone(),
 			config.role.is_authority(),
+			attest_rate_limiter.clone(),
 		);
 	net_config.add_request_response_protocol(attest_protocol_config);
 	task_manager.spawn_handle().spawn(
@@ -262,6 +272,25 @@ pub fn new_full<
 			block_relay: None,
 			metrics,
 		})?;
+
+	// Phase 7 v2 Piece 3c/3d: connect-time canonical-files attest
+	// asker. Subscribes to peer events; on every new peer issues an
+	// AttestationRequest, verifies the response against on-chain
+	// canonical_root, and ban+disconnects on any non-Match outcome.
+	// State recorded in the drift ledger so a future strict-drop
+	// filter (channel-split workstream) can consult per-peer status.
+	let drift_ledger: crate::attest_asker::SharedDriftLedger = Arc::new(
+		parking_lot::Mutex::new(crate::connect_gate::DriftLedger::new()),
+	);
+	task_manager.spawn_handle().spawn(
+		"rostro-attest-asker",
+		Some("rostro"),
+		crate::attest_asker::run_attest_asker(
+			network.clone(),
+			client.clone(),
+			drift_ledger,
+		),
+	);
 
 	if config.offchain_worker.enabled {
 		let offchain_workers =

@@ -107,6 +107,16 @@ ed25519-zebra = { workspace = true, default-features = true }
 # (hex-encoded 32 bytes), matching sc-network's on-disk convention.
 array-bytes = { workspace = true }
 
+# `connect_gate`'s drift ledger + rate limiter are accessed concurrently
+# from the attest server task and the asker task; parking_lot::Mutex
+# gives us no-poisoning + faster-than-std shared mutex semantics for
+# the tight critical sections.
+parking_lot = { workspace = true, default-features = true }
+
+# `attest_asker` generates a fresh nonce per outbound attest request.
+# thread-local RNG, OS-seeded.
+rand = { workspace = true, default-features = true }
+
 # The runtime
 gemini-runtime = { workspace = true, default-features = true }
 

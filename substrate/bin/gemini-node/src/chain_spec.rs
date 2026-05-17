@@ -147,6 +147,38 @@ fn properties() -> rc_service::Properties {
 	p
 }
 
+/// Read the canonical-files initialFiles vec from the
+/// `ROSTRO_CANONICAL_GEMINI_NODE_HASH` env var, if set.
+///
+/// Lab-only convenience for `scripts/run-star.sh`. The script
+/// computes the blake2_256 of the gemini-node binary, exports the
+/// hex digest in this env var, and starts the star. Genesis then
+/// includes a `("gemini-node", <hash>)` entry so the verifier's
+/// boot check runs against a real value on every node.
+///
+/// Returns an empty vec when the env var is absent or malformed —
+/// the genesis check then no-ops (logs "skipping"), preserving the
+/// production default. Malformed values (wrong length, non-hex)
+/// emit no error here because chain spec construction can't surface
+/// one; operators see the env var go unused at boot when the
+/// verifier logs "skipping."
+fn read_initial_canonical_files() -> Vec<(Vec<u8>, [u8; 32])> {
+	let Ok(hex) = std::env::var("ROSTRO_CANONICAL_GEMINI_NODE_HASH") else {
+		return Vec::new();
+	};
+	let trimmed = hex.trim_start_matches("0x");
+	if trimmed.len() != 64 {
+		return Vec::new();
+	}
+	let mut bytes = [0u8; 32];
+	for (i, chunk) in trimmed.as_bytes().chunks(2).enumerate() {
+		let s = std::str::from_utf8(chunk).ok().unwrap_or("");
+		let b = u8::from_str_radix(s, 16).ok().unwrap_or(0xFF);
+		bytes[i] = b;
+	}
+	vec![(b"gemini-node".to_vec(), bytes)]
+}
+
 /// Genesis storage patch.
 ///
 /// `pallet_sassafras::GenesisConfig` only carries authorities +
@@ -185,13 +217,17 @@ fn testnet_genesis(
 			"key": Some(root_key),
 		},
 		// Phase 7a smoke / dev convenience: empty initial canonical-files
-		// set. The verifier finds no entry for "gemini-node", logs
-		// "skipping", and continues. The foundation populates real
-		// hashes post-genesis via SRT extrinsic. Override at chain-spec
-		// time with a non-empty initial_files Vec to test the mismatch
-		// fail-stop path.
+		// set BY DEFAULT. The verifier finds no entry for "gemini-node",
+		// logs "skipping", and continues. The foundation populates real
+		// hashes post-genesis via SRT extrinsic.
+		//
+		// Lab override: the `ROSTRO_CANONICAL_GEMINI_NODE_HASH` env var
+		// (32-byte hex, 64 chars) seeds the gemini-node binary's
+		// canonical hash at genesis. Set by `scripts/run-star.sh` so
+		// the 5-node star boots with a real check active. Production
+		// chain specs leave this unset; SRT publishes post-genesis.
 		"canonicalFiles": {
-			"initialFiles": Vec::<(Vec<u8>, [u8; 32])>::new(),
+			"initialFiles": read_initial_canonical_files(),
 		},
 		// RNS reserved-list seed. SEED_RESERVED is the curated list
 		// from `pallet-rns-registrar/src/genesis_reserved.rs` —

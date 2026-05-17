@@ -42,18 +42,23 @@
 //! - Not authenticated. The response is a self-report; without
 //!   Phase 6.9 hardware attestation there is no cryptographic
 //!   proof of file possession behind the claim.
-//! - Not rate-limited beyond the inbound-queue capacity. Capacity
-//!   is sized so a saturating peer queues responses but doesn't
-//!   crash the node.
+//! - Per-peer rate-limited via [`crate::connect_gate::RateLimiter`]
+//!   (2 requests / 5-min window / 300s cooldown per
+//!   `canonical_files_gate_grief_defense` memory). Over-limit
+//!   requests are silently dropped — no response, no reputation
+//!   change. This bounds grief from a peer attempting to DoS the
+//!   attest path.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use codec::{Decode, Encode};
 use futures::StreamExt;
+use parking_lot::Mutex;
 use rc_network::{
 	request_responses::{IncomingRequest, OutgoingResponse},
 	types::ProtocolName,
-	NetworkBackend,
+	NetworkBackend, PeerId,
 };
 use rostro_canonical_fetch::attest::{
 	AttestationRequest, AttestationResponse, PeerRole,
@@ -63,6 +68,13 @@ use sp_blockchain::HeaderBackend;
 use sp_runtime::traits::Block as BlockT;
 
 use pallet_rostro_canonical_files::CanonicalFilesApi;
+
+use crate::connect_gate::{RateLimiter, RateOutcome};
+
+/// Shared per-peer rate limiter for incoming attest requests. Wrapped
+/// in `Arc<Mutex<_>>` because both the server handler (this file) and
+/// — once Piece 3c lands — the asker side may need to observe state.
+pub type SharedRateLimiter = Arc<Mutex<RateLimiter<PeerId>>>;
 
 /// Inbound-queue capacity. The protocol spec recommends `T / d`
 /// where `T` = request_timeout and `d` = expected handle latency.
@@ -103,6 +115,7 @@ pub const ATTEST_PROTOCOL_NAME: &str = "/rostro/canonical-attest/1";
 pub fn build_attest_protocol<N, C, Block>(
 	client: Arc<C>,
 	is_authority: bool,
+	rate_limiter: SharedRateLimiter,
 ) -> (N::RequestResponseProtocolConfig, impl std::future::Future<Output = ()>)
 where
 	N: NetworkBackend<Block, <Block as BlockT>::Hash>,
@@ -121,7 +134,7 @@ where
 		Some(tx),
 	);
 
-	let handler = run_handler(client, is_authority, rx);
+	let handler = run_handler(client, is_authority, rate_limiter, rx);
 
 	(config, handler)
 }
@@ -129,6 +142,7 @@ where
 async fn run_handler<C, Block>(
 	client: Arc<C>,
 	is_authority: bool,
+	rate_limiter: SharedRateLimiter,
 	mut rx: async_channel::Receiver<IncomingRequest>,
 ) where
 	Block: BlockT,
@@ -138,6 +152,25 @@ async fn run_handler<C, Block>(
 	let our_role = if is_authority { PeerRole::Validator } else { PeerRole::NonValidator };
 
 	while let Some(IncomingRequest { peer, payload, pending_response }) = rx.next().await {
+		// Grief defense: check the per-peer rate limit BEFORE doing
+		// any work. Over-limit requests are silently dropped —
+		// dropping `pending_response` without sending acts as
+		// "decline without reputation change" per the protocol's
+		// convention. The peer's libp2p layer surfaces this as a
+		// timeout; they cannot use response-timing to probe our
+		// rate-limit state.
+		let outcome = rate_limiter.lock().check_and_record(&peer, Instant::now());
+		if let RateOutcome::Cooldown { until } = outcome {
+			log::debug!(
+				target: "rostro-attest",
+				"dropping over-limit attest request from {} (cooldown until {:?})",
+				peer,
+				until,
+			);
+			drop(pending_response);
+			continue;
+		}
+
 		let result = handle_one(&client, our_role, &payload);
 		match &result {
 			Ok(_) => {
