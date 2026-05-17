@@ -1,0 +1,26 @@
+[package]
+name = "rostro-chat-primitives"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Primitives for the Rostro decentralized chat layer. SCALE-encoded Sealed Sender envelope types, XOR-stripe split/combine for relay-side ciphertext privacy, share descriptor + TTL helpers, and per-share HMAC integrity. Transport-agnostic and no-std-compatible; the libp2p binding lands in a follow-up gemini-node module. No central server, no log: each chat message ciphertext is split into N XOR shares such that no single relay holds a partial ciphertext (single share is noise), and shares expire under a block-anchored TTL so relays don't accumulate state."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+sp-crypto-hashing = { workspace = true }
+ed25519-zebra = { workspace = true }
+rand_core = { workspace = true }
+
+[dev-dependencies]
+rand_chacha = { workspace = true }
+
+[features]
+default = ["std"]
+std = ["codec/std", "sp-crypto-hashing/std", "ed25519-zebra/std"]
