@@ -25,6 +25,12 @@ rc-chain-spec-derive = { default-features = true, workspace = true }
 rc-client-api = { default-features = true, workspace = true }
 rc-executor = { default-features = true, workspace = true }
 rc-network = { default-features = true, workspace = true }
+# Phase Star B7: GenesisConfigBuilderRuntimeCaller dispatches on blob
+# magic — WasmExecutor for WASM blobs, RostroCodeExecutor for PVM blobs.
+# Substrate's WasmExecutor has no polkavm branch (SUBSTRATE_ENABLE_POLKAVM
+# only gates blob acceptance, not actual dispatch), so PVM runtimes need
+# this dispatch site to be able to call into the PVM executor.
+rostro-executor = { default-features = true, workspace = true }
 rc-telemetry = { default-features = true, workspace = true }
 serde = { features = ["derive"], workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }

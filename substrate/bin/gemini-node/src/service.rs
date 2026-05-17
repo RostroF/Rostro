@@ -28,7 +28,7 @@ use std::{marker::PhantomData, sync::Arc, time::Duration};
 pub(crate) type FullClient = rc_service::TFullClient<
 	Block,
 	RuntimeApi,
-	rc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
+	rostro_executor::RostroCodeExecutor<sp_io::SubstrateHostFunctions>,
 >;
 type FullBackend = rc_service::TFullBackend<Block>;
 type FullSelectChain = rc_consensus::LongestChain<FullBackend, Block>;
@@ -63,8 +63,12 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		})
 		.transpose()?;
 
-	let executor =
-		rc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
+	// Phase Star B8: type-swapped from `rc_service::new_wasm_executor`
+	// (same swap as rostro-node in B7). `config.executor` knobs are
+	// wasmtime-specific; `RostroCodeExecutor::new()` reads `POLKAVM_*`
+	// env vars + workspace defaults instead.
+	let executor = rostro_executor::RostroCodeExecutor::<sp_io::SubstrateHostFunctions>::new()
+		.map_err(|e| ServiceError::Other(format!("rostro-executor init: {e}")))?;
 
 	let (client, backend, keystore_container, task_manager) =
 		rc_service::new_full_parts::<Block, RuntimeApi, _>(

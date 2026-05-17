@@ -1,0 +1,37 @@
+[package]
+name = "rostro-executor-fixture-storage-roundtrip"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+build = "build.rs"
+publish = false
+homepage.workspace = true
+repository.workspace = true
+description = "PVM test fixture for rostro-executor B3 gate: a tiny runtime guest that does sp_io::storage::set + storage::read and reports whether the roundtrip succeeded. Always builds for the RISC-V/PVM target — its build.rs overrides SUBSTRATE_RUNTIME_TARGET=riscv before invoking substrate-wasm-builder."
+
+[lints]
+workspace = true
+
+[dependencies]
+sp-io = { workspace = true }
+# B3b: ed25519 Signature/Public types for crypto::ed25519_verify.
+sp-core = { workspace = true }
+
+[target.'cfg(target_env = "polkavm")'.dependencies]
+# Direct polkavm-derive for the `polkavm_export` attribute. sp-io's runtime
+# side already imports its host fns via sp-runtime-interface's macro, which
+# emits polkavm_import on PVM targets — so we only need polkavm_export
+# here for the entry point.
+polkavm-derive = { workspace = true }
+
+[build-dependencies]
+substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"sp-core/std",
+	"sp-io/std",
+	"substrate-wasm-builder",
+]

@@ -62,6 +62,15 @@ zk-pki-primitives = { workspace = true }
 zk-pki-tpm = { workspace = true, features = ["test-utils"] }
 
 # Primitives
+# Phase Star B8: route runtime panics through panic_handler::abort_on_panic
+# (capturable as a host fn) so `rostro-executor`'s trap handler can
+# surface a message. Mirrors the rostro-runtime feature toggle landed in B7.
+sp-io = { workspace = true, features = ["improved_panic_error_reporting"] }
+# Phase Star B8: declare 512 KiB minimum stack so serde_json's typed
+# deserialiser for the gemini RuntimeGenesisConfig has headroom (the
+# polkavm-linker default is 8 KiB). Same rationale as the rostro-runtime
+# declaration landed in B7.
+polkavm-derive = { workspace = true }
 sp-api = { workspace = true }
 sp-block-builder = { workspace = true }
 sp-consensus-grandpa = { features = ["serde"], workspace = true }
@@ -90,6 +99,7 @@ std = [
 	"frame-system-rpc-runtime-api/std",
 	"frame-system/std",
 	"log/std",
+	"sp-io/std",
 	"pallet-authorship/std",
 	"pallet-balances/std",
 	"pallet-grandpa/std",

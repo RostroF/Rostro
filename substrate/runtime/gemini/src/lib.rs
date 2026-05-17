@@ -48,6 +48,14 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+// Phase Star B8: declare a 512 KiB minimum stack to the polkavm linker.
+// The polkavm-linker default is 8 KiB (`VM_MIN_PAGE_SIZE * 2`), which
+// the typed `serde_json::from_slice::<RuntimeGenesisConfig>` path blows
+// during `GenesisBuilder_build_state`. Same fix as rostro-runtime (B7);
+// gated to PVM target only.
+#[cfg(all(any(target_arch = "riscv32", target_arch = "riscv64"), target_feature = "e"))]
+polkavm_derive::min_stack_size!(512 * 1024);
+
 extern crate alloc;
 
 use alloc::{borrow::Cow, vec, vec::Vec};
@@ -784,6 +792,41 @@ parameter_types! {
 	/// `5 years * 365 days * 24 hours * 60 minutes * 10 blocks/min`
 	/// at 6s block time = 5 * 365 * 24 * 600 = 26_280_000 blocks.
 	pub const PopFixedTtl: BlockNumber = 26_280_000;
+	/// Per the pallet docstring: 256 KB upper bound for STARK proofs.
+	/// Matches the mainnet recommendation; safe for the gemini testbed.
+	pub const PopMaxProofBytes: u32 = 262_144;
+}
+
+/// Camino testnet shape — both production and mock variants allowed
+/// so PoP minting can be exercised end-to-end on the testbed without
+/// requiring real OPRF federation infrastructure. Mainnet narrows to
+/// `&[NullifierType::Salted]`.
+pub struct PopAcceptedNullifierTypes;
+impl frame_support::traits::Get<&'static [pallet_rostro_personhood::NullifierType]>
+	for PopAcceptedNullifierTypes
+{
+	fn get() -> &'static [pallet_rostro_personhood::NullifierType] {
+		&[
+			pallet_rostro_personhood::NullifierType::Salted,
+			pallet_rostro_personhood::NullifierType::SaltedMock,
+		]
+	}
+}
+
+/// Testbed sentinel fingerprints — no SRT VK ceremony has been run for
+/// this binary. `srt_set_vk` will reject every publication with
+/// `VkFingerprintMismatch` until real circuit-family fingerprints are
+/// wired here, which is the safe default for a testbed.
+pub struct PopExpectedVkFingerprints;
+impl frame_support::traits::Get<&'static [(pallet_rostro_personhood::CircuitId, sp_core::H256)]>
+	for PopExpectedVkFingerprints
+{
+	fn get() -> &'static [(pallet_rostro_personhood::CircuitId, sp_core::H256)] {
+		&[
+			(pallet_rostro_personhood::CircuitId::PassportAttest, sp_core::H256([0xF1; 32])),
+			(pallet_rostro_personhood::CircuitId::LivenessFacematch, sp_core::H256([0xF2; 32])),
+		]
+	}
 }
 
 /// Adapter that delegates `pallet_rostro_personhood::ZkPkiInterface`
@@ -840,6 +883,9 @@ impl pallet_rostro_personhood::ZkPkiInterface<AccountId, BlockNumber>
 impl pallet_rostro_personhood::Config for Runtime {
 	type MaxProofAge = PopMaxProofAge;
 	type FixedPopTtl = PopFixedTtl;
+	type MaxProofBytes = PopMaxProofBytes;
+	type ExpectedVkFingerprints = PopExpectedVkFingerprints;
+	type AcceptedNullifierTypes = PopAcceptedNullifierTypes;
 	type ZkPki = ZkPkiPersonhoodAdapter;
 	// Production Groth16 verifier (ark-groth16 over BN254). Same
 	// stack zk-pki uses for mime_wrap.

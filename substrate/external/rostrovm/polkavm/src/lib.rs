@@ -59,7 +59,6 @@ mod config;
 mod gas;
 mod interpreter;
 mod linker;
-mod rostro_intrinsic_codegen;
 mod rostro_intrinsic_gas;
 
 /// Research-grade interpreter tracing — see module docs.
@@ -96,6 +95,17 @@ pub mod rostro_intrinsics {
     /// for now (IDs 100-103); other IDs fall through to the standard sequence.
     /// Wire via `ModuleConfig::set_custom_codegen()` (requires
     /// `Config::set_allow_experimental(true)`).
+    /// Only available when the JIT compiler is compiled in — same cfg gate
+    /// as `if_compiler_is_supported!`.
+    #[cfg(all(
+        not(miri),
+        target_arch = "x86_64",
+        any(
+            target_os = "linux",
+            all(feature = "generic-sandbox", any(target_os = "macos", target_os = "freebsd"))
+        ),
+        feature = "std",
+    ))]
     pub use crate::rostro_intrinsic_codegen::RostroIntrinsicsCodegen;
 
     /// Gas pricing for the Tier 2 intrinsics. See
@@ -138,6 +148,7 @@ if_compiler_is_supported! {
     mod compiler;
     mod page_set;
     mod sandbox;
+    mod rostro_intrinsic_codegen;
 
     #[cfg(all(target_os = "linux", not(feature = "export-internals-for-testing")))]
     mod generic_allocator;

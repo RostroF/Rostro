@@ -39,6 +39,10 @@ rc-consensus = { workspace = true, default-features = true }
 rc-consensus-grandpa = { workspace = true, default-features = true }
 rc-consensus-slots = { workspace = true, default-features = true }
 rc-executor = { workspace = true, default-features = true }
+# Phase Star B8: PVM runtime executor. Type-swap of the FullClient
+# happens in service.rs; rc-executor stays in for the RuntimeVersionOf
+# trait + chain-spec genesis dispatch surface.
+rostro-executor = { workspace = true, default-features = true }
 rc-keystore = { workspace = true, default-features = true }
 rc-network = { workspace = true, default-features = true }
 rc-network-sync = { workspace = true, default-features = true }

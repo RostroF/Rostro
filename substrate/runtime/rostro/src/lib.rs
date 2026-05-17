@@ -14,6 +14,15 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+// Phase Star B7: declare a 512 KiB minimum stack to the polkavm linker.
+// Default is 8 KiB (`VM_MIN_PAGE_SIZE * 2`), which blows the stack
+// inside serde_json's typed deserialiser for `RuntimeGenesisConfig` —
+// observed as a non-Rust-panic trap at `u64 [sp + 0x10] = a1` during
+// `GenesisBuilder_build_state`. Gated to PVM target only; on WASM the
+// `polkavm_derive::min_stack_size!` macro is cfg'd out internally.
+#[cfg(all(any(target_arch = "riscv32", target_arch = "riscv64"), target_feature = "e"))]
+polkavm_derive::min_stack_size!(512 * 1024);
+
 extern crate alloc;
 
 pub mod configs;

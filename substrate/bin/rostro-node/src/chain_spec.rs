@@ -72,13 +72,26 @@ pub fn authority_keys_from_seed(s: &str) -> (AuraId, GrandpaId) {
 }
 
 /// Standard pre-funded set used across local specs (dev/gemini): the six
-/// well-known Substrate dev seeds, with Rostro's hash-based AccountId
-/// derivation.
+/// well-known Substrate dev seeds.
+///
+/// For each seed we endow three accounts so any subxt-style client can
+/// reach the chain without speaking Rostro's custom signer:
+///   - `RostroEd25519` (the canonical Rostro derivation, blake2 of pubkey)
+///   - `Sr25519` raw-pubkey (matches `subxt::PolkadotConfig`'s default)
+///   - `Ed25519` raw-pubkey (matches `subxt-signer`'s ed25519 dev keys)
+///
+/// Dev/gemini-only — production specs should restrict the endowment.
 fn dev_endowed_accounts() -> Vec<AccountId> {
-	["Alice", "Bob", "Charlie", "Dave", "Eve", "Ferdie"]
-		.iter()
-		.map(|s| rostro_account_from_seed(s))
-		.collect()
+	let seeds = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Ferdie"];
+	let mut accounts = Vec::with_capacity(seeds.len() * 3);
+	for seed in seeds {
+		accounts.push(rostro_account_from_seed(seed));
+		let sr_pubkey = get_from_seed::<sr25519::Public>(seed);
+		accounts.push(MultiSigner::Sr25519(sr_pubkey).into_account());
+		let ed_pubkey = get_from_seed::<ed25519::Public>(seed);
+		accounts.push(MultiSigner::Ed25519(ed_pubkey).into_account());
+	}
+	accounts
 }
 
 // ─── `dev` chain spec ──────────────────────────────────────────────────────
@@ -94,7 +107,10 @@ pub fn development_config() -> Result<ChainSpec, String> {
 	.with_chain_type(ChainType::Development)
 	.with_genesis_config_patch(testnet_genesis(
 		vec![authority_keys_from_seed("Alice")],
-		rostro_account_from_seed("Alice"),
+		// Sr25519 Alice as sudo so subxt/polkadot-js clients can drive
+		// sudo extrinsics out-of-the-box (no Rostro-aware signer needed
+		// for local dev). Production specs should restrict this.
+		MultiSigner::Sr25519(get_from_seed::<sr25519::Public>("Alice")).into_account(),
 		dev_endowed_accounts(),
 	))
 	.with_properties(properties())

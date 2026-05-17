@@ -21,6 +21,7 @@
 use codec::{Decode, Encode};
 pub use rc_executor::sp_wasm_interface::HostFunctions;
 use rc_executor::{error::Result, WasmExecutor};
+use rostro_executor::RostroCodeExecutor;
 use serde_json::{from_slice, Value};
 use sp_core::{
 	storage::Storage,
@@ -30,6 +31,26 @@ use sp_genesis_builder::{PresetId, Result as BuildResult};
 pub use sp_genesis_builder::{DEV_RUNTIME_PRESET, LOCAL_TESTNET_RUNTIME_PRESET};
 use sp_state_machine::BasicExternalities;
 use std::borrow::Cow;
+
+/// Magic header bytes identifying a PolkaVM program blob, mirroring
+/// `rc_executor_common::runtime_blob::RuntimeBlob::new`'s sniff.
+const POLKAVM_MAGIC: &[u8; 4] = b"PVM\0";
+
+/// Two-executor backing for `GenesisConfigBuilderRuntimeCaller` — Phase
+/// Star B7. WasmExecutor handles legacy WASM blobs (so substrate's own
+/// test runtimes keep working); RostroCodeExecutor handles PVM blobs.
+/// Upstream substrate's WasmExecutor has no PolkaVM dispatch branch — the
+/// SUBSTRATE_ENABLE_POLKAVM env var only gates blob *acceptance* via
+/// `RuntimeBlob::new`, not the actual call path — so PVM runtimes
+/// constructed from `ChainSpec::builder(WASM_BINARY...)` would otherwise
+/// hit `as_webassembly_blob` and trap during genesis construction.
+enum GenesisExecutor<EHF>
+where
+	EHF: HostFunctions,
+{
+	Wasm(WasmExecutor<(sp_io::SubstrateHostFunctions, EHF)>),
+	PolkaVm(RostroCodeExecutor<(sp_io::SubstrateHostFunctions, EHF)>),
+}
 
 /// A utility that facilitates calling the GenesisBuilder API from the runtime wasm code blob.
 ///
@@ -41,7 +62,7 @@ where
 {
 	code: Cow<'a, [u8]>,
 	code_hash: Vec<u8>,
-	executor: WasmExecutor<(sp_io::SubstrateHostFunctions, EHF)>,
+	executor: GenesisExecutor<EHF>,
 }
 
 impl<'a, EHF> FetchRuntimeCode for GenesisConfigBuilderRuntimeCaller<'a, EHF>
@@ -59,27 +80,43 @@ where
 {
 	/// Creates new instance using the provided code blob.
 	///
-	/// This code is later referred to as `runtime`.
+	/// This code is later referred to as `runtime`. Dispatches on the
+	/// blob's magic header: `PVM\0` → RostroCodeExecutor, otherwise →
+	/// WasmExecutor.
 	pub fn new(code: &'a [u8]) -> Self {
+		let executor = if code.starts_with(POLKAVM_MAGIC) {
+			GenesisExecutor::PolkaVm(
+				RostroCodeExecutor::<(sp_io::SubstrateHostFunctions, EHF)>::new()
+					.expect("RostroCodeExecutor init: polkavm engine setup must succeed"),
+			)
+		} else {
+			GenesisExecutor::Wasm(
+				WasmExecutor::<(sp_io::SubstrateHostFunctions, EHF)>::builder()
+					.with_allow_missing_host_functions(true)
+					.build(),
+			)
+		};
 		GenesisConfigBuilderRuntimeCaller {
 			code: code.into(),
 			code_hash: sp_crypto_hashing::blake2_256(code).to_vec(),
-			executor: WasmExecutor::<(sp_io::SubstrateHostFunctions, EHF)>::builder()
-				.with_allow_missing_host_functions(true)
-				.build(),
+			executor,
 		}
 	}
 
 	fn call(&self, ext: &mut dyn Externalities, method: &str, data: &[u8]) -> Result<Vec<u8>> {
-		self.executor
-			.call(
-				ext,
-				&RuntimeCode { heap_pages: None, code_fetcher: self, hash: self.code_hash.clone() },
-				method,
-				data,
-				CallContext::Offchain,
-			)
-			.0
+		let runtime_code = RuntimeCode {
+			heap_pages: None,
+			code_fetcher: self,
+			hash: self.code_hash.clone(),
+		};
+		match &self.executor {
+			GenesisExecutor::Wasm(executor) =>
+				executor.call(ext, &runtime_code, method, data, CallContext::Offchain).0,
+			GenesisExecutor::PolkaVm(executor) => executor
+				.call(ext, &runtime_code, method, data, CallContext::Offchain)
+				.0
+				.map_err(|e| rc_executor::error::Error::ApiError(e.into())),
+		}
 	}
 
 	/// Returns a json representation of the default `RuntimeGenesisConfig` provided by the
