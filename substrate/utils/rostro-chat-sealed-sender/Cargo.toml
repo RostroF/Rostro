@@ -1,0 +1,35 @@
+[package]
+name = "rostro-chat-sealed-sender"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Sealed Sender outer-layer encryption for the Rostro chat layer. Per-message ephemeral X25519 ECDH against the recipient's identity key + HKDF-SHA256 key/nonce derivation + ChaCha20-Poly1305 AEAD. The encoded UnsealedInner (sender pubkey + signature + inner ciphertext) sits inside the AEAD-encrypted blob, so observers see only an opaque ciphertext + ephemeral pubkey on the wire — the sender's identity is hidden until the recipient decrypts. Pure crypto; no transport, no async."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
+chacha20poly1305 = { workspace = true, features = ["alloc"] }
+hkdf = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+rand_core = { workspace = true, features = ["getrandom"] }
+
+[dev-dependencies]
+rand_chacha = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"chacha20poly1305/std",
+	"hkdf/std",
+	"sha2/std",
+	"zeroize/std",
+]

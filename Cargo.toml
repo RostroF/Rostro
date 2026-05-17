@@ -298,6 +298,7 @@ members = [
 	"substrate/utils/rostro-canonical-fetch",
 	"substrate/utils/rostro-chat-dr",
 	"substrate/utils/rostro-chat-primitives",
+	"substrate/utils/rostro-chat-sealed-sender",
 	"substrate/utils/rostro-validator-channel",
 	"substrate/utils/rostro-canonicalize",
 	"substrate/utils/rostro-client",
