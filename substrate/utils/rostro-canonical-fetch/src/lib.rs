@@ -51,6 +51,7 @@ extern crate alloc;
 pub mod local_dir;
 
 pub mod attest;
+pub mod signed_fetch;
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode};

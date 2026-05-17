@@ -196,6 +196,52 @@ pub fn new_full<
 		attest_handler,
 	);
 
+	// Phase 7 v2 step 2c: signed canonical-fetch server. Built
+	// EARLY because the protocol must register into `net_config`
+	// before it's consumed by `build_network` below — same lifecycle
+	// constraint as the attest protocol above. The shared
+	// `Arc<LocalDirectoryFetchTransport>` is reused inside
+	// `verify_at_boot` further down so the same in-memory hash
+	// index serves both the heal client and the libp2p server.
+	let heal_source = build_heal_source(canonical_files_dir.as_deref())?;
+	if let Some(source) = heal_source.as_ref() {
+		match crate::canonical_fetch_protocol::load_node_identity_signing_key(
+			&config.network.node_key,
+		) {
+			Ok(signing_key) => {
+				let (fetch_protocol_config, fetch_handler) =
+					crate::canonical_fetch_protocol::build_canonical_fetch_protocol::<
+						N,
+						_,
+						_,
+						_,
+					>(client.clone(), source.clone(), signing_key);
+				net_config.add_request_response_protocol(fetch_protocol_config);
+				task_manager.spawn_handle().spawn(
+					"rostro-canonical-fetch-server",
+					Some("rostro"),
+					fetch_handler,
+				);
+				log::info!(
+					target: "rostro-canonical-fetch",
+					"signed canonical-fetch protocol registered on `{}` \
+					 ({} canonical file(s) servable)",
+					crate::canonical_fetch_protocol::CANONICAL_FETCH_PROTOCOL_NAME,
+					source.len(),
+				);
+			},
+			Err(e) => {
+				log::warn!(
+					target: "rostro-canonical-fetch",
+					"signed canonical-fetch server NOT registered: {e}. \
+					 This node can still receive heal bytes but cannot \
+					 serve them. Set --node-key or --node-key-file to \
+					 enable server-side participation.",
+				);
+			},
+		}
+	}
+
 	let warp_sync = Arc::new(rc_consensus_grandpa::warp_proof::NetworkProvider::new(
 		backend.clone(),
 		grandpa_link.shared_authority_set().clone(),
@@ -241,12 +287,11 @@ pub fn new_full<
 	let role = config.role;
 
 	// Phase 7a + 7b: foundation-file verification, with optional
-	// heal-from-local-directory on mismatch. When --canonical-files-dir
-	// is set, the verifier consults that directory on boot-time hash
-	// mismatch and (if a matching file is found) stages it at
-	// <exe>.new, then exits code 90 for the supervisor to swap and
-	// restart. When unset, mismatch is fail-stop.
-	let heal_fetcher = build_heal_fetcher(canonical_files_dir.as_deref())?;
+	// heal-from-local-directory on mismatch. The heal source `Arc`
+	// was built up-stack (alongside the libp2p server registration);
+	// here it's adapted into the verifier's HealFetcher trait. When
+	// unset, mismatch is fail-stop.
+	let heal_fetcher = heal_source.clone().map(heal_fetcher_from_source);
 	crate::file_check::verify_at_boot(client.clone(), heal_fetcher)
 		.map_err(ServiceError::Other)?;
 
@@ -429,15 +474,19 @@ pub fn new_full<
 	Ok(task_manager)
 }
 
-/// Construct the optional [`crate::file_check::HealFetcher`] from a
-/// `--canonical-files-dir` argument. Returns `Ok(None)` when no
-/// directory was supplied, `Ok(Some(_))` when scanning succeeded,
-/// or `Err` when the supplied directory could not be read (which is
-/// a configuration error worth surfacing immediately rather than
-/// silently downgrading to "no heal source").
-fn build_heal_fetcher(
+/// Scan `--canonical-files-dir` into a shared, hash-indexed
+/// [`LocalDirectoryFetchTransport`]. Returns `Ok(None)` when no
+/// directory was supplied. The returned `Arc` is consumed by both
+/// the heal-on-mismatch client (via [`heal_fetcher_from_source`])
+/// and the libp2p server-side fetch handler (via
+/// [`crate::canonical_fetch_protocol::build_canonical_fetch_protocol`])
+/// so a single scan populates both surfaces.
+fn build_heal_source(
 	dir: Option<&std::path::Path>,
-) -> Result<Option<Box<dyn crate::file_check::HealFetcher>>, ServiceError> {
+) -> Result<
+	Option<Arc<rostro_canonical_fetch::local_dir::LocalDirectoryFetchTransport>>,
+	ServiceError,
+> {
 	let Some(dir) = dir else { return Ok(None) };
 	let transport =
 		rostro_canonical_fetch::local_dir::LocalDirectoryFetchTransport::scan(dir)
@@ -453,31 +502,32 @@ fn build_heal_fetcher(
 		transport.len(),
 		dir.display(),
 	);
-	Ok(Some(heal_fetcher_from_transport(transport)))
+	Ok(Some(Arc::new(transport)))
 }
 
-/// Adapt any [`rostro_canonical_fetch::FetchTransport`] into the
+/// Adapt a shared [`rostro_canonical_fetch::CanonicalFileSource`]
+/// (typically the `Arc<LocalDirectoryFetchTransport>` from
+/// [`build_heal_source`]) into the
 /// [`crate::file_check::HealFetcher`] trait that the verifier
-/// consumes. Stringifies the transport's error type so the verifier
-/// can produce a uniform fail-stop message regardless of which
-/// transport is wired in.
-fn heal_fetcher_from_transport<T>(transport: T) -> Box<dyn crate::file_check::HealFetcher>
+/// consumes. Uses [`rostro_canonical_fetch::CanonicalFileSource::read_by_hash`]
+/// so the same `Arc` can power both the heal client and the libp2p
+/// server-side handler without contention or duplicate scans.
+fn heal_fetcher_from_source<S>(source: Arc<S>) -> Box<dyn crate::file_check::HealFetcher>
 where
-	T: rostro_canonical_fetch::FetchTransport + Send + Sync + 'static,
-	T::Error: core::fmt::Debug + 'static,
+	S: rostro_canonical_fetch::CanonicalFileSource + Send + Sync + 'static,
 {
-	struct Adapter<T> {
-		inner: T,
+	struct Adapter<S> {
+		source: Arc<S>,
 	}
-	impl<T> crate::file_check::HealFetcher for Adapter<T>
+	impl<S> crate::file_check::HealFetcher for Adapter<S>
 	where
-		T: rostro_canonical_fetch::FetchTransport + Send + Sync,
-		T::Error: core::fmt::Debug,
+		S: rostro_canonical_fetch::CanonicalFileSource + Send + Sync,
 	{
 		fn fetch(&mut self, hash: [u8; 32]) -> Result<Vec<u8>, String> {
-			rostro_canonical_fetch::fetch_and_verify(&mut self.inner, hash)
-				.map_err(|e| format!("{e:?}"))
+			self.source
+				.read_by_hash(&hash)
+				.ok_or_else(|| "canonical bytes not in local heal source".to_string())
 		}
 	}
-	Box::new(Adapter { inner: transport })
+	Box::new(Adapter { source })
 }

@@ -15,7 +15,8 @@ workspace = true
 [dependencies]
 codec = { features = ["derive"], workspace = true }
 sp-crypto-hashing = { workspace = true }
+ed25519-zebra = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["codec/std", "sp-crypto-hashing/std"]
+std = ["codec/std", "sp-crypto-hashing/std", "ed25519-zebra/std"]

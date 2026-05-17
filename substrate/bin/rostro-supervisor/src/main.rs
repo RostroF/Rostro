@@ -75,6 +75,16 @@ struct Args {
 	#[arg(long)]
 	staged: Option<PathBuf>,
 
+	/// Directory holding additional canonical files. On
+	/// swap-and-restart, after rotating the main child binary, the
+	/// supervisor scans this directory for any `<name>.new` files
+	/// and atomically rotates each to `<name>`. Defaults to the
+	/// parent directory of the child binary, matching the verifier's
+	/// resolve-relative-to-`current_exe()` convention. Pass an empty
+	/// string to disable the scan entirely (single-file mode).
+	#[arg(long)]
+	canonical_dir: Option<PathBuf>,
+
 	/// Maximum swap-and-restart cycles before the supervisor gives up.
 	#[arg(long, default_value_t = DEFAULT_MAX_RESTARTS)]
 	max_restarts: u32,
@@ -120,6 +130,54 @@ fn rotate_staged(staged: &Path, target: &Path) -> std::io::Result<()> {
 	Ok(())
 }
 
+/// Scan `dir` for any files whose name ends in `.new` and atomically
+/// rotate each one to drop the suffix, e.g. `gemini-runtime.pvm.new`
+/// → `gemini-runtime.pvm`. Returns the number of rotations performed.
+///
+/// Skips:
+/// - any path equal to `skip_target` (already rotated by the caller's
+///   primary-binary swap)
+/// - directories
+/// - entries whose file name is `.new` alone (no stem to strip back to)
+/// - entries with non-UTF8 file names
+///
+/// Errors out of the loop on the first rotation failure. Files
+/// rotated before that point remain rotated — partial rotation is
+/// the trade-off vs. attempting a cross-file atomic commit, which
+/// POSIX doesn't offer. The verifier will re-detect any
+/// still-mismatched files on next boot and re-stage.
+fn rotate_canonical_dir(dir: &Path, skip_target: &Path) -> std::io::Result<usize> {
+	let mut rotated = 0usize;
+	for entry in std::fs::read_dir(dir)? {
+		let entry = entry?;
+		let staged_path = entry.path();
+		if !staged_path.is_file() {
+			continue;
+		}
+		let name_os = entry.file_name();
+		let name = match name_os.to_str() {
+			Some(s) => s,
+			None => continue,
+		};
+		let Some(stem) = name.strip_suffix(".new") else { continue };
+		if stem.is_empty() {
+			continue;
+		}
+		let target = dir.join(stem);
+		if target == skip_target {
+			continue;
+		}
+		std::fs::rename(&staged_path, &target)?;
+		log::info!(
+			"rotated {} -> {}",
+			staged_path.display(),
+			target.display(),
+		);
+		rotated += 1;
+	}
+	Ok(rotated)
+}
+
 fn run(args: Args) -> ExitCode {
 	let child_path = match args.child {
 		Some(p) => p,
@@ -133,10 +191,24 @@ fn run(args: Args) -> ExitCode {
 	};
 	let staged_path = args.staged.unwrap_or_else(|| default_staged_for(&child_path));
 
+	// Default canonical-dir to the child binary's parent directory,
+	// matching the verifier's resolve-relative-to-current_exe()
+	// convention. An empty path explicitly disables the multi-file
+	// scan; non-empty overrides the default.
+	let canonical_dir: Option<PathBuf> = match args.canonical_dir {
+		Some(p) if p.as_os_str().is_empty() => None,
+		Some(p) => Some(p),
+		None => child_path.parent().map(|p| p.to_path_buf()),
+	};
+
 	log::info!(
-		"rostro-supervisor starting; child={}, staged={}, max_restarts={}",
+		"rostro-supervisor starting; child={}, staged={}, canonical_dir={}, max_restarts={}",
 		child_path.display(),
 		staged_path.display(),
+		canonical_dir
+			.as_deref()
+			.map(|p| p.display().to_string())
+			.unwrap_or_else(|| "(disabled)".to_string()),
 		args.max_restarts,
 	);
 
@@ -185,6 +257,28 @@ fn run(args: Args) -> ExitCode {
 				if let Err(e) = rotate_staged(&staged_path, &child_path) {
 					log::error!("staged-binary rotate failed: {}", e);
 					return ExitCode::FAILURE;
+				}
+				// Multi-file: scan the canonical-dir for any other
+				// staged files (foo.new -> foo) and rotate each.
+				// Order matters — child binary first (just done), so
+				// the scan below won't re-see its consumed .new.
+				if let Some(dir) = canonical_dir.as_deref() {
+					match rotate_canonical_dir(dir, &child_path) {
+						Ok(0) => {},
+						Ok(n) => log::info!(
+							"rotated {} additional canonical files in {}",
+							n,
+							dir.display(),
+						),
+						Err(e) => {
+							log::error!(
+								"canonical-file rotate in {} failed: {}",
+								dir.display(),
+								e,
+							);
+							return ExitCode::FAILURE;
+						},
+					}
 				}
 				continue;
 			},
@@ -260,6 +354,76 @@ mod tests {
 		// Outside sysexits (64-78) and signal-encoded (128+), positive.
 		assert!(EXIT_SWAP_AND_RESTART > 78);
 		assert!(EXIT_SWAP_AND_RESTART < 128);
+	}
+
+	#[test]
+	fn canonical_rotate_returns_zero_on_empty_dir() {
+		let dir = tmpdir();
+		let skip = dir.join("noop-skip");
+		let n = rotate_canonical_dir(&dir, &skip).unwrap();
+		assert_eq!(n, 0);
+	}
+
+	#[test]
+	fn canonical_rotate_renames_only_dot_new_files() {
+		let dir = tmpdir();
+		std::fs::write(dir.join("runtime.pvm.new"), b"new pvm").unwrap();
+		std::fs::write(dir.join("config.yaml"), b"unrelated").unwrap();
+		std::fs::write(dir.join("README.md.new"), b"new readme").unwrap();
+		let skip = dir.join("never-matches");
+		let n = rotate_canonical_dir(&dir, &skip).unwrap();
+		assert_eq!(n, 2);
+		assert!(!dir.join("runtime.pvm.new").exists(), ".new should be consumed");
+		assert!(!dir.join("README.md.new").exists(), ".new should be consumed");
+		assert_eq!(std::fs::read(dir.join("runtime.pvm")).unwrap(), b"new pvm");
+		assert_eq!(std::fs::read(dir.join("README.md")).unwrap(), b"new readme");
+		assert_eq!(
+			std::fs::read(dir.join("config.yaml")).unwrap(),
+			b"unrelated",
+			"non-.new files must not be touched",
+		);
+	}
+
+	#[test]
+	fn canonical_rotate_skips_target_equal_to_skip_path() {
+		let dir = tmpdir();
+		let target = dir.join("gemini-node");
+		std::fs::write(dir.join("gemini-node.new"), b"staged binary").unwrap();
+		std::fs::write(dir.join("runtime.pvm.new"), b"staged runtime").unwrap();
+		let n = rotate_canonical_dir(&dir, &target).unwrap();
+		assert_eq!(n, 1, "should skip gemini-node.new (matches skip_target)");
+		assert!(
+			dir.join("gemini-node.new").exists(),
+			"skipped .new must remain on disk",
+		);
+		assert!(!dir.join("gemini-node").exists(), "skipped target untouched");
+		assert!(!dir.join("runtime.pvm.new").exists(), "other .new still rotated");
+		assert_eq!(std::fs::read(dir.join("runtime.pvm")).unwrap(), b"staged runtime");
+	}
+
+	#[test]
+	fn canonical_rotate_ignores_bare_dot_new() {
+		// A file literally named `.new` has no stem to strip back to;
+		// must be skipped, not renamed to empty.
+		let dir = tmpdir();
+		std::fs::write(dir.join(".new"), b"degenerate").unwrap();
+		let skip = dir.join("noop-skip");
+		let n = rotate_canonical_dir(&dir, &skip).unwrap();
+		assert_eq!(n, 0);
+		assert!(dir.join(".new").exists(), "bare .new must be left alone");
+	}
+
+	#[test]
+	fn canonical_rotate_overwrites_existing_target() {
+		// Pre-existing target file is the common case (file present,
+		// hash drifted) — rotate must replace it, not refuse.
+		let dir = tmpdir();
+		std::fs::write(dir.join("runtime.pvm"), b"old").unwrap();
+		std::fs::write(dir.join("runtime.pvm.new"), b"new").unwrap();
+		let skip = dir.join("noop-skip");
+		let n = rotate_canonical_dir(&dir, &skip).unwrap();
+		assert_eq!(n, 1);
+		assert_eq!(std::fs::read(dir.join("runtime.pvm")).unwrap(), b"new");
 	}
 
 	fn tmpdir() -> PathBuf {

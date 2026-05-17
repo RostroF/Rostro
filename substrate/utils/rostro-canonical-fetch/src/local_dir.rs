@@ -23,7 +23,9 @@
 //! followed (kernel filetype check excludes them); subdirectories
 //! are skipped.
 
-use crate::{blake2_256_of, FetchRequest, FetchResponse, FetchTransport};
+use crate::{
+	blake2_256_of, CanonicalFileSource, FetchRequest, FetchResponse, FetchTransport,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -82,6 +84,21 @@ impl FetchTransport for LocalDirectoryFetchTransport {
 			},
 			None => Ok(FetchResponse::NotAvailable),
 		}
+	}
+}
+
+/// Server-side surface: same hash → path index, exposed as a
+/// [`CanonicalFileSource`] so the [`crate::signed_fetch::handle_signed_request`]
+/// helper (and any future libp2p binding) can read by hash. The
+/// client and server sides of a node share one
+/// [`LocalDirectoryFetchTransport`] instance to keep the cache
+/// coherent. I/O errors during the per-hash read are surfaced as
+/// `None` (operator sees the absence; serving an error to a peer
+/// would just exfiltrate the failure mode without recovery).
+impl CanonicalFileSource for LocalDirectoryFetchTransport {
+	fn read_by_hash(&self, hash: &[u8; 32]) -> Option<Vec<u8>> {
+		let path = self.index.get(hash)?;
+		std::fs::read(path).ok()
 	}
 }
 
@@ -164,5 +181,28 @@ mod tests {
 		let mut bogus = std::env::temp_dir();
 		bogus.push("rostro-canonical-fetch-does-not-exist-zzz");
 		assert!(LocalDirectoryFetchTransport::scan(&bogus).is_err());
+	}
+
+	#[test]
+	fn canonical_file_source_reads_bytes_by_hash() {
+		let dir = tmpdir();
+		let payload = b"canonical bytes for source impl".to_vec();
+		std::fs::write(dir.join("some-file"), &payload).unwrap();
+
+		let t = LocalDirectoryFetchTransport::scan(&dir).unwrap();
+		let h = blake2_256_of(&payload);
+		// Server-side surface (CanonicalFileSource), same struct
+		// the client side uses as a transport.
+		let got = CanonicalFileSource::read_by_hash(&t, &h).unwrap();
+		assert_eq!(got, payload);
+	}
+
+	#[test]
+	fn canonical_file_source_returns_none_for_unknown_hash() {
+		let dir = tmpdir();
+		std::fs::write(dir.join("a"), b"a").unwrap();
+		let t = LocalDirectoryFetchTransport::scan(&dir).unwrap();
+		let unknown = blake2_256_of(b"definitely not in the dir");
+		assert!(CanonicalFileSource::read_by_hash(&t, &unknown).is_none());
 	}
 }

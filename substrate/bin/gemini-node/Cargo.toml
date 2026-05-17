@@ -93,8 +93,19 @@ rostro-rpc-shield = { path = "../../utils/rostro-rpc-shield" }
 
 # Apache-2.0 canonical-fetch protocol primitives. `file_check` uses the
 # `LocalDirectoryFetchTransport` to drive the heal flow when
-# `--canonical-files-dir` is set; libp2p binding lands in a follow-up.
+# `--canonical-files-dir` is set; `canonical_fetch_protocol` wires the
+# signed-attestation libp2p protocol on top.
 rostro-canonical-fetch = { path = "../../utils/rostro-canonical-fetch" }
+
+# Same Ed25519 backing crate the rest of Rostro uses (per crypto_stack_v1
+# memory). The canonical-fetch attestation server signs responses with
+# the libp2p node-identity Ed25519 key, re-imported into ed25519-zebra
+# at startup.
+ed25519-zebra = { workspace = true, default-features = true }
+
+# Used by canonical_fetch_protocol to parse the node-identity key file
+# (hex-encoded 32 bytes), matching sc-network's on-disk convention.
+array-bytes = { workspace = true }
 
 # The runtime
 gemini-runtime = { workspace = true, default-features = true }
