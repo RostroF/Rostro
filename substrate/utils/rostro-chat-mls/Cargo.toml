@@ -20,7 +20,17 @@ openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
 openmls_memory_storage = { workspace = true }
 tls_codec = { workspace = true }
-rostro-chat-primitives = { path = "../rostro-chat-primitives", default-features = false }
+rostro-chat-primitives = { path = "../rostro-chat-primitives" }
+
+[dev-dependencies]
+# Full crypto-stack integration tests pull in the other chat
+# crates so a single tests/ binary can exercise DR + Sealed
+# Sender + MLS + envelope + stripe + MAC end-to-end.
+rostro-chat-dr = { path = "../rostro-chat-dr" }
+rostro-chat-sealed-sender = { path = "../rostro-chat-sealed-sender" }
+rand_chacha = { workspace = true, default-features = true }
+ed25519-zebra = { workspace = true }
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
 
 [features]
 # openmls is std-only as of 0.8; this crate inherits that constraint.
