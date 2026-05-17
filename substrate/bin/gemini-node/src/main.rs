@@ -9,6 +9,7 @@
 mod active_authority_set;
 mod attest_asker;
 mod attest_protocol;
+mod canonical_fetch_client;
 mod canonical_fetch_protocol;
 mod chain_spec;
 mod cli;

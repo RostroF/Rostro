@@ -179,6 +179,136 @@ pub fn build_signed_preimage(
 	buf
 }
 
+/// Outcome of aggregating multiple [`SignedFetchResponse`]s under
+/// a K-of-N quorum policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AggregateError {
+	/// Fewer than `needed` distinct signers agreed on any single
+	/// candidate payload. `got` is the largest single-payload
+	/// agreement count we saw.
+	InsufficientAttestations { got: usize, needed: usize },
+}
+
+/// K-of-N aggregation policy over a set of [`SignedFetchResponse`]s.
+///
+/// Caller has already run [`verify_signed_response`] on every
+/// input — this function trusts the inputs are individually valid
+/// and focuses on the quorum decision. It groups responses by
+/// **exact `bytes`** content, counts **distinct `signer_pubkey`s**
+/// per group, and returns the first group whose distinct-signer
+/// count meets `k_threshold`. If no group qualifies, returns
+/// [`AggregateError::InsufficientAttestations`] with the highest
+/// single-group agreement seen.
+///
+/// Why distinct-signer counting: a single signer flooding the
+/// caller with N copies of the same response shouldn't satisfy a
+/// K-signer threshold. The signed pubkey is the unit of trust;
+/// duplicates from one signer count as one vote.
+///
+/// Divergence handling: if multiple distinct payloads have signers
+/// agreeing on each, we return the FIRST one we encountered that
+/// hits the threshold. The caller decides whether to prefer
+/// block-anchor-recency (newer `block_number`), majority count, or
+/// some other policy — see [`select_freshest_canonical`] for a
+/// block-anchor-aware variant.
+pub fn aggregate_k_of_n(
+	responses: &[SignedFetchResponse],
+	k_threshold: usize,
+) -> Result<Vec<u8>, AggregateError> {
+	if k_threshold == 0 {
+		// Degenerate threshold; pick the first response's bytes if
+		// any. Caller policy error, but don't deadlock here.
+		if let Some(r) = responses.first() {
+			return Ok(r.bytes.clone());
+		}
+		return Err(AggregateError::InsufficientAttestations { got: 0, needed: 0 });
+	}
+
+	use alloc::collections::BTreeMap;
+	let mut by_bytes: BTreeMap<&[u8], alloc::collections::BTreeSet<[u8; 32]>> =
+		BTreeMap::new();
+	for r in responses {
+		by_bytes
+			.entry(r.bytes.as_slice())
+			.or_default()
+			.insert(r.signer_pubkey);
+	}
+
+	let mut best = 0usize;
+	for (bytes, signers) in by_bytes {
+		if signers.len() >= k_threshold {
+			return Ok(bytes.to_vec());
+		}
+		if signers.len() > best {
+			best = signers.len();
+		}
+	}
+	Err(AggregateError::InsufficientAttestations { got: best, needed: k_threshold })
+}
+
+/// Block-anchor-aware variant of [`aggregate_k_of_n`]. When more
+/// than one distinct payload reaches the K threshold (i.e., the
+/// network is mid-upgrade and validators disagree on the canonical
+/// bytes), prefer the payload whose responses anchor to the
+/// **highest** `block_number`. The intuition: a newer chain view
+/// is the more current truth.
+///
+/// If exactly one payload reaches K, behaves identically to
+/// [`aggregate_k_of_n`].
+pub fn select_freshest_canonical(
+	responses: &[SignedFetchResponse],
+	k_threshold: usize,
+) -> Result<Vec<u8>, AggregateError> {
+	use alloc::collections::BTreeMap;
+
+	if responses.is_empty() {
+		return Err(AggregateError::InsufficientAttestations { got: 0, needed: k_threshold });
+	}
+
+	// Group responses by exact bytes; track distinct signers + max
+	// block_number per group.
+	#[derive(Default)]
+	struct Group {
+		signers: alloc::collections::BTreeSet<[u8; 32]>,
+		max_block: u32,
+	}
+	let mut by_bytes: BTreeMap<&[u8], Group> = BTreeMap::new();
+	for r in responses {
+		let g = by_bytes.entry(r.bytes.as_slice()).or_default();
+		g.signers.insert(r.signer_pubkey);
+		if r.block_number > g.max_block {
+			g.max_block = r.block_number;
+		}
+	}
+
+	// Among groups that meet the threshold, take the one with the
+	// highest max_block.
+	let mut best_qualifying: Option<(&[u8], u32)> = None;
+	let mut best_attempt = 0usize;
+	for (bytes, g) in &by_bytes {
+		if g.signers.len() >= k_threshold {
+			match best_qualifying {
+				None => best_qualifying = Some((bytes, g.max_block)),
+				Some((_, bm)) if g.max_block > bm => {
+					best_qualifying = Some((bytes, g.max_block));
+				},
+				_ => {},
+			}
+		}
+		if g.signers.len() > best_attempt {
+			best_attempt = g.signers.len();
+		}
+	}
+
+	match best_qualifying {
+		Some((bytes, _)) => Ok(bytes.to_vec()),
+		None => Err(AggregateError::InsufficientAttestations {
+			got: best_attempt,
+			needed: k_threshold,
+		}),
+	}
+}
+
 /// Verify a single [`SignedFetchResponse`] against the request that
 /// asked for it. Returns the bytes on success; never short-circuits
 /// past the hash check on the optimistic path.
@@ -661,6 +791,135 @@ mod tests {
 			SignedFetchReply::NotAvailable,
 			"oversized canonical file should degrade to NotAvailable, not panic or truncate",
 		);
+	}
+
+	// ── K-of-N aggregation tests ──────────────────────────────────
+
+	fn synthetic_response(
+		bytes: Vec<u8>,
+		signer_pubkey: [u8; 32],
+		block_number: u32,
+	) -> SignedFetchResponse {
+		// Tests for aggregate_k_of_n only inspect bytes/signer/block;
+		// nonce/hash/sig don't matter (caller has already verified).
+		SignedFetchResponse {
+			bytes,
+			hash: [0u8; 32],
+			nonce: [0u8; 32],
+			block_number,
+			block_hash: [0u8; 32],
+			timestamp_unix_secs: 0,
+			signer_pubkey,
+			sig: [0u8; 64],
+		}
+	}
+
+	#[test]
+	fn aggregate_returns_bytes_when_k_signers_agree() {
+		let bytes_a = vec![1, 2, 3];
+		let r1 = synthetic_response(bytes_a.clone(), [0x11; 32], 100);
+		let r2 = synthetic_response(bytes_a.clone(), [0x22; 32], 100);
+		let r3 = synthetic_response(bytes_a.clone(), [0x33; 32], 100);
+		let got = aggregate_k_of_n(&[r1, r2, r3], 3).unwrap();
+		assert_eq!(got, bytes_a);
+	}
+
+	#[test]
+	fn aggregate_rejects_below_threshold() {
+		let bytes_a = vec![1, 2, 3];
+		let r1 = synthetic_response(bytes_a.clone(), [0x11; 32], 100);
+		let r2 = synthetic_response(bytes_a.clone(), [0x22; 32], 100);
+		match aggregate_k_of_n(&[r1, r2], 3) {
+			Err(AggregateError::InsufficientAttestations { got, needed }) => {
+				assert_eq!(got, 2);
+				assert_eq!(needed, 3);
+			},
+			other => panic!("expected InsufficientAttestations, got {:?}", other),
+		}
+	}
+
+	#[test]
+	fn aggregate_dedupes_duplicate_signers() {
+		// One signer floods us with N copies. Should NOT satisfy
+		// a K=2 threshold — distinct-signer counting collapses to 1.
+		let bytes_a = vec![1, 2, 3];
+		let r1 = synthetic_response(bytes_a.clone(), [0x11; 32], 100);
+		let r2 = synthetic_response(bytes_a.clone(), [0x11; 32], 100);
+		let r3 = synthetic_response(bytes_a.clone(), [0x11; 32], 100);
+		match aggregate_k_of_n(&[r1, r2, r3], 2) {
+			Err(AggregateError::InsufficientAttestations { got, .. }) => {
+				assert_eq!(got, 1, "3 duplicates should count as 1 distinct signer");
+			},
+			other => panic!("expected InsufficientAttestations, got {:?}", other),
+		}
+	}
+
+	#[test]
+	fn aggregate_divergent_payloads_no_quorum() {
+		// Two payloads, each with 2 distinct signers. K=3 means
+		// no group qualifies even though total signers = 4.
+		let r1 = synthetic_response(vec![1, 1, 1], [0x11; 32], 100);
+		let r2 = synthetic_response(vec![1, 1, 1], [0x22; 32], 100);
+		let r3 = synthetic_response(vec![2, 2, 2], [0x33; 32], 100);
+		let r4 = synthetic_response(vec![2, 2, 2], [0x44; 32], 100);
+		match aggregate_k_of_n(&[r1, r2, r3, r4], 3) {
+			Err(AggregateError::InsufficientAttestations { got, needed }) => {
+				assert_eq!(got, 2);
+				assert_eq!(needed, 3);
+			},
+			other => panic!("expected InsufficientAttestations, got {:?}", other),
+		}
+	}
+
+	#[test]
+	fn aggregate_k_equals_one_accepts_first() {
+		let bytes_a = vec![42];
+		let r = synthetic_response(bytes_a.clone(), [0x11; 32], 100);
+		assert_eq!(aggregate_k_of_n(&[r], 1).unwrap(), bytes_a);
+	}
+
+	#[test]
+	fn aggregate_empty_responses_fails() {
+		match aggregate_k_of_n(&[], 1) {
+			Err(AggregateError::InsufficientAttestations { got, needed }) => {
+				assert_eq!(got, 0);
+				assert_eq!(needed, 1);
+			},
+			other => panic!("expected InsufficientAttestations, got {:?}", other),
+		}
+	}
+
+	#[test]
+	fn select_freshest_picks_highest_block_when_two_payloads_qualify() {
+		// Two payloads both reach K=2. One at block 100, the other
+		// at block 200. select_freshest picks block 200.
+		let stale = vec![1, 1];
+		let fresh = vec![2, 2];
+		let r1 = synthetic_response(stale.clone(), [0x11; 32], 100);
+		let r2 = synthetic_response(stale.clone(), [0x22; 32], 100);
+		let r3 = synthetic_response(fresh.clone(), [0x33; 32], 200);
+		let r4 = synthetic_response(fresh.clone(), [0x44; 32], 200);
+		let got = select_freshest_canonical(&[r1, r2, r3, r4], 2).unwrap();
+		assert_eq!(got, fresh, "should prefer the higher-block_number payload");
+	}
+
+	#[test]
+	fn select_freshest_uses_max_block_within_group() {
+		let bytes = vec![5, 5];
+		let r1 = synthetic_response(bytes.clone(), [0x11; 32], 100);
+		let r2 = synthetic_response(bytes.clone(), [0x22; 32], 200);
+		let got = select_freshest_canonical(&[r1, r2], 2).unwrap();
+		assert_eq!(got, bytes);
+	}
+
+	#[test]
+	fn select_freshest_below_threshold_returns_error() {
+		let bytes = vec![1, 2];
+		let r = synthetic_response(bytes, [0x11; 32], 100);
+		assert!(matches!(
+			select_freshest_canonical(&[r], 3),
+			Err(AggregateError::InsufficientAttestations { got: 1, needed: 3 }),
+		));
 	}
 
 	#[test]
