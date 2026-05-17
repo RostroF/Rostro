@@ -190,26 +190,26 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 echo "starting alice-star (bootnode, port 30333, rpc 9944, peer id $ALICE_PEER_ID)..."
-"$SUPERVISOR_BIN" --child "$ALICE_BASE/canonical-cache/gemini-node" --canonical-dir "$ALICE_BASE/canonical-cache" -- "${ALICE_CHILD_ARGS[@]}" 2>&1 | sed 's/^/[alice]   /' &
+"$SUPERVISOR_BIN" --child "$ALICE_BASE/canonical-cache/gemini-node" --canonical-dir "$ALICE_BASE/canonical-cache" -- "${ALICE_CHILD_ARGS[@]}" 2>&1 | tee "$ALICE_BASE/run.log" | sed 's/^/[alice]   /' &
 ALICE_PID=$!
 
 # Alice needs a beat to bind the listener before the leaves dial.
 sleep 3
 
 echo "starting bob-star (port 30334, rpc 9945)..."
-"$SUPERVISOR_BIN" --child "$BOB_BASE/canonical-cache/gemini-node" --canonical-dir "$BOB_BASE/canonical-cache" -- "${BOB_CHILD_ARGS[@]}" 2>&1 | sed 's/^/[bob]     /' &
+"$SUPERVISOR_BIN" --child "$BOB_BASE/canonical-cache/gemini-node" --canonical-dir "$BOB_BASE/canonical-cache" -- "${BOB_CHILD_ARGS[@]}" 2>&1 | tee "$BOB_BASE/run.log" | sed 's/^/[bob]     /' &
 BOB_PID=$!
 
 echo "starting charlie-star (port 30335, rpc 9946)..."
-"$SUPERVISOR_BIN" --child "$CHARLIE_BASE/canonical-cache/gemini-node" --canonical-dir "$CHARLIE_BASE/canonical-cache" -- "${CHARLIE_CHILD_ARGS[@]}" 2>&1 | sed 's/^/[charlie] /' &
+"$SUPERVISOR_BIN" --child "$CHARLIE_BASE/canonical-cache/gemini-node" --canonical-dir "$CHARLIE_BASE/canonical-cache" -- "${CHARLIE_CHILD_ARGS[@]}" 2>&1 | tee "$CHARLIE_BASE/run.log" | sed 's/^/[charlie] /' &
 CHARLIE_PID=$!
 
 echo "starting dave-star (port 30336, rpc 9947)..."
-"$SUPERVISOR_BIN" --child "$DAVE_BASE/canonical-cache/gemini-node" --canonical-dir "$DAVE_BASE/canonical-cache" -- "${DAVE_CHILD_ARGS[@]}" 2>&1 | sed 's/^/[dave]    /' &
+"$SUPERVISOR_BIN" --child "$DAVE_BASE/canonical-cache/gemini-node" --canonical-dir "$DAVE_BASE/canonical-cache" -- "${DAVE_CHILD_ARGS[@]}" 2>&1 | tee "$DAVE_BASE/run.log" | sed 's/^/[dave]    /' &
 DAVE_PID=$!
 
 echo "starting eve-star (port 30337, rpc 9948)..."
-"$SUPERVISOR_BIN" --child "$EVE_BASE/canonical-cache/gemini-node" --canonical-dir "$EVE_BASE/canonical-cache" -- "${EVE_CHILD_ARGS[@]}" 2>&1 | sed 's/^/[eve]     /' &
+"$SUPERVISOR_BIN" --child "$EVE_BASE/canonical-cache/gemini-node" --canonical-dir "$EVE_BASE/canonical-cache" -- "${EVE_CHILD_ARGS[@]}" 2>&1 | tee "$EVE_BASE/run.log" | sed 's/^/[eve]     /' &
 EVE_PID=$!
 
 wait
