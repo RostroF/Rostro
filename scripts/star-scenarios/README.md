@@ -16,13 +16,19 @@ The scenarios use the binaries at `target/release/gemini-node` and
 `target/release/rostro-supervisor`. Override via `GEMINI_NODE` and
 `ROSTRO_SUPERVISOR` env vars if needed.
 
-## Scenarios
+## Canonical-files gate scenarios (Phase 7 v2)
 
 | # | Script | What it verifies |
 |---|---|---|
 | 01 | `01-all-clean.sh` | All 5 nodes boot, every node logs `verified canonical`, attest passes pairwise, blocks finalize. |
 | 02 | `02-healable-drift.sh` | One node has a tampered binary + has the canonical bytes available in its `--canonical-files-dir`. Node heals via the local dir, exits 90, supervisor swaps, fresh child boots clean, rejoins the star. |
 | 03 | `03-unhealable-drift.sh` | One node has a tampered binary and NO canonical bytes available. Verifier emits `FOUNDATION FILESET MISMATCH`, node fail-stops. Other 4 continue. |
+
+## Validator-channel scenarios (Phase Z)
+
+| # | Script | What it verifies |
+|---|---|---|
+| VC-01 | `validator-channel-01-observer-locked-out.sh` | 5 validators + 1 non-validator observer. Validators establish pairwise encrypted sessions among themselves; observer is locked out (no local GRANDPA key → no asker; non-validator → no handshake-server). Block production + finality unaffected. Decrypted heartbeat traffic flows between validators. |
 
 ## Deferred scenarios
 
