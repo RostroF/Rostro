@@ -306,6 +306,10 @@ impl ShareStore for EphemeralShareStore {
 			})
 			.collect()
 	}
+
+	fn pickup_keys(&self) -> Vec<PickupKey> {
+		self.inner.read().by_pickup.keys().copied().collect()
+	}
 }
 
 #[cfg(test)]
@@ -565,6 +569,46 @@ mod tests {
 			h.join().unwrap();
 		}
 		assert_eq!(store.len(), 4 * 16);
+	}
+
+	#[test]
+	fn pickup_keys_returns_currently_active_set() {
+		let store = EphemeralShareStore::with_default_config();
+		assert!(<EphemeralShareStore as ShareStore>::pickup_keys(&store).is_empty());
+
+		// Two shares under one pickup key, one share under another.
+		let (d1, b1, t1) =
+			make_entry_inputs(0x70, 0, vec![1], CURRENT_BLOCK + 100);
+		let pickup_a = d1.pickup_key;
+		store.insert(d1, b1, t1).unwrap();
+
+		let (d2, b2, t2) =
+			make_entry_inputs(0x70, 1, vec![2], CURRENT_BLOCK + 100);
+		store.insert(d2, b2, t2).unwrap();
+
+		// Different message_id with a different pickup_key, to ensure
+		// the set behavior (not multiset).
+		let mut d3 = make_descriptor(0x71, 0, 5, CURRENT_BLOCK + 100);
+		d3.pickup_key = PickupKey([0xFE; 32]);
+		let t3 = mac_share(&[0u8; 32], &[3], 0);
+		store.insert(d3, vec![3], t3).unwrap();
+
+		let mut keys = <EphemeralShareStore as ShareStore>::pickup_keys(&store);
+		keys.sort();
+		let mut expected = vec![pickup_a, PickupKey([0xFE; 32])];
+		expected.sort();
+		assert_eq!(keys, expected);
+	}
+
+	#[test]
+	fn pickup_keys_empty_after_sweep_removes_last_share() {
+		let store = EphemeralShareStore::with_default_config();
+		let (d, b, t) =
+			make_entry_inputs(0x72, 0, vec![1], CURRENT_BLOCK + 10);
+		store.insert(d, b, t).unwrap();
+		assert_eq!(<EphemeralShareStore as ShareStore>::pickup_keys(&store).len(), 1);
+		store.sweep_expired(CURRENT_BLOCK + 100);
+		assert!(<EphemeralShareStore as ShareStore>::pickup_keys(&store).is_empty());
 	}
 
 	#[test]

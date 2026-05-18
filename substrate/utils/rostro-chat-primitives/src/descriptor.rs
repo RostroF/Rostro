@@ -112,7 +112,7 @@ pub struct RelayPubkey(pub [u8; 32]);
 
 /// Domain-separated 32-byte DHT lookup key under which a recipient
 /// queries for waiting shares. See module doc for derivation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub struct PickupKey(pub [u8; 32]);
 
 impl PickupKey {

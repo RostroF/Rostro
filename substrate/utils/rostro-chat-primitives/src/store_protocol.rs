@@ -138,6 +138,24 @@ pub trait ShareStore {
 	) -> Vec<(ShareDescriptor, Vec<u8>, ShareMacTag)> {
 		Vec::new()
 	}
+
+	/// Return every pickup_key currently backed by at least one
+	/// stored share. The libp2p Kademlia binding (Phase B6) reads
+	/// this list periodically and calls
+	/// [`crate::dht_publication::DhtAnnouncer::announce_provider`]
+	/// for each, so the recipient's
+	/// [`crate::dht_publication::DhtProviderQuery::query_providers`]
+	/// lookup finds this relay.
+	///
+	/// Order is implementation-defined; callers should not depend
+	/// on it. Calling this repeatedly is allowed — the libp2p
+	/// republish task may invoke it on every tick.
+	///
+	/// Default: returns empty (a store with no observable pickup
+	/// state acts as if it isn't providing for anything).
+	fn pickup_keys(&self) -> Vec<crate::descriptor::PickupKey> {
+		Vec::new()
+	}
 }
 
 /// Server-side handler. Validates the request, defers to `store`
