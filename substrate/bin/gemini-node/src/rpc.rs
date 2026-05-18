@@ -31,22 +31,24 @@ pub struct FullDeps<C, P> {
 }
 
 /// Subset of [`FullDeps`] dedicated to the chat-RPC surface.
+/// Does NOT carry any user chat-identity secret — those stay on
+/// end-user devices. The node only knows:
+///   - its own libp2p Ed25519 pubkey (for relay-descriptor minting
+///     + node-info diagnostics)
+///   - the shared share-store handle
+///   - the networking service handle (for outbound remote-relay
+///     fetches)
 pub struct ChatRpcDeps {
-	/// Raw 32-byte Ed25519 identity pubkey of the running node
-	/// (the libp2p node-identity key).
-	pub identity_pubkey_ed25519: [u8; 32],
-	/// Raw 32-byte Ed25519 seed for the same identity. Used to
-	/// derive the X25519 static secret (XEdDSA) at fetch time so
-	/// we can unseal sealed-sender envelopes addressed to this
-	/// node. Zero-array if no persistent key was configured —
-	/// fetch will return an error in that case.
-	pub identity_seed_ed25519: [u8; 32],
+	/// Raw 32-byte Ed25519 pubkey of this NODE (libp2p
+	/// node-identity). Used as the `relay_pubkey` field in share
+	/// descriptors the node mints when accepting `chat_send_envelope`
+	/// calls. Distinct from any user chat-identity.
+	pub node_pubkey_ed25519: [u8; 32],
 	/// Shared chat-share store. Lives inside the service for the
-	/// lifetime of the node; cloned into the RPC layer so the
-	/// chat-fetch path can read pickup-keyed entries.
+	/// lifetime of the node; cloned into the RPC layer.
 	pub share_store: Arc<rostro_chat_ephemeral_store::EphemeralShareStore>,
 	/// Handle to the running node's networking service. Used by
-	/// `chat_fetch` to query remote relays via the outbound
+	/// `chat_fetch_shares` to query remote relays via the outbound
 	/// `/rostro/chat-fetch/1` libp2p protocol when the caller
 	/// supplies `relay_peer_id_hex`.
 	pub network: Arc<dyn rc_network::service::traits::NetworkService>,
@@ -75,13 +77,8 @@ where
 	module.merge(System::new(client.clone(), pool).into_rpc())?;
 	module.merge(TransactionPayment::new(client).into_rpc())?;
 	module.merge(
-		ChatRpc::new(
-			chat.identity_pubkey_ed25519,
-			chat.identity_seed_ed25519,
-			chat.share_store,
-			chat.network,
-		)
-		.into_rpc(),
+		ChatRpc::new(chat.node_pubkey_ed25519, chat.share_store, chat.network)
+			.into_rpc(),
 	)?;
 
 	Ok(module)

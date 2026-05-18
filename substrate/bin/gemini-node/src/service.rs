@@ -518,12 +518,13 @@ pub fn new_full<
 	let enable_grandpa = !config.disable_grandpa;
 	let prometheus_registry = config.prometheus_registry().cloned();
 
-	// Phase C2a/C2b: derive the node's libp2p Ed25519 identity
-	// (pubkey + raw seed) for the chat_* JSON-RPC surface. The
-	// pubkey backs chat_myIdentity / chat_myPickupKey; the seed
-	// backs chat_fetch's XEdDSA-derived X25519 secret used to
-	// unseal inbound messages.
-	let (chat_identity_pubkey_ed25519, chat_identity_seed_ed25519): ([u8; 32], [u8; 32]) =
+	// Derive the node's libp2p Ed25519 identity pubkey. This is
+	// the NODE's identity (not a user's chat identity) — used as
+	// the `relay_pubkey` field on share descriptors and exposed
+	// via `chat_nodeInfo` so demo scripts know where to route.
+	// The node does NOT hold any user chat-identity secret —
+	// those live on end-user devices.
+	let chat_node_pubkey_ed25519: [u8; 32] =
 		match crate::canonical_fetch_protocol::load_node_identity_seed_bytes(
 			&config.network.node_key,
 		) {
@@ -531,16 +532,16 @@ pub fn new_full<
 				let sk = ed25519_zebra::SigningKey::from(seed);
 				let vk: ed25519_zebra::VerificationKey =
 					ed25519_zebra::VerificationKey::from(&sk);
-				(vk.into(), seed)
+				vk.into()
 			},
 			Err(e) => {
 				log::warn!(
 					target: "rostro-chat",
-					"chat RPC: identity unavailable ({e}); chat_myIdentity will \
-					 return zeros and chat_fetch cannot unseal. Set --node-key \
-					 or --node-key-file to enable a persistent chat identity.",
+					"chat RPC: node identity unavailable ({e}); chat_nodeInfo \
+					 will return zeros. Set --node-key or --node-key-file for \
+					 a persistent libp2p identity.",
 				);
-				([0u8; 32], [0u8; 32])
+				[0u8; 32]
 			},
 		};
 
@@ -557,8 +558,7 @@ pub fn new_full<
 				client: client.clone(),
 				pool: pool.clone(),
 				chat: crate::rpc::ChatRpcDeps {
-					identity_pubkey_ed25519: chat_identity_pubkey_ed25519,
-					identity_seed_ed25519: chat_identity_seed_ed25519,
+					node_pubkey_ed25519: chat_node_pubkey_ed25519,
 					share_store: chat_share_store.clone(),
 					network: network_arc.clone(),
 				},
