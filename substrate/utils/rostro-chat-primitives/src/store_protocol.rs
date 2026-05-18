@@ -105,8 +105,8 @@ pub enum StoreInsertError {
 }
 
 /// Abstraction over a relay's share store. The gemini-node binding
-/// passes an `Arc<dyn ShareStore>` to the protocol handler; the
-/// concrete impl (B2) is the mlock'd in-memory store.
+/// passes an `Arc<dyn ShareStore>` to the protocol handlers; the
+/// concrete impl (Phase B2) is the mlock'd in-memory store.
 pub trait ShareStore {
 	/// Insert a (descriptor, share_bytes, mac_tag) triple, keyed
 	/// internally by `(descriptor.message_id, descriptor.share_index)`
@@ -121,6 +121,23 @@ pub trait ShareStore {
 		share_bytes: Vec<u8>,
 		mac_tag: ShareMacTag,
 	) -> Result<(), StoreInsertError>;
+
+	/// Return all `(descriptor, share_bytes, mac_tag)` triples
+	/// whose `descriptor.pickup_key == pickup_key`. Used by the
+	/// fetch path (`/rostro/chat-fetch/1`) to serve a recipient's
+	/// pickup query.
+	///
+	/// Implementations clone the share bytes so the caller can
+	/// consume them freely; the in-store copy remains held until
+	/// its TTL expires.
+	///
+	/// Default: returns empty (a store can be insert-only).
+	fn get_by_pickup_key(
+		&self,
+		_pickup_key: &crate::descriptor::PickupKey,
+	) -> Vec<(ShareDescriptor, Vec<u8>, ShareMacTag)> {
+		Vec::new()
+	}
 }
 
 /// Server-side handler. Validates the request, defers to `store`
@@ -288,6 +305,18 @@ mod tests {
 			}
 			e.insert(key, (descriptor, share_bytes, mac_tag));
 			Ok(())
+		}
+
+		fn get_by_pickup_key(
+			&self,
+			pickup_key: &crate::descriptor::PickupKey,
+		) -> Vec<(ShareDescriptor, Vec<u8>, ShareMacTag)> {
+			self.entries
+				.borrow()
+				.values()
+				.filter(|(d, _, _)| d.pickup_key == *pickup_key)
+				.cloned()
+				.collect()
 		}
 	}
 

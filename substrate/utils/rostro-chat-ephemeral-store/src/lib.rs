@@ -220,31 +220,6 @@ impl EphemeralShareStore {
 		count
 	}
 
-	/// Return all `(descriptor, share_bytes, mac_tag)` triples
-	/// whose `descriptor.pickup_key == pickup_key`. Used by the
-	/// fetch path (Phase B3) to serve a recipient's pickup query.
-	///
-	/// Clones the share bytes so the caller can do whatever they
-	/// want with them; the in-store copy remains mlock'd and is
-	/// dropped when its TTL expires.
-	pub fn get_by_pickup_key(
-		&self,
-		pickup_key: &PickupKey,
-	) -> Vec<(ShareDescriptor, Vec<u8>, ShareMacTag)> {
-		let g = self.inner.read();
-		let keys = match g.by_pickup.get(pickup_key) {
-			Some(k) => k.clone(),
-			None => return Vec::new(),
-		};
-		keys.into_iter()
-			.filter_map(|pk| {
-				g.by_key.get(&pk).map(|e| {
-					(e.descriptor.clone(), e.share_bytes.as_slice().to_vec(), e.mac_tag)
-				})
-			})
-			.collect()
-	}
-
 	/// Number of entries currently stored.
 	pub fn len(&self) -> usize {
 		self.inner.read().by_key.len()
@@ -312,6 +287,24 @@ impl ShareStore for EphemeralShareStore {
 		g.by_key.insert(primary_key, entry);
 
 		Ok(())
+	}
+
+	fn get_by_pickup_key(
+		&self,
+		pickup_key: &PickupKey,
+	) -> Vec<(ShareDescriptor, Vec<u8>, ShareMacTag)> {
+		let g = self.inner.read();
+		let keys = match g.by_pickup.get(pickup_key) {
+			Some(k) => k.clone(),
+			None => return Vec::new(),
+		};
+		keys.into_iter()
+			.filter_map(|pk| {
+				g.by_key.get(&pk).map(|e| {
+					(e.descriptor.clone(), e.share_bytes.as_slice().to_vec(), e.mac_tag)
+				})
+			})
+			.collect()
 	}
 }
 
