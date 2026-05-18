@@ -17,10 +17,11 @@ codec = { features = ["derive"], workspace = true }
 sp-crypto-hashing = { workspace = true }
 ed25519-zebra = { workspace = true }
 rand_core = { workspace = true }
+curve25519-dalek = { workspace = true }
 
 [dev-dependencies]
 rand_chacha = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["codec/std", "sp-crypto-hashing/std", "ed25519-zebra/std"]
+std = ["codec/std", "sp-crypto-hashing/std", "ed25519-zebra/std", "curve25519-dalek/alloc"]

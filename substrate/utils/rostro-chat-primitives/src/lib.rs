@@ -60,6 +60,7 @@ pub mod descriptor;
 pub mod dht_publication;
 pub mod envelope;
 pub mod fetch_protocol;
+pub mod identity_key;
 pub mod store_protocol;
 pub mod stripe;
 pub mod verify;
