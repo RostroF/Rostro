@@ -14,6 +14,7 @@ members = [
 	"substrate/bin/rostro-operator-runtime",
 	"substrate/bin/rostro-supervisor",
 	"substrate/bin/utils/chain-spec-builder",
+	"substrate/bin/utils/rostro-chat-cli",
 	"substrate/bin/utils/subkey",
 	"substrate/bin/zkpki-tpm2-hip-probe",
 	"substrate/client/allocator",

@@ -13942,6 +13942,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-chat-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ed25519-zebra",
+ "hex",
+ "jsonrpsee",
+ "log",
+ "parity-scale-codec",
+ "rand_core 0.6.4",
+ "rostro-chat-primitives",
+ "rostro-chat-sealed-sender",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "rostro-chat-dr"
 version = "0.1.0"
 dependencies = [
