@@ -13953,6 +13953,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-chat-ephemeral-store"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "parking_lot 0.12.3",
+ "rostro-chat-primitives",
+ "zeroize",
+]
+
+[[package]]
 name = "rostro-chat-mls"
 version = "0.1.0"
 dependencies = [
