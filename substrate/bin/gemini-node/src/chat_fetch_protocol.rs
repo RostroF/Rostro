@@ -18,9 +18,13 @@
 //!
 //! ## Channel admission
 //!
-//! TODO(B6b): same admission note as `chat_stripe_protocol.rs` —
-//! refuse to serve fetches to peers in the active validator set
-//! once the RoleResolver integration lands.
+//! Inbound fetch requests from peers that have a live
+//! validator-channel session are rejected — channel-split
+//! invariant. The check consults
+//! [`crate::chat_admission::is_chat_admitted`] against the
+//! `SharedSessions` map populated by the validator-channel
+//! handshake. Rejected requests receive
+//! `OutgoingResponse { result: Err(()) }`.
 
 use std::sync::Arc;
 
@@ -33,6 +37,9 @@ use rc_network::{
 use rostro_chat_primitives::fetch_protocol::process_fetch_request_bytes;
 use rostro_chat_primitives::store_protocol::ShareStore;
 use sp_runtime::traits::Block as BlockT;
+
+use crate::chat_admission::is_chat_admitted;
+use crate::validator_channel::SharedSessions;
 
 /// libp2p protocol name. Distinct from `/rostro/chat-stripe/1`,
 /// `/rostro/validator-channel/*`, and `/rostro/canonical-fetch-*`.
@@ -63,8 +70,13 @@ const REQUEST_TIMEOUT_SECS: u64 = 60;
 
 /// Build the protocol config + handler future. Caller registers the
 /// config + spawns the future on the task manager.
+///
+/// `validator_sessions` is the same `SharedSessions` map owned by
+/// the validator-channel handshake server; the handler consults it
+/// to enforce the channel-split invariant.
 pub fn build_chat_fetch_protocol<N, S, Block>(
 	store: Arc<S>,
+	validator_sessions: SharedSessions,
 ) -> (N::RequestResponseProtocolConfig, impl std::future::Future<Output = ()>)
 where
 	N: NetworkBackend<Block, <Block as BlockT>::Hash>,
@@ -82,19 +94,37 @@ where
 		Some(tx),
 	);
 
-	(config, run_handler::<S, Block>(store, rx))
+	(config, run_handler::<S, Block>(store, validator_sessions, rx))
 }
 
-/// Inbound-request loop. Pulls `IncomingRequest`s, dispatches to
-/// the Apache-2.0 byte-shim, sends back the encoded `FetchResponse`.
+/// Inbound-request loop. Pulls `IncomingRequest`s, gates each on
+/// admission, dispatches admitted requests to the Apache-2.0
+/// byte-shim, sends back the encoded `FetchResponse`.
 async fn run_handler<S, Block>(
 	store: Arc<S>,
+	validator_sessions: SharedSessions,
 	mut rx: async_channel::Receiver<IncomingRequest>,
 ) where
 	Block: BlockT,
 	S: ShareStore + Send + Sync + 'static,
 {
 	while let Some(IncomingRequest { peer, payload, pending_response }) = rx.next().await {
+		// Admission: reject peers known to be active validators.
+		if !is_chat_admitted(&validator_sessions, &peer) {
+			log::debug!(
+				target: "rostro-chat-fetch",
+				"rejecting fetch request from {} — peer holds a validator-channel \
+				 session (channel-split invariant)",
+				peer,
+			);
+			let _ = pending_response.send(OutgoingResponse {
+				result: Err(()),
+				reputation_changes: Vec::new(),
+				sent_feedback: None,
+			});
+			continue;
+		}
+
 		let (response_bytes, decoded_ok) =
 			process_fetch_request_bytes(store.as_ref(), &payload);
 		if decoded_ok {

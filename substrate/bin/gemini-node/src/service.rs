@@ -318,6 +318,7 @@ pub fn new_full<
 	let (chat_stripe_config, chat_stripe_handler) =
 		crate::chat_stripe_protocol::build_chat_stripe_protocol::<N, _, _>(
 			chat_share_store.clone(),
+			validator_channel_sessions.clone(),
 		);
 	net_config.add_request_response_protocol(chat_stripe_config);
 	task_manager.spawn_handle().spawn(
@@ -329,6 +330,7 @@ pub fn new_full<
 	let (chat_fetch_config, chat_fetch_handler) =
 		crate::chat_fetch_protocol::build_chat_fetch_protocol::<N, _, _>(
 			chat_share_store.clone(),
+			validator_channel_sessions.clone(),
 		);
 	net_config.add_request_response_protocol(chat_fetch_config);
 	task_manager.spawn_handle().spawn(

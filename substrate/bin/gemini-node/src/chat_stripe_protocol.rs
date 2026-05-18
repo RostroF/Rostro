@@ -15,12 +15,13 @@
 //!
 //! ## Channel admission
 //!
-//! TODO(B6b): wire the [`rostro_chat_primitives::admission`]
-//! check — refuse to process the request if the originating peer
-//! is in the active validator set. v0.1 placeholder admits all
-//! peers; the integration with service.rs's RoleResolver lands
-//! once the validator-set snapshot is exposed to non-consensus
-//! tasks.
+//! Inbound requests from peers that have a live validator-channel
+//! session are rejected — the channel-split invariant says
+//! validators don't carry chat traffic. The check consults
+//! [`crate::chat_admission::is_chat_admitted`] against the
+//! `SharedSessions` map populated by the validator-channel
+//! handshake. Rejected requests receive `OutgoingResponse {
+//! result: Err(()) }`; the rejection is also logged.
 
 use std::sync::Arc;
 
@@ -32,6 +33,9 @@ use rc_network::{
 };
 use rostro_chat_primitives::store_protocol::{process_store_request_bytes, ShareStore};
 use sp_runtime::traits::Block as BlockT;
+
+use crate::chat_admission::is_chat_admitted;
+use crate::validator_channel::SharedSessions;
 
 /// Local-clock helper. Returns the host's current Unix timestamp in
 /// seconds, used to bound `expires_at_unix_ts` on inbound share
@@ -72,11 +76,13 @@ const REQUEST_TIMEOUT_SECS: u64 = 30;
 /// the config via `FullNetworkConfiguration::add_request_response_protocol`
 /// and spawns the future on the task manager.
 ///
-/// Note: this builder no longer takes a chain client. Local-clock
-/// TTL means the inbound handler bounds shard expiry against
-/// `now_unix_seconds()`, not against the chain's best block number.
+/// `validator_sessions` is the same `SharedSessions` map owned by
+/// the validator-channel handshake server; the handler consults it
+/// to enforce the channel-split invariant (validators rejected from
+/// chat substreams).
 pub fn build_chat_stripe_protocol<N, S, Block>(
 	store: Arc<S>,
+	validator_sessions: SharedSessions,
 ) -> (N::RequestResponseProtocolConfig, impl std::future::Future<Output = ()>)
 where
 	N: NetworkBackend<Block, <Block as BlockT>::Hash>,
@@ -94,19 +100,37 @@ where
 		Some(tx),
 	);
 
-	(config, run_handler::<S>(store, rx))
+	(config, run_handler::<S>(store, validator_sessions, rx))
 }
 
-/// Inbound-request loop. Pulls `IncomingRequest`s from rc-network
-/// and dispatches each to the Apache-2.0 byte-shim. No protocol
+/// Inbound-request loop. Pulls `IncomingRequest`s from rc-network,
+/// gates each on the channel-split admission check, dispatches
+/// admitted requests to the Apache-2.0 byte-shim. No protocol
 /// logic lives here.
 async fn run_handler<S>(
 	store: Arc<S>,
+	validator_sessions: SharedSessions,
 	mut rx: async_channel::Receiver<IncomingRequest>,
 ) where
 	S: ShareStore + Send + Sync + 'static,
 {
 	while let Some(IncomingRequest { peer, payload, pending_response }) = rx.next().await {
+		// Admission: reject peers known to be active validators.
+		if !is_chat_admitted(&validator_sessions, &peer) {
+			log::debug!(
+				target: "rostro-chat-stripe",
+				"rejecting store request from {} — peer holds a validator-channel \
+				 session (channel-split invariant)",
+				peer,
+			);
+			let _ = pending_response.send(OutgoingResponse {
+				result: Err(()),
+				reputation_changes: Vec::new(),
+				sent_feedback: None,
+			});
+			continue;
+		}
+
 		let now_ts = now_unix_seconds();
 		let (response_bytes, decoded_ok) =
 			process_store_request_bytes(store.as_ref(), now_ts, &payload);
