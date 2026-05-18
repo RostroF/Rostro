@@ -12,6 +12,8 @@ mod attest_protocol;
 mod canonical_fetch_client;
 mod canonical_fetch_protocol;
 mod chain_spec;
+mod chat_fetch_protocol;
+mod chat_stripe_protocol;
 mod cli;
 mod command;
 mod connect_gate;

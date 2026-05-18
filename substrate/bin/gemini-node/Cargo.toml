@@ -96,6 +96,7 @@ rostro-rpc-shield = { path = "../../utils/rostro-rpc-shield" }
 # `--canonical-files-dir` is set; `canonical_fetch_protocol` wires the
 # signed-attestation libp2p protocol on top.
 rostro-canonical-fetch = { path = "../../utils/rostro-canonical-fetch" }
+rostro-chat-primitives = { path = "../../utils/rostro-chat-primitives" }
 
 # Same Ed25519 backing crate the rest of Rostro uses (per crypto_stack_v1
 # memory). The canonical-fetch attestation server signs responses with
