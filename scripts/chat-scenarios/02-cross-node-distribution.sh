@@ -250,6 +250,33 @@ if [[ "$RECEIVED_SENDER" != "$IRIS_PUBKEY" ]]; then
 fi
 
 echo
+echo "=== Otto re-fetches via alice-chat (the ENTRY node, which holds 0 shards) ==="
+echo "  This exercises the bucket-peer fallback path: alice has nothing"
+echo "  locally for Otto's pickup key, so chat_fetch_shares queries bucket"
+echo "  peers (bob + charlie) via outbound /rostro/chat-fetch/1, merges"
+echo "  responses, returns to the CLI."
+"$CLI_BIN" fetch \
+	--node-rpc "$ALICE_RPC" \
+	--recipient-seed "$OTTO_SEED" > /tmp/chat-02-fetch-alice.out 2>&1
+
+if ! grep -q "plaintext:" /tmp/chat-02-fetch-alice.out; then
+	echo "FAIL: bucket-peer fallback did not deliver plaintext via alice"
+	echo "  alice was the entry node and stores 0 shards locally;"
+	echo "  fallback should have queried bob/charlie. Did not."
+	echo "  fetch output:"
+	cat /tmp/chat-02-fetch-alice.out | sed 's/^/    /'
+	exit 1
+fi
+RECOVERED_VIA_ALICE=$(awk '/^  plaintext:/ {sub(/^  plaintext:[[:space:]]+/, ""); print; exit}' /tmp/chat-02-fetch-alice.out)
+if [[ "$RECOVERED_VIA_ALICE" != "$MESSAGE" ]]; then
+	echo "FAIL: alice-fallback plaintext mismatch"
+	echo "  expected: \"$MESSAGE\""
+	echo "  got:      \"$RECOVERED_VIA_ALICE\""
+	exit 1
+fi
+echo "  bucket-peer fallback worked: alice (store=0) → queried bob/charlie → returned plaintext"
+
+echo
 echo "=== PASS ==="
 echo "Cross-node distribution end-to-end:"
 echo "  * Iris's CLI sent via alice-chat RPC (port 9954)"
@@ -257,7 +284,9 @@ echo "  * alice-chat sharded the envelope and pushed to bucket peers"
 echo "  * bob-chat received $BOB_GROWTH shards via /rostro/chat-stripe/1"
 echo "  * charlie-chat received $CHARLIE_GROWTH shards via /rostro/chat-stripe/1"
 echo "  * Otto's CLI fetched via bob-chat RPC (port 9955) — a different node"
-echo "  * Plaintext reconstructed correctly; sender authenticated"
+echo "  * Otto's CLI ALSO fetched via alice-chat (entry node, store=0):"
+echo "    bucket-peer fallback queried bob/charlie and recovered the plaintext"
+echo "  * Plaintext reconstructed correctly in BOTH fetch paths; sender authenticated"
 echo
 echo "Network model proven: hit-any-RPC-node, with cross-node sharding."
 exit 0

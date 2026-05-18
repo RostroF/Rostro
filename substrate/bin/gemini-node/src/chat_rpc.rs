@@ -133,6 +133,14 @@ pub const DEFAULT_TOTAL_SHARES: usize = 5;
 /// (old-tenant-mail behavior — there's nowhere to deliver).
 pub const REPLICATION_FACTOR: usize = 5;
 
+/// Maximum number of bucket peers to query when `chat_fetch_shares`
+/// hits a local-store miss and needs to fall back to the network.
+/// Each query is an outbound `/rostro/chat-fetch/1` request to a
+/// peer subscribed to the message's pickup-key bucket. The first
+/// few peers are typically enough to assemble (one bucket peer
+/// usually holds the full replicated set after a push).
+pub const MAX_FALLBACK_FETCH_PEERS: usize = 3;
+
 /// JSON-RPC response for `chat_nodeInfo`. Diagnostic — tells demo
 /// scripts where this node lives for routing.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -680,7 +688,12 @@ where
 		// Local store first.
 		let mut matched = self.share_store.get_by_pickup_key(&pickup);
 
-		// Remote relay (optional).
+		// Explicit relay (optional). When the caller names a specific
+		// peer (via `relay_peer_id_hex`), query that peer in addition
+		// to the local view. This is the demo-script path; the
+		// production path doesn't need it — the bucket-peer
+		// auto-fallback below handles the "I hit an RPC node that
+		// doesn't have my shards" case structurally.
 		if let Some(hex_peer) = relay_peer_id_hex {
 			let peer = parse_peer_id(&hex_peer)
 				.map_err(|e| invalid_param("relay_peer_id_hex", &e))?;
@@ -717,6 +730,102 @@ where
 						 — falling back to local view",
 					);
 				},
+			}
+		}
+
+		// Bucket-peer auto-fallback. If after the local store + any
+		// explicit-peer lookup we still don't have shards for this
+		// pickup key, query bucket peers from the BucketCache. This
+		// makes the "hit any RPC node" property hold for fetch:
+		// recipients don't have to know which RPC node received the
+		// push — any node will resolve via fallback when it doesn't
+		// have the shards locally.
+		//
+		// Why "still empty" not "always": when the local store has
+		// shards, the recipient's gateway IS a bucket peer and push
+		// reached it; no fallback needed. When local is empty, the
+		// gateway either (a) doesn't subscribe to the bucket or (b)
+		// subscribes but didn't receive the push (e.g., entry node
+		// that pushed elsewhere). Either way, a small set of
+		// bucket-peer queries assembles what's needed.
+		if matched.is_empty() {
+			use rostro_chat_primitives::bucket::bucket_for_pickup_key;
+
+			let bucket = bucket_for_pickup_key(&pickup);
+			let mut bucket_peers = self.bucket_cache.peers_for_bucket(bucket);
+
+			// Shuffle so we don't always query the same N peers for
+			// the same bucket (load-spreading + privacy: prevents an
+			// observer from correlating "alice's gateway always asks
+			// bob for bucket 42").
+			use rand_core::RngCore;
+			let mut rng = OsRng;
+			let n = bucket_peers.len();
+			for i in (1..n).rev() {
+				let j = (rng.next_u64() as usize) % (i + 1);
+				bucket_peers.swap(i, j);
+			}
+
+			let to_query: Vec<PeerId> = bucket_peers
+				.into_iter()
+				.take(MAX_FALLBACK_FETCH_PEERS)
+				.collect();
+
+			if !to_query.is_empty() {
+				log::debug!(
+					target: "rostro-chat-rpc",
+					"chat_fetch_shares: local miss for bucket {bucket}; \
+					 querying {} bucket peer(s) via fallback",
+					to_query.len(),
+				);
+			}
+
+			let fetch_req = FetchRequest { pickup_key: pickup };
+			let fetch_req_bytes = fetch_req.encode();
+
+			for peer in to_query {
+				match self
+					.network
+					.request(
+						peer,
+						ProtocolName::from(CHAT_FETCH_PROTOCOL_NAME),
+						fetch_req_bytes.clone(),
+						None,
+						IfDisconnected::TryConnect,
+					)
+					.await
+				{
+					Ok((resp_bytes, _)) => {
+						match FetchResponse::decode(&mut &resp_bytes[..]) {
+							Ok(resp) => {
+								let n = resp.shares.len();
+								for fs in resp.shares {
+									matched.push((fs.descriptor, fs.share_bytes, fs.mac_tag));
+								}
+								if n > 0 {
+									log::debug!(
+										target: "rostro-chat-rpc",
+										"fallback: peer {peer} returned {} shares",
+										n,
+									);
+								}
+							}
+							Err(e) => {
+								log::debug!(
+									target: "rostro-chat-rpc",
+									"fallback: peer {peer} returned undecodable \
+									 FetchResponse: {e:?}",
+								);
+							}
+						}
+					}
+					Err(e) => {
+						log::debug!(
+							target: "rostro-chat-rpc",
+							"fallback: peer {peer} request failed: {e:?}",
+						);
+					}
+				}
 			}
 		}
 
