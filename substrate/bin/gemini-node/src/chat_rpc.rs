@@ -54,6 +54,7 @@
 //!   When `relay_peer_id_hex` is set, ALSO query that remote
 //!   node via `/rostro/chat-fetch/1` and merge results.
 
+use async_trait::async_trait;
 use jsonrpsee::{
 	core::RpcResult,
 	proc_macros::rpc,
@@ -182,20 +183,11 @@ pub trait ChatRpcApi {
 	///     When set, the node merges the remote response with its
 	///     local view.
 	#[method(name = "chat_fetch_shares")]
-	fn fetch_shares<'life0, 'async_trait>(
-		&'life0 self,
+	async fn fetch_shares(
+		&self,
 		pickup_key_hex: String,
 		relay_peer_id_hex: Option<String>,
-	) -> core::pin::Pin<
-		Box<
-			dyn core::future::Future<Output = RpcResult<Vec<ChatFetchedShareRaw>>>
-				+ core::marker::Send
-				+ 'async_trait,
-		>,
-	>
-	where
-		'life0: 'async_trait,
-		Self: 'async_trait;
+	) -> RpcResult<Vec<ChatFetchedShareRaw>>;
 }
 
 /// Concrete implementation. Holds only the node's PUBLIC libp2p
@@ -219,6 +211,7 @@ impl ChatRpc {
 	}
 }
 
+#[async_trait]
 impl ChatRpcApiServer for ChatRpc {
 	fn node_info(&self) -> RpcResult<ChatNodeInfo> {
 		Ok(ChatNodeInfo {
@@ -321,106 +314,89 @@ impl ChatRpcApiServer for ChatRpc {
 		})
 	}
 
-	fn fetch_shares<'life0, 'async_trait>(
-		&'life0 self,
+	async fn fetch_shares(
+		&self,
 		pickup_key_hex: String,
 		relay_peer_id_hex: Option<String>,
-	) -> core::pin::Pin<
-		Box<
-			dyn core::future::Future<Output = RpcResult<Vec<ChatFetchedShareRaw>>>
-				+ core::marker::Send
-				+ 'async_trait,
-		>,
-	>
-	where
-		'life0: 'async_trait,
-		Self: 'async_trait,
-	{
-		let share_store = self.share_store.clone();
-		let network = self.network.clone();
-		Box::pin(async move {
-			let pickup_bytes = decode_hex32(&pickup_key_hex)
-				.map_err(|e| invalid_param("pickup_key_hex", &e))?;
-			let pickup = PickupKey(pickup_bytes);
+	) -> RpcResult<Vec<ChatFetchedShareRaw>> {
+		let pickup_bytes = decode_hex32(&pickup_key_hex)
+			.map_err(|e| invalid_param("pickup_key_hex", &e))?;
+		let pickup = PickupKey(pickup_bytes);
 
-			// Local store first.
-			let mut matched = share_store.get_by_pickup_key(&pickup);
+		// Local store first.
+		let mut matched = self.share_store.get_by_pickup_key(&pickup);
 
-			// Remote relay (optional).
-			if let Some(hex_peer) = relay_peer_id_hex {
-				let peer = parse_peer_id(&hex_peer)
-					.map_err(|e| invalid_param("relay_peer_id_hex", &e))?;
-				let request = FetchRequest { pickup_key: pickup };
-				let request_bytes = request.encode();
-				match network
-					.request(
-						peer,
-						ProtocolName::from(CHAT_FETCH_PROTOCOL_NAME),
-						request_bytes,
-						None,
-						IfDisconnected::TryConnect,
-					)
-					.await
-				{
-					Ok((resp_bytes, _)) => {
-						if let Ok(resp) = FetchResponse::decode(&mut &resp_bytes[..]) {
-							for fs in resp.shares {
-								matched.push((
-									fs.descriptor,
-									fs.share_bytes,
-									fs.mac_tag,
-								));
-							}
-						} else {
-							log::warn!(
-								target: "rostro-chat-rpc",
-								"chat_fetch_shares: relay {peer} returned malformed \
-								 FetchResponse — local view only",
-							);
+		// Remote relay (optional).
+		if let Some(hex_peer) = relay_peer_id_hex {
+			let peer = parse_peer_id(&hex_peer)
+				.map_err(|e| invalid_param("relay_peer_id_hex", &e))?;
+			let request = FetchRequest { pickup_key: pickup };
+			let request_bytes = request.encode();
+			match self
+				.network
+				.request(
+					peer,
+					ProtocolName::from(CHAT_FETCH_PROTOCOL_NAME),
+					request_bytes,
+					None,
+					IfDisconnected::TryConnect,
+				)
+				.await
+			{
+				Ok((resp_bytes, _)) => {
+					if let Ok(resp) = FetchResponse::decode(&mut &resp_bytes[..]) {
+						for fs in resp.shares {
+							matched.push((fs.descriptor, fs.share_bytes, fs.mac_tag));
 						}
-					},
-					Err(e) => {
+					} else {
 						log::warn!(
 							target: "rostro-chat-rpc",
-							"chat_fetch_shares: relay {peer} request failed: {e:?} \
-							 — falling back to local view",
+							"chat_fetch_shares: relay {peer} returned malformed \
+							 FetchResponse — local view only",
 						);
-					},
-				}
+					}
+				},
+				Err(e) => {
+					log::warn!(
+						target: "rostro-chat-rpc",
+						"chat_fetch_shares: relay {peer} request failed: {e:?} \
+						 — falling back to local view",
+					);
+				},
 			}
+		}
 
-			// Dedupe (message_id, share_index) pairs that show up
-			// both locally and remotely.
-			let mut seen: std::collections::HashSet<(MessageId, u8)> =
-				std::collections::HashSet::new();
-			let mut out: Vec<ChatFetchedShareRaw> = Vec::new();
-			for (descriptor, share_bytes, mac_tag) in matched {
-				let key = (descriptor.message_id, descriptor.share_index);
-				if !seen.insert(key) {
-					continue;
-				}
-				out.push(ChatFetchedShareRaw {
-					descriptor: ChatShareDescriptorRpc {
-						relay_pubkey_hex: hex::encode(descriptor.relay_pubkey.0),
-						message_id_hex: hex::encode(descriptor.message_id.0),
-						share_index: descriptor.share_index,
-						total_shares: descriptor.total_shares,
-						pickup_key_hex: hex::encode(descriptor.pickup_key.0),
-						expires_at_block: descriptor.expires_at_block,
-					},
-					share_bytes_hex: hex::encode(&share_bytes),
-					mac_tag_hex: hex::encode(mac_tag),
-				});
+		// Dedupe (message_id, share_index) pairs that show up both
+		// locally and remotely.
+		let mut seen: std::collections::HashSet<(MessageId, u8)> =
+			std::collections::HashSet::new();
+		let mut out: Vec<ChatFetchedShareRaw> = Vec::new();
+		for (descriptor, share_bytes, mac_tag) in matched {
+			let key = (descriptor.message_id, descriptor.share_index);
+			if !seen.insert(key) {
+				continue;
 			}
-			// Stable ordering for determinism.
-			out.sort_by(|a, b| {
-				(a.descriptor.message_id_hex.as_str(), a.descriptor.share_index).cmp(&(
-					b.descriptor.message_id_hex.as_str(),
-					b.descriptor.share_index,
-				))
+			out.push(ChatFetchedShareRaw {
+				descriptor: ChatShareDescriptorRpc {
+					relay_pubkey_hex: hex::encode(descriptor.relay_pubkey.0),
+					message_id_hex: hex::encode(descriptor.message_id.0),
+					share_index: descriptor.share_index,
+					total_shares: descriptor.total_shares,
+					pickup_key_hex: hex::encode(descriptor.pickup_key.0),
+					expires_at_block: descriptor.expires_at_block,
+				},
+				share_bytes_hex: hex::encode(&share_bytes),
+				mac_tag_hex: hex::encode(mac_tag),
 			});
-			Ok(out)
-		})
+		}
+		// Stable ordering for determinism.
+		out.sort_by(|a, b| {
+			(a.descriptor.message_id_hex.as_str(), a.descriptor.share_index).cmp(&(
+				b.descriptor.message_id_hex.as_str(),
+				b.descriptor.share_index,
+			))
+		});
+		Ok(out)
 	}
 }
 
