@@ -21,7 +21,7 @@
 
 use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 use rostro_chat_primitives::{
-	descriptor::{MessageId, ShareDescriptor, ShareIndex, CHAT_TTL_BLOCKS},
+	descriptor::{MessageId, ShareDescriptor, ShareIndex, CHAT_TTL_SECONDS},
 	descriptor::{GroupId, PickupKey, RelayPubkey},
 	envelope::{sign_inner, EnvelopeKind, SealedEnvelope, UnsealedInner},
 	stripe::{combine_xor_authenticated, split_xor},
@@ -109,7 +109,7 @@ fn pairwise_dm_full_stack_roundtrip() {
 			share_index: i as ShareIndex,
 			total_shares: SHARE_COUNT as u8,
 			pickup_key,
-			expires_at_block: 1_000_000 + CHAT_TTL_BLOCKS,
+			expires_at_unix_ts: 1_700_000_000 + CHAT_TTL_SECONDS,
 		})
 		.collect();
 

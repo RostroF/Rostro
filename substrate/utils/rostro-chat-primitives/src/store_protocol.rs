@@ -33,7 +33,7 @@
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 
-use crate::descriptor::{BlockNumber, ShareDescriptor};
+use crate::descriptor::{ShareDescriptor, UnixTimestamp};
 use crate::stripe::MAX_SHARES;
 use crate::verify::{ShareMacTag, MAC_TAG_LEN};
 
@@ -71,8 +71,11 @@ pub enum StoreResponse {
 /// Concrete rejection reasons returned by [`handle_store_request`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum StoreRejection {
-	/// `descriptor.expires_at_block <= current_block` — sender
-	/// is asking us to store something already past TTL.
+	/// `descriptor.expires_at_unix_ts` is outside the receive-time
+	/// bounds for `now_unix_ts` — either already expired beyond the
+	/// past grace window, or claiming a far-future expiry the
+	/// receiver refuses to squat on. See
+	/// [`crate::descriptor::ShareDescriptor::expiry_within_bounds`].
 	DescriptorExpired,
 	/// `descriptor.share_index >= descriptor.total_shares` —
 	/// nonsensical index; the descriptor is internally inconsistent.
@@ -161,9 +164,10 @@ pub trait ShareStore {
 /// Server-side handler. Validates the request, defers to `store`
 /// for persistence, returns a structured [`StoreResponse`].
 ///
-/// `current_block` is the relay's view of chain head; used for
-/// TTL enforcement. The handler trusts the caller to pass the
-/// latest finalized block number.
+/// `now_unix_ts` is the receiver's local wall-clock; used to bound
+/// the descriptor's expiry timestamp on receive (rejects past-too-far
+/// AND future-too-far, the latter to prevent squatters). No chain
+/// involvement.
 ///
 /// **No signature verification here** — the share descriptor is a
 /// public artifact (it ends up in the DHT); per-message integrity
@@ -173,12 +177,12 @@ pub trait ShareStore {
 pub fn handle_store_request<S: ShareStore + ?Sized>(
 	store: &S,
 	request: &StoreRequest,
-	current_block: BlockNumber,
+	now_unix_ts: UnixTimestamp,
 ) -> StoreResponse {
 	let d = &request.descriptor;
 
 	// Descriptor sanity checks (cheap, before touching the store).
-	if d.is_expired(current_block) {
+	if !d.expiry_within_bounds(now_unix_ts) {
 		return StoreResponse::Rejected(StoreRejection::DescriptorExpired);
 	}
 	if (d.total_shares as usize) > MAX_SHARES {
@@ -222,20 +226,19 @@ pub fn handle_store_request<S: ShareStore + ?Sized>(
 /// failed" via the boolean return: `(response_bytes, decoded_ok)`.
 pub fn process_store_request_bytes<S: ShareStore + ?Sized>(
 	store: &S,
-	current_block: BlockNumber,
+	now_unix_ts: UnixTimestamp,
 	payload: &[u8],
 ) -> (Vec<u8>, bool) {
 	let request = match StoreRequest::decode(&mut &payload[..]) {
 		Ok(r) => r,
 		Err(_) => {
 			// Wire-format decode failure. Reply with a generic
-			// rejection so the peer learns we didn't accept,
-			// without a chain-state-dependent reason code.
+			// rejection so the peer learns we didn't accept.
 			let resp = StoreResponse::Rejected(StoreRejection::ShareTooLarge);
 			return (resp.encode(), false);
 		},
 	};
-	let response = handle_store_request(store, &request, current_block);
+	let response = handle_store_request(store, &request, now_unix_ts);
 	(response.encode(), true)
 }
 
@@ -265,18 +268,24 @@ pub fn store_one_share<T: StoreTransport>(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::descriptor::{GroupId, MessageId, PickupKey, RelayPubkey};
+	use crate::descriptor::{
+		GroupId, MessageId, PickupKey, RelayPubkey, CHAT_TTL_SECONDS,
+		MAX_TTL_SLOP_SECONDS, PAST_GRACE_SECONDS,
+	};
 	use crate::verify::mac_share;
 	use alloc::collections::BTreeMap;
 	use alloc::sync::Arc;
 	use core::cell::RefCell;
 
-	const CURRENT_BLOCK: BlockNumber = 1_000_000;
+	/// Reference unix timestamp used as "now" in tests. Arbitrary
+	/// recent-past value; the only constraint is it leaves room to
+	/// stamp expiries both before and after.
+	const NOW_TS: UnixTimestamp = 1_700_000_000;
 
 	fn make_descriptor(
 		share_index: u8,
 		total_shares: u8,
-		expires_at_block: BlockNumber,
+		expires_at_unix_ts: UnixTimestamp,
 	) -> ShareDescriptor {
 		ShareDescriptor {
 			relay_pubkey: RelayPubkey([0x11; 32]),
@@ -284,7 +293,7 @@ mod tests {
 			share_index,
 			total_shares,
 			pickup_key: PickupKey::for_group(&GroupId([0x33; 32])),
-			expires_at_block,
+			expires_at_unix_ts,
 		}
 	}
 
@@ -343,10 +352,10 @@ mod tests {
 	#[test]
 	fn store_accepts_well_formed_share() {
 		let store = StubStore::new(100);
-		let d = make_descriptor(0, 5, CURRENT_BLOCK + 100);
+		let d = make_descriptor(0, 5, NOW_TS + CHAT_TTL_SECONDS);
 		let req = make_request(d, alloc::vec![1, 2, 3, 4]);
 		assert_eq!(
-			handle_store_request(&store, &req, CURRENT_BLOCK),
+			handle_store_request(&store, &req, NOW_TS),
 			StoreResponse::Stored,
 		);
 		assert_eq!(store.entries.borrow().len(), 1);
@@ -356,10 +365,10 @@ mod tests {
 	fn store_accepts_multiple_shares_of_same_message() {
 		let store = StubStore::new(100);
 		for i in 0..5u8 {
-			let d = make_descriptor(i, 5, CURRENT_BLOCK + 100);
+			let d = make_descriptor(i, 5, NOW_TS + CHAT_TTL_SECONDS);
 			let req = make_request(d, alloc::vec![i; 16]);
 			assert_eq!(
-				handle_store_request(&store, &req, CURRENT_BLOCK),
+				handle_store_request(&store, &req, NOW_TS),
 				StoreResponse::Stored,
 			);
 		}
@@ -369,13 +378,30 @@ mod tests {
 	// ── rejections ────────────────────────────────────────────────
 
 	#[test]
-	fn rejects_expired_descriptor() {
+	fn rejects_descriptor_expired_in_past_beyond_grace() {
 		let store = StubStore::new(100);
-		// expires_at_block <= current_block → expired.
-		let d = make_descriptor(0, 5, CURRENT_BLOCK);
+		// expires_at is well in the past — beyond PAST_GRACE_SECONDS.
+		let d = make_descriptor(0, 5, NOW_TS - PAST_GRACE_SECONDS - 60);
 		let req = make_request(d, alloc::vec![1, 2, 3]);
 		assert_eq!(
-			handle_store_request(&store, &req, CURRENT_BLOCK),
+			handle_store_request(&store, &req, NOW_TS),
+			StoreResponse::Rejected(StoreRejection::DescriptorExpired),
+		);
+		assert!(store.entries.borrow().is_empty());
+	}
+
+	#[test]
+	fn rejects_descriptor_squatting_far_future() {
+		let store = StubStore::new(100);
+		// expires_at is well past the receive-time future bound.
+		let d = make_descriptor(
+			0,
+			5,
+			NOW_TS + CHAT_TTL_SECONDS + MAX_TTL_SLOP_SECONDS + 60,
+		);
+		let req = make_request(d, alloc::vec![1, 2, 3]);
+		assert_eq!(
+			handle_store_request(&store, &req, NOW_TS),
 			StoreResponse::Rejected(StoreRejection::DescriptorExpired),
 		);
 		assert!(store.entries.borrow().is_empty());
@@ -385,11 +411,11 @@ mod tests {
 	fn rejects_total_shares_too_large() {
 		let store = StubStore::new(100);
 		// total_shares > MAX_SHARES (64).
-		let mut d = make_descriptor(0, 5, CURRENT_BLOCK + 100);
+		let mut d = make_descriptor(0, 5, NOW_TS + CHAT_TTL_SECONDS);
 		d.total_shares = (MAX_SHARES as u8).saturating_add(1);
 		let req = make_request(d, alloc::vec![1]);
 		assert_eq!(
-			handle_store_request(&store, &req, CURRENT_BLOCK),
+			handle_store_request(&store, &req, NOW_TS),
 			StoreResponse::Rejected(StoreRejection::TotalSharesTooLarge),
 		);
 	}
@@ -398,10 +424,10 @@ mod tests {
 	fn rejects_total_shares_too_small() {
 		let store = StubStore::new(100);
 		// total_shares = 1 is degenerate.
-		let d = make_descriptor(0, 1, CURRENT_BLOCK + 100);
+		let d = make_descriptor(0, 1, NOW_TS + CHAT_TTL_SECONDS);
 		let req = make_request(d, alloc::vec![1]);
 		assert_eq!(
-			handle_store_request(&store, &req, CURRENT_BLOCK),
+			handle_store_request(&store, &req, NOW_TS),
 			StoreResponse::Rejected(StoreRejection::TotalSharesTooSmall),
 		);
 	}
@@ -410,10 +436,10 @@ mod tests {
 	fn rejects_share_index_out_of_range() {
 		let store = StubStore::new(100);
 		// share_index == total_shares → out of range.
-		let d = make_descriptor(5, 5, CURRENT_BLOCK + 100);
+		let d = make_descriptor(5, 5, NOW_TS + CHAT_TTL_SECONDS);
 		let req = make_request(d, alloc::vec![1]);
 		assert_eq!(
-			handle_store_request(&store, &req, CURRENT_BLOCK),
+			handle_store_request(&store, &req, NOW_TS),
 			StoreResponse::Rejected(StoreRejection::ShareIndexOutOfRange),
 		);
 	}
@@ -421,11 +447,11 @@ mod tests {
 	#[test]
 	fn rejects_oversized_share() {
 		let store = StubStore::new(100);
-		let d = make_descriptor(0, 5, CURRENT_BLOCK + 100);
+		let d = make_descriptor(0, 5, NOW_TS + CHAT_TTL_SECONDS);
 		let huge = alloc::vec![0u8; MAX_SHARE_BYTES + 1];
 		let req = make_request(d, huge);
 		assert_eq!(
-			handle_store_request(&store, &req, CURRENT_BLOCK),
+			handle_store_request(&store, &req, NOW_TS),
 			StoreResponse::Rejected(StoreRejection::ShareTooLarge),
 		);
 	}
@@ -433,16 +459,16 @@ mod tests {
 	#[test]
 	fn rejects_duplicate_share() {
 		let store = StubStore::new(100);
-		let d = make_descriptor(0, 5, CURRENT_BLOCK + 100);
+		let d = make_descriptor(0, 5, NOW_TS + CHAT_TTL_SECONDS);
 		let req = make_request(d.clone(), alloc::vec![1, 2, 3]);
 		assert_eq!(
-			handle_store_request(&store, &req, CURRENT_BLOCK),
+			handle_store_request(&store, &req, NOW_TS),
 			StoreResponse::Stored,
 		);
 		// Same (message_id, share_index) again → duplicate.
 		let req2 = make_request(d, alloc::vec![4, 5, 6]);
 		assert_eq!(
-			handle_store_request(&store, &req2, CURRENT_BLOCK),
+			handle_store_request(&store, &req2, NOW_TS),
 			StoreResponse::Rejected(StoreRejection::DuplicateShare),
 		);
 	}
@@ -451,15 +477,15 @@ mod tests {
 	fn rejects_when_store_full() {
 		let store = StubStore::new(2);
 		for i in 0..2u8 {
-			let d = make_descriptor(i, 5, CURRENT_BLOCK + 100);
+			let d = make_descriptor(i, 5, NOW_TS + CHAT_TTL_SECONDS);
 			let req = make_request(d, alloc::vec![i]);
-			handle_store_request(&store, &req, CURRENT_BLOCK);
+			handle_store_request(&store, &req, NOW_TS);
 		}
 		// Third insert hits capacity.
-		let d = make_descriptor(2, 5, CURRENT_BLOCK + 100);
+		let d = make_descriptor(2, 5, NOW_TS + CHAT_TTL_SECONDS);
 		let req = make_request(d, alloc::vec![2]);
 		assert_eq!(
-			handle_store_request(&store, &req, CURRENT_BLOCK),
+			handle_store_request(&store, &req, NOW_TS),
 			StoreResponse::Rejected(StoreRejection::StorageFull),
 		);
 	}
@@ -468,7 +494,7 @@ mod tests {
 
 	#[test]
 	fn store_request_scale_roundtrip() {
-		let d = make_descriptor(2, 5, CURRENT_BLOCK + 100);
+		let d = make_descriptor(2, 5, NOW_TS + CHAT_TTL_SECONDS);
 		let req = make_request(d, alloc::vec![1, 2, 3, 4]);
 		let bytes = req.encode();
 		assert_eq!(StoreRequest::decode(&mut &bytes[..]).unwrap(), req);
@@ -503,7 +529,7 @@ mod tests {
 
 	struct HonestTransport {
 		store: Arc<StubStore>,
-		current_block: BlockNumber,
+		now_unix_ts: UnixTimestamp,
 	}
 
 	impl StoreTransport for HonestTransport {
@@ -512,15 +538,16 @@ mod tests {
 			&mut self,
 			request: StoreRequest,
 		) -> Result<StoreResponse, Self::Error> {
-			Ok(handle_store_request(&*self.store, &request, self.current_block))
+			Ok(handle_store_request(&*self.store, &request, self.now_unix_ts))
 		}
 	}
 
 	#[test]
 	fn store_one_share_via_transport() {
 		let store = Arc::new(StubStore::new(100));
-		let mut transport = HonestTransport { store: store.clone(), current_block: CURRENT_BLOCK };
-		let d = make_descriptor(0, 3, CURRENT_BLOCK + 100);
+		let mut transport =
+			HonestTransport { store: store.clone(), now_unix_ts: NOW_TS };
+		let d = make_descriptor(0, 3, NOW_TS + CHAT_TTL_SECONDS);
 		let req = make_request(d, alloc::vec![1, 2, 3]);
 		let resp = store_one_share(&mut transport, req).unwrap();
 		assert_eq!(resp, StoreResponse::Stored);
@@ -532,11 +559,11 @@ mod tests {
 	#[test]
 	fn process_bytes_decodes_and_dispatches_valid_request() {
 		let store = StubStore::new(100);
-		let d = make_descriptor(0, 5, CURRENT_BLOCK + 100);
+		let d = make_descriptor(0, 5, NOW_TS + CHAT_TTL_SECONDS);
 		let req = make_request(d, alloc::vec![1, 2, 3, 4]);
 		let payload = req.encode();
 		let (resp_bytes, decoded_ok) =
-			process_store_request_bytes(&store, CURRENT_BLOCK, &payload);
+			process_store_request_bytes(&store, NOW_TS, &payload);
 		assert!(decoded_ok);
 		let resp = StoreResponse::decode(&mut &resp_bytes[..]).unwrap();
 		assert_eq!(resp, StoreResponse::Stored);
@@ -547,7 +574,7 @@ mod tests {
 		let store = StubStore::new(100);
 		let garbage = alloc::vec![0xFFu8; 4];
 		let (resp_bytes, decoded_ok) =
-			process_store_request_bytes(&store, CURRENT_BLOCK, &garbage);
+			process_store_request_bytes(&store, NOW_TS, &garbage);
 		assert!(!decoded_ok);
 		// Caller can still parse the response — it's a Rejected variant.
 		let resp = StoreResponse::decode(&mut &resp_bytes[..]).unwrap();
@@ -557,12 +584,12 @@ mod tests {
 	#[test]
 	fn process_bytes_rejects_expired() {
 		let store = StubStore::new(100);
-		let d = make_descriptor(0, 5, CURRENT_BLOCK);
+		// expires_at well in the past, beyond PAST_GRACE_SECONDS.
+		let d = make_descriptor(0, 5, NOW_TS - PAST_GRACE_SECONDS - 60);
 		let req = make_request(d, alloc::vec![1, 2]);
 		let payload = req.encode();
-		// best_number > expires_at_block → DescriptorExpired.
 		let (resp_bytes, decoded_ok) =
-			process_store_request_bytes(&store, CURRENT_BLOCK + 50, &payload);
+			process_store_request_bytes(&store, NOW_TS, &payload);
 		assert!(decoded_ok);
 		let resp = StoreResponse::decode(&mut &resp_bytes[..]).unwrap();
 		assert_eq!(

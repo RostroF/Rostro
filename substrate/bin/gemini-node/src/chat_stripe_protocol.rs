@@ -31,8 +31,18 @@ use rc_network::{
 	NetworkBackend,
 };
 use rostro_chat_primitives::store_protocol::{process_store_request_bytes, ShareStore};
-use sp_blockchain::HeaderBackend;
-use sp_runtime::{traits::Block as BlockT, SaturatedConversion};
+use sp_runtime::traits::Block as BlockT;
+
+/// Local-clock helper. Returns the host's current Unix timestamp in
+/// seconds, used to bound `expires_at_unix_ts` on inbound share
+/// descriptors. No chain involvement — local-clock TTL means a
+/// chat-gossip relay doesn't need to follow blocks.
+fn now_unix_seconds() -> u64 {
+	std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map(|d| d.as_secs())
+		.unwrap_or(0)
+}
 
 /// libp2p protocol name. Versioned suffix bumped if the wire
 /// format changes incompatibly. Distinct from
@@ -61,14 +71,16 @@ const REQUEST_TIMEOUT_SECS: u64 = 30;
 /// Build the protocol config + handler future. The caller registers
 /// the config via `FullNetworkConfiguration::add_request_response_protocol`
 /// and spawns the future on the task manager.
-pub fn build_chat_stripe_protocol<N, C, S, Block>(
-	client: Arc<C>,
+///
+/// Note: this builder no longer takes a chain client. Local-clock
+/// TTL means the inbound handler bounds shard expiry against
+/// `now_unix_seconds()`, not against the chain's best block number.
+pub fn build_chat_stripe_protocol<N, S, Block>(
 	store: Arc<S>,
 ) -> (N::RequestResponseProtocolConfig, impl std::future::Future<Output = ()>)
 where
 	N: NetworkBackend<Block, <Block as BlockT>::Hash>,
 	Block: BlockT,
-	C: HeaderBackend<Block> + Send + Sync + 'static,
 	S: ShareStore + Send + Sync + 'static,
 {
 	let (tx, rx) = async_channel::bounded::<IncomingRequest>(INBOUND_QUEUE_CAPACITY);
@@ -82,25 +94,22 @@ where
 		Some(tx),
 	);
 
-	(config, run_handler::<C, S, Block>(client, store, rx))
+	(config, run_handler::<S>(store, rx))
 }
 
 /// Inbound-request loop. Pulls `IncomingRequest`s from rc-network
 /// and dispatches each to the Apache-2.0 byte-shim. No protocol
 /// logic lives here.
-async fn run_handler<C, S, Block>(
-	client: Arc<C>,
+async fn run_handler<S>(
 	store: Arc<S>,
 	mut rx: async_channel::Receiver<IncomingRequest>,
 ) where
-	Block: BlockT,
-	C: HeaderBackend<Block> + Send + Sync + 'static,
 	S: ShareStore + Send + Sync + 'static,
 {
 	while let Some(IncomingRequest { peer, payload, pending_response }) = rx.next().await {
-		let current_block: u32 = client.info().best_number.saturated_into::<u32>();
+		let now_ts = now_unix_seconds();
 		let (response_bytes, decoded_ok) =
-			process_store_request_bytes(store.as_ref(), current_block, &payload);
+			process_store_request_bytes(store.as_ref(), now_ts, &payload);
 		if decoded_ok {
 			log::trace!(
 				target: "rostro-chat-stripe",

@@ -34,32 +34,70 @@
 //!
 //! ## TTL
 //!
-//! All durations are block-anchored. The chat layer's default TTL is
-//! [`CHAT_TTL_BLOCKS`] (~3 days at 6s blocks). Senders set
-//! [`ShareDescriptor::expires_at_block`] to
-//! `published_at + CHAT_TTL_BLOCKS` (or a shorter window if desired);
-//! all relays purge at the exact same block boundary because expiry
-//! is publication-time-anchored, not arrival-time-anchored.
+//! All durations are local-wall-clock. The chat layer's default TTL is
+//! [`CHAT_TTL_SECONDS`] (3 days). Senders stamp
+//! [`ShareDescriptor::expires_at_unix_ts`] with
+//! `now_unix_seconds() + CHAT_TTL_SECONDS` (or a shorter window if
+//! desired); each gossip participant runs its own periodic sweep
+//! against its own local clock. NTP-class clock skew between nodes is
+//! absorbed by replication — with R copies of each shard across
+//! bucket-subscribed nodes, the recipient just needs one replica to
+//! still be live; sub-minute skew is invisible against a 72-hour
+//! window.
+//!
+//! Decoupling chat-shard expiry from chain block height means a chat-
+//! gossip participant does NOT need to follow blocks. A node that
+//! wants to be a gossip relay can run a much lighter footprint than a
+//! full chain/RPC node.
+//!
+//! ## Receive-time bounds
+//!
+//! When a node receives a new share, it MUST reject the descriptor if
+//! either of two bounds is violated:
+//!
+//! - `expires_at_unix_ts - now > MAX_TTL_SLOP_SECONDS` — bounds an
+//!   adversarial sender stamping a far-future expiry to squat in the
+//!   store. Reject anything claiming more than `CHAT_TTL_SECONDS +
+//!   MAX_TTL_SLOP_SECONDS` of remaining life at receive time.
+//! - `now - expires_at_unix_ts > PAST_GRACE_SECONDS` — rejects shards
+//!   already expired by more than a brief grace window (handles a
+//!   node whose clock briefly lags vs. the sender's).
+//!
+//! Both bounds are local arithmetic. No chain involvement.
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use sp_crypto_hashing::blake2_256;
 
-/// Block number (Substrate-style u32 at this layer; chain-agnostic).
-pub type BlockNumber = u32;
+/// Unix timestamp in seconds, as a 64-bit count. Local-clock,
+/// chain-agnostic. Wide enough that wrap is not a concern within any
+/// human time horizon.
+pub type UnixTimestamp = u64;
 
 /// Position of a share within a striped message. `u8` accommodates
 /// every legitimate N up to [`crate::stripe::MAX_SHARES`].
 pub type ShareIndex = u8;
 
-/// Default chat-message TTL in blocks. 43,200 blocks = 3 days at the
-/// current 6s-block target (`MILLISECS_PER_BLOCK = 6_000`). Sender-
-/// side convention; the relay enforces against
-/// [`ShareDescriptor::expires_at_block`] which can be shorter (e.g.
-/// for system notifications with tighter renewal). If the chain's
-/// block time changes, revisit this constant deliberately — the
-/// goal is a 3-day wall-clock TTL, not a fixed block count.
-pub const CHAT_TTL_BLOCKS: BlockNumber = 43_200;
+/// Default chat-message TTL in seconds. 259_200 seconds = 3 days.
+/// Sender-side convention; receivers enforce against
+/// [`ShareDescriptor::expires_at_unix_ts`] which can be shorter (e.g.
+/// for system notifications with tighter renewal). The value is a
+/// wall-clock target, not block-anchored, so changes to the chain's
+/// block time have no effect on it.
+pub const CHAT_TTL_SECONDS: UnixTimestamp = 3 * 24 * 60 * 60;
+
+/// Maximum forward slop a receive may accept on top of
+/// [`CHAT_TTL_SECONDS`]. A sender stamping
+/// `expires_at_unix_ts > now + CHAT_TTL_SECONDS + MAX_TTL_SLOP_SECONDS`
+/// is either misbehaving or has a wildly skewed clock; either way the
+/// receive rejects. ~10 minutes accommodates ordinary NTP drift +
+/// transport latency for a share to reach a distant relay.
+pub const MAX_TTL_SLOP_SECONDS: UnixTimestamp = 600;
+
+/// How far in the past a descriptor's expiry may be at receive time
+/// before the receive rejects it as already-stale. ~1 minute handles
+/// a brief clock lag on the receiving node vs. the sender's stamp.
+pub const PAST_GRACE_SECONDS: UnixTimestamp = 60;
 
 /// Domain-separation tag for pairwise-DM pickup-key derivation.
 /// Bumped (e.g. `/v2`) if the layout ever changes incompatibly.
@@ -155,18 +193,41 @@ pub struct ShareDescriptor {
 	pub total_shares: u8,
 	/// Domain-separated DHT lookup key. See [`PickupKey`].
 	pub pickup_key: PickupKey,
-	/// Block at which the share expires. Publication-time-anchored:
-	/// all relays purge at this exact block boundary, regardless of
-	/// when they personally received the share.
-	pub expires_at_block: BlockNumber,
+	/// Unix-timestamp (seconds) at which the share expires.
+	/// Sender-stamped at publication time; each gossip participant
+	/// compares against its own local clock. NTP-class skew across
+	/// nodes is absorbed by replication (with R copies of each shard
+	/// across bucket-subscribed nodes, the recipient just needs one
+	/// replica to still be live).
+	pub expires_at_unix_ts: UnixTimestamp,
 }
 
 impl ShareDescriptor {
-	/// `true` if the share has reached its expiry boundary and should
-	/// be purged. Strict greater-or-equal: at the boundary block, the
-	/// share is considered expired (relays purge, recipients ignore).
-	pub fn is_expired(&self, current_block: BlockNumber) -> bool {
-		current_block >= self.expires_at_block
+	/// `true` if the share has reached its expiry timestamp and should
+	/// be purged. Strict greater-or-equal: at the boundary second, the
+	/// share is considered expired (nodes purge, recipients ignore).
+	pub fn is_expired(&self, now_unix_ts: UnixTimestamp) -> bool {
+		now_unix_ts >= self.expires_at_unix_ts
+	}
+
+	/// Receive-time validation: return `false` if the descriptor's
+	/// expiry is too far in the future or already too far in the past
+	/// relative to `now_unix_ts`. See [`MAX_TTL_SLOP_SECONDS`] and
+	/// [`PAST_GRACE_SECONDS`] for the bounds.
+	///
+	/// Both bounds are local arithmetic; no chain involvement.
+	pub fn expiry_within_bounds(&self, now_unix_ts: UnixTimestamp) -> bool {
+		let max_future = now_unix_ts
+			.saturating_add(CHAT_TTL_SECONDS)
+			.saturating_add(MAX_TTL_SLOP_SECONDS);
+		if self.expires_at_unix_ts > max_future {
+			return false;
+		}
+		let min_acceptable = now_unix_ts.saturating_sub(PAST_GRACE_SECONDS);
+		if self.expires_at_unix_ts < min_acceptable {
+			return false;
+		}
+		true
 	}
 }
 
@@ -243,7 +304,7 @@ mod tests {
 			share_index: 3,
 			total_shares: 5,
 			pickup_key: PickupKey([0x33; 32]),
-			expires_at_block: 1_234_567,
+			expires_at_unix_ts: 1_700_000_000,
 		};
 		let encoded = d.encode();
 		let decoded = ShareDescriptor::decode(&mut &encoded[..]).unwrap();
@@ -298,14 +359,14 @@ mod tests {
 
 	// ── TTL boundary ──────────────────────────────────────────────
 
-	fn descriptor_with_expiry(expires_at_block: BlockNumber) -> ShareDescriptor {
+	fn descriptor_with_expiry(expires_at_unix_ts: UnixTimestamp) -> ShareDescriptor {
 		ShareDescriptor {
 			relay_pubkey: RelayPubkey([0; 32]),
 			message_id: MessageId([0; 32]),
 			share_index: 0,
 			total_shares: 2,
 			pickup_key: PickupKey([0; 32]),
-			expires_at_block,
+			expires_at_unix_ts,
 		}
 	}
 
@@ -328,24 +389,74 @@ mod tests {
 	}
 
 	#[test]
-	fn is_expired_block_zero() {
+	fn is_expired_at_zero() {
 		let d = descriptor_with_expiry(0);
 		assert!(d.is_expired(0));
 	}
 
 	#[test]
 	fn chat_ttl_constant_is_three_days() {
-		// 3 days * 24 hours * 60 minutes * 60 seconds / 6 seconds/block
-		// = 43_200. Pin here so the constant doesn't silently drift
-		// if the file is edited; design intent is a 3-day wall-clock
-		// TTL anchored to the runtime's 6s block time.
-		assert_eq!(CHAT_TTL_BLOCKS, 43_200);
-		const SECONDS_PER_BLOCK: u64 = 6;
+		// 3 days * 24 hours * 60 minutes * 60 seconds = 259_200.
+		// Pin here so the constant doesn't silently drift if the
+		// file is edited; design intent is a 3-day wall-clock TTL.
+		assert_eq!(CHAT_TTL_SECONDS, 259_200);
 		const SECONDS_PER_DAY: u64 = 86_400;
 		assert_eq!(
-			CHAT_TTL_BLOCKS as u64 * SECONDS_PER_BLOCK,
+			CHAT_TTL_SECONDS,
 			3 * SECONDS_PER_DAY,
-			"CHAT_TTL_BLOCKS must equal 3 days at 6s/block",
+			"CHAT_TTL_SECONDS must equal 3 days",
 		);
+	}
+
+	// ── receive-time bounds ───────────────────────────────────────
+
+	#[test]
+	fn expiry_within_bounds_typical_fresh_descriptor_accepts() {
+		// Sender just stamped now + 72h. Receiver clock matches.
+		let now: UnixTimestamp = 1_700_000_000;
+		let d = descriptor_with_expiry(now + CHAT_TTL_SECONDS);
+		assert!(d.expiry_within_bounds(now));
+	}
+
+	#[test]
+	fn expiry_within_bounds_rejects_far_future_squatter() {
+		// Adversarial sender stamps now + 1 year. Reject.
+		let now: UnixTimestamp = 1_700_000_000;
+		let d = descriptor_with_expiry(now + 365 * 86_400);
+		assert!(!d.expiry_within_bounds(now));
+	}
+
+	#[test]
+	fn expiry_within_bounds_accepts_slight_clock_skew_forward() {
+		// Sender's clock runs ~5 minutes fast vs receiver. Should
+		// still accept (within MAX_TTL_SLOP_SECONDS).
+		let now: UnixTimestamp = 1_700_000_000;
+		let d = descriptor_with_expiry(now + CHAT_TTL_SECONDS + 300);
+		assert!(d.expiry_within_bounds(now));
+	}
+
+	#[test]
+	fn expiry_within_bounds_rejects_clearly_expired_past() {
+		// Descriptor's expiry is hours in the past. Reject.
+		let now: UnixTimestamp = 1_700_000_000;
+		let d = descriptor_with_expiry(now - 3600);
+		assert!(!d.expiry_within_bounds(now));
+	}
+
+	#[test]
+	fn expiry_within_bounds_accepts_slight_clock_skew_backward() {
+		// Receiver clock briefly lags vs sender; descriptor is
+		// "expired" by 30 seconds. Within PAST_GRACE_SECONDS.
+		let now: UnixTimestamp = 1_700_000_000;
+		let d = descriptor_with_expiry(now - 30);
+		assert!(d.expiry_within_bounds(now));
+	}
+
+	#[test]
+	fn expiry_within_bounds_rejects_past_beyond_grace() {
+		// 5 minutes past, well beyond PAST_GRACE_SECONDS=60.
+		let now: UnixTimestamp = 1_700_000_000;
+		let d = descriptor_with_expiry(now - 300);
+		assert!(!d.expiry_within_bounds(now));
 	}
 }

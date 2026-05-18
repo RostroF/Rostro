@@ -6,7 +6,7 @@
 //! Phase B2 of the MLS-chat plan. Concrete
 //! [`rostro_chat_primitives::store_protocol::ShareStore`]
 //! implementation backed by an in-process bounded HashMap with
-//! mlock'd share buffers, block-anchored TTL sweep, and oldest-
+//! mlock'd share buffers, local-clock TTL sweep, and oldest-
 //! first eviction under capacity pressure.
 //!
 //! ## Why ephemeral
@@ -20,9 +20,13 @@
 //! - Share buffers are `mlock()`-ed where the OS permits, so cold
 //!   pages can't be swapped to disk and a memory-forensic attacker
 //!   with disk access doesn't recover stale share fragments
-//! - TTL sweep at block boundaries deletes entries whose
-//!   `expires_at_block` has arrived; the absolute upper bound on
-//!   how long a share lives in the relay is its descriptor's TTL
+//! - TTL sweep against local wall-clock deletes entries whose
+//!   `expires_at_unix_ts` has arrived; the absolute upper bound on
+//!   how long a share lives in the relay is its descriptor's TTL.
+//!   No chain block tracking required — the store is decoupled from
+//!   chain time, so a chat-gossip relay can run a lighter footprint
+//!   than a full RPC node. NTP-class clock skew across relays is
+//!   absorbed by replication.
 //!
 //! This trades availability (a relay crash drops in-flight shares
 //! for offline recipients) for the strongest possible
@@ -52,7 +56,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use parking_lot::RwLock;
 use rostro_chat_primitives::descriptor::{
-	BlockNumber, MessageId, PickupKey, ShareDescriptor, ShareIndex,
+	MessageId, PickupKey, ShareDescriptor, ShareIndex, UnixTimestamp,
 };
 use rostro_chat_primitives::store_protocol::{ShareStore, StoreInsertError};
 use rostro_chat_primitives::verify::ShareMacTag;
@@ -91,7 +95,7 @@ struct Entry {
 	share_bytes: LockedBytes,
 	mac_tag: ShareMacTag,
 	/// Monotonic counter assigned at insertion. Breaks ties when
-	/// two entries share the same `expires_at_block` during
+	/// two entries share the same `expires_at_unix_ts` during
 	/// eviction.
 	insertion_order: u64,
 }
@@ -110,11 +114,11 @@ struct Inner {
 	/// recipient queries by pickup_key, the store returns all shares
 	/// matching.
 	by_pickup: HashMap<PickupKey, Vec<(MessageId, ShareIndex)>>,
-	/// Ordered for eviction: `(expires_at_block, insertion_order) →
-	/// primary key`. Sweeping iterates ascending; eviction-under-
+	/// Ordered for eviction: `(expires_at_unix_ts, insertion_order)
+	/// → primary key`. Sweeping iterates ascending; eviction-under-
 	/// pressure takes the smallest key (oldest expiry, then oldest
 	/// insertion).
-	by_expiry: BTreeMap<(BlockNumber, u64), (MessageId, ShareIndex)>,
+	by_expiry: BTreeMap<(UnixTimestamp, u64), (MessageId, ShareIndex)>,
 	/// Monotonic insertion counter.
 	next_insertion: u64,
 	/// Running sum of share_bytes lengths across all entries.
@@ -138,7 +142,8 @@ impl Inner {
 	fn remove_entry(&mut self, primary_key: (MessageId, ShareIndex)) -> Option<usize> {
 		let entry = self.by_key.remove(&primary_key)?;
 		// Adjust expiry index.
-		self.by_expiry.remove(&(entry.descriptor.expires_at_block, entry.insertion_order));
+		self.by_expiry
+			.remove(&(entry.descriptor.expires_at_unix_ts, entry.insertion_order));
 		// Adjust pickup index.
 		let pickup = entry.descriptor.pickup_key;
 		if let Some(list) = self.by_pickup.get_mut(&pickup) {
@@ -198,16 +203,16 @@ impl EphemeralShareStore {
 		Self::new(StoreConfig::default())
 	}
 
-	/// Sweep entries whose `expires_at_block <= current_block`.
-	/// Called by the gemini-node binding from a block-import hook
-	/// (or any other trigger) at block boundaries.
+	/// Sweep entries whose `expires_at_unix_ts <= now_unix_ts`.
+	/// Called by the gemini-node binding from a periodic local-clock
+	/// timer task. No chain involvement.
 	///
 	/// Returns the number of entries removed.
-	pub fn sweep_expired(&self, current_block: BlockNumber) -> usize {
+	pub fn sweep_expired(&self, now_unix_ts: UnixTimestamp) -> usize {
 		let mut g = self.inner.write();
 		let mut to_remove: Vec<(MessageId, ShareIndex)> = Vec::new();
 		for ((expires_at, _ins), pk) in g.by_expiry.iter() {
-			if *expires_at <= current_block {
+			if *expires_at <= now_unix_ts {
 				to_remove.push(*pk);
 			} else {
 				break;
@@ -277,7 +282,7 @@ impl ShareStore for EphemeralShareStore {
 		};
 
 		// Update indices.
-		let expires_at = descriptor.expires_at_block;
+		let expires_at = descriptor.expires_at_unix_ts;
 		g.by_expiry.insert((expires_at, insertion_order), primary_key);
 		g.by_pickup
 			.entry(descriptor.pickup_key)
@@ -318,13 +323,13 @@ mod tests {
 	use rostro_chat_primitives::descriptor::{GroupId, RelayPubkey};
 	use rostro_chat_primitives::verify::mac_share;
 
-	const CURRENT_BLOCK: BlockNumber = 1_000_000;
+	const NOW_TS: UnixTimestamp = 1_700_000_000;
 
 	fn make_descriptor(
 		message_id_byte: u8,
 		share_index: u8,
 		total_shares: u8,
-		expires_at_block: BlockNumber,
+		expires_at_unix_ts: UnixTimestamp,
 	) -> ShareDescriptor {
 		ShareDescriptor {
 			relay_pubkey: RelayPubkey([0x11; 32]),
@@ -332,7 +337,7 @@ mod tests {
 			share_index,
 			total_shares,
 			pickup_key: PickupKey::for_group(&GroupId([0x33; 32])),
-			expires_at_block,
+			expires_at_unix_ts,
 		}
 	}
 
@@ -340,9 +345,9 @@ mod tests {
 		message_id_byte: u8,
 		share_index: u8,
 		bytes: Vec<u8>,
-		expires_at_block: BlockNumber,
+		expires_at_unix_ts: UnixTimestamp,
 	) -> (ShareDescriptor, Vec<u8>, ShareMacTag) {
-		let d = make_descriptor(message_id_byte, share_index, 5, expires_at_block);
+		let d = make_descriptor(message_id_byte, share_index, 5, expires_at_unix_ts);
 		let tag = mac_share(&[0u8; 32], &bytes, share_index);
 		(d, bytes, tag)
 	}
@@ -351,7 +356,7 @@ mod tests {
 	fn insert_and_lookup_by_pickup_key() {
 		let store = EphemeralShareStore::with_default_config();
 		let (d, b, t) =
-			make_entry_inputs(0x01, 0, vec![1, 2, 3, 4], CURRENT_BLOCK + 100);
+			make_entry_inputs(0x01, 0, vec![1, 2, 3, 4], NOW_TS + 100);
 		let pickup = d.pickup_key;
 		assert!(store.insert(d, b.clone(), t).is_ok());
 		assert_eq!(store.len(), 1);
@@ -364,7 +369,7 @@ mod tests {
 	fn duplicate_insert_rejected() {
 		let store = EphemeralShareStore::with_default_config();
 		let (d, b, t) =
-			make_entry_inputs(0x02, 0, vec![1, 2, 3], CURRENT_BLOCK + 100);
+			make_entry_inputs(0x02, 0, vec![1, 2, 3], NOW_TS + 100);
 		assert!(store.insert(d.clone(), b.clone(), t).is_ok());
 		assert_eq!(
 			store.insert(d, b, t),
@@ -381,7 +386,7 @@ mod tests {
 				0x03,
 				share_index,
 				vec![share_index; 16],
-				CURRENT_BLOCK + 100,
+				NOW_TS + 100,
 			);
 			assert!(store.insert(d, b, t).is_ok());
 		}
@@ -398,7 +403,7 @@ mod tests {
 				0x04,
 				share_index,
 				vec![share_index; 8],
-				CURRENT_BLOCK + 100,
+				NOW_TS + 100,
 			);
 			if pickup.is_none() {
 				pickup = Some(d.pickup_key);
@@ -420,37 +425,37 @@ mod tests {
 	fn sweep_removes_expired() {
 		let store = EphemeralShareStore::with_default_config();
 		// Mix of expired and not-yet-expired entries.
-		let (d1, b1, t1) = make_entry_inputs(0x05, 0, vec![1], CURRENT_BLOCK - 50);
-		let (d2, b2, t2) = make_entry_inputs(0x06, 0, vec![2], CURRENT_BLOCK - 1);
-		let (d3, b3, t3) = make_entry_inputs(0x07, 0, vec![3], CURRENT_BLOCK + 50);
-		let (d4, b4, t4) = make_entry_inputs(0x08, 0, vec![4], CURRENT_BLOCK + 200);
+		let (d1, b1, t1) = make_entry_inputs(0x05, 0, vec![1], NOW_TS - 50);
+		let (d2, b2, t2) = make_entry_inputs(0x06, 0, vec![2], NOW_TS - 1);
+		let (d3, b3, t3) = make_entry_inputs(0x07, 0, vec![3], NOW_TS + 50);
+		let (d4, b4, t4) = make_entry_inputs(0x08, 0, vec![4], NOW_TS + 200);
 		store.insert(d1, b1, t1).unwrap();
 		store.insert(d2, b2, t2).unwrap();
 		store.insert(d3, b3, t3).unwrap();
 		store.insert(d4, b4, t4).unwrap();
 		assert_eq!(store.len(), 4);
 
-		let evicted = store.sweep_expired(CURRENT_BLOCK);
-		assert_eq!(evicted, 2, "two entries had expires_at_block <= CURRENT_BLOCK");
+		let evicted = store.sweep_expired(NOW_TS);
+		assert_eq!(evicted, 2, "two entries had expires_at_unix_ts <= NOW_TS");
 		assert_eq!(store.len(), 2);
 	}
 
 	#[test]
 	fn sweep_with_no_expired_returns_zero() {
 		let store = EphemeralShareStore::with_default_config();
-		let (d, b, t) = make_entry_inputs(0x09, 0, vec![1], CURRENT_BLOCK + 100);
+		let (d, b, t) = make_entry_inputs(0x09, 0, vec![1], NOW_TS + 100);
 		store.insert(d, b, t).unwrap();
-		assert_eq!(store.sweep_expired(CURRENT_BLOCK), 0);
+		assert_eq!(store.sweep_expired(NOW_TS), 0);
 		assert_eq!(store.len(), 1);
 	}
 
 	#[test]
 	fn sweep_at_exact_boundary_is_inclusive() {
-		// expires_at_block <= current_block → expired (inclusive).
+		// expires_at_unix_ts <= current_block → expired (inclusive).
 		let store = EphemeralShareStore::with_default_config();
-		let (d, b, t) = make_entry_inputs(0x0A, 0, vec![1], CURRENT_BLOCK);
+		let (d, b, t) = make_entry_inputs(0x0A, 0, vec![1], NOW_TS);
 		store.insert(d, b, t).unwrap();
-		assert_eq!(store.sweep_expired(CURRENT_BLOCK), 1);
+		assert_eq!(store.sweep_expired(NOW_TS), 1);
 		assert!(store.is_empty());
 	}
 
@@ -466,16 +471,16 @@ mod tests {
 				0x10 + i,
 				0,
 				vec![i; 4],
-				CURRENT_BLOCK + 100 + i as u32,
+				NOW_TS + 100 + i as u64,
 			);
 			store.insert(d, b, t).unwrap();
 		}
 		assert_eq!(store.len(), 3);
 
 		// 4th insert: should evict the oldest (smallest
-		// expires_at_block + earliest insertion_order).
+		// expires_at_unix_ts + earliest insertion_order).
 		let (d4, b4, t4) =
-			make_entry_inputs(0x13, 0, vec![3; 4], CURRENT_BLOCK + 200);
+			make_entry_inputs(0x13, 0, vec![3; 4], NOW_TS + 200);
 		store.insert(d4, b4, t4).unwrap();
 		assert_eq!(store.len(), 3, "still at cap");
 
@@ -500,16 +505,16 @@ mod tests {
 
 		// Insert two 40-byte shares: 80 bytes total — fits.
 		let (d1, b1, t1) =
-			make_entry_inputs(0x20, 0, vec![1; 40], CURRENT_BLOCK + 100);
+			make_entry_inputs(0x20, 0, vec![1; 40], NOW_TS + 100);
 		let (d2, b2, t2) =
-			make_entry_inputs(0x21, 0, vec![2; 40], CURRENT_BLOCK + 200);
+			make_entry_inputs(0x21, 0, vec![2; 40], NOW_TS + 200);
 		store.insert(d1, b1, t1).unwrap();
 		store.insert(d2, b2, t2).unwrap();
 		assert_eq!(store.total_bytes(), 80);
 
 		// Insert another 40 bytes: 120 > 100 → must evict.
 		let (d3, b3, t3) =
-			make_entry_inputs(0x22, 0, vec![3; 40], CURRENT_BLOCK + 300);
+			make_entry_inputs(0x22, 0, vec![3; 40], NOW_TS + 300);
 		store.insert(d3, b3, t3).unwrap();
 		assert_eq!(store.total_bytes(), 80, "stayed under cap via eviction");
 		assert_eq!(store.len(), 2);
@@ -522,7 +527,7 @@ mod tests {
 		// A 200-byte share into a 100-byte budget — can't fit even
 		// after evicting everything.
 		let (d, b, t) =
-			make_entry_inputs(0x30, 0, vec![0u8; 200], CURRENT_BLOCK + 100);
+			make_entry_inputs(0x30, 0, vec![0u8; 200], NOW_TS + 100);
 		assert_eq!(store.insert(d, b, t), Err(StoreInsertError::StorageFull));
 	}
 
@@ -530,16 +535,16 @@ mod tests {
 	fn total_bytes_tracks_correctly() {
 		let store = EphemeralShareStore::with_default_config();
 		let (d1, b1, t1) =
-			make_entry_inputs(0x40, 0, vec![0; 100], CURRENT_BLOCK + 100);
+			make_entry_inputs(0x40, 0, vec![0; 100], NOW_TS + 100);
 		store.insert(d1, b1, t1).unwrap();
 		assert_eq!(store.total_bytes(), 100);
 
 		let (d2, b2, t2) =
-			make_entry_inputs(0x41, 0, vec![0; 50], CURRENT_BLOCK + 100);
+			make_entry_inputs(0x41, 0, vec![0; 50], NOW_TS + 100);
 		store.insert(d2, b2, t2).unwrap();
 		assert_eq!(store.total_bytes(), 150);
 
-		store.sweep_expired(CURRENT_BLOCK + 200);
+		store.sweep_expired(NOW_TS + 200);
 		assert_eq!(store.total_bytes(), 0);
 	}
 
@@ -559,7 +564,7 @@ mod tests {
 						0x50 + thread_id,
 						share_index,
 						vec![thread_id, share_index],
-						CURRENT_BLOCK + 100,
+						NOW_TS + 100,
 					);
 					s.insert(d, b, t).unwrap();
 				}
@@ -578,17 +583,17 @@ mod tests {
 
 		// Two shares under one pickup key, one share under another.
 		let (d1, b1, t1) =
-			make_entry_inputs(0x70, 0, vec![1], CURRENT_BLOCK + 100);
+			make_entry_inputs(0x70, 0, vec![1], NOW_TS + 100);
 		let pickup_a = d1.pickup_key;
 		store.insert(d1, b1, t1).unwrap();
 
 		let (d2, b2, t2) =
-			make_entry_inputs(0x70, 1, vec![2], CURRENT_BLOCK + 100);
+			make_entry_inputs(0x70, 1, vec![2], NOW_TS + 100);
 		store.insert(d2, b2, t2).unwrap();
 
 		// Different message_id with a different pickup_key, to ensure
 		// the set behavior (not multiset).
-		let mut d3 = make_descriptor(0x71, 0, 5, CURRENT_BLOCK + 100);
+		let mut d3 = make_descriptor(0x71, 0, 5, NOW_TS + 100);
 		d3.pickup_key = PickupKey([0xFE; 32]);
 		let t3 = mac_share(&[0u8; 32], &[3], 0);
 		store.insert(d3, vec![3], t3).unwrap();
@@ -604,10 +609,10 @@ mod tests {
 	fn pickup_keys_empty_after_sweep_removes_last_share() {
 		let store = EphemeralShareStore::with_default_config();
 		let (d, b, t) =
-			make_entry_inputs(0x72, 0, vec![1], CURRENT_BLOCK + 10);
+			make_entry_inputs(0x72, 0, vec![1], NOW_TS + 10);
 		store.insert(d, b, t).unwrap();
 		assert_eq!(<EphemeralShareStore as ShareStore>::pickup_keys(&store).len(), 1);
-		store.sweep_expired(CURRENT_BLOCK + 100);
+		store.sweep_expired(NOW_TS + 100);
 		assert!(<EphemeralShareStore as ShareStore>::pickup_keys(&store).is_empty());
 	}
 
@@ -618,10 +623,10 @@ mod tests {
 		// the store returns to len=0 after sweep.
 		let store = EphemeralShareStore::with_default_config();
 		let (d, b, t) =
-			make_entry_inputs(0x60, 0, vec![0xAB; 256], CURRENT_BLOCK + 100);
+			make_entry_inputs(0x60, 0, vec![0xAB; 256], NOW_TS + 100);
 		store.insert(d, b, t).unwrap();
 		assert_eq!(store.len(), 1);
-		store.sweep_expired(CURRENT_BLOCK + 200);
+		store.sweep_expired(NOW_TS + 200);
 		assert_eq!(store.len(), 0);
 		assert_eq!(store.total_bytes(), 0);
 	}

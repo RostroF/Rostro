@@ -63,7 +63,7 @@ struct ChatShareDescriptorRpc {
 	#[allow(dead_code)]
 	pickup_key_hex: String,
 	#[allow(dead_code)]
-	expires_at_block: u32,
+	expires_at_unix_ts: u64,
 }
 
 #[derive(Debug, serde::Deserialize)]

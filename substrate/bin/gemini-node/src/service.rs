@@ -316,8 +316,7 @@ pub fn new_full<
 	);
 
 	let (chat_stripe_config, chat_stripe_handler) =
-		crate::chat_stripe_protocol::build_chat_stripe_protocol::<N, _, _, _>(
-			client.clone(),
+		crate::chat_stripe_protocol::build_chat_stripe_protocol::<N, _, _>(
 			chat_share_store.clone(),
 		);
 	net_config.add_request_response_protocol(chat_stripe_config);

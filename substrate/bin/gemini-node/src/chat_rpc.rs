@@ -68,7 +68,8 @@ use rc_network::{service::traits::NetworkService, types::ProtocolName, IfDisconn
 use rostro_chat_ephemeral_store::EphemeralShareStore;
 use rostro_chat_primitives::{
 	descriptor::{
-		BlockNumber, MessageId, PickupKey, RelayPubkey, ShareDescriptor, ShareIndex,
+		MessageId, PickupKey, RelayPubkey, ShareDescriptor, ShareIndex, UnixTimestamp,
+		CHAT_TTL_SECONDS,
 	},
 	envelope::{EnvelopeKind, SealedEnvelope},
 	fetch_protocol::{FetchRequest, FetchResponse},
@@ -77,6 +78,19 @@ use rostro_chat_primitives::{
 	stripe::{split_xor, MAX_SHARES},
 	verify::mac_share,
 };
+
+/// Local-clock helper. Returns the host's current Unix timestamp in
+/// seconds. Used to stamp `expires_at_unix_ts` on outbound share
+/// descriptors and to drive store-side TTL sweeps. Falls back to 0
+/// only if the system clock is set before 1970 (which fails the
+/// expiry-bounds checks downstream — caller will see rejections,
+/// which is the right operational signal).
+fn now_unix_seconds() -> UnixTimestamp {
+	std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map(|d| d.as_secs())
+		.unwrap_or(0)
+}
 
 use crate::chat_fetch_protocol::CHAT_FETCH_PROTOCOL_NAME;
 
@@ -116,7 +130,7 @@ pub struct ChatShareDescriptorRpc {
 	pub share_index: u8,
 	pub total_shares: u8,
 	pub pickup_key_hex: String,
-	pub expires_at_block: u32,
+	pub expires_at_unix_ts: u64,
 }
 
 /// JSON-RPC response: one stored share returned by `chat_fetch_shares`.
@@ -292,9 +306,8 @@ impl ChatRpcApiServer for ChatRpc {
 				share_index,
 				total_shares: total_u8,
 				pickup_key: recipient_pickup,
-				// v0.1: no TTL (u32::MAX). Block-anchored TTL is a
-				// follow-up.
-				expires_at_block: BlockNumber::MAX,
+				expires_at_unix_ts: now_unix_seconds()
+					.saturating_add(CHAT_TTL_SECONDS),
 			};
 			self.share_store
 				.insert(descriptor, share_bytes, mac_tag)
@@ -383,7 +396,7 @@ impl ChatRpcApiServer for ChatRpc {
 					share_index: descriptor.share_index,
 					total_shares: descriptor.total_shares,
 					pickup_key_hex: hex::encode(descriptor.pickup_key.0),
-					expires_at_block: descriptor.expires_at_block,
+					expires_at_unix_ts: descriptor.expires_at_unix_ts,
 				},
 				share_bytes_hex: hex::encode(&share_bytes),
 				mac_tag_hex: hex::encode(mac_tag),

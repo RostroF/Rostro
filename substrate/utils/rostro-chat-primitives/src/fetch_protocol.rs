@@ -58,7 +58,7 @@ pub struct FetchRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct FetchedShare {
 	/// Descriptor as originally stored (relay_pubkey, message_id,
-	/// share_index, total_shares, pickup_key, expires_at_block).
+	/// share_index, total_shares, pickup_key, expires_at_unix_ts).
 	pub descriptor: ShareDescriptor,
 	/// XOR-stripe share bytes.
 	pub share_bytes: Vec<u8>,
@@ -151,7 +151,8 @@ pub fn fetch_from_relay<T: FetchTransport>(
 mod tests {
 	use super::*;
 	use crate::descriptor::{
-		BlockNumber, GroupId, MessageId, RelayPubkey, ShareDescriptor,
+		GroupId, MessageId, RelayPubkey, ShareDescriptor, UnixTimestamp,
+		CHAT_TTL_SECONDS,
 	};
 	use crate::store_protocol::{StoreInsertError, ShareStore as ShareStoreTrait};
 	use crate::verify::mac_share;
@@ -159,7 +160,7 @@ mod tests {
 	use alloc::sync::Arc;
 	use core::cell::RefCell;
 
-	const CURRENT_BLOCK: BlockNumber = 1_000_000;
+	const NOW_TS: UnixTimestamp = 1_700_000_000;
 
 	fn make_descriptor(
 		message_id_byte: u8,
@@ -172,7 +173,7 @@ mod tests {
 			share_index,
 			total_shares: 5,
 			pickup_key: PickupKey::for_group(&GroupId([pickup_byte; 32])),
-			expires_at_block: CURRENT_BLOCK + 100,
+			expires_at_unix_ts: NOW_TS + CHAT_TTL_SECONDS,
 		}
 	}
 
