@@ -544,10 +544,14 @@ pub fn new_full<
 			},
 		};
 
+	let network_arc: Arc<dyn rc_network::service::traits::NetworkService> =
+		Arc::new(network.clone());
+
 	let rpc_builder = {
 		let client = client.clone();
 		let pool = transaction_pool.clone();
 		let chat_share_store = chat_share_store.clone();
+		let network_arc = network_arc.clone();
 		Box::new(move |_| {
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
@@ -556,6 +560,7 @@ pub fn new_full<
 					identity_pubkey_ed25519: chat_identity_pubkey_ed25519,
 					identity_seed_ed25519: chat_identity_seed_ed25519,
 					share_store: chat_share_store.clone(),
+					network: network_arc.clone(),
 				},
 			};
 			crate::rpc::create_full(deps).map_err(Into::into)

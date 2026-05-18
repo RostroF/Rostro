@@ -56,18 +56,22 @@ use std::sync::Arc;
 
 use codec::{Decode, Encode};
 use rand_core::{OsRng, RngCore};
+use rc_network::{service::traits::NetworkService, types::ProtocolName, IfDisconnected, PeerId};
 use rostro_chat_ephemeral_store::EphemeralShareStore;
 use rostro_chat_primitives::{
 	descriptor::{
 		BlockNumber, MessageId, PickupKey, RelayPubkey, ShareDescriptor, ShareIndex,
 	},
 	envelope::{sign_inner, EnvelopeKind, SealedEnvelope, UnsealedInner},
+	fetch_protocol::{FetchRequest, FetchResponse},
 	identity_key::{ed25519_seed_to_x25519_secret, ed25519_to_x25519_pubkey},
 	store_protocol::ShareStore as _,
 	stripe::{combine_xor, split_xor},
-	verify::{mac_share, verify_sender},
+	verify::{mac_share, verify_sender, ShareMacTag},
 };
 use rostro_chat_sealed_sender::{seal as ss_seal, unseal as ss_unseal, SealedOutput};
+
+use crate::chat_fetch_protocol::CHAT_FETCH_PROTOCOL_NAME;
 
 /// Number of XOR-stripe shares emitted per chat_send. v0.1 fixes
 /// this; future versions may take it as a parameter for tuning
@@ -83,6 +87,14 @@ fn decode_hex32(hex: &str) -> Result<[u8; 32], String> {
 	let mut out = [0u8; 32];
 	out.copy_from_slice(&bytes);
 	Ok(out)
+}
+
+/// Parse a libp2p `PeerId` from a multibase string (the standard
+/// `12D3KooW...` form) — same encoding `PeerId::to_string()`
+/// produces.
+fn parse_peer_id(s: &str) -> Result<PeerId, String> {
+	use std::str::FromStr;
+	PeerId::from_str(s).map_err(|e| format!("invalid PeerId '{s}': {e}"))
 }
 
 /// JSON-RPC response shape for `chat_myIdentity`.
@@ -192,20 +204,30 @@ pub trait ChatRpcApi {
 	/// anchored TTL). Clients deduplicate by `message_id_hex`.
 	///
 	/// v0.1 limitations:
-	///   * Reads from the LOCAL store only — does not yet fetch
-	///     from remote relays over `/rostro/chat-fetch/1`. For
-	///     local-node-as-relay demos this is sufficient.
 	///   * Skips per-share MAC verification (no per-message
 	///     session key derivation yet); relies on the
 	///     sealed-sender AEAD to authenticate the full envelope.
 	///   * Pairwise messages only — group (MLS) messages decrypt
 	///     differently and land in a follow-up.
+	///
+	/// `relay_peer_id_hex` is optional. When `None`, the method
+	/// reads only from this node's local share store (same
+	/// behavior as Phase C2b). When `Some(peer_id)`, the method
+	/// ALSO queries the named remote relay via the outbound
+	/// `/rostro/chat-fetch/1` libp2p request and merges the
+	/// returned shares with the local view before decrypting.
+	/// Use this to fetch messages from a sender's node in the
+	/// 2+3 demo topology.
 	#[method(name = "chat_fetch")]
-	fn fetch(&self) -> RpcResult<Vec<ChatFetchedMessage>>;
+	async fn fetch(
+		&self,
+		relay_peer_id_hex: Option<String>,
+	) -> RpcResult<Vec<ChatFetchedMessage>>;
 }
 
 /// Concrete implementation backed by an Ed25519 identity pubkey +
-/// seed + an `Arc<EphemeralShareStore>`. The implementation is
+/// seed + an `Arc<EphemeralShareStore>` + an `Arc<dyn NetworkService>`
+/// for outbound remote-relay fetches. The implementation is
 /// `Send + Sync` so jsonrpsee can serve concurrent requests.
 ///
 /// The seed is held in process memory for the lifetime of the
@@ -216,17 +238,19 @@ pub struct ChatRpc {
 	identity_pubkey_ed25519: [u8; 32],
 	identity_seed_ed25519: [u8; 32],
 	share_store: Arc<EphemeralShareStore>,
+	network: Arc<dyn NetworkService>,
 }
 
 impl ChatRpc {
 	/// Construct from the running node's libp2p Ed25519 identity
-	/// pubkey + seed + the shared share-store.
+	/// pubkey + seed + the shared share-store + the network handle.
 	pub fn new(
 		identity_pubkey_ed25519: [u8; 32],
 		identity_seed_ed25519: [u8; 32],
 		share_store: Arc<EphemeralShareStore>,
+		network: Arc<dyn NetworkService>,
 	) -> Self {
-		Self { identity_pubkey_ed25519, identity_seed_ed25519, share_store }
+		Self { identity_pubkey_ed25519, identity_seed_ed25519, share_store, network }
 	}
 }
 
@@ -377,12 +401,30 @@ impl ChatRpcApiServer for ChatRpc {
 		})
 	}
 
-	fn fetch(&self) -> RpcResult<Vec<ChatFetchedMessage>> {
+	fn fetch<'life0, 'async_trait>(
+		&'life0 self,
+		relay_peer_id_hex: Option<String>,
+	) -> core::pin::Pin<
+		std::boxed::Box<
+			dyn core::future::Future<Output = RpcResult<Vec<ChatFetchedMessage>>>
+				+ core::marker::Send
+				+ 'async_trait,
+		>,
+	>
+	where
+		'life0: 'async_trait,
+		Self: 'async_trait,
+	{
+		let identity_pubkey_ed25519 = self.identity_pubkey_ed25519;
+		let identity_seed_ed25519 = self.identity_seed_ed25519;
+		let share_store = self.share_store.clone();
+		let network = self.network.clone();
+		std::boxed::Box::pin(async move {
 		// Derive our pickup key from our X25519 identity pubkey
 		// (pairwise domain) and our X25519 identity secret from
 		// our Ed25519 seed (XEdDSA).
 		let my_x25519_pubkey =
-			ed25519_to_x25519_pubkey(&self.identity_pubkey_ed25519).ok_or_else(|| {
+			ed25519_to_x25519_pubkey(&identity_pubkey_ed25519).ok_or_else(|| {
 				ErrorObject::owned::<()>(
 					-32001,
 					"node's Ed25519 identity pubkey doesn't decode as a valid \
@@ -392,18 +434,71 @@ impl ChatRpcApiServer for ChatRpc {
 			})?;
 		let my_pickup = PickupKey::for_pairwise(&my_x25519_pubkey);
 		let my_x25519_secret_bytes =
-			ed25519_seed_to_x25519_secret(&self.identity_seed_ed25519);
+			ed25519_seed_to_x25519_secret(&identity_seed_ed25519);
 
-		// Pull every share stored under our pickup key from the
-		// local share-store.
-		let matched = self.share_store.get_by_pickup_key(&my_pickup);
+		// Collect (descriptor, bytes, mac) triples from local
+		// store first.
+		let mut matched: Vec<(ShareDescriptor, Vec<u8>, ShareMacTag)> =
+			share_store.get_by_pickup_key(&my_pickup);
+
+		// If a remote relay was specified, fan out to it and merge
+		// its returned shares with the local view.
+		if let Some(hex_peer) = relay_peer_id_hex {
+			let peer = parse_peer_id(&hex_peer).map_err(|e| {
+				ErrorObject::owned::<()>(
+					-32602,
+					format!("relay_peer_id_hex: {e}"),
+					None,
+				)
+			})?;
+			let request = FetchRequest { pickup_key: my_pickup };
+			let request_bytes = request.encode();
+			match network
+				.request(
+					peer,
+					ProtocolName::from(CHAT_FETCH_PROTOCOL_NAME),
+					request_bytes,
+					None,
+					IfDisconnected::TryConnect,
+				)
+				.await
+			{
+				Ok((resp_bytes, _)) => {
+					if let Ok(resp) = FetchResponse::decode(&mut &resp_bytes[..]) {
+						for fs in resp.shares {
+							matched.push((fs.descriptor, fs.share_bytes, fs.mac_tag));
+						}
+					} else {
+						log::warn!(
+							target: "rostro-chat-rpc",
+							"chat_fetch: remote relay {peer} returned malformed \
+							 FetchResponse — local view only",
+						);
+					}
+				},
+				Err(e) => {
+					log::warn!(
+						target: "rostro-chat-rpc",
+						"chat_fetch: remote relay {peer} request failed: {e:?} \
+						 — falling back to local view",
+					);
+				},
+			}
+		}
 
 		// Group by message_id so we can reconstruct complete
-		// N-of-N stripe sets per message. The tuple-elements we
-		// care about: (share_index, share_bytes, total_shares).
+		// N-of-N stripe sets per message. Dedupe (message_id,
+		// share_index) pairs in case the same share is present in
+		// both the local view and the remote response.
 		type Group = Vec<(u8, Vec<u8>, u8)>;
 		let mut by_message: HashMap<MessageId, Group> = HashMap::new();
+		let mut seen: std::collections::HashSet<(MessageId, u8)> =
+			std::collections::HashSet::new();
 		for (desc, bytes, _mac) in matched {
+			let key = (desc.message_id, desc.share_index);
+			if !seen.insert(key) {
+				continue;
+			}
 			by_message.entry(desc.message_id).or_default().push((
 				desc.share_index,
 				bytes,
@@ -493,5 +588,6 @@ impl ChatRpcApiServer for ChatRpc {
 		// Stable ordering for determinism.
 		out.sort_by(|a, b| a.message_id_hex.cmp(&b.message_id_hex));
 		Ok(out)
+		})
 	}
 }

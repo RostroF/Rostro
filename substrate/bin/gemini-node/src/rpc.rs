@@ -45,6 +45,11 @@ pub struct ChatRpcDeps {
 	/// lifetime of the node; cloned into the RPC layer so the
 	/// chat-fetch path can read pickup-keyed entries.
 	pub share_store: Arc<rostro_chat_ephemeral_store::EphemeralShareStore>,
+	/// Handle to the running node's networking service. Used by
+	/// `chat_fetch` to query remote relays via the outbound
+	/// `/rostro/chat-fetch/1` libp2p protocol when the caller
+	/// supplies `relay_peer_id_hex`.
+	pub network: Arc<dyn rc_network::service::traits::NetworkService>,
 }
 
 /// Instantiate all full RPC extensions.
@@ -74,6 +79,7 @@ where
 			chat.identity_pubkey_ed25519,
 			chat.identity_seed_ed25519,
 			chat.share_store,
+			chat.network,
 		)
 		.into_rpc(),
 	)?;
