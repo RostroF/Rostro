@@ -4677,6 +4677,7 @@ dependencies = [
  "rostro-executor",
  "rostro-rpc-shield",
  "rostro-validator-channel",
+ "serde",
  "serde_json",
  "sp-api",
  "sp-block-builder",

@@ -518,11 +518,48 @@ pub fn new_full<
 	let enable_grandpa = !config.disable_grandpa;
 	let prometheus_registry = config.prometheus_registry().cloned();
 
+	// Phase C2a: derive the node's libp2p Ed25519 identity pubkey
+	// so the chat_* JSON-RPC diagnostics can expose it (and the
+	// X25519 conversion for sealed-sender, and the pickup key) to
+	// CLI clients. If the configured node_key is fresh-per-run
+	// (Secret::New), there's no persistent identity to surface;
+	// fall back to a zero pubkey with a clear warning. The
+	// downstream `chat_myIdentity` call will return all-zero hex
+	// strings, which is structurally observable as "no identity
+	// configured" rather than masquerading as a real key.
+	let chat_identity_pubkey_ed25519: [u8; 32] =
+		match crate::canonical_fetch_protocol::load_node_identity_signing_key(
+			&config.network.node_key,
+		) {
+			Ok(sk) => {
+				let vk: ed25519_zebra::VerificationKey =
+					ed25519_zebra::VerificationKey::from(&sk);
+				vk.into()
+			},
+			Err(e) => {
+				log::warn!(
+					target: "rostro-chat",
+					"chat RPC: identity pubkey unavailable ({e}); chat_myIdentity \
+					 will return zeros. Set --node-key or --node-key-file to enable \
+					 a persistent chat identity.",
+				);
+				[0u8; 32]
+			},
+		};
+
 	let rpc_builder = {
 		let client = client.clone();
 		let pool = transaction_pool.clone();
+		let chat_share_store = chat_share_store.clone();
 		Box::new(move |_| {
-			let deps = crate::rpc::FullDeps { client: client.clone(), pool: pool.clone() };
+			let deps = crate::rpc::FullDeps {
+				client: client.clone(),
+				pool: pool.clone(),
+				chat: crate::rpc::ChatRpcDeps {
+					identity_pubkey_ed25519: chat_identity_pubkey_ed25519,
+					share_store: chat_share_store.clone(),
+				},
+			};
 			crate::rpc::create_full(deps).map_err(Into::into)
 		})
 	};
