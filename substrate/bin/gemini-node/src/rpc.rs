@@ -35,6 +35,12 @@ pub struct ChatRpcDeps {
 	/// Raw 32-byte Ed25519 identity pubkey of the running node
 	/// (the libp2p node-identity key).
 	pub identity_pubkey_ed25519: [u8; 32],
+	/// Raw 32-byte Ed25519 seed for the same identity. Used to
+	/// derive the X25519 static secret (XEdDSA) at fetch time so
+	/// we can unseal sealed-sender envelopes addressed to this
+	/// node. Zero-array if no persistent key was configured —
+	/// fetch will return an error in that case.
+	pub identity_seed_ed25519: [u8; 32],
 	/// Shared chat-share store. Lives inside the service for the
 	/// lifetime of the node; cloned into the RPC layer so the
 	/// chat-fetch path can read pickup-keyed entries.
@@ -64,7 +70,12 @@ where
 	module.merge(System::new(client.clone(), pool).into_rpc())?;
 	module.merge(TransactionPayment::new(client).into_rpc())?;
 	module.merge(
-		ChatRpc::new(chat.identity_pubkey_ed25519, chat.share_store).into_rpc(),
+		ChatRpc::new(
+			chat.identity_pubkey_ed25519,
+			chat.identity_seed_ed25519,
+			chat.share_store,
+		)
+		.into_rpc(),
 	)?;
 
 	Ok(module)

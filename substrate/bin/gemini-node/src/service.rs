@@ -518,32 +518,29 @@ pub fn new_full<
 	let enable_grandpa = !config.disable_grandpa;
 	let prometheus_registry = config.prometheus_registry().cloned();
 
-	// Phase C2a: derive the node's libp2p Ed25519 identity pubkey
-	// so the chat_* JSON-RPC diagnostics can expose it (and the
-	// X25519 conversion for sealed-sender, and the pickup key) to
-	// CLI clients. If the configured node_key is fresh-per-run
-	// (Secret::New), there's no persistent identity to surface;
-	// fall back to a zero pubkey with a clear warning. The
-	// downstream `chat_myIdentity` call will return all-zero hex
-	// strings, which is structurally observable as "no identity
-	// configured" rather than masquerading as a real key.
-	let chat_identity_pubkey_ed25519: [u8; 32] =
-		match crate::canonical_fetch_protocol::load_node_identity_signing_key(
+	// Phase C2a/C2b: derive the node's libp2p Ed25519 identity
+	// (pubkey + raw seed) for the chat_* JSON-RPC surface. The
+	// pubkey backs chat_myIdentity / chat_myPickupKey; the seed
+	// backs chat_fetch's XEdDSA-derived X25519 secret used to
+	// unseal inbound messages.
+	let (chat_identity_pubkey_ed25519, chat_identity_seed_ed25519): ([u8; 32], [u8; 32]) =
+		match crate::canonical_fetch_protocol::load_node_identity_seed_bytes(
 			&config.network.node_key,
 		) {
-			Ok(sk) => {
+			Ok(seed) => {
+				let sk = ed25519_zebra::SigningKey::from(seed);
 				let vk: ed25519_zebra::VerificationKey =
 					ed25519_zebra::VerificationKey::from(&sk);
-				vk.into()
+				(vk.into(), seed)
 			},
 			Err(e) => {
 				log::warn!(
 					target: "rostro-chat",
-					"chat RPC: identity pubkey unavailable ({e}); chat_myIdentity \
-					 will return zeros. Set --node-key or --node-key-file to enable \
-					 a persistent chat identity.",
+					"chat RPC: identity unavailable ({e}); chat_myIdentity will \
+					 return zeros and chat_fetch cannot unseal. Set --node-key \
+					 or --node-key-file to enable a persistent chat identity.",
 				);
-				[0u8; 32]
+				([0u8; 32], [0u8; 32])
 			},
 		};
 
@@ -557,6 +554,7 @@ pub fn new_full<
 				pool: pool.clone(),
 				chat: crate::rpc::ChatRpcDeps {
 					identity_pubkey_ed25519: chat_identity_pubkey_ed25519,
+					identity_seed_ed25519: chat_identity_seed_ed25519,
 					share_store: chat_share_store.clone(),
 				},
 			};

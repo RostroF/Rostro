@@ -42,6 +42,36 @@
 //!   encode a valid Edwards point fail conversion. This function
 //!   returns `Option<[u8; 32]>` so callers can surface that.
 
+/// Convert a 32-byte Ed25519 signing-key seed into the matching
+/// X25519 static secret. The resulting secret pairs (via
+/// [`ed25519_to_x25519_pubkey`]) with the X25519 pubkey derived
+/// from the corresponding Ed25519 verification key — Signal's
+/// XEdDSA construction.
+///
+/// Algorithm (per RFC 7748 / Ed25519 internal expansion):
+///   1. `h = SHA-512(seed)`
+///   2. X25519 scalar bytes = first 32 bytes of `h`
+///   3. Apply X25519 clamping:
+///      - `bytes[0] &= 248` (clear low 3 bits)
+///      - `bytes[31] &= 127` (clear high bit)
+///      - `bytes[31] |= 64`  (set second-highest bit)
+///
+/// The resulting 32 bytes are a valid `x25519_dalek::StaticSecret`
+/// scalar that produces the same X25519 public key as
+/// [`ed25519_to_x25519_pubkey`] applied to the corresponding
+/// Ed25519 verification key.
+pub fn ed25519_seed_to_x25519_secret(seed: &[u8; 32]) -> [u8; 32] {
+	use sha2::{Digest, Sha512};
+	let hash = Sha512::digest(seed);
+	let mut secret = [0u8; 32];
+	secret.copy_from_slice(&hash[..32]);
+	// X25519 clamping (RFC 7748 §5).
+	secret[0] &= 248;
+	secret[31] &= 127;
+	secret[31] |= 64;
+	secret
+}
+
 /// Convert a raw 32-byte Ed25519 public key into the canonical
 /// X25519 public key (u-coordinate, 32 bytes) for the same
 /// underlying identity.
@@ -136,6 +166,57 @@ mod tests {
 		let ed = known_ed25519_pubkey();
 		let x = ed25519_to_x25519_pubkey(&ed).unwrap();
 		assert_eq!(x.len(), 32);
+	}
+
+	#[test]
+	fn seed_to_secret_yields_valid_x25519_keypair() {
+		// The XEdDSA invariant: the X25519 secret derived from a
+		// seed pairs with the X25519 pubkey derived from the
+		// corresponding Ed25519 verification key. ECDH between
+		// (derived secret, peer pubkey) is symmetric.
+		use x25519_dalek::{PublicKey as XPub, StaticSecret as XSecret};
+
+		let alice_seed = [0x42u8; 32];
+		let alice_signing = ed25519_zebra::SigningKey::from(alice_seed);
+		let alice_ed_pub: [u8; 32] =
+			ed25519_zebra::VerificationKey::from(&alice_signing).into();
+
+		let alice_x_secret_bytes = ed25519_seed_to_x25519_secret(&alice_seed);
+		let alice_x_pub_via_secret =
+			*XPub::from(&XSecret::from(alice_x_secret_bytes)).as_bytes();
+		let alice_x_pub_via_edwards = ed25519_to_x25519_pubkey(&alice_ed_pub).unwrap();
+		assert_eq!(
+			alice_x_pub_via_secret, alice_x_pub_via_edwards,
+			"X25519 pubkey derived from seed must equal pubkey derived from \
+			 Ed25519 verification key (XEdDSA consistency)",
+		);
+
+		// Round-trip ECDH with a second party: both sides compute
+		// the same shared secret.
+		let bob_seed = [0x99u8; 32];
+		let bob_x_secret = XSecret::from(ed25519_seed_to_x25519_secret(&bob_seed));
+		let bob_x_pub = *XPub::from(&bob_x_secret).as_bytes();
+		let alice_x_secret = XSecret::from(alice_x_secret_bytes);
+		let shared_alice = alice_x_secret.diffie_hellman(&XPub::from(bob_x_pub));
+		let shared_bob =
+			bob_x_secret.diffie_hellman(&XPub::from(alice_x_pub_via_secret));
+		assert_eq!(shared_alice.as_bytes(), shared_bob.as_bytes());
+	}
+
+	#[test]
+	fn seed_to_secret_is_clamped() {
+		let secret = ed25519_seed_to_x25519_secret(&[0x42; 32]);
+		// X25519 clamping invariants:
+		assert_eq!(secret[0] & 7, 0, "low 3 bits cleared");
+		assert_eq!(secret[31] & 128, 0, "high bit cleared");
+		assert_eq!(secret[31] & 64, 64, "second-highest bit set");
+	}
+
+	#[test]
+	fn seed_to_secret_is_deterministic() {
+		let s1 = ed25519_seed_to_x25519_secret(&[0x33; 32]);
+		let s2 = ed25519_seed_to_x25519_secret(&[0x33; 32]);
+		assert_eq!(s1, s2);
 	}
 
 	#[test]

@@ -191,12 +191,23 @@ where
 pub fn load_node_identity_signing_key(
 	node_key: &rc_network::config::NodeKeyConfig,
 ) -> Result<ed25519_zebra::SigningKey, String> {
+	Ok(ed25519_zebra::SigningKey::from(load_node_identity_seed_bytes(node_key)?))
+}
+
+/// Same source as [`load_node_identity_signing_key`], but returns
+/// the raw 32-byte Ed25519 seed instead of an `ed25519_zebra::SigningKey`.
+/// Used by [`crate::chat_rpc`] for XEdDSA-style derivation of the
+/// node's matching X25519 static secret (Sealed Sender outer-layer
+/// ECDH for inbound chat messages).
+pub fn load_node_identity_seed_bytes(
+	node_key: &rc_network::config::NodeKeyConfig,
+) -> Result<[u8; 32], String> {
 	use rc_network::config::{NodeKeyConfig, Secret};
-	let bytes: [u8; 32] = match node_key {
+	match node_key {
 		NodeKeyConfig::Ed25519(Secret::Input(sk)) => {
 			let raw: &[u8] = sk.as_ref();
 			raw.try_into()
-				.map_err(|_| format!("node-identity key length {} != 32", raw.len()))?
+				.map_err(|_| format!("node-identity key length {} != 32", raw.len()))
 		},
 		NodeKeyConfig::Ed25519(Secret::File(path)) => {
 			let file_bytes = std::fs::read(path).map_err(|e| {
@@ -205,19 +216,16 @@ pub fn load_node_identity_signing_key(
 					path.display(),
 				)
 			})?;
-			parse_node_key_bytes(&file_bytes)?
+			parse_node_key_bytes(&file_bytes)
 		},
-		NodeKeyConfig::Ed25519(Secret::New) => {
-			return Err(
-				"canonical-fetch attestation requires a persistent libp2p \
-				 node-identity key; got `Secret::New` (fresh-per-run). \
-				 Pass --node-key <hex>, --node-key-file <path>, or rely on \
-				 the default <base-path>/network/secret_ed25519 file."
-					.to_string(),
-			);
-		},
-	};
-	Ok(ed25519_zebra::SigningKey::from(bytes))
+		NodeKeyConfig::Ed25519(Secret::New) => Err(
+			"canonical-fetch attestation requires a persistent libp2p \
+			 node-identity key; got `Secret::New` (fresh-per-run). \
+			 Pass --node-key <hex>, --node-key-file <path>, or rely on \
+			 the default <base-path>/network/secret_ed25519 file."
+				.to_string(),
+		),
+	}
 }
 
 /// Parse a libp2p node-identity-key file. Two acceptable formats —
