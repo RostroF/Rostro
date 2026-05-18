@@ -221,6 +221,60 @@ pub fn new_full<
 		);
 	}
 
+	// Commit A: chat-gossip notification protocol. Carries bucket
+	// subscription advertisements between non-validator peers so
+	// each node can answer "which peers carry bucket X?" for the
+	// distribution layer landing in Commit B. The protocol is
+	// registered here (BEFORE build_network) and the task is
+	// spawned after build_network gives us a NetworkService handle.
+	//
+	// The BucketCache is created unconditionally (so the rest of
+	// the chat stack can hold a handle), but the gossip task is
+	// only spawned if we can load a persistent libp2p node-identity
+	// signing key — without one, this node can RECEIVE advertisements
+	// at the libp2p layer but can't sign its own outbound
+	// advertisement, so it would just be a leech. Operators wanting
+	// chat-gossip participation set `--node-key` / `--node-key-file`.
+	let chat_bucket_cache = crate::chat_bucket_cache::BucketCache::new();
+	let chat_gossip_state_and_service = match crate::canonical_fetch_protocol::load_node_identity_signing_key(
+		&config.network.node_key,
+	) {
+		Ok(signing_key) => {
+			let now_unix_s = std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.map(|d| d.as_secs())
+				.unwrap_or(0);
+			let local_state = crate::chat_gossip_protocol::LocalSubscriptionState::new(
+				signing_key,
+				rostro_chat_primitives::bucket::BucketBitmap::all(),
+				now_unix_s,
+			);
+			let (gossip_config, gossip_service) =
+				crate::chat_gossip_protocol::build_chat_gossip_protocol::<N, _>(
+					metrics.clone(),
+					peer_store_handle.clone(),
+				);
+			net_config.add_notification_protocol(gossip_config);
+			log::info!(
+				target: "rostro-chat-gossip",
+				"chat-gossip notification protocol registered on `{}` \
+				 (initial subscription: all 256 buckets)",
+				crate::chat_gossip_protocol::CHAT_GOSSIP_PROTOCOL_NAME,
+			);
+			Some((local_state, gossip_service))
+		}
+		Err(e) => {
+			log::warn!(
+				target: "rostro-chat-gossip",
+				"chat-gossip protocol NOT registered: {e}. This node can \
+				 still receive advertisements at libp2p layer but cannot \
+				 sign its own outbound. Set --node-key or --node-key-file \
+				 to enable full participation.",
+			);
+			None
+		}
+	};
+
 	// Phase 7 v2 Piece 3a/3b: per-peer rate limiter shared between
 	// the attest server (drops over-limit incoming requests) and the
 	// asker side (Piece 3c). 2 requests / 5-min window / 300s
@@ -421,6 +475,25 @@ pub fn new_full<
 			presence_tx,
 		),
 	);
+
+	// Commit A: spawn the chat-gossip notification task. Owns the
+	// NotificationService for /rostro/chat-gossip/1; populates
+	// `chat_bucket_cache` from inbound advertisements; broadcasts
+	// our own subscription to newly-opened peer streams.
+	//
+	// Only spawned if `chat_gossip_state_and_service` was built
+	// (requires a loadable persistent libp2p node-identity key).
+	if let Some((local_state, gossip_service)) = chat_gossip_state_and_service {
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-gossip",
+			Some("rostro"),
+			crate::chat_gossip_protocol::run_chat_gossip_task(
+				gossip_service,
+				chat_bucket_cache.clone(),
+				local_state,
+			),
+		);
+	}
 
 	if config.offchain_worker.enabled {
 		let offchain_workers =
