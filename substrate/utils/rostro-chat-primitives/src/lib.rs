@@ -55,6 +55,7 @@
 
 extern crate alloc;
 
+pub mod admission;
 pub mod descriptor;
 pub mod dht_publication;
 pub mod envelope;

@@ -107,7 +107,7 @@ impl GroupId {
 
 /// Ed25519 pubkey of a relay node (libp2p node-identity key). 32-byte
 /// raw key bytes; PeerId is derived from this on the libp2p layer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub struct RelayPubkey(pub [u8; 32]);
 
 /// Domain-separated 32-byte DHT lookup key under which a recipient
