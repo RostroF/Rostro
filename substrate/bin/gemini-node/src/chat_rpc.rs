@@ -60,9 +60,11 @@ use jsonrpsee::{
 	proc_macros::rpc,
 	types::error::ErrorObject,
 };
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use codec::{Decode, Encode};
+use gemini_runtime::{opaque::Block, AccountId};
 use rand_core::{OsRng, RngCore};
 use rc_network::{service::traits::NetworkService, types::ProtocolName, IfDisconnected, PeerId};
 use rostro_chat_ephemeral_store::EphemeralShareStore;
@@ -78,6 +80,10 @@ use rostro_chat_primitives::{
 	stripe::{split_xor, MAX_SHARES},
 	verify::mac_share,
 };
+use sp_api::ProvideRuntimeApi;
+use sp_blockchain::HeaderBackend;
+use sp_core::blake2_256;
+use zk_pki_primitives::runtime_api::{CertState as RpcCertState, ZkPkiApi};
 
 /// Local-clock helper. Returns the host's current Unix timestamp in
 /// seconds. Used to stamp `expires_at_unix_ts` on outbound share
@@ -91,6 +97,24 @@ fn now_unix_seconds() -> UnixTimestamp {
 		.map(|d| d.as_secs())
 		.unwrap_or(0)
 }
+
+/// Domain-separation tag for the chat-auth challenge signed by the
+/// caller's HW-attested device key. The signed message is:
+///
+///     blake2_256(CHAT_AUTH_DOMAIN || envelope_bytes || timestamp_be_bytes)
+///
+/// Binding both `envelope_bytes` and `timestamp_be_bytes` prevents
+/// (a) replay of the signature with a different envelope and
+/// (b) replay of the signature later (subject to the
+/// `CHAT_AUTH_TIMESTAMP_WINDOW_SECS` skew check at the receiver).
+pub const CHAT_AUTH_DOMAIN: &[u8] = b"rostro/chat/auth/v1";
+
+/// Maximum allowed skew between the client-provided
+/// `auth_timestamp_secs` and the node's local clock. Outside this
+/// window the auth is rejected. 600 seconds accommodates ordinary
+/// NTP drift + transport latency without leaving room for stale
+/// replays.
+pub const CHAT_AUTH_TIMESTAMP_WINDOW_SECS: u64 = 600;
 
 use crate::chat_fetch_protocol::CHAT_FETCH_PROTOCOL_NAME;
 
@@ -176,12 +200,41 @@ pub trait ChatRpcApi {
 	///   * `total_shares` — number of XOR-stripe shares. Range
 	///     [2, MAX_SHARES]. Defaults to [`DEFAULT_TOTAL_SHARES`]
 	///     when 0 is passed.
+	///   * `auth_cert_thumbprint_hex` — caller's zkpki cert
+	///     thumbprint (32 bytes, hex). Identifies the cert whose
+	///     HW-attested device key signed `auth_sig_hex`.
+	///   * `auth_timestamp_secs` — caller's local Unix-seconds
+	///     timestamp at signing. Must be within
+	///     [`CHAT_AUTH_TIMESTAMP_WINDOW_SECS`] of the node's clock.
+	///   * `auth_sig_hex` — signature over
+	///     `blake2_256(CHAT_AUTH_DOMAIN || envelope_bytes ||
+	///     auth_timestamp_be_bytes)` produced by the cert's
+	///     hardware-attested device key.
+	///
+	/// All three auth-* parameters are required together. The node
+	/// looks up the cert via the zkpki runtime API, requires
+	/// `cert_state == Active`, verifies the signature against the
+	/// cert's stored `device_pubkey`, and uses `cert.bound_account`
+	/// as the authenticated requestor identity for any downstream
+	/// rate-limiting / abuse-tracking. Any auth failure rejects
+	/// the request.
+	///
+	/// To accommodate the existing demo / CLI testing path that
+	/// doesn't yet carry HW-attested certs, the three auth-*
+	/// parameters are `Option<String>`. When all three are absent
+	/// the node logs a warning and accepts the request unauthenticated.
+	/// **Production deployments MUST require them** — set a config
+	/// flag at the RPC layer (or reject in nginx / rpc-shield) to
+	/// drop unauthenticated `chat_send_envelope` calls.
 	#[method(name = "chat_send_envelope")]
 	fn send_envelope(
 		&self,
 		recipient_chat_pubkey_hex: String,
 		envelope_hex: String,
 		total_shares: u8,
+		auth_cert_thumbprint_hex: Option<String>,
+		auth_timestamp_secs: Option<u64>,
+		auth_sig_hex: Option<String>,
 	) -> RpcResult<ChatSendResult>;
 
 	/// Return raw share descriptors + ciphertext bytes for shares
@@ -206,27 +259,132 @@ pub trait ChatRpcApi {
 
 /// Concrete implementation. Holds only the node's PUBLIC libp2p
 /// identity pubkey (for routing diagnostics + share descriptors
-/// the node mints as a relay) + handles to the share store and the
-/// networking service. Does NOT hold any user chat-identity
+/// the node mints as a relay) + handles to the share store, the
+/// networking service, and the chain client (for the zkpki
+/// runtime-API auth lookup). Does NOT hold any user chat-identity
 /// secret — those live on user devices.
-pub struct ChatRpc {
+pub struct ChatRpc<C> {
 	node_pubkey_ed25519: [u8; 32],
 	share_store: Arc<EphemeralShareStore>,
 	network: Arc<dyn NetworkService>,
+	client: Arc<C>,
+	_block: PhantomData<Block>,
 }
 
-impl ChatRpc {
+impl<C> ChatRpc<C>
+where
+	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	C::Api: ZkPkiApi<Block, AccountId>,
+{
 	pub fn new(
 		node_pubkey_ed25519: [u8; 32],
 		share_store: Arc<EphemeralShareStore>,
 		network: Arc<dyn NetworkService>,
+		client: Arc<C>,
 	) -> Self {
-		Self { node_pubkey_ed25519, share_store, network }
+		Self {
+			node_pubkey_ed25519,
+			share_store,
+			network,
+			client,
+			_block: PhantomData,
+		}
+	}
+
+	/// Verify a caller's chat-auth credentials against the zkpki
+	/// runtime API. Returns the authenticated `AccountId` on
+	/// success or a structured error on any failure.
+	fn verify_chat_auth(
+		&self,
+		envelope_bytes: &[u8],
+		thumbprint_hex: &str,
+		timestamp_secs: u64,
+		sig_hex: &str,
+	) -> Result<AccountId, ErrorObject<'static>> {
+		// 1. Timestamp window check (rejects stale replays).
+		let now = now_unix_seconds();
+		let skew = if now > timestamp_secs {
+			now - timestamp_secs
+		} else {
+			timestamp_secs - now
+		};
+		if skew > CHAT_AUTH_TIMESTAMP_WINDOW_SECS {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				format!(
+					"chat-auth timestamp out of window: skew {skew}s > \
+					 {CHAT_AUTH_TIMESTAMP_WINDOW_SECS}s",
+				),
+				None,
+			));
+		}
+
+		// 2. Decode thumbprint + signature hex.
+		let thumbprint = decode_hex32(thumbprint_hex)
+			.map_err(|e| invalid_param("auth_cert_thumbprint_hex", &e))?;
+		let sig_bytes = hex::decode(sig_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("auth_sig_hex", &format!("invalid hex: {e}")))?;
+
+		// 3. Runtime API lookup: cert authentication info.
+		let best = self.client.info().best_hash;
+		let info = self
+			.client
+			.runtime_api()
+			.cert_authentication(best, thumbprint)
+			.map_err(|e| {
+				ErrorObject::owned::<()>(
+					-32000,
+					format!("zkpki runtime API call failed: {e:?}"),
+					None,
+				)
+			})?
+			.ok_or_else(|| {
+				ErrorObject::owned::<()>(
+					-32000,
+					"chat-auth cert not found (purged or never existed)",
+					None,
+				)
+			})?;
+
+		// 4. Cert must be Active.
+		if !matches!(info.cert_state, RpcCertState::Active) {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				format!(
+					"chat-auth cert is not Active (state: {:?})",
+					info.cert_state,
+				),
+				None,
+			));
+		}
+
+		// 5. Reconstruct the signed message + verify against the
+		//    cert's HW-attested device pubkey.
+		let mut to_sign = Vec::with_capacity(
+			CHAT_AUTH_DOMAIN.len() + envelope_bytes.len() + 8,
+		);
+		to_sign.extend_from_slice(CHAT_AUTH_DOMAIN);
+		to_sign.extend_from_slice(envelope_bytes);
+		to_sign.extend_from_slice(&timestamp_secs.to_be_bytes());
+		let digest = blake2_256(&to_sign);
+		if !info.device_pubkey.verify_signature(&digest, &sig_bytes) {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				"chat-auth signature verification failed",
+				None,
+			));
+		}
+
+		Ok(info.bound_account)
 	}
 }
 
 #[async_trait]
-impl ChatRpcApiServer for ChatRpc {
+impl<C> ChatRpcApiServer for ChatRpc<C>
+where
+	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	C::Api: ZkPkiApi<Block, AccountId>,
+{
 	fn node_info(&self) -> RpcResult<ChatNodeInfo> {
 		Ok(ChatNodeInfo {
 			node_pubkey_ed25519_hex: hex::encode(self.node_pubkey_ed25519),
@@ -242,6 +400,9 @@ impl ChatRpcApiServer for ChatRpc {
 		recipient_chat_pubkey_hex: String,
 		envelope_hex: String,
 		total_shares: u8,
+		auth_cert_thumbprint_hex: Option<String>,
+		auth_timestamp_secs: Option<u64>,
+		auth_sig_hex: Option<String>,
 	) -> RpcResult<ChatSendResult> {
 		// Decode + sanity-check inputs.
 		let recipient_ed25519 = decode_hex32(&recipient_chat_pubkey_hex)
@@ -262,6 +423,38 @@ impl ChatRpcApiServer for ChatRpc {
 		let envelope = SealedEnvelope::decode(&mut &envelope_bytes[..]).map_err(|e| {
 			invalid_param("envelope_hex", &format!("SCALE-decode failed: {e}"))
 		})?;
+
+		// Chat-auth verification. All three auth-* parameters
+		// required together; absence of all three is the v0.1
+		// "demo / CLI testing" path (logged warning, no enforcement).
+		// Production deployments MUST reject the unauthenticated
+		// path upstream.
+		match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
+			(Some(tp), Some(ts), Some(sig)) => {
+				let authed = self.verify_chat_auth(&envelope_bytes, &tp, ts, &sig)?;
+				log::debug!(
+					target: "rostro-chat-rpc",
+					"chat_send_envelope authenticated as account {:?}",
+					authed,
+				);
+			}
+			(None, None, None) => {
+				log::warn!(
+					target: "rostro-chat-rpc",
+					"chat_send_envelope accepted WITHOUT chat-auth — \
+					 production deployments must reject this path",
+				);
+			}
+			_ => {
+				return Err(invalid_param(
+					"auth_*",
+					"all three of auth_cert_thumbprint_hex, \
+					 auth_timestamp_secs, auth_sig_hex must be present \
+					 together (or all absent for the unauthenticated \
+					 dev path)",
+				));
+			}
+		}
 
 		// v0.1 ships pairwise only; group flows take a different path.
 		if !matches!(envelope.kind, EnvelopeKind::Pairwise) {

@@ -14,6 +14,7 @@ use rc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
+use zk_pki_primitives::runtime_api::ZkPkiApi;
 
 use crate::chat_rpc::ChatRpc;
 
@@ -65,6 +66,7 @@ where
 	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
 	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
 	C::Api: BlockBuilder<Block>,
+	C::Api: ZkPkiApi<Block, AccountId>,
 	P: TransactionPool + 'static,
 {
 	use crate::chat_rpc::ChatRpcApiServer;
@@ -75,10 +77,15 @@ where
 	let FullDeps { client, pool, chat } = deps;
 
 	module.merge(System::new(client.clone(), pool).into_rpc())?;
-	module.merge(TransactionPayment::new(client).into_rpc())?;
+	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
 	module.merge(
-		ChatRpc::new(chat.node_pubkey_ed25519, chat.share_store, chat.network)
-			.into_rpc(),
+		ChatRpc::new(
+			chat.node_pubkey_ed25519,
+			chat.share_store,
+			chat.network,
+			client,
+		)
+		.into_rpc(),
 	)?;
 
 	Ok(module)

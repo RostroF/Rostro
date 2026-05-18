@@ -250,13 +250,26 @@ async fn cmd_send(
 	let client = HttpClientBuilder::default()
 		.build(node_rpc)
 		.with_context(|| format!("connecting to {node_rpc}"))?;
+	// v0.1 demo path: no HW-attested chat-auth cert available, so
+	// the three auth-* parameters are sent as `null`. The node
+	// will log a warning and accept; production deployments are
+	// expected to reject the unauthenticated path. When the mobile
+	// app integrates HW-attested signing, it will pass real values
+	// here (cert thumbprint + timestamp + signature over
+	// blake2_256(CHAT_AUTH_DOMAIN || envelope_bytes || ts_be)).
+	let auth_thumbprint: Option<String> = None;
+	let auth_timestamp: Option<u64> = None;
+	let auth_sig: Option<String> = None;
 	let result: ChatSendResult = client
 		.request(
 			"chat_send_envelope",
 			rpc_params![
 				hex::encode(recipient_ed),
 				envelope_hex,
-				total_shares
+				total_shares,
+				auth_thumbprint,
+				auth_timestamp,
+				auth_sig
 			],
 		)
 		.await

@@ -24,6 +24,7 @@ use frame_support::{traits::ConstU32, BoundedVec};
 use scale_info::TypeInfo;
 use sp_std::vec::Vec;
 
+use crate::crypto::DevicePublicKey;
 use crate::eku::Eku;
 use crate::template::{PopRequirement, MAX_TEMPLATE_EKUS, MAX_TEMPLATE_NAME_LEN};
 use crate::tpm::AttestationType;
@@ -173,6 +174,42 @@ pub struct CertSummary {
     pub manufacturer_verified: bool,
 }
 
+/// Minimum cert info needed to authenticate an off-chain
+/// challenge-response signed by the cert's hardware-attested device
+/// key. Returned by [`ZkPkiApi::cert_authentication`].
+///
+/// Off-chain consumers (notably the chat-channel JSON-RPC entry
+/// point at [gemini-node]) use this to:
+///
+/// 1. Check the cert is in `Active` state (`cert_state`).
+/// 2. Verify the cert hasn't expired (`expiry_block`).
+/// 3. Verify a signed challenge against `device_pubkey`.
+/// 4. Use `bound_account` as the authenticated requestor SS58
+///    after all three of the above pass.
+///
+/// This response intentionally omits the trust-chain context the
+/// `CertStatusResponse` carries (root, issuer, attestation type,
+/// EKUs, etc.). Callers that need that should still use
+/// `cert_status`; this method is the narrow "auth-me" surface
+/// where minimizing exposed metadata matters.
+#[derive(Encode, Decode, Clone, PartialEq, Eq, TypeInfo)]
+#[cfg_attr(feature = "std", derive(Debug, serde::Serialize, serde::Deserialize))]
+pub struct CertAuthInfo<AccountId> {
+    /// SS58 the cert is bound to. Becomes the authenticated
+    /// identity for the requestor after signature verification.
+    pub bound_account: AccountId,
+    /// HW-attested device public key. The off-chain consumer
+    /// verifies the challenge signature against this key.
+    pub device_pubkey: DevicePublicKey,
+    /// Current cert state. Off-chain consumers should accept only
+    /// `Active`; `Suspended`, `Expired`, `Purged` all mean the
+    /// holder shouldn't be acting as this identity right now.
+    pub cert_state: CertState,
+    /// Block at which the cert expires. Surfaced as `u64` for the
+    /// usual stable-across-runtime-block-number-types reason.
+    pub expiry_block: u64,
+}
+
 /// Entity (root or issuer) status for reputation-aware callers.
 #[derive(Encode, Decode, Clone, PartialEq, Eq, TypeInfo)]
 #[cfg_attr(feature = "std", derive(Debug, serde::Serialize, serde::Deserialize))]
@@ -231,5 +268,19 @@ sp_api::decl_runtime_apis! {
         /// expired at that block, and neither the issuer nor root was
         /// compromised on or before that block.
         fn chain_valid_at(thumbprint: [u8; 32], block_number: u64) -> bool;
+
+        /// Minimum cert info needed to authenticate an off-chain
+        /// challenge-response. Returns `None` if the thumbprint has
+        /// no lookup entry.
+        ///
+        /// Use case: the gemini-node chat layer's JSON-RPC entry
+        /// point verifies an end-user's HW-attested signature over
+        /// a challenge before accepting `chat_send_envelope`. It
+        /// needs the cert's `device_pubkey` to verify and the
+        /// cert's `bound_account` as the authenticated identity.
+        /// `cert_status` doesn't expose either; this method does.
+        fn cert_authentication(
+            thumbprint: [u8; 32],
+        ) -> Option<CertAuthInfo<AccountId>>;
     }
 }

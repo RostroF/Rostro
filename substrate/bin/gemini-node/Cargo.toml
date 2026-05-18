@@ -133,6 +133,11 @@ rand_core = { workspace = true, features = ["getrandom"] }
 # The runtime
 gemini-runtime = { workspace = true, default-features = true }
 
+# zkpki primitives — runtime API trait + CertAuthInfo struct used
+# by chat_rpc to authenticate end-user chat-send calls against a
+# zkpki cert's HW-attested device key.
+zk-pki-primitives = { workspace = true, default-features = true }
+
 [build-dependencies]
 substrate-build-script-utils = { workspace = true, default-features = true }
 

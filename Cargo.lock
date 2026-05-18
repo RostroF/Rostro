@@ -4700,6 +4700,7 @@ dependencies = [
  "tokio",
  "tracing",
  "x25519-dalek",
+ "zk-pki-primitives",
 ]
 
 [[package]]

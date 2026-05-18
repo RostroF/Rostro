@@ -3421,6 +3421,47 @@ pub mod pallet {
             })
         }
 
+        /// `cert_authentication` query. Returns the minimum info
+        /// needed to authenticate an off-chain challenge-response
+        /// signed by the cert's hardware-attested device key.
+        ///
+        /// Pulls `bound_account` + state from the hot record and
+        /// `device_pubkey` from the cold record. Both records must
+        /// exist; returns `None` if either is missing (purged /
+        /// never existed).
+        ///
+        /// The `cert_state` projection mirrors the one in
+        /// `query_cert_status`: an Active hot record past its
+        /// expiry block reports as `Expired`, not `Active`.
+        pub fn query_cert_authentication(
+            thumbprint: [u8; 32],
+        ) -> Option<zk_pki_primitives::runtime_api::CertAuthInfo<T::AccountId>>
+        where
+            BlockNumberFor<T>: UniqueSaturatedInto<u64>,
+            BlockNumberFor<T>: Clone + PartialOrd,
+        {
+            use zk_pki_primitives::runtime_api::{CertAuthInfo, CertState as RpcCertState};
+            let hot = CertLookupHot::<T>::get(thumbprint)?;
+            let cold = CertLookupCold::<T>::get(thumbprint)?;
+            let now = <frame_system::Pallet<T>>::block_number();
+            let cert_state = match hot.state {
+                CertState::Active => {
+                    if now > hot.expiry_block {
+                        RpcCertState::Expired
+                    } else {
+                        RpcCertState::Active
+                    }
+                }
+                CertState::Suspended => RpcCertState::Suspended,
+            };
+            Some(CertAuthInfo {
+                bound_account: hot.user.clone(),
+                device_pubkey: cold.cert_ec_pubkey.clone(),
+                cert_state,
+                expiry_block: hot.expiry_block.clone().unique_saturated_into(),
+            })
+        }
+
         /// Prefix-iterate the `CertsByIssuer` double map for this
         /// issuer. Trie prefix iteration scales with the number of
         /// matching entries, not the full cert table.
