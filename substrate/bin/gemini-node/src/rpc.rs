@@ -38,7 +38,9 @@ pub struct FullDeps<C, P> {
 ///     + node-info diagnostics)
 ///   - the shared share-store handle
 ///   - the networking service handle (for outbound remote-relay
-///     fetches)
+///     fetches AND for outbound chat-stripe pushes — Commit B)
+///   - the bucket cache (for selecting which peers to push shards
+///     to per the message's pickup-key bucket)
 pub struct ChatRpcDeps {
 	/// Raw 32-byte Ed25519 pubkey of this NODE (libp2p
 	/// node-identity). Used as the `relay_pubkey` field in share
@@ -49,10 +51,14 @@ pub struct ChatRpcDeps {
 	/// lifetime of the node; cloned into the RPC layer.
 	pub share_store: Arc<rostro_chat_ephemeral_store::EphemeralShareStore>,
 	/// Handle to the running node's networking service. Used by
-	/// `chat_fetch_shares` to query remote relays via the outbound
-	/// `/rostro/chat-fetch/1` libp2p protocol when the caller
-	/// supplies `relay_peer_id_hex`.
+	/// `chat_send_envelope` to push shards to bucket peers via
+	/// outbound `/rostro/chat-stripe/1`, and by `chat_fetch_shares`
+	/// for outbound `/rostro/chat-fetch/1`.
 	pub network: Arc<dyn rc_network::service::traits::NetworkService>,
+	/// Shared bucket cache populated by `/rostro/chat-gossip/1`
+	/// advertisements. `chat_send_envelope` reads
+	/// `peers_for_bucket(b)` to pick push targets for each shard.
+	pub bucket_cache: crate::chat_bucket_cache::BucketCache,
 }
 
 /// Instantiate all full RPC extensions.
@@ -84,6 +90,7 @@ where
 			chat.share_store,
 			chat.network,
 			client,
+			chat.bucket_cache,
 		)
 		.into_rpc(),
 	)?;

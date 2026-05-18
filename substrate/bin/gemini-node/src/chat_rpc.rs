@@ -69,6 +69,7 @@ use rand_core::{OsRng, RngCore};
 use rc_network::{service::traits::NetworkService, types::ProtocolName, IfDisconnected, PeerId};
 use rostro_chat_ephemeral_store::EphemeralShareStore;
 use rostro_chat_primitives::{
+	bucket::bucket_for_pickup_key,
 	descriptor::{
 		MessageId, PickupKey, RelayPubkey, ShareDescriptor, ShareIndex, UnixTimestamp,
 		CHAT_TTL_SECONDS,
@@ -76,7 +77,7 @@ use rostro_chat_primitives::{
 	envelope::{EnvelopeKind, SealedEnvelope},
 	fetch_protocol::{FetchRequest, FetchResponse},
 	identity_key::ed25519_to_x25519_pubkey,
-	store_protocol::ShareStore as _,
+	store_protocol::{ShareStore as _, StoreRejection, StoreRequest, StoreResponse},
 	stripe::{split_xor, MAX_SHARES},
 	verify::mac_share,
 };
@@ -84,6 +85,9 @@ use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_core::blake2_256;
 use zk_pki_primitives::runtime_api::{CertState as RpcCertState, ZkPkiApi};
+
+use crate::chat_bucket_cache::BucketCache;
+use crate::chat_stripe_protocol::CHAT_STRIPE_PROTOCOL_NAME;
 
 /// Local-clock helper. Returns the host's current Unix timestamp in
 /// seconds. Used to stamp `expires_at_unix_ts` on outbound share
@@ -120,6 +124,14 @@ use crate::chat_fetch_protocol::CHAT_FETCH_PROTOCOL_NAME;
 
 /// Default number of XOR-stripe shares per send. Clients can override.
 pub const DEFAULT_TOTAL_SHARES: usize = 5;
+
+/// Replication factor for push gossip: each shard is pushed to up
+/// to this many bucket-subscribed peers. If fewer than
+/// `REPLICATION_FACTOR` peers subscribe to the message's bucket,
+/// push goes to whoever's available (degraded redundancy logged).
+/// If zero peers subscribe, the send is rejected
+/// (old-tenant-mail behavior — there's nowhere to deliver).
+pub const REPLICATION_FACTOR: usize = 5;
 
 /// JSON-RPC response for `chat_nodeInfo`. Diagnostic — tells demo
 /// scripts where this node lives for routing.
@@ -227,7 +239,7 @@ pub trait ChatRpcApi {
 	/// flag at the RPC layer (or reject in nginx / rpc-shield) to
 	/// drop unauthenticated `chat_send_envelope` calls.
 	#[method(name = "chat_send_envelope")]
-	fn send_envelope(
+	async fn send_envelope(
 		&self,
 		recipient_chat_pubkey_hex: String,
 		envelope_hex: String,
@@ -260,14 +272,16 @@ pub trait ChatRpcApi {
 /// Concrete implementation. Holds only the node's PUBLIC libp2p
 /// identity pubkey (for routing diagnostics + share descriptors
 /// the node mints as a relay) + handles to the share store, the
-/// networking service, and the chain client (for the zkpki
-/// runtime-API auth lookup). Does NOT hold any user chat-identity
+/// networking service, the chain client (for the zkpki
+/// runtime-API auth lookup), and the bucket cache (for push-gossip
+/// peer selection). Does NOT hold any user chat-identity
 /// secret — those live on user devices.
 pub struct ChatRpc<C> {
 	node_pubkey_ed25519: [u8; 32],
 	share_store: Arc<EphemeralShareStore>,
 	network: Arc<dyn NetworkService>,
 	client: Arc<C>,
+	bucket_cache: BucketCache,
 	_block: PhantomData<Block>,
 }
 
@@ -281,12 +295,14 @@ where
 		share_store: Arc<EphemeralShareStore>,
 		network: Arc<dyn NetworkService>,
 		client: Arc<C>,
+		bucket_cache: BucketCache,
 	) -> Self {
 		Self {
 			node_pubkey_ed25519,
 			share_store,
 			network,
 			client,
+			bucket_cache,
 			_block: PhantomData,
 		}
 	}
@@ -395,7 +411,7 @@ where
 		Ok(self.share_store.len() as u64)
 	}
 
-	fn send_envelope(
+	async fn send_envelope(
 		&self,
 		recipient_chat_pubkey_hex: String,
 		envelope_hex: String,
@@ -485,11 +501,55 @@ where
 			ErrorObject::owned::<()>(-32000, format!("split_xor failed: {e:?}"), None)
 		})?;
 
+		// Pick bucket peers for the message's bucket. Reject the
+		// send if zero peers subscribe (old-tenant-mail behavior
+		// per design discussion — there's nowhere to deliver).
+		let bucket = bucket_for_pickup_key(&recipient_pickup);
+		let mut bucket_peers = self.bucket_cache.peers_for_bucket(bucket);
+		if bucket_peers.is_empty() {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				format!(
+					"no bucket peers available for bucket {bucket} — try a \
+					 different RPC node, or wait for peers to advertise \
+					 their bucket subscriptions on /rostro/chat-gossip/1",
+				),
+				None,
+			));
+		}
+
+		// Shuffle for replication picks (each shard goes to up to
+		// REPLICATION_FACTOR random bucket peers). OsRng for
+		// non-deterministic selection — predictable selection
+		// would let an observer game which peers receive which
+		// shards.
+		use rand_core::RngCore;
+		fn shuffle_in_place(v: &mut Vec<rc_network::PeerId>, rng: &mut OsRng) {
+			let n = v.len();
+			for i in (1..n).rev() {
+				let j = (rng.next_u64() as usize) % (i + 1);
+				v.swap(i, j);
+			}
+		}
+		shuffle_in_place(&mut bucket_peers, &mut rng);
+		let n_replicas = REPLICATION_FACTOR.min(bucket_peers.len());
+		let selected_peers: Vec<rc_network::PeerId> =
+			bucket_peers.into_iter().take(n_replicas).collect();
+
 		// MAC each share with the v0.1 zero key (per-message
 		// session-secret derivation lands with the DR pairwise
-		// wrapper — this is the same placeholder chat_send used).
+		// wrapper — placeholder, same as the prior demo).
 		let mac_key = [0u8; 32];
 		let total_u8 = n_shares as u8;
+		let expires_at = now_unix_seconds().saturating_add(CHAT_TTL_SECONDS);
+
+		// Push each shard to every selected peer. Outbound
+		// /rostro/chat-stripe/1 request-response. Aggregate
+		// success counts so we can surface degraded redundancy.
+		let mut stored_total: usize = 0;
+		let mut rejected_total: usize = 0;
+		let mut transport_failed_total: usize = 0;
+
 		for (i, share_bytes) in shares.into_iter().enumerate() {
 			let share_index = i as ShareIndex;
 			let mac_tag = mac_share(&mac_key, &share_bytes, share_index);
@@ -499,18 +559,106 @@ where
 				share_index,
 				total_shares: total_u8,
 				pickup_key: recipient_pickup,
-				expires_at_unix_ts: now_unix_seconds()
-					.saturating_add(CHAT_TTL_SECONDS),
+				expires_at_unix_ts: expires_at,
 			};
-			self.share_store
-				.insert(descriptor, share_bytes, mac_tag)
-				.map_err(|e| {
-					ErrorObject::owned::<()>(
-						-32000,
-						format!("local share-store insert failed: {e:?}"),
+			let store_req = StoreRequest {
+				descriptor,
+				share_bytes: share_bytes.clone(),
+				mac_tag,
+			};
+			let request_bytes = store_req.encode();
+
+			for peer in &selected_peers {
+				match self
+					.network
+					.request(
+						*peer,
+						ProtocolName::from(CHAT_STRIPE_PROTOCOL_NAME),
+						request_bytes.clone(),
 						None,
+						IfDisconnected::TryConnect,
 					)
-				})?;
+					.await
+				{
+					Ok((resp_bytes, _)) => {
+						match StoreResponse::decode(&mut &resp_bytes[..]) {
+							Ok(StoreResponse::Stored) => {
+								stored_total += 1;
+							}
+							Ok(StoreResponse::Rejected(reason)) => {
+								rejected_total += 1;
+								log::debug!(
+									target: "rostro-chat-rpc",
+									"push shard {} of message {} to {} \
+									 rejected: {:?}",
+									share_index,
+									hex::encode(&message_id.0[..4]),
+									peer,
+									reason,
+								);
+								// DuplicateShare on a retry is fine — count
+								// it as Stored so we don't over-flag.
+								if matches!(reason, StoreRejection::DuplicateShare) {
+									stored_total += 1;
+									rejected_total -= 1;
+								}
+							}
+							Err(_) => {
+								transport_failed_total += 1;
+								log::debug!(
+									target: "rostro-chat-rpc",
+									"push to {}: undecodable StoreResponse",
+									peer,
+								);
+							}
+						}
+					}
+					Err(e) => {
+						transport_failed_total += 1;
+						log::debug!(
+							target: "rostro-chat-rpc",
+							"push shard {} of message {} to {} \
+							 transport failed: {:?}",
+							share_index,
+							hex::encode(&message_id.0[..4]),
+							peer,
+							e,
+						);
+					}
+				}
+			}
+		}
+
+		// Aggregate. n_shares × n_replicas requests issued; the
+		// minimum we need for "send succeeded" is that each shard
+		// landed somewhere — at least n_shares total Stored
+		// responses. If we got fewer, the send is degraded;
+		// callers see a structured warning in the response shape.
+		let total_attempts = n_shares * n_replicas;
+		log::info!(
+			target: "rostro-chat-rpc",
+			"chat_send_envelope: shards={} replicas={} attempts={} stored={} rejected={} transport_failed={} \
+			 message_id={}",
+			n_shares,
+			n_replicas,
+			total_attempts,
+			stored_total,
+			rejected_total,
+			transport_failed_total,
+			hex::encode(message_id.0),
+		);
+
+		if stored_total < n_shares {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				format!(
+					"chat_send_envelope: only {stored_total} of {n_shares} shards \
+					 landed (need at least {n_shares} for recipient assembly); \
+					 {rejected_total} rejected, {transport_failed_total} \
+					 transport-failed",
+				),
+				None,
+			));
 		}
 
 		Ok(ChatSendResult {

@@ -635,6 +635,7 @@ pub fn new_full<
 					node_pubkey_ed25519: chat_node_pubkey_ed25519,
 					share_store: chat_share_store.clone(),
 					network: network_arc.clone(),
+					bucket_cache: chat_bucket_cache.clone(),
 				},
 			};
 			crate::rpc::create_full(deps).map_err(Into::into)
