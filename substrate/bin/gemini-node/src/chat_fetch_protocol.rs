@@ -22,8 +22,6 @@
 //! refuse to serve fetches to peers in the active validator set
 //! once the RoleResolver integration lands.
 
-#![allow(dead_code)]
-
 use std::sync::Arc;
 
 use futures::StreamExt;

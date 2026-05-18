@@ -22,10 +22,6 @@
 //! once the validator-set snapshot is exposed to non-consensus
 //! tasks.
 
-// Public symbols here aren't wired yet — they're consumed by
-// service.rs in B6b. Suppress the dead-code warning until then.
-#![allow(dead_code)]
-
 use std::sync::Arc;
 
 use futures::StreamExt;

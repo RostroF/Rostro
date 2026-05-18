@@ -295,6 +295,56 @@ pub fn new_full<
 		}
 	}
 
+	// Phase B6b: ephemeral chat-share store + the two libp2p
+	// request-response protocols that read/write it.
+	//
+	//   * `/rostro/chat-stripe/1` — senders deposit XOR-stripe
+	//     shares for the recipient's pickup key
+	//   * `/rostro/chat-fetch/1` — recipients query for shares
+	//     stored under their pickup key
+	//
+	// Same store instance backs both protocols. The store is
+	// in-process, capacity-bounded, mlock'd where the OS permits,
+	// TTL-swept at block boundaries (sweep wiring lands when the
+	// block-import hook is added in a follow-up). All shares die
+	// when the node restarts — recipients compensate via
+	// replication across multiple relays.
+	let chat_share_store: Arc<
+		rostro_chat_ephemeral_store::EphemeralShareStore,
+	> = Arc::new(
+		rostro_chat_ephemeral_store::EphemeralShareStore::with_default_config(),
+	);
+
+	let (chat_stripe_config, chat_stripe_handler) =
+		crate::chat_stripe_protocol::build_chat_stripe_protocol::<N, _, _, _>(
+			client.clone(),
+			chat_share_store.clone(),
+		);
+	net_config.add_request_response_protocol(chat_stripe_config);
+	task_manager.spawn_handle().spawn(
+		"rostro-chat-stripe-server",
+		Some("rostro"),
+		chat_stripe_handler,
+	);
+
+	let (chat_fetch_config, chat_fetch_handler) =
+		crate::chat_fetch_protocol::build_chat_fetch_protocol::<N, _, _>(
+			chat_share_store.clone(),
+		);
+	net_config.add_request_response_protocol(chat_fetch_config);
+	task_manager.spawn_handle().spawn(
+		"rostro-chat-fetch-server",
+		Some("rostro"),
+		chat_fetch_handler,
+	);
+
+	log::info!(
+		target: "rostro-chat",
+		"chat-stripe + chat-fetch protocols registered on `{}` / `{}`",
+		crate::chat_stripe_protocol::CHAT_STRIPE_PROTOCOL_NAME,
+		crate::chat_fetch_protocol::CHAT_FETCH_PROTOCOL_NAME,
+	);
+
 	let warp_sync = Arc::new(rc_consensus_grandpa::warp_proof::NetworkProvider::new(
 		backend.clone(),
 		grandpa_link.shared_authority_set().clone(),

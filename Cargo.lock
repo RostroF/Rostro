@@ -4671,6 +4671,8 @@ dependencies = [
  "rc-transaction-pool",
  "rc-transaction-pool-api",
  "rostro-canonical-fetch",
+ "rostro-chat-ephemeral-store",
+ "rostro-chat-primitives",
  "rostro-consensus-sassafras",
  "rostro-executor",
  "rostro-rpc-shield",
