@@ -54,17 +54,36 @@ use jsonrpsee::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use codec::Decode;
+use codec::{Decode, Encode};
+use rand_core::{OsRng, RngCore};
 use rostro_chat_ephemeral_store::EphemeralShareStore;
 use rostro_chat_primitives::{
-	descriptor::{MessageId, PickupKey},
-	envelope::{EnvelopeKind, SealedEnvelope, UnsealedInner},
+	descriptor::{
+		BlockNumber, MessageId, PickupKey, RelayPubkey, ShareDescriptor, ShareIndex,
+	},
+	envelope::{sign_inner, EnvelopeKind, SealedEnvelope, UnsealedInner},
 	identity_key::{ed25519_seed_to_x25519_secret, ed25519_to_x25519_pubkey},
 	store_protocol::ShareStore as _,
-	stripe::combine_xor,
-	verify::verify_sender,
+	stripe::{combine_xor, split_xor},
+	verify::{mac_share, verify_sender},
 };
-use rostro_chat_sealed_sender::{unseal as ss_unseal, SealedOutput};
+use rostro_chat_sealed_sender::{seal as ss_seal, unseal as ss_unseal, SealedOutput};
+
+/// Number of XOR-stripe shares emitted per chat_send. v0.1 fixes
+/// this; future versions may take it as a parameter for tuning
+/// the confidentiality/availability trade-off.
+pub const SEND_TOTAL_SHARES: usize = 5;
+
+/// Decode a 64-character hex string into 32 raw bytes.
+fn decode_hex32(hex: &str) -> Result<[u8; 32], String> {
+	let bytes = hex::decode(hex).map_err(|e| format!("invalid hex: {e}"))?;
+	if bytes.len() != 32 {
+		return Err(format!("expected 32 bytes, got {}", bytes.len()));
+	}
+	let mut out = [0u8; 32];
+	out.copy_from_slice(&bytes);
+	Ok(out)
+}
 
 /// JSON-RPC response shape for `chat_myIdentity`.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -85,6 +104,22 @@ pub struct ChatPickupKey {
 	/// (or known relays directly) with this to retrieve their
 	/// waiting shares.
 	pub hex: String,
+}
+
+/// JSON-RPC response shape for `chat_send`.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChatSendResult {
+	/// Hex-encoded `MessageId` (32 random bytes) generated for this
+	/// send. The recipient's `chat_fetch` returns the same value so
+	/// clients can correlate.
+	pub message_id_hex: String,
+	/// Number of XOR-stripe shares the sender split the envelope
+	/// into. v0.1 fixes this at [`SEND_TOTAL_SHARES`].
+	pub share_count: u32,
+	/// Recipient's domain-separated pickup key (hex). Useful for
+	/// demo scripts that want to verify the recipient queries
+	/// under the right key.
+	pub recipient_pickup_key_hex: String,
 }
 
 /// One successfully-decrypted chat message returned by `chat_fetch`.
@@ -119,6 +154,33 @@ pub trait ChatRpcApi {
 	/// node's local share store. Diagnostic.
 	#[method(name = "chat_localStoreLen")]
 	fn local_store_len(&self) -> RpcResult<u64>;
+
+	/// Send a chat message addressed to a single recipient.
+	///
+	/// `recipient_chat_pubkey_hex` is the recipient's 32-byte Ed25519
+	/// chat identity pubkey, hex-encoded (64 chars). For v0.1
+	/// demos with single-user-per-node topology, this is the
+	/// recipient's libp2p Ed25519 node-identity key (per the
+	/// chat-identity-separate-from-chain memo, real users will
+	/// register a dedicated chat identity once that path is wired).
+	///
+	/// `message` is the plaintext to send. v0.1 ships the bytes
+	/// verbatim inside `UnsealedInner.inner_ciphertext` — no DR
+	/// pairwise wrapper yet, just sealed-sender-protected
+	/// transport. Recipients see the same UTF-8 string back.
+	///
+	/// v0.1 deposit policy: the resulting XOR-stripe shares are
+	/// stored in THIS node's local share store, keyed by the
+	/// recipient's pickup key. The recipient's gemini-node fetches
+	/// them via `/rostro/chat-fetch/1` (inbound libp2p protocol,
+	/// already wired in Phase B6). Multi-node sender→remote-relay
+	/// ship lands in C2d.
+	#[method(name = "chat_send")]
+	fn send(
+		&self,
+		recipient_chat_pubkey_hex: String,
+		message: String,
+	) -> RpcResult<ChatSendResult>;
 
 	/// Return all chat messages currently decryptable for this
 	/// node — i.e. shares stored under this node's pickup key that
@@ -198,6 +260,121 @@ impl ChatRpcApiServer for ChatRpc {
 
 	fn local_store_len(&self) -> RpcResult<u64> {
 		Ok(self.share_store.len() as u64)
+	}
+
+	fn send(
+		&self,
+		recipient_chat_pubkey_hex: String,
+		message: String,
+	) -> RpcResult<ChatSendResult> {
+		// ── decode + sanity-check inputs ──────────────────────────
+		let recipient_ed25519: [u8; 32] = decode_hex32(&recipient_chat_pubkey_hex)
+			.map_err(|e| {
+				ErrorObject::owned::<()>(
+					-32602,
+					format!("recipient_chat_pubkey_hex: {e}"),
+					None,
+				)
+			})?;
+		let recipient_x25519 =
+			ed25519_to_x25519_pubkey(&recipient_ed25519).ok_or_else(|| {
+				ErrorObject::owned::<()>(
+					-32602,
+					"recipient_chat_pubkey_hex doesn't decode as a valid Edwards \
+					 point — cannot derive X25519 for sealed-sender ECDH",
+					None,
+				)
+			})?;
+		let recipient_pickup = PickupKey::for_pairwise(&recipient_x25519);
+
+		if self.identity_seed_ed25519 == [0u8; 32] {
+			return Err(ErrorObject::owned::<()>(
+				-32001,
+				"node has no persistent chat identity (libp2p node key was \
+				 fresh-per-run). Set --node-key or --node-key-file.",
+				None,
+			));
+		}
+		let signing_key =
+			ed25519_zebra::SigningKey::from(self.identity_seed_ed25519);
+
+		// ── build the inner-layer payload ─────────────────────────
+		// v0.1 = plaintext bytes verbatim. A future DR pairwise
+		// wrapper would replace this with a DR WireMessage.
+		let inner_ciphertext = message.into_bytes();
+
+		// Fresh per-send MessageId. 256-bit random — no collision
+		// check needed at this width.
+		let message_id = {
+			let mut bytes = [0u8; 32];
+			OsRng.fill_bytes(&mut bytes);
+			MessageId(bytes)
+		};
+
+		let unsealed = sign_inner(inner_ciphertext, &message_id, &signing_key);
+		let unsealed_encoded = unsealed.encode();
+
+		// ── sealed-sender outer layer ─────────────────────────────
+		let mut send_rng = OsRng;
+		let sealed = ss_seal(&recipient_x25519, &unsealed_encoded, &mut send_rng);
+
+		// ── outer envelope ────────────────────────────────────────
+		let envelope = SealedEnvelope {
+			kind: EnvelopeKind::Pairwise,
+			outer_ciphertext: sealed.ciphertext,
+			ephemeral_pubkey: sealed.ephemeral_pub,
+			message_id,
+		};
+		let envelope_encoded = envelope.encode();
+
+		// ── XOR-stripe + per-share MAC + descriptors ──────────────
+		let shares = split_xor(&envelope_encoded, SEND_TOTAL_SHARES, &mut send_rng)
+			.map_err(|e| {
+				ErrorObject::owned::<()>(
+					-32000,
+					format!("split_xor failed: {e:?}"),
+					None,
+				)
+			})?;
+
+		// v0.1 uses a zero MAC key (per-message session-secret
+		// derivation lands with the DR wrapper). The MAC is
+		// computed-but-not-verified at fetch time — recipients
+		// rely on the sealed-sender AEAD to authenticate the full
+		// envelope.
+		let mac_key = [0u8; 32];
+
+		let total_shares_u8 = SEND_TOTAL_SHARES as u8;
+		for (i, share_bytes) in shares.into_iter().enumerate() {
+			let share_index = i as ShareIndex;
+			let mac_tag = mac_share(&mac_key, &share_bytes, share_index);
+			let descriptor = ShareDescriptor {
+				relay_pubkey: RelayPubkey(self.identity_pubkey_ed25519),
+				message_id,
+				share_index,
+				total_shares: total_shares_u8,
+				pickup_key: recipient_pickup,
+				// Effectively no-expire for v0.1 demo: u32::MAX
+				// blocks. The TTL-sweep wiring + a HeaderBackend
+				// handle for current_block landings as a follow-up.
+				expires_at_block: BlockNumber::MAX,
+			};
+			self.share_store
+				.insert(descriptor, share_bytes, mac_tag)
+				.map_err(|e| {
+					ErrorObject::owned::<()>(
+						-32000,
+						format!("local share-store insert failed: {e:?}"),
+						None,
+					)
+				})?;
+		}
+
+		Ok(ChatSendResult {
+			message_id_hex: hex::encode(message_id.0),
+			share_count: SEND_TOTAL_SHARES as u32,
+			recipient_pickup_key_hex: hex::encode(recipient_pickup.0),
+		})
 	}
 
 	fn fetch(&self) -> RpcResult<Vec<ChatFetchedMessage>> {
