@@ -56,6 +56,48 @@ Voting is ranked-choice. **Ballot privacy is a cryptographic property of the
 proof system itself**, not a policy promise layered on top of public votes.
 No token-weighted plutocracy. One certificate, one vote.
 
+### Server-less hardware-attested messaging
+
+Every Rostro node hosts a chat fabric that delivers messages between
+end-users with **no central server, no log, no machine in the delivery
+path that can read what it carries.** Users hold their chat identity
+in secure hardware — Strongbox on Android, TPM 2.0 on PCs — registered
+through a one-time zkpki cert mint; the chain stores the device-attested
+public key, never the private key, never any chat key, never plaintext.
+
+The wire model is **hit-any-RPC-node**: the sender's gateway shards
+the message into XOR-stripe pieces, pushes each piece to a
+bucket-subscribed subset of non-validator relay nodes, and never
+hoards anything locally. Recipients can fetch from any RPC node:
+local-store first, automatic fallback to bucket peers if the gateway
+wasn't a push target. Nodes that were offline during a send self-heal
+via periodic anti-entropy — digest exchange catches gaps within
+~30 seconds of coming online. Operators set per-node capacity
+(how many of 256 buckets to carry); the network self-assigns which
+buckets via a once-a-week deterministic-random rebalance window
+(Tuesday 06:00–18:00 UTC, per-node-keyed offset).
+
+Channel-split admission keeps validators out of chat traffic — they
+focus on consensus. The chain stays out of the chat propagation path
+entirely; chat-shard expiry is local-wall-clock, not block-anchored.
+End-to-end confidentiality is MLS for groups, Double Ratchet for
+pairwise, Sealed Sender for envelope-layer sender anonymity. Every
+node on the relay fabric is itself canonical-binary-attested via the
+self-heal layer; tamper a relay's binary and it drops out of the
+gossip mesh before it can carry a single byte.
+
+Cousins in the messaging-design space — Signal, Matrix, Briar,
+Session — each compromise on at least one of: central servers, federated
+home servers, mesh-locality limits, or HW-attested relays.
+**Rostro's chat layer is, to our knowledge, the first messaging
+fabric that combines Signal-class end-to-end crypto with no central
+server, no log, hardware-attested users AND hardware-attested relays,
+and chain-rooted identity for sender authentication.**
+
+Live-verified end-to-end on three non-validator nodes — push to one,
+fetch from another, offline-node recovery via anti-entropy, capacity
+rebalance — via `scripts/chat-scenarios/0[1-4]-*.sh`.
+
 ### Strip-mall operator architecture
 
 The chain provides shared infrastructure: consensus, peer discovery, identity,
@@ -254,6 +296,35 @@ Ports 30333-30337 (P2P) and 9944-9948 (RPC) per node, each with its own
 base path under `.star/`. Each node sees the other four as peers; blocks
 rotate across the five-element authority set; GRANDPA finalizes at the
 2-3 block lag.
+
+### Three-node chat trio (non-validator chat fabric)
+
+The chat-layer demo topology: three non-validator gemini-nodes
+peered in a star, the smallest fabric that exercises cross-node
+distribution + bucket-peer fallback + anti-entropy without
+involving validators.
+
+```sh
+SUBSTRATE_RUNTIME_TARGET=riscv \
+  cargo build --release -p gemini-node -p rostro-supervisor -p rostro-chat-cli
+./scripts/run-chat-trio.sh
+```
+
+Ports 30340–30342 (P2P) and 9954–9956 (RPC); base paths under
+`.chat-trio/`. Four scenario scripts under
+[`scripts/chat-scenarios/`](./scripts/chat-scenarios/) exercise:
+
+1. `01-hello-world-pairwise.sh` — same-node hello-world.
+2. `02-cross-node-distribution.sh` — Iris sends via alice-chat,
+   shards distribute to bob + charlie, Otto fetches via bob (and
+   also via alice through bucket-peer fallback).
+3. `03-anti-entropy-fills-churn-gap.sh` — charlie offline at
+   send-time, comes online empty, anti-entropy fills the gap
+   within ~30s.
+4. `04-weekly-rebalance-force-now.sh` — operator dials charlie
+   to `CHAT_BUCKET_TARGET_COUNT=64` with `CHAT_REBALANCE_AT_STARTUP=1`;
+   subscription shrinks from 256 to 64 buckets, version bumps,
+   peers learn the new bitmap via re-advertisement.
 
 ### Doing it by hand
 
