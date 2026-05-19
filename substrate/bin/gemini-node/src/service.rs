@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
 //! Gemini service: Sassafras block authoring + GRANDPA finality.
@@ -221,6 +221,60 @@ pub fn new_full<
 		);
 	}
 
+	// Commit A: chat-gossip notification protocol. Carries bucket
+	// subscription advertisements between non-validator peers so
+	// each node can answer "which peers carry bucket X?" for the
+	// distribution layer landing in Commit B. The protocol is
+	// registered here (BEFORE build_network) and the task is
+	// spawned after build_network gives us a NetworkService handle.
+	//
+	// The BucketCache is created unconditionally (so the rest of
+	// the chat stack can hold a handle), but the gossip task is
+	// only spawned if we can load a persistent libp2p node-identity
+	// signing key — without one, this node can RECEIVE advertisements
+	// at the libp2p layer but can't sign its own outbound
+	// advertisement, so it would just be a leech. Operators wanting
+	// chat-gossip participation set `--node-key` / `--node-key-file`.
+	let chat_bucket_cache = crate::chat_bucket_cache::BucketCache::new();
+	let chat_gossip_state_and_service = match crate::canonical_fetch_protocol::load_node_identity_signing_key(
+		&config.network.node_key,
+	) {
+		Ok(signing_key) => {
+			let now_unix_s = std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.map(|d| d.as_secs())
+				.unwrap_or(0);
+			let local_state = crate::chat_gossip_protocol::LocalSubscriptionState::new(
+				signing_key,
+				rostro_chat_primitives::bucket::BucketBitmap::all(),
+				now_unix_s,
+			);
+			let (gossip_config, gossip_service) =
+				crate::chat_gossip_protocol::build_chat_gossip_protocol::<N, _>(
+					metrics.clone(),
+					peer_store_handle.clone(),
+				);
+			net_config.add_notification_protocol(gossip_config);
+			log::info!(
+				target: "rostro-chat-gossip",
+				"chat-gossip notification protocol registered on `{}` \
+				 (initial subscription: all 256 buckets)",
+				crate::chat_gossip_protocol::CHAT_GOSSIP_PROTOCOL_NAME,
+			);
+			Some((local_state, gossip_service))
+		}
+		Err(e) => {
+			log::warn!(
+				target: "rostro-chat-gossip",
+				"chat-gossip protocol NOT registered: {e}. This node can \
+				 still receive advertisements at libp2p layer but cannot \
+				 sign its own outbound. Set --node-key or --node-key-file \
+				 to enable full participation.",
+			);
+			None
+		}
+	};
+
 	// Phase 7 v2 Piece 3a/3b: per-peer rate limiter shared between
 	// the attest server (drops over-limit incoming requests) and the
 	// asker side (Piece 3c). 2 requests / 5-min window / 300s
@@ -294,6 +348,73 @@ pub fn new_full<
 			},
 		}
 	}
+
+	// Phase B6b: ephemeral chat-share store + the two libp2p
+	// request-response protocols that read/write it.
+	//
+	//   * `/rostro/chat-stripe/1` — senders deposit XOR-stripe
+	//     shares for the recipient's pickup key
+	//   * `/rostro/chat-fetch/1` — recipients query for shares
+	//     stored under their pickup key
+	//
+	// Same store instance backs both protocols. The store is
+	// in-process, capacity-bounded, mlock'd where the OS permits,
+	// TTL-swept at block boundaries (sweep wiring lands when the
+	// block-import hook is added in a follow-up). All shares die
+	// when the node restarts — recipients compensate via
+	// replication across multiple relays.
+	let chat_share_store: Arc<
+		rostro_chat_ephemeral_store::EphemeralShareStore,
+	> = Arc::new(
+		rostro_chat_ephemeral_store::EphemeralShareStore::with_default_config(),
+	);
+
+	let (chat_stripe_config, chat_stripe_handler) =
+		crate::chat_stripe_protocol::build_chat_stripe_protocol::<N, _, _>(
+			chat_share_store.clone(),
+			validator_channel_sessions.clone(),
+		);
+	net_config.add_request_response_protocol(chat_stripe_config);
+	task_manager.spawn_handle().spawn(
+		"rostro-chat-stripe-server",
+		Some("rostro"),
+		chat_stripe_handler,
+	);
+
+	let (chat_fetch_config, chat_fetch_handler) =
+		crate::chat_fetch_protocol::build_chat_fetch_protocol::<N, _, _>(
+			chat_share_store.clone(),
+			validator_channel_sessions.clone(),
+		);
+	net_config.add_request_response_protocol(chat_fetch_config);
+	task_manager.spawn_handle().spawn(
+		"rostro-chat-fetch-server",
+		Some("rostro"),
+		chat_fetch_handler,
+	);
+
+	// Commit D: anti-entropy responder. Server side of
+	// /rostro/chat-anti-entropy/1. Accepts AeRequest, compares
+	// per-bucket digest, responds Match or Mismatch+entries.
+	// Validator peers rejected at admission (channel-split).
+	let (chat_ae_config, chat_ae_handler) =
+		crate::chat_anti_entropy::build_anti_entropy_protocol::<N, _, _>(
+			chat_share_store.clone(),
+			validator_channel_sessions.clone(),
+		);
+	net_config.add_request_response_protocol(chat_ae_config);
+	task_manager.spawn_handle().spawn(
+		"rostro-chat-anti-entropy-server",
+		Some("rostro"),
+		chat_ae_handler,
+	);
+
+	log::info!(
+		target: "rostro-chat",
+		"chat-stripe + chat-fetch protocols registered on `{}` / `{}`",
+		crate::chat_stripe_protocol::CHAT_STRIPE_PROTOCOL_NAME,
+		crate::chat_fetch_protocol::CHAT_FETCH_PROTOCOL_NAME,
+	);
 
 	let warp_sync = Arc::new(rc_consensus_grandpa::warp_proof::NetworkProvider::new(
 		backend.clone(),
@@ -370,6 +491,79 @@ pub fn new_full<
 			presence_tx,
 		),
 	);
+
+	// Commit A: spawn the chat-gossip notification task. Owns the
+	// NotificationService for /rostro/chat-gossip/1; populates
+	// `chat_bucket_cache` from inbound advertisements; broadcasts
+	// our own subscription to newly-opened peer streams.
+	//
+	// Extract a clone of the `LocalSubscriptionState` (if any)
+	// for the RPC layer. Cheap — the struct is Arc-shared inside.
+	let chat_local_subscription = chat_gossip_state_and_service
+		.as_ref()
+		.map(|(state, _)| state.clone());
+
+	// Only spawned if `chat_gossip_state_and_service` was built
+	// (requires a loadable persistent libp2p node-identity key).
+	if let Some((local_state, gossip_service)) = chat_gossip_state_and_service {
+		// Commit A.1: signal channel between rebalance and gossip
+		// tasks. When the rebalance task updates LocalSubscriptionState's
+		// bitmap, it sends () on this channel; the gossip task
+		// re-broadcasts the new advertisement to all cached peers.
+		let (rebalance_signal_tx, rebalance_signal_rx) =
+			tokio::sync::mpsc::unbounded_channel::<()>();
+
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-gossip",
+			Some("rostro"),
+			crate::chat_gossip_protocol::run_chat_gossip_task(
+				gossip_service,
+				chat_bucket_cache.clone(),
+				local_state.clone(),
+				rebalance_signal_rx,
+			),
+		);
+
+		// Commit D: anti-entropy periodic initiator. Every
+		// AE_TICK_INTERVAL_SECS, picks a random subscribed bucket
+		// + random bucket-peer, exchanges digests, fetches missing
+		// entries via existing /rostro/chat-fetch/1. Spawned only
+		// when we have a chat-gossip LocalSubscriptionState (i.e.,
+		// the node has a persistent libp2p identity key); without
+		// that we'd have no bitmap to know which buckets to sync.
+		let ae_network: Arc<dyn rc_network::service::traits::NetworkService> =
+			Arc::new(network.clone());
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-anti-entropy",
+			Some("rostro"),
+			crate::chat_anti_entropy::run_anti_entropy_task(
+				ae_network,
+				chat_share_store.clone(),
+				chat_bucket_cache.clone(),
+				local_state.clone(),
+			),
+		);
+
+		// Commit A.1: weekly rebalance task. Reads CHAT_BUCKET_TARGET_COUNT
+		// from env (default = BUCKET_COUNT, i.e., no rebalance). At
+		// dialed-down target counts, fires once per ISO week at this
+		// node's deterministic-random time within the Tuesday
+		// 06:00-18:00 UTC window. CHAT_REBALANCE_AT_STARTUP=1
+		// triggers an immediate one-shot rebalance after the gossip
+		// cache populates (test-mode override).
+		let target_count = crate::chat_rebalance::read_target_count_from_env();
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-rebalance",
+			Some("rostro"),
+			crate::chat_rebalance::run_rebalance_task(
+				local_state,
+				chat_bucket_cache.clone(),
+				chat_share_store.clone(),
+				target_count,
+				rebalance_signal_tx,
+			),
+		);
+	}
 
 	if config.offchain_worker.enabled {
 		let offchain_workers =
@@ -468,11 +662,53 @@ pub fn new_full<
 	let enable_grandpa = !config.disable_grandpa;
 	let prometheus_registry = config.prometheus_registry().cloned();
 
+	// Derive the node's libp2p Ed25519 identity pubkey. This is
+	// the NODE's identity (not a user's chat identity) — used as
+	// the `relay_pubkey` field on share descriptors and exposed
+	// via `chat_nodeInfo` so demo scripts know where to route.
+	// The node does NOT hold any user chat-identity secret —
+	// those live on end-user devices.
+	let chat_node_pubkey_ed25519: [u8; 32] =
+		match crate::canonical_fetch_protocol::load_node_identity_seed_bytes(
+			&config.network.node_key,
+		) {
+			Ok(seed) => {
+				let sk = ed25519_zebra::SigningKey::from(seed);
+				let vk: ed25519_zebra::VerificationKey =
+					ed25519_zebra::VerificationKey::from(&sk);
+				vk.into()
+			},
+			Err(e) => {
+				log::warn!(
+					target: "rostro-chat",
+					"chat RPC: node identity unavailable ({e}); chat_nodeInfo \
+					 will return zeros. Set --node-key or --node-key-file for \
+					 a persistent libp2p identity.",
+				);
+				[0u8; 32]
+			},
+		};
+
+	let network_arc: Arc<dyn rc_network::service::traits::NetworkService> =
+		Arc::new(network.clone());
+
 	let rpc_builder = {
 		let client = client.clone();
 		let pool = transaction_pool.clone();
+		let chat_share_store = chat_share_store.clone();
+		let network_arc = network_arc.clone();
 		Box::new(move |_| {
-			let deps = crate::rpc::FullDeps { client: client.clone(), pool: pool.clone() };
+			let deps = crate::rpc::FullDeps {
+				client: client.clone(),
+				pool: pool.clone(),
+				chat: crate::rpc::ChatRpcDeps {
+					node_pubkey_ed25519: chat_node_pubkey_ed25519,
+					share_store: chat_share_store.clone(),
+					network: network_arc.clone(),
+					bucket_cache: chat_bucket_cache.clone(),
+					local_subscription: chat_local_subscription.clone(),
+				},
+			};
 			crate::rpc::create_full(deps).map_err(Into::into)
 		})
 	};

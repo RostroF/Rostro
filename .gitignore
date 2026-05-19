@@ -50,3 +50,6 @@ rustc-ice-*
 # Per-node base-paths populated by scripts/run-star.sh, run-trio.sh,
 # and scripts/star-scenarios/*.sh. Contain keystore + RocksDB.
 /.star/
+# Per-node base-paths populated by scripts/run-chat-trio.sh and
+# scripts/chat-scenarios/02-cross-node-distribution.sh.
+/.chat-trio/

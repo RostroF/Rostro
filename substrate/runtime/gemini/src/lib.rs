@@ -1369,6 +1369,12 @@ impl_runtime_apis! {
 		fn chain_valid_at(thumbprint: [u8; 32], block_number: u64) -> bool {
 			zk_pki_pallet::Pallet::<Runtime>::query_chain_valid_at(thumbprint, block_number)
 		}
+
+		fn cert_authentication(
+			thumbprint: [u8; 32],
+		) -> Option<zk_pki_primitives::runtime_api::CertAuthInfo<AccountId>> {
+			zk_pki_pallet::Pallet::<Runtime>::query_cert_authentication(thumbprint)
+		}
 	}
 }
 

@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
-//! RPC extensions for gemini: System + TransactionPayment. Same shape
-//! as rostro-node — no Sassafras-specific RPC surface in v1.
+//! RPC extensions for gemini: System + TransactionPayment + Chat
+//! diagnostic surface.
 
 #![warn(missing_docs)]
 
@@ -14,6 +14,9 @@ use rc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
+use zk_pki_primitives::runtime_api::ZkPkiApi;
+
+use crate::chat_rpc::ChatRpc;
 
 /// Full client dependencies.
 pub struct FullDeps<C, P> {
@@ -21,6 +24,47 @@ pub struct FullDeps<C, P> {
 	pub client: Arc<C>,
 	/// Transaction pool instance.
 	pub pool: Arc<P>,
+	/// Chat-layer state: the running node's libp2p Ed25519
+	/// identity bytes + a handle to the shared
+	/// [`rostro_chat_ephemeral_store::EphemeralShareStore`]. Used
+	/// to back the `chat_*` JSON-RPC diagnostics.
+	pub chat: ChatRpcDeps,
+}
+
+/// Subset of [`FullDeps`] dedicated to the chat-RPC surface.
+/// Does NOT carry any user chat-identity secret — those stay on
+/// end-user devices. The node only knows:
+///   - its own libp2p Ed25519 pubkey (for relay-descriptor minting
+///     + node-info diagnostics)
+///   - the shared share-store handle
+///   - the networking service handle (for outbound remote-relay
+///     fetches AND for outbound chat-stripe pushes — Commit B)
+///   - the bucket cache (for selecting which peers to push shards
+///     to per the message's pickup-key bucket)
+pub struct ChatRpcDeps {
+	/// Raw 32-byte Ed25519 pubkey of this NODE (libp2p
+	/// node-identity). Used as the `relay_pubkey` field in share
+	/// descriptors the node mints when accepting `chat_send_envelope`
+	/// calls. Distinct from any user chat-identity.
+	pub node_pubkey_ed25519: [u8; 32],
+	/// Shared chat-share store. Lives inside the service for the
+	/// lifetime of the node; cloned into the RPC layer.
+	pub share_store: Arc<rostro_chat_ephemeral_store::EphemeralShareStore>,
+	/// Handle to the running node's networking service. Used by
+	/// `chat_send_envelope` to push shards to bucket peers via
+	/// outbound `/rostro/chat-stripe/1`, and by `chat_fetch_shares`
+	/// for outbound `/rostro/chat-fetch/1`.
+	pub network: Arc<dyn rc_network::service::traits::NetworkService>,
+	/// Shared bucket cache populated by `/rostro/chat-gossip/1`
+	/// advertisements. `chat_send_envelope` reads
+	/// `peers_for_bucket(b)` to pick push targets for each shard.
+	pub bucket_cache: crate::chat_bucket_cache::BucketCache,
+	/// Optional shared `LocalSubscriptionState`. Present iff this
+	/// node has a persistent libp2p identity key (and therefore
+	/// runs the chat-gossip + rebalance tasks). Backs the
+	/// `chat_mySubscription` introspection RPC.
+	pub local_subscription:
+		Option<crate::chat_gossip_protocol::LocalSubscriptionState>,
 }
 
 /// Instantiate all full RPC extensions.
@@ -34,16 +78,29 @@ where
 	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
 	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
 	C::Api: BlockBuilder<Block>,
+	C::Api: ZkPkiApi<Block, AccountId>,
 	P: TransactionPool + 'static,
 {
+	use crate::chat_rpc::ChatRpcApiServer;
 	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
 	use substrate_frame_rpc_system::{System, SystemApiServer};
 
 	let mut module = RpcModule::new(());
-	let FullDeps { client, pool } = deps;
+	let FullDeps { client, pool, chat } = deps;
 
 	module.merge(System::new(client.clone(), pool).into_rpc())?;
-	module.merge(TransactionPayment::new(client).into_rpc())?;
+	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
+	module.merge(
+		ChatRpc::new(
+			chat.node_pubkey_ed25519,
+			chat.share_store,
+			chat.network,
+			client,
+			chat.bucket_cache,
+			chat.local_subscription,
+		)
+		.into_rpc(),
+	)?;
 
 	Ok(module)
 }

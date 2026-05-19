@@ -1,0 +1,24 @@
+[package]
+name = "rostro-chat-ephemeral-store"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Ephemeral in-memory share store for the Rostro chat relay layer. Concrete `ShareStore` implementation: bounded HashMap-backed storage with mlock'd share buffers (so cold pages can't be swapped to disk), block-anchored TTL sweep, oldest-first eviction under capacity pressure, and a secondary pickup-key index for the fetch path. No disk persistence — relay restart wipes the store, recipient compensates via share replication across multiple relays."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+rostro-chat-primitives = { path = "../rostro-chat-primitives" }
+parking_lot = { workspace = true, default-features = true }
+zeroize = { workspace = true, default-features = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[features]
+default = []

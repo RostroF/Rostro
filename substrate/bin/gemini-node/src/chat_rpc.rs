@@ -1,0 +1,946 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Rostro Foundation contributors
+
+//! JSON-RPC surface for the chat layer.
+//!
+//! Phase C2 (refactored). The gemini-node is a **routing/storage
+//! relay** for the chat layer — it never holds user chat-identity
+//! secrets and never sees user plaintext. End-user mobile apps
+//! (or test-harness CLIs) do all the chat-crypto on-device:
+//!
+//! - Build + sign + sealed-sender-encrypt the envelope locally
+//! - Stripe-split it locally (the node does the stripe so the
+//!   client RPC stays a single call — this is the only "trust the
+//!   sender's own node" step in the design)
+//! - Hand the encoded SealedEnvelope to the node via `chat_send_envelope`
+//! - On the recipient side, query the node via `chat_fetch_shares`,
+//!   reconstruct + unseal + verify ALL on-device
+//!
+//! The node sees:
+//!   - The OUTER envelope's public fields (kind, ephemeral_pubkey,
+//!     message_id) — required for routing + recipient pickup-key
+//!     derivation
+//!   - Opaque `outer_ciphertext` bytes (Sealed Sender AEAD output)
+//!   - Pickup keys (hashes — bind to recipient pubkey but don't
+//!     reveal who actually owns them)
+//!
+//! The node never sees:
+//!   - User chat-identity Ed25519 signing keys (those stay
+//!     on-device)
+//!   - User chat-identity X25519 secrets (those stay on-device)
+//!   - Plaintext message bodies
+//!   - The inner `UnsealedInner` structure (encrypted inside the
+//!     outer envelope)
+//!
+//! This matches the Signal architecture principle: "the server can
+//! route encrypted messages but can't read them" — even if the
+//! gemini-node is compromised, the attacker sees only ciphertext
+//! and routing metadata.
+//!
+//! ## Methods
+//!
+//! - `chat_nodeInfo` — diagnostic; returns this node's libp2p
+//!   PeerId + Ed25519 pubkey. Demo scripts use the PeerId to
+//!   target a specific node as a relay.
+//! - `chat_localStoreLen` — diagnostic; number of share entries
+//!   the node currently holds.
+//! - `chat_send_envelope(recipient_chat_pubkey_hex, envelope_hex, total_shares)`
+//!   — accept a pre-built SealedEnvelope (encrypted on the
+//!   sender's device), XOR-stripe it into `total_shares` shares,
+//!   MAC each share, deposit to the local share store keyed by
+//!   the recipient's derived pickup_key.
+//! - `chat_fetch_shares(pickup_key_hex, relay_peer_id_hex?)` —
+//!   return raw ciphertext shares matching the given pickup_key.
+//!   When `relay_peer_id_hex` is set, ALSO query that remote
+//!   node via `/rostro/chat-fetch/1` and merge results.
+
+use async_trait::async_trait;
+use jsonrpsee::{
+	core::RpcResult,
+	proc_macros::rpc,
+	types::error::ErrorObject,
+};
+use std::marker::PhantomData;
+use std::sync::Arc;
+
+use codec::{Decode, Encode};
+use gemini_runtime::{opaque::Block, AccountId};
+use rand_core::{OsRng, RngCore};
+use rc_network::{service::traits::NetworkService, types::ProtocolName, IfDisconnected, PeerId};
+use rostro_chat_ephemeral_store::EphemeralShareStore;
+use rostro_chat_primitives::{
+	bucket::bucket_for_pickup_key,
+	descriptor::{
+		MessageId, PickupKey, RelayPubkey, ShareDescriptor, ShareIndex, UnixTimestamp,
+		CHAT_TTL_SECONDS,
+	},
+	envelope::{EnvelopeKind, SealedEnvelope},
+	fetch_protocol::{FetchRequest, FetchResponse},
+	identity_key::ed25519_to_x25519_pubkey,
+	store_protocol::{ShareStore as _, StoreRejection, StoreRequest, StoreResponse},
+	stripe::{split_xor, MAX_SHARES},
+	verify::mac_share,
+};
+use sp_api::ProvideRuntimeApi;
+use sp_blockchain::HeaderBackend;
+use sp_core::blake2_256;
+use zk_pki_primitives::runtime_api::{CertState as RpcCertState, ZkPkiApi};
+
+use crate::chat_bucket_cache::BucketCache;
+use crate::chat_stripe_protocol::CHAT_STRIPE_PROTOCOL_NAME;
+
+/// Local-clock helper. Returns the host's current Unix timestamp in
+/// seconds. Used to stamp `expires_at_unix_ts` on outbound share
+/// descriptors and to drive store-side TTL sweeps. Falls back to 0
+/// only if the system clock is set before 1970 (which fails the
+/// expiry-bounds checks downstream — caller will see rejections,
+/// which is the right operational signal).
+fn now_unix_seconds() -> UnixTimestamp {
+	std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map(|d| d.as_secs())
+		.unwrap_or(0)
+}
+
+/// Domain-separation tag for the chat-auth challenge signed by the
+/// caller's HW-attested device key. The signed message is:
+///
+///     blake2_256(CHAT_AUTH_DOMAIN || envelope_bytes || timestamp_be_bytes)
+///
+/// Binding both `envelope_bytes` and `timestamp_be_bytes` prevents
+/// (a) replay of the signature with a different envelope and
+/// (b) replay of the signature later (subject to the
+/// `CHAT_AUTH_TIMESTAMP_WINDOW_SECS` skew check at the receiver).
+pub const CHAT_AUTH_DOMAIN: &[u8] = b"rostro/chat/auth/v1";
+
+/// Maximum allowed skew between the client-provided
+/// `auth_timestamp_secs` and the node's local clock. Outside this
+/// window the auth is rejected. 600 seconds accommodates ordinary
+/// NTP drift + transport latency without leaving room for stale
+/// replays.
+pub const CHAT_AUTH_TIMESTAMP_WINDOW_SECS: u64 = 600;
+
+use crate::chat_fetch_protocol::CHAT_FETCH_PROTOCOL_NAME;
+
+/// Default number of XOR-stripe shares per send. Clients can override.
+pub const DEFAULT_TOTAL_SHARES: usize = 5;
+
+/// Replication factor for push gossip: each shard is pushed to up
+/// to this many bucket-subscribed peers. If fewer than
+/// `REPLICATION_FACTOR` peers subscribe to the message's bucket,
+/// push goes to whoever's available (degraded redundancy logged).
+/// If zero peers subscribe, the send is rejected
+/// (old-tenant-mail behavior — there's nowhere to deliver).
+pub const REPLICATION_FACTOR: usize = 5;
+
+/// Maximum number of bucket peers to query when `chat_fetch_shares`
+/// hits a local-store miss and needs to fall back to the network.
+/// Each query is an outbound `/rostro/chat-fetch/1` request to a
+/// peer subscribed to the message's pickup-key bucket. The first
+/// few peers are typically enough to assemble (one bucket peer
+/// usually holds the full replicated set after a push).
+pub const MAX_FALLBACK_FETCH_PEERS: usize = 3;
+
+/// JSON-RPC response for `chat_nodeInfo`. Diagnostic — tells demo
+/// scripts where this node lives for routing.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChatNodeInfo {
+	/// Hex-encoded Ed25519 libp2p node-identity pubkey (32 bytes).
+	/// PeerId derives from this; same bytes show up as the
+	/// `relay_pubkey` field of share descriptors this node mints.
+	pub node_pubkey_ed25519_hex: String,
+}
+
+/// JSON-RPC response for `chat_mySubscription`. Lets operators +
+/// scenario scripts read the local node's current bucket
+/// subscription bitmap + version.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChatMySubscription {
+	/// 64-character hex string of the 32-byte bitmap.
+	pub bitmap_hex: String,
+	/// Number of buckets currently subscribed to (popcount of
+	/// bitmap).
+	pub bucket_count: u32,
+	/// Monotonic version counter. Bumps on every local subscription
+	/// change (rebalance, operator override). Peers cache by
+	/// version to reject older replays.
+	pub version: u32,
+}
+
+/// JSON-RPC response for `chat_send_envelope`.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChatSendResult {
+	/// Hex-encoded MessageId extracted from the SealedEnvelope the
+	/// client supplied. Returned so clients can correlate
+	/// successful sends with their own outgoing-message logs.
+	pub message_id_hex: String,
+	/// Number of shares the node split the envelope into.
+	pub share_count: u32,
+	/// Recipient's domain-separated pickup key (hex). Useful for
+	/// scripts verifying that fetch uses the same key.
+	pub recipient_pickup_key_hex: String,
+}
+
+/// JSON-RPC response: a single share descriptor flattened to
+/// hex-encoded fields.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChatShareDescriptorRpc {
+	pub relay_pubkey_hex: String,
+	pub message_id_hex: String,
+	pub share_index: u8,
+	pub total_shares: u8,
+	pub pickup_key_hex: String,
+	pub expires_at_unix_ts: u64,
+}
+
+/// JSON-RPC response: one stored share returned by `chat_fetch_shares`.
+/// The client uses these to reconstruct messages locally:
+///
+/// 1. Group by `descriptor.message_id_hex`
+/// 2. When all `total_shares` are present, XOR-combine `share_bytes_hex`
+/// 3. SCALE-decode the result as `SealedEnvelope`
+/// 4. Sealed-sender-unseal with the recipient's X25519 secret
+/// 5. SCALE-decode `UnsealedInner` and verify the sender signature
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChatFetchedShareRaw {
+	pub descriptor: ChatShareDescriptorRpc,
+	pub share_bytes_hex: String,
+	pub mac_tag_hex: String,
+}
+
+/// JSON-RPC trait for the chat surface.
+#[rpc(client, server)]
+pub trait ChatRpcApi {
+	/// Diagnostic: return this node's identity for routing
+	/// purposes.
+	#[method(name = "chat_nodeInfo")]
+	fn node_info(&self) -> RpcResult<ChatNodeInfo>;
+
+	/// Diagnostic: return this node's current bucket subscription
+	/// state. Used by scenario scripts to verify rebalance behavior
+	/// and by operators to inspect what the node carries.
+	#[method(name = "chat_mySubscription")]
+	fn my_subscription(&self) -> RpcResult<ChatMySubscription>;
+
+	/// Diagnostic: number of share entries currently held in
+	/// this node's local share store.
+	#[method(name = "chat_localStoreLen")]
+	fn local_store_len(&self) -> RpcResult<u64>;
+
+	/// Accept a pre-built, pre-sealed SealedEnvelope from a client,
+	/// XOR-stripe-split it into `total_shares` shares, MAC each
+	/// share, deposit to the local share store keyed by the
+	/// recipient's derived pickup key.
+	///
+	/// Parameters:
+	///   * `recipient_chat_pubkey_hex` — recipient's 32-byte
+	///     Ed25519 chat-identity pubkey, hex-encoded. Used to
+	///     derive the pickup key for share-store indexing.
+	///   * `envelope_hex` — SCALE-encoded `SealedEnvelope` bytes,
+	///     hex-encoded. The client built + signed + sealed this
+	///     on-device; the node treats `outer_ciphertext` as opaque.
+	///   * `total_shares` — number of XOR-stripe shares. Range
+	///     [2, MAX_SHARES]. Defaults to [`DEFAULT_TOTAL_SHARES`]
+	///     when 0 is passed.
+	///   * `auth_cert_thumbprint_hex` — caller's zkpki cert
+	///     thumbprint (32 bytes, hex). Identifies the cert whose
+	///     HW-attested device key signed `auth_sig_hex`.
+	///   * `auth_timestamp_secs` — caller's local Unix-seconds
+	///     timestamp at signing. Must be within
+	///     [`CHAT_AUTH_TIMESTAMP_WINDOW_SECS`] of the node's clock.
+	///   * `auth_sig_hex` — signature over
+	///     `blake2_256(CHAT_AUTH_DOMAIN || envelope_bytes ||
+	///     auth_timestamp_be_bytes)` produced by the cert's
+	///     hardware-attested device key.
+	///
+	/// All three auth-* parameters are required together. The node
+	/// looks up the cert via the zkpki runtime API, requires
+	/// `cert_state == Active`, verifies the signature against the
+	/// cert's stored `device_pubkey`, and uses `cert.bound_account`
+	/// as the authenticated requestor identity for any downstream
+	/// rate-limiting / abuse-tracking. Any auth failure rejects
+	/// the request.
+	///
+	/// To accommodate the existing demo / CLI testing path that
+	/// doesn't yet carry HW-attested certs, the three auth-*
+	/// parameters are `Option<String>`. When all three are absent
+	/// the node logs a warning and accepts the request unauthenticated.
+	/// **Production deployments MUST require them** — set a config
+	/// flag at the RPC layer (or reject in nginx / rpc-shield) to
+	/// drop unauthenticated `chat_send_envelope` calls.
+	#[method(name = "chat_send_envelope")]
+	async fn send_envelope(
+		&self,
+		recipient_chat_pubkey_hex: String,
+		envelope_hex: String,
+		total_shares: u8,
+		auth_cert_thumbprint_hex: Option<String>,
+		auth_timestamp_secs: Option<u64>,
+		auth_sig_hex: Option<String>,
+	) -> RpcResult<ChatSendResult>;
+
+	/// Return raw share descriptors + ciphertext bytes for shares
+	/// stored under the given pickup key. The client reconstructs
+	/// + decrypts on-device.
+	///
+	/// Parameters:
+	///   * `pickup_key_hex` — recipient's 32-byte domain-separated
+	///     pickup key (hex). The recipient computes this locally:
+	///     `PickupKey::for_pairwise(&recipient_x25519_pubkey)`.
+	///   * `relay_peer_id_hex` — optional libp2p PeerId of a remote
+	///     relay to also query via outbound `/rostro/chat-fetch/1`.
+	///     When set, the node merges the remote response with its
+	///     local view.
+	#[method(name = "chat_fetch_shares")]
+	async fn fetch_shares(
+		&self,
+		pickup_key_hex: String,
+		relay_peer_id_hex: Option<String>,
+	) -> RpcResult<Vec<ChatFetchedShareRaw>>;
+}
+
+/// Concrete implementation. Holds only the node's PUBLIC libp2p
+/// identity pubkey (for routing diagnostics + share descriptors
+/// the node mints as a relay) + handles to the share store, the
+/// networking service, the chain client (for the zkpki
+/// runtime-API auth lookup), and the bucket cache (for push-gossip
+/// peer selection). Does NOT hold any user chat-identity
+/// secret — those live on user devices.
+pub struct ChatRpc<C> {
+	node_pubkey_ed25519: [u8; 32],
+	share_store: Arc<EphemeralShareStore>,
+	network: Arc<dyn NetworkService>,
+	client: Arc<C>,
+	bucket_cache: BucketCache,
+	/// Optional: present iff this node has a chat-gossip
+	/// `LocalSubscriptionState` (= has a persistent libp2p
+	/// identity key). `chat_mySubscription` returns an empty
+	/// snapshot when None.
+	local_subscription:
+		Option<crate::chat_gossip_protocol::LocalSubscriptionState>,
+	_block: PhantomData<Block>,
+}
+
+impl<C> ChatRpc<C>
+where
+	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	C::Api: ZkPkiApi<Block, AccountId>,
+{
+	pub fn new(
+		node_pubkey_ed25519: [u8; 32],
+		share_store: Arc<EphemeralShareStore>,
+		network: Arc<dyn NetworkService>,
+		client: Arc<C>,
+		bucket_cache: BucketCache,
+		local_subscription: Option<
+			crate::chat_gossip_protocol::LocalSubscriptionState,
+		>,
+	) -> Self {
+		Self {
+			node_pubkey_ed25519,
+			share_store,
+			network,
+			client,
+			bucket_cache,
+			local_subscription,
+			_block: PhantomData,
+		}
+	}
+
+	/// Verify a caller's chat-auth credentials against the zkpki
+	/// runtime API. Returns the authenticated `AccountId` on
+	/// success or a structured error on any failure.
+	fn verify_chat_auth(
+		&self,
+		envelope_bytes: &[u8],
+		thumbprint_hex: &str,
+		timestamp_secs: u64,
+		sig_hex: &str,
+	) -> Result<AccountId, ErrorObject<'static>> {
+		// 1. Timestamp window check (rejects stale replays).
+		let now = now_unix_seconds();
+		let skew = if now > timestamp_secs {
+			now - timestamp_secs
+		} else {
+			timestamp_secs - now
+		};
+		if skew > CHAT_AUTH_TIMESTAMP_WINDOW_SECS {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				format!(
+					"chat-auth timestamp out of window: skew {skew}s > \
+					 {CHAT_AUTH_TIMESTAMP_WINDOW_SECS}s",
+				),
+				None,
+			));
+		}
+
+		// 2. Decode thumbprint + signature hex.
+		let thumbprint = decode_hex32(thumbprint_hex)
+			.map_err(|e| invalid_param("auth_cert_thumbprint_hex", &e))?;
+		let sig_bytes = hex::decode(sig_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("auth_sig_hex", &format!("invalid hex: {e}")))?;
+
+		// 3. Runtime API lookup: cert authentication info.
+		let best = self.client.info().best_hash;
+		let info = self
+			.client
+			.runtime_api()
+			.cert_authentication(best, thumbprint)
+			.map_err(|e| {
+				ErrorObject::owned::<()>(
+					-32000,
+					format!("zkpki runtime API call failed: {e:?}"),
+					None,
+				)
+			})?
+			.ok_or_else(|| {
+				ErrorObject::owned::<()>(
+					-32000,
+					"chat-auth cert not found (purged or never existed)",
+					None,
+				)
+			})?;
+
+		// 4. Cert must be Active.
+		if !matches!(info.cert_state, RpcCertState::Active) {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				format!(
+					"chat-auth cert is not Active (state: {:?})",
+					info.cert_state,
+				),
+				None,
+			));
+		}
+
+		// 5. Reconstruct the signed message + verify against the
+		//    cert's HW-attested device pubkey.
+		let mut to_sign = Vec::with_capacity(
+			CHAT_AUTH_DOMAIN.len() + envelope_bytes.len() + 8,
+		);
+		to_sign.extend_from_slice(CHAT_AUTH_DOMAIN);
+		to_sign.extend_from_slice(envelope_bytes);
+		to_sign.extend_from_slice(&timestamp_secs.to_be_bytes());
+		let digest = blake2_256(&to_sign);
+		if !info.device_pubkey.verify_signature(&digest, &sig_bytes) {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				"chat-auth signature verification failed",
+				None,
+			));
+		}
+
+		Ok(info.bound_account)
+	}
+}
+
+#[async_trait]
+impl<C> ChatRpcApiServer for ChatRpc<C>
+where
+	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	C::Api: ZkPkiApi<Block, AccountId>,
+{
+	fn node_info(&self) -> RpcResult<ChatNodeInfo> {
+		Ok(ChatNodeInfo {
+			node_pubkey_ed25519_hex: hex::encode(self.node_pubkey_ed25519),
+		})
+	}
+
+	fn local_store_len(&self) -> RpcResult<u64> {
+		Ok(self.share_store.len() as u64)
+	}
+
+	fn my_subscription(&self) -> RpcResult<ChatMySubscription> {
+		match &self.local_subscription {
+			Some(state) => {
+				let bitmap = state.current_bitmap();
+				Ok(ChatMySubscription {
+					bitmap_hex: hex::encode(bitmap.0),
+					bucket_count: bitmap.count(),
+					version: state.current_version(),
+				})
+			}
+			None => Ok(ChatMySubscription {
+				bitmap_hex: String::new(),
+				bucket_count: 0,
+				version: 0,
+			}),
+		}
+	}
+
+	async fn send_envelope(
+		&self,
+		recipient_chat_pubkey_hex: String,
+		envelope_hex: String,
+		total_shares: u8,
+		auth_cert_thumbprint_hex: Option<String>,
+		auth_timestamp_secs: Option<u64>,
+		auth_sig_hex: Option<String>,
+	) -> RpcResult<ChatSendResult> {
+		// Decode + sanity-check inputs.
+		let recipient_ed25519 = decode_hex32(&recipient_chat_pubkey_hex)
+			.map_err(|e| invalid_param("recipient_chat_pubkey_hex", &e))?;
+		let recipient_x25519 =
+			ed25519_to_x25519_pubkey(&recipient_ed25519).ok_or_else(|| {
+				ErrorObject::owned::<()>(
+					-32602,
+					"recipient_chat_pubkey_hex doesn't decode as a valid \
+					 Edwards point — cannot derive pickup key",
+					None,
+				)
+			})?;
+		let recipient_pickup = PickupKey::for_pairwise(&recipient_x25519);
+
+		let envelope_bytes = hex::decode(envelope_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("envelope_hex", &format!("invalid hex: {e}")))?;
+		let envelope = SealedEnvelope::decode(&mut &envelope_bytes[..]).map_err(|e| {
+			invalid_param("envelope_hex", &format!("SCALE-decode failed: {e}"))
+		})?;
+
+		// Chat-auth verification. All three auth-* parameters
+		// required together; absence of all three is the v0.1
+		// "demo / CLI testing" path (logged warning, no enforcement).
+		// Production deployments MUST reject the unauthenticated
+		// path upstream.
+		match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
+			(Some(tp), Some(ts), Some(sig)) => {
+				let authed = self.verify_chat_auth(&envelope_bytes, &tp, ts, &sig)?;
+				log::debug!(
+					target: "rostro-chat-rpc",
+					"chat_send_envelope authenticated as account {:?}",
+					authed,
+				);
+			}
+			(None, None, None) => {
+				log::warn!(
+					target: "rostro-chat-rpc",
+					"chat_send_envelope accepted WITHOUT chat-auth — \
+					 production deployments must reject this path",
+				);
+			}
+			_ => {
+				return Err(invalid_param(
+					"auth_*",
+					"all three of auth_cert_thumbprint_hex, \
+					 auth_timestamp_secs, auth_sig_hex must be present \
+					 together (or all absent for the unauthenticated \
+					 dev path)",
+				));
+			}
+		}
+
+		// v0.1 ships pairwise only; group flows take a different path.
+		if !matches!(envelope.kind, EnvelopeKind::Pairwise) {
+			return Err(invalid_param(
+				"envelope_hex",
+				"only Pairwise envelopes are supported in v0.1",
+			));
+		}
+
+		let n_shares = if total_shares == 0 {
+			DEFAULT_TOTAL_SHARES
+		} else {
+			let n = total_shares as usize;
+			if n < 2 || n > MAX_SHARES {
+				return Err(invalid_param(
+					"total_shares",
+					&format!("must be 0 (default) or in [2, {MAX_SHARES}]"),
+				));
+			}
+			n
+		};
+
+		// Stripe-split the encoded envelope.
+		let encoded = envelope.encode();
+		let message_id = envelope.message_id;
+		let mut rng = OsRng;
+		let shares = split_xor(&encoded, n_shares, &mut rng).map_err(|e| {
+			ErrorObject::owned::<()>(-32000, format!("split_xor failed: {e:?}"), None)
+		})?;
+
+		// Pick bucket peers for the message's bucket. Reject the
+		// send if zero peers subscribe (old-tenant-mail behavior
+		// per design discussion — there's nowhere to deliver).
+		let bucket = bucket_for_pickup_key(&recipient_pickup);
+		let mut bucket_peers = self.bucket_cache.peers_for_bucket(bucket);
+		if bucket_peers.is_empty() {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				format!(
+					"no bucket peers available for bucket {bucket} — try a \
+					 different RPC node, or wait for peers to advertise \
+					 their bucket subscriptions on /rostro/chat-gossip/1",
+				),
+				None,
+			));
+		}
+
+		// Shuffle for replication picks (each shard goes to up to
+		// REPLICATION_FACTOR random bucket peers). OsRng for
+		// non-deterministic selection — predictable selection
+		// would let an observer game which peers receive which
+		// shards.
+		use rand_core::RngCore;
+		fn shuffle_in_place(v: &mut Vec<rc_network::PeerId>, rng: &mut OsRng) {
+			let n = v.len();
+			for i in (1..n).rev() {
+				let j = (rng.next_u64() as usize) % (i + 1);
+				v.swap(i, j);
+			}
+		}
+		shuffle_in_place(&mut bucket_peers, &mut rng);
+		let n_replicas = REPLICATION_FACTOR.min(bucket_peers.len());
+		let selected_peers: Vec<rc_network::PeerId> =
+			bucket_peers.into_iter().take(n_replicas).collect();
+
+		// MAC each share with the v0.1 zero key (per-message
+		// session-secret derivation lands with the DR pairwise
+		// wrapper — placeholder, same as the prior demo).
+		let mac_key = [0u8; 32];
+		let total_u8 = n_shares as u8;
+		let expires_at = now_unix_seconds().saturating_add(CHAT_TTL_SECONDS);
+
+		// Push each shard to every selected peer. Outbound
+		// /rostro/chat-stripe/1 request-response. Aggregate
+		// success counts so we can surface degraded redundancy.
+		let mut stored_total: usize = 0;
+		let mut rejected_total: usize = 0;
+		let mut transport_failed_total: usize = 0;
+
+		for (i, share_bytes) in shares.into_iter().enumerate() {
+			let share_index = i as ShareIndex;
+			let mac_tag = mac_share(&mac_key, &share_bytes, share_index);
+			let descriptor = ShareDescriptor {
+				relay_pubkey: RelayPubkey(self.node_pubkey_ed25519),
+				message_id,
+				share_index,
+				total_shares: total_u8,
+				pickup_key: recipient_pickup,
+				expires_at_unix_ts: expires_at,
+			};
+			let store_req = StoreRequest {
+				descriptor,
+				share_bytes: share_bytes.clone(),
+				mac_tag,
+			};
+			let request_bytes = store_req.encode();
+
+			for peer in &selected_peers {
+				match self
+					.network
+					.request(
+						*peer,
+						ProtocolName::from(CHAT_STRIPE_PROTOCOL_NAME),
+						request_bytes.clone(),
+						None,
+						IfDisconnected::TryConnect,
+					)
+					.await
+				{
+					Ok((resp_bytes, _)) => {
+						match StoreResponse::decode(&mut &resp_bytes[..]) {
+							Ok(StoreResponse::Stored) => {
+								stored_total += 1;
+							}
+							Ok(StoreResponse::Rejected(reason)) => {
+								rejected_total += 1;
+								log::debug!(
+									target: "rostro-chat-rpc",
+									"push shard {} of message {} to {} \
+									 rejected: {:?}",
+									share_index,
+									hex::encode(&message_id.0[..4]),
+									peer,
+									reason,
+								);
+								// DuplicateShare on a retry is fine — count
+								// it as Stored so we don't over-flag.
+								if matches!(reason, StoreRejection::DuplicateShare) {
+									stored_total += 1;
+									rejected_total -= 1;
+								}
+							}
+							Err(_) => {
+								transport_failed_total += 1;
+								log::debug!(
+									target: "rostro-chat-rpc",
+									"push to {}: undecodable StoreResponse",
+									peer,
+								);
+							}
+						}
+					}
+					Err(e) => {
+						transport_failed_total += 1;
+						log::debug!(
+							target: "rostro-chat-rpc",
+							"push shard {} of message {} to {} \
+							 transport failed: {:?}",
+							share_index,
+							hex::encode(&message_id.0[..4]),
+							peer,
+							e,
+						);
+					}
+				}
+			}
+		}
+
+		// Aggregate. n_shares × n_replicas requests issued; the
+		// minimum we need for "send succeeded" is that each shard
+		// landed somewhere — at least n_shares total Stored
+		// responses. If we got fewer, the send is degraded;
+		// callers see a structured warning in the response shape.
+		let total_attempts = n_shares * n_replicas;
+		log::info!(
+			target: "rostro-chat-rpc",
+			"chat_send_envelope: shards={} replicas={} attempts={} stored={} rejected={} transport_failed={} \
+			 message_id={}",
+			n_shares,
+			n_replicas,
+			total_attempts,
+			stored_total,
+			rejected_total,
+			transport_failed_total,
+			hex::encode(message_id.0),
+		);
+
+		if stored_total < n_shares {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				format!(
+					"chat_send_envelope: only {stored_total} of {n_shares} shards \
+					 landed (need at least {n_shares} for recipient assembly); \
+					 {rejected_total} rejected, {transport_failed_total} \
+					 transport-failed",
+				),
+				None,
+			));
+		}
+
+		Ok(ChatSendResult {
+			message_id_hex: hex::encode(message_id.0),
+			share_count: n_shares as u32,
+			recipient_pickup_key_hex: hex::encode(recipient_pickup.0),
+		})
+	}
+
+	async fn fetch_shares(
+		&self,
+		pickup_key_hex: String,
+		relay_peer_id_hex: Option<String>,
+	) -> RpcResult<Vec<ChatFetchedShareRaw>> {
+		let pickup_bytes = decode_hex32(&pickup_key_hex)
+			.map_err(|e| invalid_param("pickup_key_hex", &e))?;
+		let pickup = PickupKey(pickup_bytes);
+
+		// Local store first.
+		let mut matched = self.share_store.get_by_pickup_key(&pickup);
+
+		// Explicit relay (optional). When the caller names a specific
+		// peer (via `relay_peer_id_hex`), query that peer in addition
+		// to the local view. This is the demo-script path; the
+		// production path doesn't need it — the bucket-peer
+		// auto-fallback below handles the "I hit an RPC node that
+		// doesn't have my shards" case structurally.
+		if let Some(hex_peer) = relay_peer_id_hex {
+			let peer = parse_peer_id(&hex_peer)
+				.map_err(|e| invalid_param("relay_peer_id_hex", &e))?;
+			let request = FetchRequest { pickup_key: pickup };
+			let request_bytes = request.encode();
+			match self
+				.network
+				.request(
+					peer,
+					ProtocolName::from(CHAT_FETCH_PROTOCOL_NAME),
+					request_bytes,
+					None,
+					IfDisconnected::TryConnect,
+				)
+				.await
+			{
+				Ok((resp_bytes, _)) => {
+					if let Ok(resp) = FetchResponse::decode(&mut &resp_bytes[..]) {
+						for fs in resp.shares {
+							matched.push((fs.descriptor, fs.share_bytes, fs.mac_tag));
+						}
+					} else {
+						log::warn!(
+							target: "rostro-chat-rpc",
+							"chat_fetch_shares: relay {peer} returned malformed \
+							 FetchResponse — local view only",
+						);
+					}
+				},
+				Err(e) => {
+					log::warn!(
+						target: "rostro-chat-rpc",
+						"chat_fetch_shares: relay {peer} request failed: {e:?} \
+						 — falling back to local view",
+					);
+				},
+			}
+		}
+
+		// Bucket-peer auto-fallback. If after the local store + any
+		// explicit-peer lookup we still don't have shards for this
+		// pickup key, query bucket peers from the BucketCache. This
+		// makes the "hit any RPC node" property hold for fetch:
+		// recipients don't have to know which RPC node received the
+		// push — any node will resolve via fallback when it doesn't
+		// have the shards locally.
+		//
+		// Why "still empty" not "always": when the local store has
+		// shards, the recipient's gateway IS a bucket peer and push
+		// reached it; no fallback needed. When local is empty, the
+		// gateway either (a) doesn't subscribe to the bucket or (b)
+		// subscribes but didn't receive the push (e.g., entry node
+		// that pushed elsewhere). Either way, a small set of
+		// bucket-peer queries assembles what's needed.
+		if matched.is_empty() {
+			use rostro_chat_primitives::bucket::bucket_for_pickup_key;
+
+			let bucket = bucket_for_pickup_key(&pickup);
+			let mut bucket_peers = self.bucket_cache.peers_for_bucket(bucket);
+
+			// Shuffle so we don't always query the same N peers for
+			// the same bucket (load-spreading + privacy: prevents an
+			// observer from correlating "alice's gateway always asks
+			// bob for bucket 42").
+			use rand_core::RngCore;
+			let mut rng = OsRng;
+			let n = bucket_peers.len();
+			for i in (1..n).rev() {
+				let j = (rng.next_u64() as usize) % (i + 1);
+				bucket_peers.swap(i, j);
+			}
+
+			let to_query: Vec<PeerId> = bucket_peers
+				.into_iter()
+				.take(MAX_FALLBACK_FETCH_PEERS)
+				.collect();
+
+			if !to_query.is_empty() {
+				log::debug!(
+					target: "rostro-chat-rpc",
+					"chat_fetch_shares: local miss for bucket {bucket}; \
+					 querying {} bucket peer(s) via fallback",
+					to_query.len(),
+				);
+			}
+
+			let fetch_req = FetchRequest { pickup_key: pickup };
+			let fetch_req_bytes = fetch_req.encode();
+
+			for peer in to_query {
+				match self
+					.network
+					.request(
+						peer,
+						ProtocolName::from(CHAT_FETCH_PROTOCOL_NAME),
+						fetch_req_bytes.clone(),
+						None,
+						IfDisconnected::TryConnect,
+					)
+					.await
+				{
+					Ok((resp_bytes, _)) => {
+						match FetchResponse::decode(&mut &resp_bytes[..]) {
+							Ok(resp) => {
+								let n = resp.shares.len();
+								for fs in resp.shares {
+									matched.push((fs.descriptor, fs.share_bytes, fs.mac_tag));
+								}
+								if n > 0 {
+									log::debug!(
+										target: "rostro-chat-rpc",
+										"fallback: peer {peer} returned {} shares",
+										n,
+									);
+								}
+							}
+							Err(e) => {
+								log::debug!(
+									target: "rostro-chat-rpc",
+									"fallback: peer {peer} returned undecodable \
+									 FetchResponse: {e:?}",
+								);
+							}
+						}
+					}
+					Err(e) => {
+						log::debug!(
+							target: "rostro-chat-rpc",
+							"fallback: peer {peer} request failed: {e:?}",
+						);
+					}
+				}
+			}
+		}
+
+		// Dedupe (message_id, share_index) pairs that show up both
+		// locally and remotely.
+		let mut seen: std::collections::HashSet<(MessageId, u8)> =
+			std::collections::HashSet::new();
+		let mut out: Vec<ChatFetchedShareRaw> = Vec::new();
+		for (descriptor, share_bytes, mac_tag) in matched {
+			let key = (descriptor.message_id, descriptor.share_index);
+			if !seen.insert(key) {
+				continue;
+			}
+			out.push(ChatFetchedShareRaw {
+				descriptor: ChatShareDescriptorRpc {
+					relay_pubkey_hex: hex::encode(descriptor.relay_pubkey.0),
+					message_id_hex: hex::encode(descriptor.message_id.0),
+					share_index: descriptor.share_index,
+					total_shares: descriptor.total_shares,
+					pickup_key_hex: hex::encode(descriptor.pickup_key.0),
+					expires_at_unix_ts: descriptor.expires_at_unix_ts,
+				},
+				share_bytes_hex: hex::encode(&share_bytes),
+				mac_tag_hex: hex::encode(mac_tag),
+			});
+		}
+		// Stable ordering for determinism.
+		out.sort_by(|a, b| {
+			(a.descriptor.message_id_hex.as_str(), a.descriptor.share_index).cmp(&(
+				b.descriptor.message_id_hex.as_str(),
+				b.descriptor.share_index,
+			))
+		});
+		Ok(out)
+	}
+}
+
+/// Decode a 64-character hex string (optionally `0x`-prefixed) into
+/// 32 raw bytes.
+fn decode_hex32(hex_str: &str) -> Result<[u8; 32], String> {
+	let s = hex_str.trim_start_matches("0x");
+	let bytes = hex::decode(s).map_err(|e| format!("invalid hex: {e}"))?;
+	if bytes.len() != 32 {
+		return Err(format!("expected 32 bytes, got {}", bytes.len()));
+	}
+	let mut out = [0u8; 32];
+	out.copy_from_slice(&bytes);
+	Ok(out)
+}
+
+/// Parse a libp2p `PeerId` from its multibase string form
+/// (`12D3KooW...`).
+fn parse_peer_id(s: &str) -> Result<PeerId, String> {
+	use std::str::FromStr;
+	PeerId::from_str(s).map_err(|e| format!("invalid PeerId '{s}': {e}"))
+}
+
+fn invalid_param(name: &str, why: &str) -> ErrorObject<'static> {
+	ErrorObject::owned::<()>(-32602, format!("{name}: {why}"), None)
+}
+
+// Suppress unused warning on RngCore when total_shares branch
+// uses split_xor path only; OsRng is imported for the RNG itself.
+const _: fn() = || {
+	let mut r = OsRng;
+	let mut buf = [0u8; 4];
+	r.fill_bytes(&mut buf);
+};

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
 //! Gemini node — Sassafras + GRANDPA over gemini-runtime. Phase Ring
@@ -12,6 +12,14 @@ mod attest_protocol;
 mod canonical_fetch_client;
 mod canonical_fetch_protocol;
 mod chain_spec;
+mod chat_admission;
+mod chat_anti_entropy;
+mod chat_bucket_cache;
+mod chat_fetch_protocol;
+mod chat_gossip_protocol;
+mod chat_rebalance;
+mod chat_rpc;
+mod chat_stripe_protocol;
 mod cli;
 mod command;
 mod connect_gate;

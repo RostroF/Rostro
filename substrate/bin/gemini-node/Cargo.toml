@@ -3,7 +3,7 @@ name = "gemini-node"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
-license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
 description = "Gemini node — Sassafras + GRANDPA over gemini-runtime. Phase Ring R3.6 testbed."
@@ -21,7 +21,7 @@ path = "src/main.rs"
 
 [dependencies]
 async-channel = { workspace = true }
-async-trait = { workspace = true }
+async-trait = { workspace = true, default-features = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 hex = { workspace = true, default-features = true }
@@ -96,6 +96,10 @@ rostro-rpc-shield = { path = "../../utils/rostro-rpc-shield" }
 # `--canonical-files-dir` is set; `canonical_fetch_protocol` wires the
 # signed-attestation libp2p protocol on top.
 rostro-canonical-fetch = { path = "../../utils/rostro-canonical-fetch" }
+rostro-chat-primitives = { path = "../../utils/rostro-chat-primitives" }
+rostro-chat-ephemeral-store = { path = "../../utils/rostro-chat-ephemeral-store" }
+rostro-chat-sealed-sender = { path = "../../utils/rostro-chat-sealed-sender" }
+serde = { workspace = true, default-features = true, features = ["derive"] }
 
 # Same Ed25519 backing crate the rest of Rostro uses (per crypto_stack_v1
 # memory). The canonical-fetch attestation server signs responses with
@@ -128,6 +132,11 @@ rand_core = { workspace = true, features = ["getrandom"] }
 
 # The runtime
 gemini-runtime = { workspace = true, default-features = true }
+
+# zkpki primitives — runtime API trait + CertAuthInfo struct used
+# by chat_rpc to authenticate end-user chat-send calls against a
+# zkpki cert's HW-attested device key.
+zk-pki-primitives = { workspace = true, default-features = true }
 
 [build-dependencies]
 substrate-build-script-utils = { workspace = true, default-features = true }

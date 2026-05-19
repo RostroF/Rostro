@@ -1,0 +1,37 @@
+[package]
+name = "rostro-chat-dr"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Double Ratchet session primitives for the Rostro non-validator chat channel. Pairwise sessions between RNS-registered SS58 accounts carry user-to-user direct messages with per-message forward secrecy and post-compromise security via Signal's Double Ratchet construction. Sister crate to rostro-validator-channel — same algorithm, distinct domain tags so a chat-channel handshake or session ciphertext can never be confused with the validator-channel's. Crate is pure protocol + crypto — no libp2p, no sc-network. The gemini-node libp2p binding lives in a separate module."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
+chacha20poly1305 = { workspace = true, features = ["alloc"] }
+hkdf = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+ed25519-zebra = { workspace = true }
+rand_core = { workspace = true, features = ["getrandom"] }
+
+[dev-dependencies]
+rand_chacha = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"chacha20poly1305/std",
+	"hkdf/std",
+	"sha2/std",
+	"zeroize/std",
+	"ed25519-zebra/std",
+]

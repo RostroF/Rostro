@@ -1,0 +1,37 @@
+[package]
+name = "rostro-chat-mls"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "MLS (RFC 9420) group session wrapper for the Rostro chat layer. Wraps openmls 0.8 with RostroVM-aligned identity bindings (Ed25519 identity = SS58), Rostro's pure-random 256-bit GroupId, and a minimal create/add/remove/encrypt/decrypt surface. Storage uses openmls_memory_storage for v0.1 (in-process, no persistence); a file-backed persistence layer lands in a follow-up step. Forward secrecy under removal and pre-join opacity are MLS-protocol guarantees inherited via the openmls implementation."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+openmls = { workspace = true, features = ["openmls_rust_crypto"] }
+openmls_basic_credential = { workspace = true }
+openmls_rust_crypto = { workspace = true }
+openmls_traits = { workspace = true }
+openmls_memory_storage = { workspace = true }
+tls_codec = { workspace = true }
+rostro-chat-primitives = { path = "../rostro-chat-primitives" }
+
+[dev-dependencies]
+# Full crypto-stack integration tests pull in the other chat
+# crates so a single tests/ binary can exercise DR + Sealed
+# Sender + MLS + envelope + stripe + MAC end-to-end.
+rostro-chat-dr = { path = "../rostro-chat-dr" }
+rostro-chat-sealed-sender = { path = "../rostro-chat-sealed-sender" }
+rand_chacha = { workspace = true, default-features = true }
+ed25519-zebra = { workspace = true }
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
+
+[features]
+# openmls is std-only as of 0.8; this crate inherits that constraint.
+default = []
