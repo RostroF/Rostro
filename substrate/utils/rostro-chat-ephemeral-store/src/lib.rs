@@ -336,6 +336,35 @@ impl ShareStore for EphemeralShareStore {
 		}
 		out
 	}
+
+	fn drop_entries_in_buckets(&self, buckets: &[u8]) -> usize {
+		// Dedupe — caller may pass redundant entries.
+		let mut bucket_set = [false; 256];
+		for b in buckets {
+			bucket_set[*b as usize] = true;
+		}
+
+		let mut g = self.inner.write();
+
+		// Two-phase: collect primary keys to remove (can't mutate
+		// while iterating), then route through `remove_entry` so
+		// every index stays consistent (by_key, by_pickup,
+		// by_expiry, total_bytes).
+		let mut to_remove: Vec<(MessageId, ShareIndex)> = Vec::new();
+		for (pickup_key, primaries) in g.by_pickup.iter() {
+			if !bucket_set[pickup_key.0[0] as usize] {
+				continue;
+			}
+			for primary in primaries {
+				to_remove.push(*primary);
+			}
+		}
+		let count = to_remove.len();
+		for pk in to_remove {
+			g.remove_entry(pk);
+		}
+		count
+	}
 }
 
 #[cfg(test)]
@@ -635,6 +664,93 @@ mod tests {
 		assert_eq!(<EphemeralShareStore as ShareStore>::pickup_keys(&store).len(), 1);
 		store.sweep_expired(NOW_TS + 100);
 		assert!(<EphemeralShareStore as ShareStore>::pickup_keys(&store).is_empty());
+	}
+
+	#[test]
+	fn drop_entries_in_buckets_removes_matching() {
+		// Build entries whose pickup keys start with specific
+		// bytes (= bucket prefix). PickupKey::for_group derives
+		// from blake2 of the group id, so to force a specific
+		// pickup byte we hand-craft the descriptor with a known
+		// pickup_key.
+		let store = EphemeralShareStore::with_default_config();
+
+		let pk_b03 = PickupKey([0x03; 32]);
+		let pk_b17 = PickupKey([0x17; 32]);
+		let pk_b42 = PickupKey([0x42; 32]);
+
+		fn insert_with_pickup(
+			store: &EphemeralShareStore,
+			pk: PickupKey,
+			mid_byte: u8,
+			share_index: u8,
+		) {
+			let d = ShareDescriptor {
+				relay_pubkey: RelayPubkey([0x11; 32]),
+				message_id: MessageId([mid_byte; 32]),
+				share_index,
+				total_shares: 5,
+				pickup_key: pk,
+				expires_at_unix_ts: NOW_TS + 1000,
+			};
+			let tag = mac_share(&[0u8; 32], &[1, 2, 3], share_index);
+			store.insert(d, vec![1, 2, 3], tag).unwrap();
+		}
+
+		// Distinct message_ids per insert to avoid the
+		// `(MessageId, ShareIndex)` primary-key collision.
+		insert_with_pickup(&store, pk_b03, 0xA0, 0);
+		insert_with_pickup(&store, pk_b03, 0xA0, 1);
+		insert_with_pickup(&store, pk_b17, 0xA1, 0);
+		insert_with_pickup(&store, pk_b42, 0xA2, 0);
+		insert_with_pickup(&store, pk_b42, 0xA2, 1);
+		assert_eq!(store.len(), 5);
+
+		// Drop bucket 0x17.
+		let dropped = store.drop_entries_in_buckets(&[0x17]);
+		assert_eq!(dropped, 1);
+		assert_eq!(store.len(), 4);
+		assert!(store.get_by_pickup_key(&pk_b17).is_empty());
+
+		// Drop buckets 0x03 + 0x42 together.
+		let dropped = store.drop_entries_in_buckets(&[0x03, 0x42]);
+		assert_eq!(dropped, 4, "two shares of pk_b03 + two of pk_b42");
+		assert_eq!(store.len(), 0);
+	}
+
+	#[test]
+	fn drop_entries_in_buckets_dedupes_input() {
+		let store = EphemeralShareStore::with_default_config();
+		let pk = PickupKey([0x55; 32]);
+		let d = ShareDescriptor {
+			relay_pubkey: RelayPubkey([0x11; 32]),
+			message_id: MessageId([0xAA; 32]),
+			share_index: 0,
+			total_shares: 5,
+			pickup_key: pk,
+			expires_at_unix_ts: NOW_TS + 1000,
+		};
+		let tag = mac_share(&[0u8; 32], &[1], 0);
+		store.insert(d, vec![1], tag).unwrap();
+		assert_eq!(store.len(), 1);
+
+		// Pass the same bucket many times; should still drop once.
+		let dropped = store.drop_entries_in_buckets(&[0x55, 0x55, 0x55, 0x55]);
+		assert_eq!(dropped, 1);
+		assert_eq!(store.len(), 0);
+	}
+
+	#[test]
+	fn drop_entries_in_empty_buckets_is_noop() {
+		let store = EphemeralShareStore::with_default_config();
+		let (d, b, t) = make_entry_inputs(0x90, 0, vec![1], NOW_TS + 100);
+		store.insert(d, b, t).unwrap();
+		assert_eq!(store.len(), 1);
+
+		// Bucket that no entry falls in.
+		let dropped = store.drop_entries_in_buckets(&[0xFE]);
+		assert_eq!(dropped, 0);
+		assert_eq!(store.len(), 1);
 	}
 
 	#[test]

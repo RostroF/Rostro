@@ -180,6 +180,20 @@ pub trait ShareStore {
 	)> {
 		Vec::new()
 	}
+
+	/// Drop every entry whose pickup_key falls into any of the
+	/// listed buckets. Returns the count removed.
+	///
+	/// Used by the weekly rebalance task when a node's subscription
+	/// shifts: the buckets we no longer cover are dropped wholesale.
+	/// Anti-entropy + push gossip will refill missing buckets at
+	/// other nodes that now subscribe to them.
+	///
+	/// `buckets` may contain duplicates; the implementation
+	/// deduplicates internally. Default returns 0 (no-op).
+	fn drop_entries_in_buckets(&self, _buckets: &[u8]) -> usize {
+		0
+	}
 }
 
 /// Server-side handler. Validates the request, defers to `store`

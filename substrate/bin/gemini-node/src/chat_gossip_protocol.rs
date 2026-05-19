@@ -217,84 +217,129 @@ where
 /// stream-opened (send our advertisement), notification-received
 /// (decode + cache.try_insert), stream-closed (drop their cache
 /// entry). Runs forever; spawn on the task manager.
+///
+/// `rebalance_signal_rx` receives `()` whenever the rebalance
+/// task applies a new bitmap to `local_state`. The gossip task
+/// re-broadcasts the updated subscription to every cached peer
+/// so they update their `BucketCache` entry for us with the
+/// bumped-version advertisement.
 pub async fn run_chat_gossip_task(
 	mut notification_service: Box<dyn NotificationService>,
 	cache: BucketCache,
 	local_state: LocalSubscriptionState,
+	mut rebalance_signal_rx: tokio::sync::mpsc::UnboundedReceiver<()>,
 ) {
-	while let Some(event) = notification_service.next_event().await {
-		match event {
-			NotificationEvent::ValidateInboundSubstream { peer: _, result_tx, .. } => {
-				// Accept all; admission is handled at the chat-stripe
-				// / chat-fetch layer via the channel-split check.
-				let _ = result_tx.send(ValidationResult::Accept);
-			},
-			NotificationEvent::NotificationStreamOpened { peer, .. } => {
+	loop {
+		tokio::select! {
+			event = notification_service.next_event() => {
+				let Some(event) = event else {
+					log::warn!(
+						target: "rostro-chat-gossip",
+						"chat-gossip notification service stream ended",
+					);
+					return;
+				};
+				match event {
+					NotificationEvent::ValidateInboundSubstream { peer: _, result_tx, .. } => {
+						let _ = result_tx.send(ValidationResult::Accept);
+					},
+					NotificationEvent::NotificationStreamOpened { peer, .. } => {
+						let now = now_unix_seconds();
+						let ad = local_state.build_advertisement(now);
+						let wire = GossipWire::Advertisement(ad).encode();
+						if let Err(e) = notification_service.send_async_notification(&peer, wire).await {
+							log::debug!(
+								target: "rostro-chat-gossip",
+								"failed to send advertisement to {}: {:?}",
+								peer,
+								e,
+							);
+						} else {
+							log::trace!(
+								target: "rostro-chat-gossip",
+								"sent advertisement (v{}) to newly-opened stream with {}",
+								local_state.current_version(),
+								peer,
+							);
+						}
+					},
+					NotificationEvent::NotificationReceived { peer, notification } => {
+						let wire = match GossipWire::decode(&mut &notification[..]) {
+							Ok(w) => w,
+							Err(_) => {
+								log::debug!(
+									target: "rostro-chat-gossip",
+									"undecodable gossip-wire message from {}",
+									peer,
+								);
+								continue;
+							},
+						};
+						let GossipWire::Advertisement(ad) = wire;
+						let now = now_unix_seconds();
+						match cache.try_insert(peer, ad, now) {
+							Ok(()) => {
+								log::trace!(
+									target: "rostro-chat-gossip",
+									"cached advertisement from {}",
+									peer,
+								);
+							},
+							Err(e) => {
+								log::debug!(
+									target: "rostro-chat-gossip",
+									"rejected advertisement from {}: {:?}",
+									peer,
+									e,
+								);
+							},
+						}
+					},
+					NotificationEvent::NotificationStreamClosed { peer } => {
+						cache.drop_peer(&peer);
+						log::trace!(
+							target: "rostro-chat-gossip",
+							"peer {} disconnected; dropped from bucket cache",
+							peer,
+						);
+					},
+				}
+			}
+			Some(_) = rebalance_signal_rx.recv() => {
+				// Rebalance task updated our bitmap + bumped version.
+				// Broadcast the new advertisement to every cached peer
+				// so they refresh their copy of our subscription
+				// (which drives chat-stripe routing decisions on
+				// THEIR end).
+				let peers: Vec<rc_network::PeerId> = cache
+					.all_peers()
+					.into_iter()
+					.map(|(p, _)| p)
+					.collect();
+				let n_peers = peers.len();
 				let now = now_unix_seconds();
 				let ad = local_state.build_advertisement(now);
 				let wire = GossipWire::Advertisement(ad).encode();
-				if let Err(e) = notification_service.send_async_notification(&peer, wire).await {
-					log::debug!(
-						target: "rostro-chat-gossip",
-						"failed to send advertisement to {}: {:?}",
-						peer,
-						e,
-					);
-				} else {
-					log::trace!(
-						target: "rostro-chat-gossip",
-						"sent advertisement (v{}) to newly-opened stream with {}",
-						local_state.current_version(),
-						peer,
-					);
+				let mut sent = 0usize;
+				for peer in peers {
+					if notification_service
+						.send_async_notification(&peer, wire.clone())
+						.await
+						.is_ok()
+					{
+						sent += 1;
+					}
 				}
-			},
-			NotificationEvent::NotificationReceived { peer, notification } => {
-				let wire = match GossipWire::decode(&mut &notification[..]) {
-					Ok(w) => w,
-					Err(_) => {
-						log::debug!(
-							target: "rostro-chat-gossip",
-							"undecodable gossip-wire message from {}",
-							peer,
-						);
-						continue;
-					},
-				};
-				let GossipWire::Advertisement(ad) = wire;
-				let now = now_unix_seconds();
-				match cache.try_insert(peer, ad, now) {
-					Ok(()) => {
-						log::trace!(
-							target: "rostro-chat-gossip",
-							"cached advertisement from {}",
-							peer,
-						);
-					},
-					Err(e) => {
-						log::debug!(
-							target: "rostro-chat-gossip",
-							"rejected advertisement from {}: {:?}",
-							peer,
-							e,
-						);
-					},
-				}
-			},
-			NotificationEvent::NotificationStreamClosed { peer } => {
-				cache.drop_peer(&peer);
-				log::trace!(
+				log::info!(
 					target: "rostro-chat-gossip",
-					"peer {} disconnected; dropped from bucket cache",
-					peer,
+					"rebalance: broadcast subscription v{} to {}/{} peers",
+					local_state.current_version(),
+					sent,
+					n_peers,
 				);
-			},
+			}
 		}
 	}
-	log::warn!(
-		target: "rostro-chat-gossip",
-		"chat-gossip notification service stream ended",
-	);
 }
 
 /// Broadcast the local node's current subscription to every

@@ -151,6 +151,22 @@ pub struct ChatNodeInfo {
 	pub node_pubkey_ed25519_hex: String,
 }
 
+/// JSON-RPC response for `chat_mySubscription`. Lets operators +
+/// scenario scripts read the local node's current bucket
+/// subscription bitmap + version.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChatMySubscription {
+	/// 64-character hex string of the 32-byte bitmap.
+	pub bitmap_hex: String,
+	/// Number of buckets currently subscribed to (popcount of
+	/// bitmap).
+	pub bucket_count: u32,
+	/// Monotonic version counter. Bumps on every local subscription
+	/// change (rebalance, operator override). Peers cache by
+	/// version to reject older replays.
+	pub version: u32,
+}
+
 /// JSON-RPC response for `chat_send_envelope`.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ChatSendResult {
@@ -199,6 +215,12 @@ pub trait ChatRpcApi {
 	/// purposes.
 	#[method(name = "chat_nodeInfo")]
 	fn node_info(&self) -> RpcResult<ChatNodeInfo>;
+
+	/// Diagnostic: return this node's current bucket subscription
+	/// state. Used by scenario scripts to verify rebalance behavior
+	/// and by operators to inspect what the node carries.
+	#[method(name = "chat_mySubscription")]
+	fn my_subscription(&self) -> RpcResult<ChatMySubscription>;
 
 	/// Diagnostic: number of share entries currently held in
 	/// this node's local share store.
@@ -290,6 +312,12 @@ pub struct ChatRpc<C> {
 	network: Arc<dyn NetworkService>,
 	client: Arc<C>,
 	bucket_cache: BucketCache,
+	/// Optional: present iff this node has a chat-gossip
+	/// `LocalSubscriptionState` (= has a persistent libp2p
+	/// identity key). `chat_mySubscription` returns an empty
+	/// snapshot when None.
+	local_subscription:
+		Option<crate::chat_gossip_protocol::LocalSubscriptionState>,
 	_block: PhantomData<Block>,
 }
 
@@ -304,6 +332,9 @@ where
 		network: Arc<dyn NetworkService>,
 		client: Arc<C>,
 		bucket_cache: BucketCache,
+		local_subscription: Option<
+			crate::chat_gossip_protocol::LocalSubscriptionState,
+		>,
 	) -> Self {
 		Self {
 			node_pubkey_ed25519,
@@ -311,6 +342,7 @@ where
 			network,
 			client,
 			bucket_cache,
+			local_subscription,
 			_block: PhantomData,
 		}
 	}
@@ -417,6 +449,24 @@ where
 
 	fn local_store_len(&self) -> RpcResult<u64> {
 		Ok(self.share_store.len() as u64)
+	}
+
+	fn my_subscription(&self) -> RpcResult<ChatMySubscription> {
+		match &self.local_subscription {
+			Some(state) => {
+				let bitmap = state.current_bitmap();
+				Ok(ChatMySubscription {
+					bitmap_hex: hex::encode(bitmap.0),
+					bucket_count: bitmap.count(),
+					version: state.current_version(),
+				})
+			}
+			None => Ok(ChatMySubscription {
+				bitmap_hex: String::new(),
+				bucket_count: 0,
+				version: 0,
+			}),
+		}
 	}
 
 	async fn send_envelope(

@@ -314,6 +314,72 @@ pub fn compute_rebalance_time(node_pubkey: &[u8; 32], week_number: u32) -> u64 {
 	week_start_unix_s + offset
 }
 
+/// Compute this node's target bucket subscription given the
+/// network's current presence distribution. Picks the
+/// `target_count` buckets with the fewest current subscribers,
+/// breaking ties deterministically via a hash of
+/// `(node_pubkey || bucket)`.
+///
+/// `distribution[b]` is the count of cached peers subscribed to
+/// bucket `b` (typically from `BucketCache::full_distribution`).
+///
+/// Properties:
+///
+/// - **Network-driven assignment**: this node's pick depends on
+///   what *other* nodes carry. As the network shifts, this node's
+///   weekly rebalance reads the latest distribution and lands on
+///   underloaded buckets.
+/// - **Deterministic tie-breaking**: at network bootstrap when
+///   every bucket has 0 subscribers, the hash tiebreaker spreads
+///   different nodes' choices uniformly across the 256-bucket
+///   space without any coordination. Two nodes with different
+///   pubkeys land on different bucket sets even with identical
+///   input distributions.
+/// - **Pure function**: no I/O, no side effects. Unit-testable.
+///   Call this whenever you want a new bitmap; the periodic
+///   rebalance task is the one that decides *when* to apply it.
+///
+/// `target_count` is clamped to `[0, BUCKET_COUNT]`. Passing
+/// 0 returns an empty bitmap; passing `>=BUCKET_COUNT` returns
+/// `BucketBitmap::all()` (no rebalance needed at default
+/// subscription).
+pub fn compute_target_subscription(
+	distribution: &[usize; BUCKET_COUNT as usize],
+	target_count: u16,
+	node_pubkey: &[u8; 32],
+) -> BucketBitmap {
+	let cap = (BUCKET_COUNT as u16).min(target_count) as usize;
+	if cap == 0 {
+		return BucketBitmap::empty();
+	}
+	if cap >= BUCKET_COUNT as usize {
+		return BucketBitmap::all();
+	}
+
+	// Score each bucket: (subscriber_count, hash-derived tiebreak).
+	// Ascending sort by this composite picks least-subscribed first,
+	// with deterministic tie resolution.
+	let mut scored: alloc::vec::Vec<(u8, usize, u64)> = (0..=255u8)
+		.map(|b| {
+			let mut input = alloc::vec::Vec::with_capacity(33);
+			input.extend_from_slice(node_pubkey);
+			input.push(b);
+			let h = blake2_256(&input);
+			let tie = u64::from_be_bytes([
+				h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7],
+			]);
+			(b, distribution[b as usize], tie)
+		})
+		.collect();
+	scored.sort_by(|a, b| (a.1, a.2).cmp(&(b.1, b.2)));
+
+	let mut bitmap = BucketBitmap::empty();
+	for (b, _, _) in scored.iter().take(cap) {
+		bitmap.insert(*b);
+	}
+	bitmap
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -712,6 +778,129 @@ mod tests {
 			"every 1-hour sub-bucket of the 12-hour window should be hit \
 			 by at least one of 256 sample keys; only {hits}/12 were",
 		);
+	}
+
+	// ── compute_target_subscription ───────────────────────────────
+
+	fn empty_distribution() -> [usize; BUCKET_COUNT as usize] {
+		[0usize; BUCKET_COUNT as usize]
+	}
+
+	#[test]
+	fn target_zero_returns_empty_bitmap() {
+		let dist = empty_distribution();
+		let bm = compute_target_subscription(&dist, 0, &[1u8; 32]);
+		assert_eq!(bm.count(), 0);
+	}
+
+	#[test]
+	fn target_full_returns_all_bitmap() {
+		let dist = empty_distribution();
+		let bm = compute_target_subscription(&dist, BUCKET_COUNT, &[1u8; 32]);
+		assert_eq!(bm, BucketBitmap::all());
+	}
+
+	#[test]
+	fn target_clamps_above_bucket_count() {
+		let dist = empty_distribution();
+		let bm = compute_target_subscription(&dist, 1000, &[1u8; 32]);
+		assert_eq!(bm, BucketBitmap::all());
+	}
+
+	#[test]
+	fn target_count_exact_at_zero_distribution() {
+		// With zero subscribers everywhere, ties are broken by
+		// hash; we should get exactly `target_count` buckets.
+		let dist = empty_distribution();
+		for target in [1, 4, 16, 64, 128, 255u16] {
+			let bm = compute_target_subscription(&dist, target, &[0x42u8; 32]);
+			assert_eq!(
+				bm.count(),
+				target as u32,
+				"target={target}: bitmap should have exactly target buckets",
+			);
+		}
+	}
+
+	#[test]
+	fn different_keys_pick_different_buckets() {
+		// At empty distribution, the hash tiebreaker drives uniform
+		// spread. Two distinct node keys should land on largely
+		// distinct bucket sets.
+		let dist = empty_distribution();
+		let target = 16u16;
+		let bm_a = compute_target_subscription(&dist, target, &[0x01u8; 32]);
+		let bm_b = compute_target_subscription(&dist, target, &[0x02u8; 32]);
+		let overlap = (0..=255u8)
+			.filter(|b| bm_a.contains(*b) && bm_b.contains(*b))
+			.count();
+		// 16 of 256 chosen by each, independently uniform → expected
+		// overlap = 16 * 16 / 256 = 1. Allow up to 8 (lots of slack).
+		assert!(
+			overlap <= 8,
+			"two distinct keys produced suspiciously high bucket overlap: {overlap}",
+		);
+	}
+
+	#[test]
+	fn deterministic_for_same_inputs() {
+		let dist = empty_distribution();
+		let key = [0x77u8; 32];
+		let bm_a = compute_target_subscription(&dist, 32, &key);
+		let bm_b = compute_target_subscription(&dist, 32, &key);
+		assert_eq!(bm_a, bm_b);
+	}
+
+	#[test]
+	fn picks_least_subscribed_buckets() {
+		// Build a distribution where bucket 0 has 1000 subscribers
+		// and bucket 1 has 0; with target_count = 1, we should
+		// pick bucket 1, not bucket 0.
+		let mut dist = empty_distribution();
+		dist[0] = 1000;
+		// All other buckets at 0; bucket 1 should be picked first
+		// (tie-broken by hash among the 255 zero-count buckets).
+		let bm = compute_target_subscription(&dist, 1, &[0xAAu8; 32]);
+		assert!(!bm.contains(0));
+		assert_eq!(bm.count(), 1);
+	}
+
+	#[test]
+	fn avoids_oversubscribed_buckets() {
+		// Bucket 0 is heavily oversubscribed; 100 other buckets are
+		// at 0. With target_count = 100, bucket 0 should be excluded.
+		let mut dist = empty_distribution();
+		dist[0] = 9999;
+		let bm = compute_target_subscription(&dist, 100, &[0xBBu8; 32]);
+		assert!(!bm.contains(0));
+		assert_eq!(bm.count(), 100);
+	}
+
+	#[test]
+	fn rebalance_picks_underloaded_after_distribution_shift() {
+		// Simulate two scenarios: first all buckets equal, then
+		// some buckets become oversubscribed. The rebalance result
+		// should shift away from the oversubscribed buckets.
+		let dist_before = empty_distribution();
+		let mut dist_after = empty_distribution();
+		// Make buckets 0..32 heavily subscribed.
+		for b in 0..32usize {
+			dist_after[b] = 100;
+		}
+		let key = [0xCCu8; 32];
+		let bm_before = compute_target_subscription(&dist_before, 32, &key);
+		let bm_after = compute_target_subscription(&dist_after, 32, &key);
+
+		// `bm_after` should NOT pick any of the oversubscribed
+		// buckets (0..32 all have count=100; everything else is 0).
+		let picked_oversub = (0..32u8).filter(|b| bm_after.contains(*b)).count();
+		assert_eq!(
+			picked_oversub, 0,
+			"rebalance should avoid the oversubscribed buckets",
+		);
+		// And the before/after bitmaps should differ (the
+		// distribution shift caused a meaningful change).
+		assert_ne!(bm_before, bm_after);
 	}
 
 	// ── pickup-key bucket distribution (smoke test) ───────────────

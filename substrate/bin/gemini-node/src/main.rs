@@ -17,6 +17,7 @@ mod chat_anti_entropy;
 mod chat_bucket_cache;
 mod chat_fetch_protocol;
 mod chat_gossip_protocol;
+mod chat_rebalance;
 mod chat_rpc;
 mod chat_stripe_protocol;
 mod cli;

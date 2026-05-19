@@ -497,9 +497,22 @@ pub fn new_full<
 	// `chat_bucket_cache` from inbound advertisements; broadcasts
 	// our own subscription to newly-opened peer streams.
 	//
+	// Extract a clone of the `LocalSubscriptionState` (if any)
+	// for the RPC layer. Cheap — the struct is Arc-shared inside.
+	let chat_local_subscription = chat_gossip_state_and_service
+		.as_ref()
+		.map(|(state, _)| state.clone());
+
 	// Only spawned if `chat_gossip_state_and_service` was built
 	// (requires a loadable persistent libp2p node-identity key).
 	if let Some((local_state, gossip_service)) = chat_gossip_state_and_service {
+		// Commit A.1: signal channel between rebalance and gossip
+		// tasks. When the rebalance task updates LocalSubscriptionState's
+		// bitmap, it sends () on this channel; the gossip task
+		// re-broadcasts the new advertisement to all cached peers.
+		let (rebalance_signal_tx, rebalance_signal_rx) =
+			tokio::sync::mpsc::unbounded_channel::<()>();
+
 		task_manager.spawn_handle().spawn(
 			"rostro-chat-gossip",
 			Some("rostro"),
@@ -507,6 +520,7 @@ pub fn new_full<
 				gossip_service,
 				chat_bucket_cache.clone(),
 				local_state.clone(),
+				rebalance_signal_rx,
 			),
 		);
 
@@ -526,7 +540,27 @@ pub fn new_full<
 				ae_network,
 				chat_share_store.clone(),
 				chat_bucket_cache.clone(),
+				local_state.clone(),
+			),
+		);
+
+		// Commit A.1: weekly rebalance task. Reads CHAT_BUCKET_TARGET_COUNT
+		// from env (default = BUCKET_COUNT, i.e., no rebalance). At
+		// dialed-down target counts, fires once per ISO week at this
+		// node's deterministic-random time within the Tuesday
+		// 06:00-18:00 UTC window. CHAT_REBALANCE_AT_STARTUP=1
+		// triggers an immediate one-shot rebalance after the gossip
+		// cache populates (test-mode override).
+		let target_count = crate::chat_rebalance::read_target_count_from_env();
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-rebalance",
+			Some("rostro"),
+			crate::chat_rebalance::run_rebalance_task(
 				local_state,
+				chat_bucket_cache.clone(),
+				chat_share_store.clone(),
+				target_count,
+				rebalance_signal_tx,
 			),
 		);
 	}
@@ -672,6 +706,7 @@ pub fn new_full<
 					share_store: chat_share_store.clone(),
 					network: network_arc.clone(),
 					bucket_cache: chat_bucket_cache.clone(),
+					local_subscription: chat_local_subscription.clone(),
 				},
 			};
 			crate::rpc::create_full(deps).map_err(Into::into)

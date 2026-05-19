@@ -59,6 +59,12 @@ pub struct ChatRpcDeps {
 	/// advertisements. `chat_send_envelope` reads
 	/// `peers_for_bucket(b)` to pick push targets for each shard.
 	pub bucket_cache: crate::chat_bucket_cache::BucketCache,
+	/// Optional shared `LocalSubscriptionState`. Present iff this
+	/// node has a persistent libp2p identity key (and therefore
+	/// runs the chat-gossip + rebalance tasks). Backs the
+	/// `chat_mySubscription` introspection RPC.
+	pub local_subscription:
+		Option<crate::chat_gossip_protocol::LocalSubscriptionState>,
 }
 
 /// Instantiate all full RPC extensions.
@@ -91,6 +97,7 @@ where
 			chat.network,
 			client,
 			chat.bucket_cache,
+			chat.local_subscription,
 		)
 		.into_rpc(),
 	)?;
