@@ -393,6 +393,22 @@ pub fn new_full<
 		chat_fetch_handler,
 	);
 
+	// Commit D: anti-entropy responder. Server side of
+	// /rostro/chat-anti-entropy/1. Accepts AeRequest, compares
+	// per-bucket digest, responds Match or Mismatch+entries.
+	// Validator peers rejected at admission (channel-split).
+	let (chat_ae_config, chat_ae_handler) =
+		crate::chat_anti_entropy::build_anti_entropy_protocol::<N, _, _>(
+			chat_share_store.clone(),
+			validator_channel_sessions.clone(),
+		);
+	net_config.add_request_response_protocol(chat_ae_config);
+	task_manager.spawn_handle().spawn(
+		"rostro-chat-anti-entropy-server",
+		Some("rostro"),
+		chat_ae_handler,
+	);
+
 	log::info!(
 		target: "rostro-chat",
 		"chat-stripe + chat-fetch protocols registered on `{}` / `{}`",
@@ -489,6 +505,26 @@ pub fn new_full<
 			Some("rostro"),
 			crate::chat_gossip_protocol::run_chat_gossip_task(
 				gossip_service,
+				chat_bucket_cache.clone(),
+				local_state.clone(),
+			),
+		);
+
+		// Commit D: anti-entropy periodic initiator. Every
+		// AE_TICK_INTERVAL_SECS, picks a random subscribed bucket
+		// + random bucket-peer, exchanges digests, fetches missing
+		// entries via existing /rostro/chat-fetch/1. Spawned only
+		// when we have a chat-gossip LocalSubscriptionState (i.e.,
+		// the node has a persistent libp2p identity key); without
+		// that we'd have no bitmap to know which buckets to sync.
+		let ae_network: Arc<dyn rc_network::service::traits::NetworkService> =
+			Arc::new(network.clone());
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-anti-entropy",
+			Some("rostro"),
+			crate::chat_anti_entropy::run_anti_entropy_task(
+				ae_network,
+				chat_share_store.clone(),
 				chat_bucket_cache.clone(),
 				local_state,
 			),

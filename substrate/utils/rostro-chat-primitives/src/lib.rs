@@ -56,6 +56,7 @@
 extern crate alloc;
 
 pub mod admission;
+pub mod anti_entropy;
 pub mod bucket;
 pub mod descriptor;
 pub mod dht_publication;

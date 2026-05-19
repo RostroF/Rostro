@@ -159,6 +159,27 @@ pub trait ShareStore {
 	fn pickup_keys(&self) -> Vec<crate::descriptor::PickupKey> {
 		Vec::new()
 	}
+
+	/// Return every (pickup_key, message_id, share_index) tuple
+	/// currently held that falls into bucket `b`. Used by the
+	/// anti-entropy protocol to compute a per-bucket digest and to
+	/// answer "what entries do I have for bucket b" mismatch
+	/// responses.
+	///
+	/// Order is implementation-defined. Callers wanting a stable
+	/// digest sort the result before hashing.
+	///
+	/// Default: empty (matching the default of `pickup_keys`).
+	fn entries_for_bucket(
+		&self,
+		_b: u8,
+	) -> Vec<(
+		crate::descriptor::PickupKey,
+		crate::descriptor::MessageId,
+		crate::descriptor::ShareIndex,
+	)> {
+		Vec::new()
+	}
 }
 
 /// Server-side handler. Validates the request, defers to `store`

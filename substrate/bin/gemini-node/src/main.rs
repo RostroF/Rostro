@@ -13,6 +13,7 @@ mod canonical_fetch_client;
 mod canonical_fetch_protocol;
 mod chain_spec;
 mod chat_admission;
+mod chat_anti_entropy;
 mod chat_bucket_cache;
 mod chat_fetch_protocol;
 mod chat_gossip_protocol;

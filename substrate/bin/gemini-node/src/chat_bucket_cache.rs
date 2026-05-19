@@ -149,6 +149,15 @@ impl BucketCache {
 	pub fn get(&self, peer: &PeerId) -> Option<BucketSubscription> {
 		self.inner.read().get(peer).cloned()
 	}
+
+	/// Return every peer currently in the cache, with a clone of
+	/// their cached subscription. Used by the anti-entropy
+	/// periodic task to pick a random peer + iterate their
+	/// subscription overlap.
+	pub fn all_peers(&self) -> Vec<(PeerId, BucketSubscription)> {
+		let g = self.inner.read();
+		g.iter().map(|(p, s)| (*p, s.clone())).collect()
+	}
 }
 
 impl Default for BucketCache {

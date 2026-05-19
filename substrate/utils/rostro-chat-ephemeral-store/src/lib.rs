@@ -315,6 +315,27 @@ impl ShareStore for EphemeralShareStore {
 	fn pickup_keys(&self) -> Vec<PickupKey> {
 		self.inner.read().by_pickup.keys().copied().collect()
 	}
+
+	fn entries_for_bucket(
+		&self,
+		b: u8,
+	) -> Vec<(PickupKey, MessageId, ShareIndex)> {
+		let g = self.inner.read();
+		let mut out = Vec::new();
+		for (pickup_key, primaries) in g.by_pickup.iter() {
+			// Bucket is the top byte of the pickup_key. Cheap byte
+			// compare; no separate index needed since the bucket count
+			// is global and small.
+			if pickup_key.0[0] != b {
+				continue;
+			}
+			for primary in primaries {
+				let (message_id, share_index) = *primary;
+				out.push((*pickup_key, message_id, share_index));
+			}
+		}
+		out
+	}
 }
 
 #[cfg(test)]
