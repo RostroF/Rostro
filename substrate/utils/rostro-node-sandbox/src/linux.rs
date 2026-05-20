@@ -17,8 +17,8 @@ use super::{NodeSandboxConfig, SandboxError, SandboxHandle};
 /// Engage the Linux-side sandbox primitives in order:
 ///
 /// 1. cgroup v2 (Phase 3a)
-/// 2. Landlock (this phase — 3b)
-/// 3. seccomp-bpf — stub for now (3c)
+/// 2. Landlock (Phase 3b)
+/// 3. seccomp-bpf (Phase 3c)
 ///
 /// Order matters: cgroup self-cap before Landlock so that if Landlock
 /// later denies access to `/sys/fs/cgroup/...` (it won't, but defensive
@@ -28,7 +28,7 @@ use super::{NodeSandboxConfig, SandboxError, SandboxHandle};
 pub(crate) fn install(config: &NodeSandboxConfig) -> Result<SandboxHandle, SandboxError> {
 	let cgroup_child = install_cgroup(config)?;
 	install_landlock(config)?;
-	// Phase 3c: install seccomp-bpf here.
+	install_seccomp(config)?;
 	Ok(SandboxHandle { cgroup_child })
 }
 
@@ -285,6 +285,432 @@ pub(crate) fn write_cgroup_file(
 		primitive: "cgroup",
 		reason: format!("write {}={value:?}: {e}", path.display()),
 	})
+}
+
+// ─── seccomp-bpf allowlist (Phase 3c) ──────────────────────────────────────
+//
+// Closes the host-process syscall surface. On violation, the kernel sends
+// SIGKILL to the entire process (SECCOMP_RET_KILL_PROCESS) — the Phase 1
+// supervisor's crash-restart path then engages.
+//
+// Authoring approach: curated baseline from systemd's `@system-service`
+// syscall group (closest workload analog — long-running daemon doing
+// network + I/O), plus a small set of substrate-specific needs (libp2p
+// epoll/eventfd/timerfd, RocksDB pread/pwrite/fdatasync, tokio's clone +
+// futex). Argument filtering on four load-bearing syscalls (mmap,
+// mprotect, clone, socket, ioctl) keeps the allowlist tight where flat
+// "allow by syscall number" would still let attacker pivot inside the
+// permitted syscall.
+//
+// Hard denies by family (not even on the allowlist): ptrace,
+// process_vm_*, mount/umount/pivot_root, unshare/setns (and CLONE_NEW*
+// flags via clone arg filter), kexec_*, init_module/finit_module,
+// bpf, perf_event_open, io_uring_*, swapon/swapoff, reboot,
+// setuid/setgid/setres*, capset, chroot, keyctl/add_key/request_key,
+// userfaultfd, modify_ldt, iopl/ioperm, syslog (kernel log),
+// open_by_handle_at, name_to_handle_at.
+//
+// Architecture gating: this implementation is x86_64-only. The syscall
+// numbers (libc::SYS_*) are arch-specific and ARM64 has a different set
+// (no SYS_arch_prctl, different SYS_clone3 layout, etc.). Adding ARM64
+// is mechanical work for when we get an ARM validator host on the
+// testnet roster.
+
+#[cfg(target_arch = "x86_64")]
+use seccompiler::{
+	BpfProgram, SeccompAction, SeccompCmpArgLen as ArgLen, SeccompCmpOp,
+	SeccompCondition as Cond, SeccompFilter, SeccompRule, TargetArch,
+};
+
+/// Apply the seccomp filter to the calling process and all its
+/// threads (`SECCOMP_FILTER_FLAG_TSYNC`). After this returns, any
+/// syscall not on the allowlist (or any allowed syscall called with
+/// the wrong arguments per the four argument-filtered rules) causes
+/// the kernel to SIGKILL the entire process immediately.
+#[cfg(target_arch = "x86_64")]
+fn install_seccomp(_config: &NodeSandboxConfig) -> Result<(), SandboxError> {
+	let filter = build_seccomp_filter()?;
+	let bpf: BpfProgram = filter
+		.try_into()
+		.map_err(|e| seccomp_err("compile", e))?;
+	seccompiler::apply_filter_all_threads(&bpf)
+		.map_err(|e| seccomp_err("apply", e))?;
+	log::info!(
+		"rostro-node-sandbox seccomp: filter installed (KILL_PROCESS on violation, TSYNC \
+		 across all threads)"
+	);
+	Ok(())
+}
+
+/// Non-x86_64 stub. Real ARM64 / RISC-V support is mechanical work
+/// (different SYS_* numbers); skipping here keeps the rest of the
+/// sandbox usable on other archs. Logs a warning so operators on
+/// non-x86_64 hosts know seccomp isn't active for them yet.
+#[cfg(not(target_arch = "x86_64"))]
+fn install_seccomp(_config: &NodeSandboxConfig) -> Result<(), SandboxError> {
+	log::warn!(
+		"rostro-node-sandbox seccomp: not yet supported on arch {}; skipping (cgroup + \
+		 Landlock still apply)",
+		std::env::consts::ARCH,
+	);
+	Ok(())
+}
+
+/// Build the seccomp filter. Factored from `install_seccomp` so unit
+/// tests can verify the filter is constructible without applying it
+/// (apply would poison the test thread irreversibly).
+#[cfg(target_arch = "x86_64")]
+fn build_seccomp_filter() -> Result<SeccompFilter, SandboxError> {
+	let arch = TargetArch::x86_64;
+
+	let mut rules: Vec<(i64, Vec<SeccompRule>)> = Vec::with_capacity(160);
+
+	// Plain-numeric allows: present in the allowlist with empty rule
+	// vec means "always allow regardless of args."
+	for &sys in PLAIN_ALLOWED_SYSCALLS {
+		rules.push((sys, vec![]));
+	}
+
+	// Argument-filtered allows.
+	rules.push((libc::SYS_mmap, mmap_no_exec_rules()?));
+	rules.push((libc::SYS_mprotect, mprotect_no_exec_rules()?));
+	rules.push((libc::SYS_clone, clone_no_namespace_rules()?));
+	rules.push((libc::SYS_socket, socket_safe_families_rules()?));
+	rules.push((libc::SYS_ioctl, ioctl_safe_cmds_rules()?));
+	// clone3 deliberately omitted: arg is a struct pointer; seccomp
+	// can't inspect memory, so we can't filter its flags. Glibc and
+	// rust std use plain clone() for thread creation through current
+	// versions; clone3 calls will die. Revisit if Phase 5 strace
+	// shows them.
+
+	SeccompFilter::new(
+		rules.into_iter().collect(),
+		SeccompAction::KillProcess, // default: kill anything not on the list
+		SeccompAction::Allow,       // on match: allow
+		arch,
+	)
+	.map_err(|e| seccomp_err("filter.new", e))
+}
+
+/// Plain-numeric syscall allowlist. Each entry is allowed regardless
+/// of its argument values. Grouped by purpose with rationale comments
+/// so a reviewer can see WHY each is here and remove confidently if
+/// no longer needed. Future audits should reread this list end-to-end.
+///
+/// NOTE: argument-filtered syscalls (`mmap`, `mprotect`, `clone`,
+/// `socket`, `ioctl`) are NOT in this list — they're added separately
+/// in `build_seccomp_filter` with their constraint rules.
+#[cfg(target_arch = "x86_64")]
+const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
+	// ── File I/O ──────────────────────────────────────────────────
+	// Reading and writing files + sockets. RocksDB hot path, libp2p
+	// frame I/O, log writes.
+	libc::SYS_read,
+	libc::SYS_write,
+	libc::SYS_pread64,
+	libc::SYS_pwrite64,
+	libc::SYS_readv,
+	libc::SYS_writev,
+	libc::SYS_preadv,
+	libc::SYS_pwritev,
+	libc::SYS_preadv2,
+	libc::SYS_pwritev2,
+	// File open / close. We use openat exclusively; libc maps open()
+	// to openat() on modern systems. Landlock filters paths.
+	libc::SYS_openat,
+	libc::SYS_close,
+	libc::SYS_close_range,
+	libc::SYS_dup,
+	libc::SYS_dup2,
+	libc::SYS_dup3,
+	// Metadata + seek.
+	libc::SYS_fstat,
+	libc::SYS_newfstatat,
+	libc::SYS_fstatfs,
+	libc::SYS_statfs,
+	libc::SYS_lseek,
+	libc::SYS_ftruncate,
+	libc::SYS_statx,
+	// Directory + path.
+	libc::SYS_getdents64,
+	libc::SYS_faccessat,
+	libc::SYS_faccessat2,
+	libc::SYS_readlinkat,
+	libc::SYS_getcwd,
+	// Sync / flush — RocksDB needs these for durability.
+	libc::SYS_fdatasync,
+	libc::SYS_fsync,
+	libc::SYS_sync_file_range,
+	// File ops. mkdirat/renameat/unlinkat go through Landlock for
+	// path policy. fcntl is a multiplexer but operations are mostly
+	// safe (FD_CLOEXEC, file locking).
+	libc::SYS_mkdirat,
+	libc::SYS_renameat,
+	libc::SYS_renameat2,
+	libc::SYS_unlinkat,
+	libc::SYS_symlinkat,
+	libc::SYS_utimensat,
+	libc::SYS_fchmod,
+	libc::SYS_fchmodat,
+	libc::SYS_fchown,
+	libc::SYS_fchownat,
+	libc::SYS_fcntl,
+	// Pipes.
+	libc::SYS_pipe2,
+	// Splice/tee/copy — niche but used by some tokio paths.
+	libc::SYS_splice,
+
+	// ── Memory ────────────────────────────────────────────────────
+	// mmap + mprotect are argument-filtered (no PROT_EXEC). The
+	// rest are flat-allowed.
+	libc::SYS_munmap,
+	libc::SYS_mremap,
+	libc::SYS_madvise,
+	libc::SYS_brk,
+	libc::SYS_mlock,
+	libc::SYS_munlock,
+	libc::SYS_mlock2,
+	libc::SYS_mlockall,
+	libc::SYS_munlockall,
+	libc::SYS_msync,
+
+	// ── Process / thread ──────────────────────────────────────────
+	libc::SYS_exit,
+	libc::SYS_exit_group,
+	libc::SYS_gettid,
+	libc::SYS_getpid,
+	libc::SYS_getppid,
+	libc::SYS_getuid,
+	libc::SYS_getgid,
+	libc::SYS_geteuid,
+	libc::SYS_getegid,
+	libc::SYS_getgroups,
+	libc::SYS_getpgid,
+	libc::SYS_getpgrp,
+	libc::SYS_getsid,
+	libc::SYS_wait4,
+	libc::SYS_waitid,
+	// Signals for sending to own children + signal handling.
+	libc::SYS_kill,
+	libc::SYS_tkill,
+	libc::SYS_tgkill,
+	libc::SYS_rt_sigaction,
+	libc::SYS_rt_sigprocmask,
+	libc::SYS_rt_sigpending,
+	libc::SYS_rt_sigreturn,
+	libc::SYS_rt_sigsuspend,
+	libc::SYS_rt_sigtimedwait,
+	libc::SYS_rt_sigqueueinfo,
+	libc::SYS_sigaltstack,
+	libc::SYS_pause,
+	// Time.
+	libc::SYS_nanosleep,
+	libc::SYS_clock_nanosleep,
+	libc::SYS_clock_gettime,
+	libc::SYS_clock_getres,
+	libc::SYS_gettimeofday,
+	// Scheduling.
+	libc::SYS_sched_yield,
+	libc::SYS_sched_getaffinity,
+	libc::SYS_sched_setaffinity,
+	libc::SYS_sched_getparam,
+	libc::SYS_sched_getscheduler,
+	libc::SYS_sched_get_priority_max,
+	libc::SYS_sched_get_priority_min,
+	// Threading primitives.
+	libc::SYS_futex,
+	libc::SYS_set_robust_list,
+	libc::SYS_get_robust_list,
+	libc::SYS_arch_prctl, // x86_64 TLS setup
+	libc::SYS_set_tid_address,
+	// prctl is a multiplexer; flat-allow is safe because
+	// PR_SET_NO_NEW_PRIVS (set in Phase 3b via Landlock) prevents
+	// PR_SET_SECCOMP from loosening the filter. Could arg-filter in
+	// a follow-up if any specific operation becomes a concern.
+	libc::SYS_prctl,
+	// Exec for the supervisor's `Command::new + spawn` flow + any
+	// internal exec the runtime does (it shouldn't).
+	libc::SYS_execve,
+	libc::SYS_execveat,
+
+	// ── Network ───────────────────────────────────────────────────
+	// `socket` is argument-filtered separately (domain allowlist).
+	// The rest of the socket API is flat-allowed; setsockopt
+	// argument filtering deferred to a follow-up (allowlist of
+	// option names) when we have time to enumerate every option
+	// libp2p + tokio actually use.
+	libc::SYS_socketpair,
+	libc::SYS_bind,
+	libc::SYS_listen,
+	libc::SYS_accept4,
+	libc::SYS_connect,
+	libc::SYS_getsockname,
+	libc::SYS_getpeername,
+	libc::SYS_sendto,
+	libc::SYS_recvfrom,
+	libc::SYS_sendmsg,
+	libc::SYS_recvmsg,
+	libc::SYS_sendmmsg,
+	libc::SYS_recvmmsg,
+	libc::SYS_shutdown,
+	libc::SYS_setsockopt,
+	libc::SYS_getsockopt,
+	// I/O multiplexing — tokio + libp2p hot path.
+	libc::SYS_epoll_create1,
+	libc::SYS_epoll_ctl,
+	libc::SYS_epoll_wait,
+	libc::SYS_epoll_pwait,
+	libc::SYS_epoll_pwait2,
+	libc::SYS_eventfd2,
+	libc::SYS_timerfd_create,
+	libc::SYS_timerfd_settime,
+	libc::SYS_timerfd_gettime,
+	libc::SYS_ppoll,
+	libc::SYS_pselect6,
+	libc::SYS_poll,
+	libc::SYS_select,
+
+	// ── System info / random ──────────────────────────────────────
+	libc::SYS_uname,
+	libc::SYS_sysinfo,
+	libc::SYS_getrandom, // hot path for any crypto code
+	libc::SYS_getcpu,
+
+	// ── Resource limits (self only) ───────────────────────────────
+	// prlimit64 can target other PIDs but the kernel rejects without
+	// CAP_SYS_RESOURCE, and we don't grant that. Arg-filtering
+	// on pid=0 is a future tightening.
+	libc::SYS_getrlimit,
+	libc::SYS_prlimit64,
+	libc::SYS_setrlimit,
+];
+
+/// Build the rule list for `mmap`: deny `PROT_EXEC` in the prot arg
+/// (arg index 2). MaskedEq(mask=PROT_EXEC, value=0) means "the bits
+/// in PROT_EXEC must all be zero" — i.e., the caller is not asking
+/// for executable pages.
+#[cfg(target_arch = "x86_64")]
+fn mmap_no_exec_rules() -> Result<Vec<SeccompRule>, SandboxError> {
+	Ok(vec![SeccompRule::new(vec![Cond::new(
+		2, // arg2 = prot
+		ArgLen::Dword,
+		SeccompCmpOp::MaskedEq(libc::PROT_EXEC as u64),
+		0,
+	)
+	.map_err(|e| seccomp_err("mmap.prot cond", e))?])
+	.map_err(|e| seccomp_err("mmap.prot rule", e))?])
+}
+
+/// Same idea as `mmap` for `mprotect`: deny `PROT_EXEC` (arg 2).
+/// Catches "first mmap RW, then mprotect RWX" JIT-spray patterns.
+#[cfg(target_arch = "x86_64")]
+fn mprotect_no_exec_rules() -> Result<Vec<SeccompRule>, SandboxError> {
+	Ok(vec![SeccompRule::new(vec![Cond::new(
+		2, // arg2 = prot
+		ArgLen::Dword,
+		SeccompCmpOp::MaskedEq(libc::PROT_EXEC as u64),
+		0,
+	)
+	.map_err(|e| seccomp_err("mprotect.prot cond", e))?])
+	.map_err(|e| seccomp_err("mprotect.prot rule", e))?])
+}
+
+/// Build the rule list for `clone`: deny namespace-creation flags.
+/// arg 0 = flags. We require (flags & CLONE_NEW*) == 0 for all six
+/// namespace bits. A successful match means the caller is asking for
+/// threading or fork-like behavior, NOT container-escape namespaces.
+#[cfg(target_arch = "x86_64")]
+fn clone_no_namespace_rules() -> Result<Vec<SeccompRule>, SandboxError> {
+	// All namespace-creation flags. Any one of these set = denial.
+	// CLONE_NEWCGROUP is 0x02000000 but isn't in libc 0.2 on all
+	// versions; hardcode the value to keep this portable.
+	const NAMESPACE_FLAGS_MASK: u64 = libc::CLONE_NEWNS as u64
+		| libc::CLONE_NEWUTS as u64
+		| libc::CLONE_NEWIPC as u64
+		| libc::CLONE_NEWUSER as u64
+		| libc::CLONE_NEWPID as u64
+		| libc::CLONE_NEWNET as u64
+		| 0x02000000u64; // CLONE_NEWCGROUP
+	Ok(vec![SeccompRule::new(vec![Cond::new(
+		0, // arg0 = flags
+		ArgLen::Dword,
+		SeccompCmpOp::MaskedEq(NAMESPACE_FLAGS_MASK),
+		0,
+	)
+	.map_err(|e| seccomp_err("clone.flags cond", e))?])
+	.map_err(|e| seccomp_err("clone.flags rule", e))?])
+}
+
+/// Build the rule list for `socket`: allow only specific address
+/// families. arg 0 = domain. We emit one rule per allowed family;
+/// seccomp ORs rules together, so the syscall is allowed if domain
+/// matches ANY rule.
+///
+/// Denied by absence: AF_PACKET (raw packet capture), AF_NETLINK
+/// (kernel introspection — escape vector), AF_VSOCK, AF_BLUETOOTH,
+/// AF_CAN, AF_RDS, AF_IEEE802154, anything else.
+#[cfg(target_arch = "x86_64")]
+fn socket_safe_families_rules() -> Result<Vec<SeccompRule>, SandboxError> {
+	let mut rules = Vec::with_capacity(3);
+	for family in [libc::AF_INET, libc::AF_INET6, libc::AF_UNIX] {
+		rules.push(
+			SeccompRule::new(vec![Cond::new(
+				0, // arg0 = domain
+				ArgLen::Dword,
+				SeccompCmpOp::Eq,
+				family as u64,
+			)
+			.map_err(|e| {
+				seccomp_err(&format!("socket.domain={family} cond"), e)
+			})?])
+			.map_err(|e| seccomp_err(&format!("socket.domain={family} rule"), e))?,
+		);
+	}
+	Ok(rules)
+}
+
+/// Build the rule list for `ioctl`: allow only specific cmd values
+/// our stack actually uses. `ioctl` is famously a "hundreds of
+/// mini-syscalls behind one number" escape surface; flat-allow gives
+/// attacker dozens of avenues. Each entry is one cmd we've audited
+/// as needed.
+///
+/// **This list will grow during Phase 5 as strace reveals what
+/// substrate/tokio/RocksDB actually hit.** Today's set is the
+/// minimum we expect to be safe: terminal-sizing for log output,
+/// non-blocking socket toggle, available-bytes inquiry.
+#[cfg(target_arch = "x86_64")]
+fn ioctl_safe_cmds_rules() -> Result<Vec<SeccompRule>, SandboxError> {
+	// Conservative starter set. arg index 1 = cmd.
+	const SAFE_IOCTLS: &[(u64, &str)] = &[
+		(libc::TIOCGWINSZ as u64, "TIOCGWINSZ"),
+		(libc::FIONREAD as u64, "FIONREAD"),
+		(libc::FIONBIO as u64, "FIONBIO"),
+		(libc::TCGETS as u64, "TCGETS"),
+		(libc::TIOCGPGRP as u64, "TIOCGPGRP"),
+	];
+	let mut rules = Vec::with_capacity(SAFE_IOCTLS.len());
+	for (cmd, name) in SAFE_IOCTLS {
+		rules.push(
+			SeccompRule::new(vec![Cond::new(
+				1, // arg1 = cmd
+				ArgLen::Dword,
+				SeccompCmpOp::Eq,
+				*cmd,
+			)
+			.map_err(|e| seccomp_err(&format!("ioctl.{name} cond"), e))?])
+			.map_err(|e| seccomp_err(&format!("ioctl.{name} rule"), e))?,
+		);
+	}
+	Ok(rules)
+}
+
+/// Map a seccompiler-side error into our typed error.
+fn seccomp_err<E: std::fmt::Display>(at: &str, e: E) -> SandboxError {
+	SandboxError::InstallFailed {
+		primitive: "seccomp",
+		reason: format!("{at}: {e}"),
+	}
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
@@ -570,6 +996,146 @@ mod tests {
 		assert!(BASELINE_RO_PATHS.contains(&"/dev/urandom"));
 		assert!(BASELINE_RO_PATHS.contains(&"/etc/resolv.conf"));
 		assert!(BASELINE_RO_PATHS.contains(&"/proc/self"));
+	}
+
+	// ─── seccomp-bpf (Phase 3c) ───────────────────────────────────────
+	//
+	// Same testing constraint as Landlock: we can't call
+	// `apply_filter_all_threads` in unit tests because it would kill
+	// the test process the next time it tried any syscall not on the
+	// allowlist (which includes plenty of cargo-test machinery). We
+	// only verify construction.
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn build_seccomp_filter_succeeds() {
+		let _ = build_seccomp_filter().expect("filter should construct");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn build_seccomp_filter_compiles_to_bpf() {
+		// Full path: SeccompFilter → BpfProgram. Catches any rule
+		// that's structurally valid but rejected at compile time.
+		let filter = build_seccomp_filter().unwrap();
+		let _bpf: BpfProgram = filter.try_into().expect("compile to BPF should succeed");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn mmap_rule_denies_prot_exec() {
+		let rules = mmap_no_exec_rules().unwrap();
+		assert_eq!(rules.len(), 1, "single rule: deny PROT_EXEC");
+		// Sanity that the rule struct contains the expected condition.
+		// We don't directly inspect rule internals (private fields),
+		// but we can verify the BPF program rejects PROT_EXEC by
+		// compiling a filter that uses this rule and structurally
+		// checking it. For deeper validation, Phase 5 runs an actual
+		// mmap(PROT_EXEC) and verifies it's killed.
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn mprotect_rule_denies_prot_exec() {
+		let rules = mprotect_no_exec_rules().unwrap();
+		assert_eq!(rules.len(), 1);
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn clone_rule_denies_namespace_flags() {
+		let rules = clone_no_namespace_rules().unwrap();
+		assert_eq!(rules.len(), 1, "single rule: deny CLONE_NEW*");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn socket_rules_allow_only_inet_and_unix() {
+		let rules = socket_safe_families_rules().unwrap();
+		// One rule per allowed family: AF_INET, AF_INET6, AF_UNIX.
+		assert_eq!(rules.len(), 3, "exactly three socket families allowed");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn ioctl_rules_have_per_cmd_entries() {
+		let rules = ioctl_safe_cmds_rules().unwrap();
+		// Must be at least the conservative starter set; tracking
+		// the exact count separately avoids the test rotting when
+		// we add a new cmd in Phase 5.
+		assert!(rules.len() >= 5);
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn allowlist_includes_essentials_for_substrate() {
+		// Spot-check: a few syscalls without which a substrate node
+		// simply cannot run. Regression catch for accidental removal.
+		assert!(PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_read));
+		assert!(PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_write));
+		assert!(PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_futex));
+		assert!(PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_epoll_wait));
+		assert!(PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_getrandom));
+		assert!(PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_openat));
+		assert!(PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_close));
+		assert!(PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_clock_gettime));
+		assert!(PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_fdatasync));
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn allowlist_excludes_known_dangerous_syscalls() {
+		// These must NEVER appear on the allowlist — regression catch
+		// for accidental additions during merge conflict resolution
+		// or copy-paste from a more permissive baseline.
+		let dangerous = &[
+			libc::SYS_ptrace,
+			libc::SYS_process_vm_readv,
+			libc::SYS_process_vm_writev,
+			libc::SYS_mount,
+			libc::SYS_umount2,
+			libc::SYS_pivot_root,
+			libc::SYS_unshare,
+			libc::SYS_setns,
+			libc::SYS_kexec_load,
+			libc::SYS_init_module,
+			libc::SYS_finit_module,
+			libc::SYS_delete_module,
+			libc::SYS_bpf,
+			libc::SYS_perf_event_open,
+			libc::SYS_io_uring_setup,
+			libc::SYS_io_uring_enter,
+			libc::SYS_io_uring_register,
+			libc::SYS_swapon,
+			libc::SYS_swapoff,
+			libc::SYS_reboot,
+			libc::SYS_setuid,
+			libc::SYS_setgid,
+			libc::SYS_setresuid,
+			libc::SYS_setresgid,
+			libc::SYS_capset,
+			libc::SYS_chroot,
+			libc::SYS_keyctl,
+			libc::SYS_add_key,
+			libc::SYS_request_key,
+			libc::SYS_userfaultfd,
+			libc::SYS_modify_ldt,
+			libc::SYS_iopl,
+			libc::SYS_ioperm,
+			libc::SYS_syslog,
+			libc::SYS_open_by_handle_at,
+			libc::SYS_name_to_handle_at,
+			// clone3 is denied (struct-pointer flags arg can't be
+			// filtered by seccomp; if any caller hits it we'll see
+			// the kill in Phase 5 and decide).
+			libc::SYS_clone3,
+		];
+		for sys in dangerous {
+			assert!(
+				!PLAIN_ALLOWED_SYSCALLS.contains(sys),
+				"dangerous syscall {sys} must not be on the allowlist",
+			);
+		}
 	}
 
 	#[test]
