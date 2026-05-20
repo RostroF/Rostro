@@ -14481,6 +14481,7 @@ dependencies = [
  "clap",
  "env_logger 0.11.3",
  "log",
+ "rostro-node-sandbox",
 ]
 
 [[package]]

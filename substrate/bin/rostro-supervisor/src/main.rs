@@ -42,6 +42,7 @@
 //!   measurements at each restart.
 
 use clap::Parser;
+use rostro_node_sandbox::{NodeSandboxConfig, SandboxHandle};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
@@ -143,9 +144,103 @@ struct Args {
 	#[arg(long)]
 	state_file: Option<PathBuf>,
 
+	// ─── Sandbox configuration (Phase 4) ──────────────────────────
+	//
+	// Engages the host-level sandbox before exec'ing the child:
+	//   - cgroup v2 self-cap (memory.max, cpu.max, OOM kill of child cgroup)
+	//   - Landlock filesystem ruleset
+	//   - seccomp-bpf allowlist with KILL_PROCESS + TSYNC
+	// Policy applies to supervisor + all descendants and cannot be
+	// relaxed once installed.
+
+	/// **DANGEROUS.** Skip the host-level sandbox. Process runs
+	/// unprotected — only for development debugging when sandbox
+	/// behavior interferes with diagnosis. Loud warnings on startup
+	/// and every restart. Production validators MUST NOT use this.
+	#[arg(long)]
+	unsafe_skip_sandbox: bool,
+
+	/// Path the child may read AND write (typically the base/data
+	/// directory holding RocksDB + keystore + logs). Repeat for
+	/// multiple paths. MUST be absolute.
+	#[arg(long = "sandbox-rw-path")]
+	sandbox_rw_paths: Vec<PathBuf>,
+
+	/// Path the child may read but not write (typically the chain
+	/// spec, node-key file, canonical-files directory). Repeat for
+	/// multiple paths. MUST be absolute.
+	#[arg(long = "sandbox-ro-path")]
+	sandbox_ro_paths: Vec<PathBuf>,
+
+	/// Cap the child cgroup's memory at this many bytes. When the
+	/// cgroup hits this limit, the kernel kills the child cgroup
+	/// atomically (oom.group=1); the supervisor's crash-restart
+	/// path then engages. Unset = no memory cap.
+	#[arg(long)]
+	sandbox_memory_max_bytes: Option<u64>,
+
+	/// Cap child cgroup CPU usage to this many microseconds per
+	/// `--sandbox-cpu-period-micros` period (cgroup v2 cpu.max
+	/// semantics). Unset = no CPU cap.
+	#[arg(long)]
+	sandbox_cpu_max_micros: Option<u64>,
+
+	/// CPU accounting period in microseconds. Only meaningful when
+	/// `--sandbox-cpu-max-micros` is set. Default of 100_000 (100ms)
+	/// matches cgroup v2 convention.
+	#[arg(long, default_value_t = 100_000)]
+	sandbox_cpu_period_micros: u64,
+
 	/// Arguments forwarded to the child after `--`.
 	#[arg(last = true)]
 	child_args: Vec<OsString>,
+}
+
+/// Translate the supervisor's CLI args into a [`NodeSandboxConfig`].
+/// Factored out so unit tests can verify the translation without
+/// going through `install` (which would poison the test thread).
+fn build_sandbox_config(args: &Args) -> NodeSandboxConfig {
+	let mut config = NodeSandboxConfig::new();
+	for path in &args.sandbox_rw_paths {
+		config = config.add_rw_path(path);
+	}
+	for path in &args.sandbox_ro_paths {
+		config = config.add_ro_path(path);
+	}
+	if let Some(bytes) = args.sandbox_memory_max_bytes {
+		config = config.memory_max_bytes(bytes);
+	}
+	if let Some(max) = args.sandbox_cpu_max_micros {
+		config = config.cpu_max(max, args.sandbox_cpu_period_micros);
+	}
+	config
+}
+
+/// Banner shown once at supervisor startup when sandbox is disabled.
+/// Multiple lines so it's hard to miss in a scrolling log; per-restart
+/// warning inside the spawn loop is shorter.
+fn log_unsafe_skip_banner() {
+	log::warn!(
+		"═══════════════════════════════════════════════════════════════════════"
+	);
+	log::warn!(
+		"  SANDBOX DISABLED via --unsafe-skip-sandbox.                          "
+	);
+	log::warn!(
+		"  The child process runs without cgroup caps, Landlock filesystem      "
+	);
+	log::warn!(
+		"  restrictions, or seccomp syscall filtering. This is intended for     "
+	);
+	log::warn!(
+		"  development debugging only. Production validators MUST NOT run       "
+	);
+	log::warn!(
+		"  in this mode.                                                        "
+	);
+	log::warn!(
+		"═══════════════════════════════════════════════════════════════════════"
+	);
 }
 
 fn default_child_path() -> std::io::Result<PathBuf> {
@@ -410,6 +505,10 @@ fn now_secs() -> u64 {
 }
 
 fn run(args: Args) -> ExitCode {
+	// Compute the sandbox config before any consuming reads of `args`
+	// (the option fields below are moved out via match/unwrap_or_else).
+	let sandbox_config = build_sandbox_config(&args);
+
 	let child_path = match args.child {
 		Some(p) => p,
 		None => match default_child_path() {
@@ -471,6 +570,37 @@ fn run(args: Args) -> ExitCode {
 	// doesn't start near its cap due to ancient noise.
 	state.prune_crashes(now_secs(), args.crash_window_secs);
 
+	// Install the sandbox envelope (or skip it loudly). Once installed,
+	// the policy is process-wide and inherited by all descendants;
+	// supervisor and child share the seccomp + Landlock policy.
+	let sandbox_handle: Option<SandboxHandle> = if args.unsafe_skip_sandbox {
+		log_unsafe_skip_banner();
+		None
+	} else {
+		match rostro_node_sandbox::install(&sandbox_config) {
+			Ok(h) => {
+				log::info!(
+					"rostro-node-sandbox: installed (cgroup={}, landlock={}, seccomp=enabled)",
+					if sandbox_config.memory_cap().is_some() || sandbox_config.cpu_cap().is_some() {
+						"enabled"
+					} else {
+						"skipped (no caps)"
+					},
+					if sandbox_config.rw_paths().is_empty() && sandbox_config.ro_paths().is_empty() {
+						"baseline only"
+					} else {
+						"with operator paths"
+					},
+				);
+				Some(h)
+			},
+			Err(e) => {
+				log::error!("sandbox install failed: {e}");
+				return ExitCode::FAILURE;
+			},
+		}
+	};
+
 	loop {
 		if !child_path.exists() {
 			log::error!("child binary {} does not exist", child_path.display());
@@ -493,6 +623,30 @@ fn run(args: Args) -> ExitCode {
 				return ExitCode::FAILURE;
 			},
 		};
+
+		// Place the just-spawned child into the constrained inner
+		// cgroup so memory + cpu caps apply. No-op if no cgroup was
+		// installed (no caps configured) or sandbox was skipped.
+		if let Some(ref handle) = sandbox_handle {
+			if let Err(e) = handle.place_child_in_cgroup(child.id()) {
+				log::error!(
+					"failed to place child PID {} into sandbox cgroup: {e}",
+					child.id(),
+				);
+				// Child is running uncapped — kill it rather than
+				// risk an unconstrained validator.
+				let _ = child.kill();
+				let _ = child.wait();
+				return ExitCode::FAILURE;
+			}
+		} else {
+			// Per-restart reminder so operators can't silently
+			// forget they're running unprotected.
+			log::warn!(
+				"SANDBOX DISABLED: child PID {} runs without cgroup/Landlock/seccomp",
+				child.id(),
+			);
+		}
 
 		let status = match child.wait() {
 			Ok(s) => s,
@@ -946,6 +1100,167 @@ mod tests {
 		let loaded = SupervisorState::load(&p);
 		assert_eq!(loaded.swap_count, 15);
 		assert_eq!(loaded.crashes.len(), 1);
+	}
+
+	// ─── build_sandbox_config (Phase 4) ──────────────────────────────
+
+	fn args_with(
+		rw: Vec<PathBuf>,
+		ro: Vec<PathBuf>,
+		mem: Option<u64>,
+		cpu_max: Option<u64>,
+		cpu_period: u64,
+		unsafe_skip: bool,
+	) -> Args {
+		Args {
+			child: None,
+			staged: None,
+			canonical_dir: None,
+			max_restarts: DEFAULT_MAX_SWAP_RESTARTS,
+			max_crash_restarts: DEFAULT_MAX_CRASH_RESTARTS,
+			crash_window_secs: DEFAULT_CRASH_WINDOW_SECS,
+			backoff_ceiling_secs: DEFAULT_BACKOFF_CEILING_SECS,
+			state_file: None,
+			unsafe_skip_sandbox: unsafe_skip,
+			sandbox_rw_paths: rw,
+			sandbox_ro_paths: ro,
+			sandbox_memory_max_bytes: mem,
+			sandbox_cpu_max_micros: cpu_max,
+			sandbox_cpu_period_micros: cpu_period,
+			child_args: Vec::new(),
+		}
+	}
+
+	#[test]
+	fn build_sandbox_config_empty_args_yields_empty_config() {
+		let args = args_with(vec![], vec![], None, None, 100_000, false);
+		let cfg = build_sandbox_config(&args);
+		assert!(cfg.rw_paths().is_empty());
+		assert!(cfg.ro_paths().is_empty());
+		assert!(cfg.memory_cap().is_none());
+		assert!(cfg.cpu_cap().is_none());
+	}
+
+	#[test]
+	fn build_sandbox_config_propagates_rw_paths() {
+		let args = args_with(
+			vec![
+				PathBuf::from("/var/lib/rostro/db"),
+				PathBuf::from("/var/lib/rostro/keystore"),
+			],
+			vec![],
+			None,
+			None,
+			100_000,
+			false,
+		);
+		let cfg = build_sandbox_config(&args);
+		assert_eq!(cfg.rw_paths().len(), 2);
+		assert_eq!(cfg.rw_paths()[0], PathBuf::from("/var/lib/rostro/db"));
+		assert_eq!(cfg.rw_paths()[1], PathBuf::from("/var/lib/rostro/keystore"));
+	}
+
+	#[test]
+	fn build_sandbox_config_propagates_ro_paths() {
+		let args = args_with(
+			vec![],
+			vec![
+				PathBuf::from("/etc/rostro/chain-spec.json"),
+				PathBuf::from("/opt/rostro/canonical"),
+			],
+			None,
+			None,
+			100_000,
+			false,
+		);
+		let cfg = build_sandbox_config(&args);
+		assert_eq!(cfg.ro_paths().len(), 2);
+	}
+
+	#[test]
+	fn build_sandbox_config_sets_memory_cap_when_provided() {
+		let args = args_with(vec![], vec![], Some(8 * 1024 * 1024 * 1024), None, 100_000, false);
+		let cfg = build_sandbox_config(&args);
+		assert_eq!(cfg.memory_cap(), Some(8 * 1024 * 1024 * 1024));
+	}
+
+	#[test]
+	fn build_sandbox_config_omits_memory_cap_when_unset() {
+		let args = args_with(vec![], vec![], None, None, 100_000, false);
+		let cfg = build_sandbox_config(&args);
+		assert!(cfg.memory_cap().is_none());
+	}
+
+	#[test]
+	fn build_sandbox_config_sets_cpu_cap_with_default_period() {
+		let args = args_with(vec![], vec![], None, Some(200_000), 100_000, false);
+		let cfg = build_sandbox_config(&args);
+		assert_eq!(cfg.cpu_cap(), Some((200_000, 100_000)));
+	}
+
+	#[test]
+	fn build_sandbox_config_sets_cpu_cap_with_custom_period() {
+		let args = args_with(vec![], vec![], None, Some(50_000), 50_000, false);
+		let cfg = build_sandbox_config(&args);
+		assert_eq!(cfg.cpu_cap(), Some((50_000, 50_000)));
+	}
+
+	#[test]
+	fn build_sandbox_config_omits_cpu_cap_when_max_unset_even_if_period_set() {
+		// Period alone (no max) means no cpu cap — period is just the
+		// resolution for when max is set.
+		let args = args_with(vec![], vec![], None, None, 50_000, false);
+		let cfg = build_sandbox_config(&args);
+		assert!(cfg.cpu_cap().is_none());
+	}
+
+	#[test]
+	fn unsafe_skip_sandbox_is_false_by_default() {
+		// Critical default: sandbox must be on unless operator
+		// explicitly disables.
+		let args = Args::parse_from(["rostro-supervisor"]);
+		assert!(!args.unsafe_skip_sandbox);
+	}
+
+	#[test]
+	fn unsafe_skip_sandbox_flag_parses() {
+		let args = Args::parse_from(["rostro-supervisor", "--unsafe-skip-sandbox"]);
+		assert!(args.unsafe_skip_sandbox);
+	}
+
+	#[test]
+	fn sandbox_rw_path_flag_accepts_multiple_occurrences() {
+		let args = Args::parse_from([
+			"rostro-supervisor",
+			"--sandbox-rw-path",
+			"/a",
+			"--sandbox-rw-path",
+			"/b",
+			"--sandbox-rw-path",
+			"/c",
+		]);
+		assert_eq!(args.sandbox_rw_paths.len(), 3);
+	}
+
+	#[test]
+	fn sandbox_ro_path_flag_accepts_multiple_occurrences() {
+		let args = Args::parse_from([
+			"rostro-supervisor",
+			"--sandbox-ro-path",
+			"/x",
+			"--sandbox-ro-path",
+			"/y",
+		]);
+		assert_eq!(args.sandbox_ro_paths.len(), 2);
+	}
+
+	#[test]
+	fn sandbox_cpu_period_defaults_to_100k_micros() {
+		// 100ms — matches cgroup v2 convention. Don't change this
+		// default without considering compatibility with operator
+		// configs that assume it.
+		let args = Args::parse_from(["rostro-supervisor"]);
+		assert_eq!(args.sandbox_cpu_period_micros, 100_000);
 	}
 
 	fn tmpdir() -> PathBuf {

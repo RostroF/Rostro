@@ -27,7 +27,10 @@ use super::{NodeSandboxConfig, SandboxError, SandboxHandle};
 /// install the earlier primitives.
 pub(crate) fn install(config: &NodeSandboxConfig) -> Result<SandboxHandle, SandboxError> {
 	let cgroup_child = install_cgroup(config)?;
-	install_landlock(config)?;
+	// Thread the child cgroup path into Landlock so the supervisor's
+	// subsequent `place_child_in_cgroup` writes (which target a file
+	// inside this dir) aren't blocked by the Landlock policy.
+	install_landlock(config, cgroup_child.as_deref())?;
 	install_seccomp(config)?;
 	Ok(SandboxHandle { cgroup_child })
 }
@@ -164,8 +167,13 @@ const BASELINE_RO_PATHS: &[&str] = &[
 /// constructed (but not-yet-applied) `RulesetCreated`. Factored out
 /// from [`install_landlock`] so unit tests can verify construction
 /// without restricting the test process itself.
+///
+/// `cgroup_rw_extra` is an additional rw path threaded in from the
+/// cgroup install — typically `/sys/fs/cgroup/rostro-node-<pid>/child`.
+/// `None` means cgroup setup was skipped (no caps configured).
 fn build_landlock_ruleset(
 	config: &NodeSandboxConfig,
+	cgroup_rw_extra: Option<&Path>,
 ) -> Result<RulesetCreated, SandboxError> {
 	let abi = ABI::V1;
 	let all_fs = AccessFs::from_all(abi);
@@ -219,6 +227,18 @@ fn build_landlock_ruleset(
 		})?;
 	}
 
+	// Cgroup path threaded from install_cgroup. The supervisor needs
+	// rw access to this directory so post-install
+	// `place_child_in_cgroup` writes succeed.
+	if let Some(path) = cgroup_rw_extra {
+		let fd = PathFd::new(path).map_err(|e| {
+			landlock_err(&format!("PathFd::new(cgroup {})", path.display()), e)
+		})?;
+		rs = rs.add_rule(PathBeneath::new(fd, all_fs)).map_err(|e| {
+			landlock_err(&format!("add_rule(cgroup {})", path.display()), e)
+		})?;
+	}
+
 	Ok(rs)
 }
 
@@ -227,8 +247,11 @@ fn build_landlock_ruleset(
 /// outside the union of (baseline + rw_paths + ro_paths). The
 /// restriction is inherited across `exec()`; supervisor and child
 /// share the policy.
-fn install_landlock(config: &NodeSandboxConfig) -> Result<(), SandboxError> {
-	let rs = build_landlock_ruleset(config)?;
+fn install_landlock(
+	config: &NodeSandboxConfig,
+	cgroup_rw_extra: Option<&Path>,
+) -> Result<(), SandboxError> {
+	let rs = build_landlock_ruleset(config, cgroup_rw_extra)?;
 	let status = rs.restrict_self().map_err(|e| landlock_err("restrict_self", e))?;
 
 	match status.ruleset {
@@ -925,7 +948,7 @@ mod tests {
 		// Empty config still gets the baseline read-only paths.
 		// Construction should succeed on any Linux ≥ 5.13.
 		let cfg = NodeSandboxConfig::new();
-		match build_landlock_ruleset(&cfg) {
+		match build_landlock_ruleset(&cfg, None) {
 			Ok(_) => {},
 			Err(e) => {
 				// If the kernel is older than 5.13 OR Landlock is
@@ -941,7 +964,7 @@ mod tests {
 	fn build_landlock_ruleset_accepts_existing_rw_path() {
 		let dir = tmpdir();
 		let cfg = NodeSandboxConfig::new().add_rw_path(&dir);
-		match build_landlock_ruleset(&cfg) {
+		match build_landlock_ruleset(&cfg, None) {
 			Ok(_) => {},
 			Err(SandboxError::InstallFailed { primitive: "landlock", .. }) => {
 				// Could be kernel-doesn't-support; acceptable in
@@ -957,7 +980,7 @@ mod tests {
 		let f = dir.join("chain-spec.json");
 		std::fs::write(&f, b"{}").unwrap();
 		let cfg = NodeSandboxConfig::new().add_ro_path(&f);
-		match build_landlock_ruleset(&cfg) {
+		match build_landlock_ruleset(&cfg, None) {
 			Ok(_) => {},
 			Err(SandboxError::InstallFailed { primitive: "landlock", .. }) => {},
 			Err(other) => panic!("unexpected error: {other:?}"),
@@ -968,7 +991,7 @@ mod tests {
 	fn build_landlock_ruleset_rejects_missing_rw_path() {
 		// Non-existent path → PathFd::new fails → install error.
 		let cfg = NodeSandboxConfig::new().add_rw_path("/this/path/does/not/exist/anywhere");
-		match build_landlock_ruleset(&cfg) {
+		match build_landlock_ruleset(&cfg, None) {
 			Err(SandboxError::InstallFailed { primitive, reason }) => {
 				assert_eq!(primitive, "landlock");
 				assert!(reason.contains("PathFd::new"));
@@ -983,7 +1006,35 @@ mod tests {
 	fn build_landlock_ruleset_rejects_missing_ro_path() {
 		let cfg = NodeSandboxConfig::new().add_ro_path("/another/nope");
 		assert!(matches!(
-			build_landlock_ruleset(&cfg),
+			build_landlock_ruleset(&cfg, None),
+			Err(SandboxError::InstallFailed { primitive: "landlock", .. })
+		));
+	}
+
+	#[test]
+	fn build_landlock_ruleset_with_cgroup_extra_path() {
+		// Threading the cgroup path through must succeed when the
+		// path exists.
+		let cgroup_dir = tmpdir();
+		let cfg = NodeSandboxConfig::new();
+		match build_landlock_ruleset(&cfg, Some(&cgroup_dir)) {
+			Ok(_) => {},
+			Err(SandboxError::InstallFailed { primitive: "landlock", .. }) => {
+				// Kernel may not support Landlock — acceptable.
+			},
+			Err(other) => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn build_landlock_ruleset_rejects_missing_cgroup_path() {
+		// If we somehow get passed a non-existent cgroup path
+		// (shouldn't happen — install_cgroup always creates it
+		// before passing in), surface as InstallFailed for triage.
+		let cfg = NodeSandboxConfig::new();
+		let bad = PathBuf::from("/nope/cgroup/path/that/doesnt/exist");
+		assert!(matches!(
+			build_landlock_ruleset(&cfg, Some(&bad)),
 			Err(SandboxError::InstallFailed { primitive: "landlock", .. })
 		));
 	}
