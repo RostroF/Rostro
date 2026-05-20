@@ -48,7 +48,9 @@
 //! - **Phase 3b** — Landlock ruleset.
 //! - **Phase 3c** — seccomp-bpf allowlist.
 //! - **Phase 4** — supervisor calls into this crate before exec.
-//! - **Phase 5** — real-Linux validation on Hetzner.
+//! - **Phase 5** — real-Linux validation on Hetzner. Runbook lives at
+//!   `VALIDATION.md` in the crate root; re-run whenever the allowlist
+//!   or Landlock baseline changes.
 
 #![deny(missing_docs)]
 
