@@ -389,20 +389,17 @@ mod tests {
 		assert!(cfg.validate().is_ok());
 	}
 
-	#[cfg(target_os = "linux")]
-	#[test]
-	fn install_returns_ok_on_linux_when_no_caps_configured() {
-		// No caps → cgroup setup skipped; Landlock + seccomp also
-		// stub'd. Validates the empty-config Linux pathway returns a
-		// handle the supervisor can use unconditionally.
-		let cfg = NodeSandboxConfig::new().add_rw_path("/tmp");
-		let handle = install(&cfg).expect("Linux install with no caps should succeed");
-		// Without caps no cgroup was created.
-		assert!(handle.cgroup_child_path().is_none());
-		// place_child_in_cgroup must be a no-op so the supervisor
-		// can call it unconditionally.
-		assert!(handle.place_child_in_cgroup(99999).is_ok());
-	}
+	// NOTE: there's no positive-path unit test calling the public
+	// `install` directly. Once Phase 3b's Landlock branch runs
+	// `restrict_self`, the calling thread becomes restricted — and
+	// cargo's test runner reuses threads across tests, so any
+	// subsequent test scheduled on that thread that touches paths
+	// outside the ruleset would flake. End-to-end coverage of the
+	// public `install` entry point lives in Phase 5 (real-Linux
+	// Hetzner validation), not here. Unit tests in this module
+	// cover the building blocks (config builder, validation,
+	// `linux::install_cgroup`, `linux::build_landlock_ruleset`)
+	// independently.
 
 	#[cfg(not(target_os = "linux"))]
 	#[test]

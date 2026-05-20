@@ -18,6 +18,7 @@ thiserror = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { workspace = true }
+landlock = "0.4"
 
 [features]
 default = []
