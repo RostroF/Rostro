@@ -207,26 +207,31 @@ pub enum SandboxError {
 
 // ─── Public entry ──────────────────────────────────────────────────────────
 
-/// Install the sandbox envelope on the current process. Once this
-/// returns `Ok(())`:
+/// Install the sandbox envelope on the current process. On success:
 ///
-/// - The current process is bound to the configured cgroup with its
-///   memory + cpu caps.
-/// - The current process and all descendants can only access the
-///   filesystem paths specified in the config.
-/// - The current process and all descendants can only invoke the
-///   syscalls on the seccomp allowlist; violations trigger
+/// - The current process is bound to a cgroup v2 hierarchy. Children
+///   spawned afterward must be moved into the `child` cgroup via
+///   [`SandboxHandle::place_child_in_cgroup`] to inherit the caps.
+/// - (Phase 3b) The current process and all descendants can only
+///   access the filesystem paths specified in the config.
+/// - (Phase 3c) The current process and all descendants can only
+///   invoke the syscalls on the seccomp allowlist; violations trigger
 ///   `SECCOMP_RET_KILL_PROCESS`.
 ///
 /// The policy cannot be relaxed by the same process after install;
 /// the supervisor `exec`s the child immediately after this returns,
 /// and the child inherits the envelope.
 ///
-/// **Phase 2 status**: on Linux, validates the config and logs a
-/// warning that no primitives are engaged yet; returns `Ok(())`.
-/// Phase 3a/b/c fill in the real impls. On non-Linux, returns
+/// **Why two-tier cgroup**: a single cgroup with OOM-kill enabled
+/// would take the supervisor down alongside the child on memory
+/// pressure, defeating the restart pathway. The supervisor lives in
+/// an outer cgroup (no caps); only the inner `child` cgroup carries
+/// memory/cpu caps and `memory.oom.group=1`.
+///
+/// **Phase 3a status**: cgroup v2 self-cap landed; Landlock (3b) +
+/// seccomp-bpf (3c) are stubs. On non-Linux, returns
 /// [`SandboxError::PlatformUnsupported`].
-pub fn install(config: &NodeSandboxConfig) -> Result<(), SandboxError> {
+pub fn install(config: &NodeSandboxConfig) -> Result<SandboxHandle, SandboxError> {
 	config.validate()?;
 
 	#[cfg(target_os = "linux")]
@@ -237,6 +242,41 @@ pub fn install(config: &NodeSandboxConfig) -> Result<(), SandboxError> {
 	{
 		let _ = config;
 		Err(SandboxError::PlatformUnsupported)
+	}
+}
+
+/// Returned by [`install`] on success. Carries the per-invocation
+/// state the supervisor needs for follow-on operations (currently:
+/// moving spawned child PIDs into the constrained cgroup).
+#[derive(Debug)]
+pub struct SandboxHandle {
+	#[cfg(target_os = "linux")]
+	pub(crate) cgroup_child: Option<std::path::PathBuf>,
+}
+
+impl SandboxHandle {
+	/// Move a child PID into the constrained cgroup so the memory and
+	/// cpu caps apply. Call this immediately after `Command::spawn`
+	/// (before the child's first significant allocation, ideally).
+	///
+	/// If no cgroup was installed (no caps configured), this is a
+	/// no-op; the supervisor can call it unconditionally.
+	pub fn place_child_in_cgroup(&self, child_pid: u32) -> Result<(), SandboxError> {
+		#[cfg(target_os = "linux")]
+		{
+			if let Some(p) = self.cgroup_child.as_deref() {
+				return linux::write_cgroup_file(p, "cgroup.procs", &child_pid.to_string());
+			}
+		}
+		let _ = child_pid;
+		Ok(())
+	}
+
+	/// Inspect the child cgroup path, if any. Useful for logging in
+	/// the supervisor; callers shouldn't write to this directly.
+	#[cfg(target_os = "linux")]
+	pub fn cgroup_child_path(&self) -> Option<&std::path::Path> {
+		self.cgroup_child.as_deref()
 	}
 }
 
@@ -351,9 +391,17 @@ mod tests {
 
 	#[cfg(target_os = "linux")]
 	#[test]
-	fn install_returns_ok_on_linux_phase2_stub() {
+	fn install_returns_ok_on_linux_when_no_caps_configured() {
+		// No caps → cgroup setup skipped; Landlock + seccomp also
+		// stub'd. Validates the empty-config Linux pathway returns a
+		// handle the supervisor can use unconditionally.
 		let cfg = NodeSandboxConfig::new().add_rw_path("/tmp");
-		assert!(install(&cfg).is_ok());
+		let handle = install(&cfg).expect("Linux install with no caps should succeed");
+		// Without caps no cgroup was created.
+		assert!(handle.cgroup_child_path().is_none());
+		// place_child_in_cgroup must be a no-op so the supervisor
+		// can call it unconditionally.
+		assert!(handle.place_child_in_cgroup(99999).is_ok());
 	}
 
 	#[cfg(not(target_os = "linux"))]
