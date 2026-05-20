@@ -1,0 +1,384 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Rostro Foundation contributors
+
+//! `rostro-node-sandbox` — host-level isolation envelope applied by
+//! `rostro-supervisor` before exec'ing the node binary.
+//!
+//! ## What this is
+//!
+//! A small crate that exposes one entry point — [`install`] — which
+//! the supervisor calls immediately before spawning `gemini-node`. The
+//! call installs three Linux primitives on the current process:
+//!
+//! 1. **cgroup v2 self-cap** — memory + cpu caps + `cgroup.kill` on
+//!    OOM, scoped to the supervisor + its child.
+//! 2. **Landlock filesystem ruleset** — RW to the operator-supplied
+//!    data paths, RO to chain spec + canonical files dir, deny everywhere
+//!    else.
+//! 3. **seccomp-bpf allowlist** — `SECCOMP_RET_KILL_PROCESS` on
+//!    violation, with `SECCOMP_FILTER_FLAG_TSYNC` so all threads of
+//!    the child inherit the filter.
+//!
+//! After install, the policy applies to the calling process **and all
+//! its descendants** and **cannot be relaxed by the same process**.
+//! The supervisor then `exec`s the child, which wakes up already
+//! inside the envelope.
+//!
+//! ## What this is NOT
+//!
+//! - **Not** per-call / per-instance isolation. RostroVM runs the
+//!   trusted runtime blob; there's no per-extrinsic worker process.
+//!   That model would apply to a future smart-contract layer, not the
+//!   chain runtime. See memory `rostro_vm_unsandboxed.md` for the gap
+//!   analysis that motivated this crate.
+//! - **Not** a defense against bugs in the kernel itself; the
+//!   isolation surface is "what the kernel agrees to deny." Kernel
+//!   CVEs are a separate threat track.
+//! - **Not** cross-platform yet. Linux is the only strong path;
+//!   Windows/macOS return [`SandboxError::PlatformUnsupported`].
+//!   See memory `testnet_linux_only_validators.md`.
+//!
+//! ## Phasing
+//!
+//! - **Phase 2 (this commit)** — crate scaffold: API surface, Config
+//!   builder, error types, Linux stub that logs but installs nothing,
+//!   non-Linux stub returning `PlatformUnsupported`. Caller-side
+//!   integration (Phase 4) can already wire against this surface.
+//! - **Phase 3a** — cgroup v2 self-cap inside `linux::install`.
+//! - **Phase 3b** — Landlock ruleset.
+//! - **Phase 3c** — seccomp-bpf allowlist.
+//! - **Phase 4** — supervisor calls into this crate before exec.
+//! - **Phase 5** — real-Linux validation on Hetzner.
+
+#![deny(missing_docs)]
+
+use std::path::PathBuf;
+
+#[cfg(target_os = "linux")]
+mod linux;
+
+// ─── Config ────────────────────────────────────────────────────────────────
+
+/// Operator-derived sandbox configuration. Built by the supervisor
+/// from its CLI args; consumed by [`install`].
+///
+/// Construct via [`NodeSandboxConfig::new`] and the builder methods.
+#[derive(Debug, Clone, Default)]
+pub struct NodeSandboxConfig {
+	rw_paths: Vec<PathBuf>,
+	ro_paths: Vec<PathBuf>,
+	memory_max_bytes: Option<u64>,
+	cpu_max_micros: Option<(u64, u64)>,
+	cgroup_root: Option<PathBuf>,
+}
+
+impl NodeSandboxConfig {
+	/// Construct an empty config. At minimum, callers should add the
+	/// node's base path via [`Self::add_rw_path`] before calling
+	/// [`install`], or the node won't be able to write its database.
+	pub fn new() -> Self {
+		Self::default()
+	}
+
+	/// Add a path the node may read AND write inside the sandbox.
+	/// Typical: `--base-path` (RocksDB + keystore), log file.
+	pub fn add_rw_path(mut self, p: impl Into<PathBuf>) -> Self {
+		self.rw_paths.push(p.into());
+		self
+	}
+
+	/// Add a path the node may read but not write inside the sandbox.
+	/// Typical: chain spec file, canonical-files directory,
+	/// `--node-key-file`.
+	pub fn add_ro_path(mut self, p: impl Into<PathBuf>) -> Self {
+		self.ro_paths.push(p.into());
+		self
+	}
+
+	/// Cap the cgroup's `memory.max` (bytes). Exceeding this triggers
+	/// `cgroup.kill`, which signals all PIDs in the cgroup; the
+	/// supervisor's crash-restart pathway then engages.
+	pub fn memory_max_bytes(mut self, bytes: u64) -> Self {
+		self.memory_max_bytes = Some(bytes);
+		self
+	}
+
+	/// Cap CPU usage via cgroup v2 `cpu.max` semantics: `max`
+	/// microseconds of cpu time per `period` microseconds. Pass
+	/// `(50_000, 100_000)` for half a core, `(200_000, 100_000)` for
+	/// two cores, etc.
+	pub fn cpu_max(mut self, max_micros: u64, period_micros: u64) -> Self {
+		self.cpu_max_micros = Some((max_micros, period_micros));
+		self
+	}
+
+	/// Override the cgroup v2 root mount point. Default is
+	/// `/sys/fs/cgroup`. Override for cgroup-namespace setups or for
+	/// tests against a tmpfs.
+	pub fn cgroup_root(mut self, p: impl Into<PathBuf>) -> Self {
+		self.cgroup_root = Some(p.into());
+		self
+	}
+
+	/// Read-write path list — public for callers that build the
+	/// config and want to log/inspect it.
+	pub fn rw_paths(&self) -> &[PathBuf] {
+		&self.rw_paths
+	}
+
+	/// Read-only path list.
+	pub fn ro_paths(&self) -> &[PathBuf] {
+		&self.ro_paths
+	}
+
+	/// Memory cap if set.
+	pub fn memory_cap(&self) -> Option<u64> {
+		self.memory_max_bytes
+	}
+
+	/// CPU cap if set, returned as `(max_micros, period_micros)`.
+	pub fn cpu_cap(&self) -> Option<(u64, u64)> {
+		self.cpu_max_micros
+	}
+
+	/// Cgroup root (default `/sys/fs/cgroup` if unset).
+	pub fn cgroup_root_or_default(&self) -> PathBuf {
+		self.cgroup_root
+			.clone()
+			.unwrap_or_else(|| PathBuf::from("/sys/fs/cgroup"))
+	}
+
+	/// Validate the config. Run by [`install`] before touching any
+	/// platform primitives; returns [`SandboxError::InvalidConfig`]
+	/// on rejection.
+	pub(crate) fn validate(&self) -> Result<(), SandboxError> {
+		for p in self.rw_paths.iter().chain(self.ro_paths.iter()) {
+			if !p.is_absolute() {
+				return Err(SandboxError::InvalidConfig(format!(
+					"sandbox paths must be absolute; got {}",
+					p.display(),
+				)));
+			}
+		}
+		if let Some(0) = self.memory_max_bytes {
+			return Err(SandboxError::InvalidConfig(
+				"memory_max_bytes must be > 0 if set".into(),
+			));
+		}
+		if let Some((max, period)) = self.cpu_max_micros {
+			if max == 0 || period == 0 {
+				return Err(SandboxError::InvalidConfig(
+					"cpu_max max and period must both be > 0 if set".into(),
+				));
+			}
+		}
+		Ok(())
+	}
+}
+
+// ─── Errors ────────────────────────────────────────────────────────────────
+
+/// Failures the sandbox install can surface to the supervisor.
+#[derive(Debug, thiserror::Error)]
+pub enum SandboxError {
+	/// A specific primitive (cgroup, landlock, seccomp) refused. The
+	/// `primitive` is a short label for log routing; `reason` is the
+	/// platform-specific description.
+	#[error("sandbox install failed at {primitive}: {reason}")]
+	InstallFailed {
+		/// Short label identifying which primitive failed (e.g.
+		/// `"cgroup"`, `"landlock"`, `"seccomp"`). Stable across
+		/// minor revs so log scrapers can route on it.
+		primitive: &'static str,
+		/// Platform-specific description of the failure. Free-form;
+		/// surface to operators for triage.
+		reason: String,
+	},
+	/// The host platform doesn't have a strong sandbox implementation
+	/// yet. Linux is the only supported target as of testnet
+	/// (`testnet_linux_only_validators.md`).
+	#[error("platform does not have a strong sandbox implementation yet")]
+	PlatformUnsupported,
+	/// The caller supplied a [`NodeSandboxConfig`] that was rejected
+	/// before any primitive was touched — bad paths, zero caps, etc.
+	#[error("invalid config: {0}")]
+	InvalidConfig(String),
+}
+
+// ─── Public entry ──────────────────────────────────────────────────────────
+
+/// Install the sandbox envelope on the current process. Once this
+/// returns `Ok(())`:
+///
+/// - The current process is bound to the configured cgroup with its
+///   memory + cpu caps.
+/// - The current process and all descendants can only access the
+///   filesystem paths specified in the config.
+/// - The current process and all descendants can only invoke the
+///   syscalls on the seccomp allowlist; violations trigger
+///   `SECCOMP_RET_KILL_PROCESS`.
+///
+/// The policy cannot be relaxed by the same process after install;
+/// the supervisor `exec`s the child immediately after this returns,
+/// and the child inherits the envelope.
+///
+/// **Phase 2 status**: on Linux, validates the config and logs a
+/// warning that no primitives are engaged yet; returns `Ok(())`.
+/// Phase 3a/b/c fill in the real impls. On non-Linux, returns
+/// [`SandboxError::PlatformUnsupported`].
+pub fn install(config: &NodeSandboxConfig) -> Result<(), SandboxError> {
+	config.validate()?;
+
+	#[cfg(target_os = "linux")]
+	{
+		linux::install(config)
+	}
+	#[cfg(not(target_os = "linux"))]
+	{
+		let _ = config;
+		Err(SandboxError::PlatformUnsupported)
+	}
+}
+
+// ─── Tests ─────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn config_builder_records_rw_paths() {
+		let cfg = NodeSandboxConfig::new()
+			.add_rw_path("/var/lib/rostro/db")
+			.add_rw_path("/var/lib/rostro/keystore");
+		assert_eq!(
+			cfg.rw_paths(),
+			&[
+				PathBuf::from("/var/lib/rostro/db"),
+				PathBuf::from("/var/lib/rostro/keystore"),
+			]
+		);
+	}
+
+	#[test]
+	fn config_builder_records_ro_paths() {
+		let cfg = NodeSandboxConfig::new()
+			.add_ro_path("/etc/rostro/chain-spec.json")
+			.add_ro_path("/opt/rostro/canonical");
+		assert_eq!(
+			cfg.ro_paths(),
+			&[
+				PathBuf::from("/etc/rostro/chain-spec.json"),
+				PathBuf::from("/opt/rostro/canonical"),
+			]
+		);
+	}
+
+	#[test]
+	fn config_memory_cap_round_trips() {
+		let cfg = NodeSandboxConfig::new().memory_max_bytes(8 * 1024 * 1024 * 1024);
+		assert_eq!(cfg.memory_cap(), Some(8 * 1024 * 1024 * 1024));
+	}
+
+	#[test]
+	fn config_cpu_cap_round_trips() {
+		let cfg = NodeSandboxConfig::new().cpu_max(200_000, 100_000);
+		assert_eq!(cfg.cpu_cap(), Some((200_000, 100_000)));
+	}
+
+	#[test]
+	fn config_cgroup_root_defaults_to_sys_fs() {
+		let cfg = NodeSandboxConfig::new();
+		assert_eq!(cfg.cgroup_root_or_default(), PathBuf::from("/sys/fs/cgroup"));
+	}
+
+	#[test]
+	fn config_cgroup_root_override_round_trips() {
+		let cfg = NodeSandboxConfig::new().cgroup_root("/tmp/test-cgroup");
+		assert_eq!(cfg.cgroup_root_or_default(), PathBuf::from("/tmp/test-cgroup"));
+	}
+
+	#[test]
+	fn validate_rejects_relative_rw_path() {
+		let cfg = NodeSandboxConfig::new().add_rw_path("relative/path");
+		match cfg.validate() {
+			Err(SandboxError::InvalidConfig(msg)) => assert!(msg.contains("absolute")),
+			other => panic!("expected InvalidConfig, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn validate_rejects_relative_ro_path() {
+		let cfg = NodeSandboxConfig::new().add_ro_path("not/absolute");
+		assert!(matches!(cfg.validate(), Err(SandboxError::InvalidConfig(_))));
+	}
+
+	#[test]
+	fn validate_rejects_zero_memory_cap() {
+		let cfg = NodeSandboxConfig::new().memory_max_bytes(0);
+		assert!(matches!(cfg.validate(), Err(SandboxError::InvalidConfig(_))));
+	}
+
+	#[test]
+	fn validate_rejects_zero_cpu_max() {
+		let cfg = NodeSandboxConfig::new().cpu_max(0, 100_000);
+		assert!(matches!(cfg.validate(), Err(SandboxError::InvalidConfig(_))));
+	}
+
+	#[test]
+	fn validate_rejects_zero_cpu_period() {
+		let cfg = NodeSandboxConfig::new().cpu_max(100_000, 0);
+		assert!(matches!(cfg.validate(), Err(SandboxError::InvalidConfig(_))));
+	}
+
+	#[test]
+	fn validate_accepts_empty_config() {
+		// An empty config is valid — no caps, no paths. The Phase 2
+		// scaffold permits this; Phase 3+ may tighten if e.g. running
+		// with no rw_paths would brick the node.
+		assert!(NodeSandboxConfig::new().validate().is_ok());
+	}
+
+	#[test]
+	fn validate_accepts_well_formed_config() {
+		let cfg = NodeSandboxConfig::new()
+			.add_rw_path("/var/lib/rostro/db")
+			.add_ro_path("/etc/rostro/chain-spec.json")
+			.memory_max_bytes(8 * 1024 * 1024 * 1024)
+			.cpu_max(200_000, 100_000);
+		assert!(cfg.validate().is_ok());
+	}
+
+	#[cfg(target_os = "linux")]
+	#[test]
+	fn install_returns_ok_on_linux_phase2_stub() {
+		let cfg = NodeSandboxConfig::new().add_rw_path("/tmp");
+		assert!(install(&cfg).is_ok());
+	}
+
+	#[cfg(not(target_os = "linux"))]
+	#[test]
+	fn install_returns_platform_unsupported_on_non_linux() {
+		let cfg = NodeSandboxConfig::new();
+		assert!(matches!(install(&cfg), Err(SandboxError::PlatformUnsupported)));
+	}
+
+	#[test]
+	fn install_propagates_config_validation_failure() {
+		// Even on Linux, a bad config should fail before touching any
+		// primitives.
+		let cfg = NodeSandboxConfig::new().add_rw_path("relative/path");
+		assert!(matches!(install(&cfg), Err(SandboxError::InvalidConfig(_))));
+	}
+
+	#[test]
+	fn error_install_failed_message_includes_primitive_and_reason() {
+		let err = SandboxError::InstallFailed {
+			primitive: "cgroup",
+			reason: "permission denied".into(),
+		};
+		let msg = format!("{err}");
+		assert!(msg.contains("cgroup"));
+		assert!(msg.contains("permission denied"));
+	}
+}

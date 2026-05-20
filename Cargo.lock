@@ -14294,6 +14294,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-node-sandbox"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "log",
+ "thiserror 1.0.65",
+]
+
+[[package]]
 name = "rostro-operator-runtime"
 version = "0.1.0"
 dependencies = [
