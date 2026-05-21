@@ -18,10 +18,28 @@ pub const CURRENT_SCHEMA_VERSION: SchemaVersion = 3;
 /// canonical fields via sp_core::blake2_256.
 pub type Thumbprint = [u8; 32];
 
+/// X.509 serial number — RFC 5280 §4.1.2.2. 20 octets is the conforming
+/// CA ceiling and the industry convention. Positive ASN.1 INTEGER: the high
+/// bit of byte 0 MUST be clear so the DER encoding does not require a `0x00`
+/// prefix octet (which would push the encoded INTEGER past the 20-octet
+/// ceiling). The chain enforces this at every cert-creating extrinsic.
+///
+/// Issuer-assigned per X.509 semantics: the issuing entity (root for
+/// self-signed root certs, root for issuer certs, issuer for end-user
+/// offers) generates the serial off-chain via
+/// [`rostro_shop_rng::RostroShopRng::cert_serial`] and submits it as an
+/// extrinsic argument. The pallet validates positivity + uniqueness in the
+/// `(issuer, serial)` namespace and stores it.
+pub type CertSerial = [u8; 20];
+
 /// Canonical field order for thumbprint computation (the entire struct is SCALE-encoded
 /// as a unit — each field gets its SCALE length prefix, preventing preimage collisions).
 ///
-/// Order: schema_version, root, issuer, user, user_pubkey, registration_block, expiry, metadata.
+/// Order: schema_version, root, issuer, serial, user, user_pubkey, registration_block, expiry, metadata.
+///
+/// `serial` is placed immediately after `issuer` to mirror the X.509 identity
+/// tuple `(issuer, serial)` — RFC 5280 §4.1.2.2 makes `(issuer name, serial)`
+/// the canonical cert identifier across the X.509 ecosystem.
 ///
 /// Generic over `AccountId`, `BlockNumber`, and `Metadata`.
 /// The device public key type is algorithm-agnostic — P-256, P-521, or ML-DSA
@@ -33,6 +51,8 @@ pub struct CertCanonical<AccountId, BlockNumber, Metadata> {
     pub schema_version: SchemaVersion,
     pub root: AccountId,
     pub issuer: AccountId,
+    /// X.509 v3 serial. See [`CertSerial`] for generation + validation rules.
+    pub serial: CertSerial,
     pub user: AccountId,
     pub user_pubkey: crate::crypto::DevicePublicKey,
     /// Block at which this cert was registered/minted. Included in canonical serialization

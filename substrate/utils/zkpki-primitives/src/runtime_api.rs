@@ -24,6 +24,7 @@ use frame_support::{traits::ConstU32, BoundedVec};
 use scale_info::TypeInfo;
 use sp_std::vec::Vec;
 
+use crate::cert::CertSerial;
 use crate::crypto::DevicePublicKey;
 use crate::eku::Eku;
 use crate::template::{PopRequirement, MAX_TEMPLATE_EKUS, MAX_TEMPLATE_NAME_LEN};
@@ -130,6 +131,12 @@ pub struct CertStatusResponse<AccountId> {
 
     // ── Layer 2 — ZK-PKI extensions ──────────────────────────────
     pub thumbprint: [u8; 32],
+    /// X.509 v3 serial (RFC 5280 §4.1.2.2). Forms the canonical
+    /// industry-standard cert identity `(issuer, serial)` together
+    /// with the `issuer` field below — the lookup key any 6960
+    /// OCSP client uses. Surfaced here so relying parties bridging
+    /// to X.509 tooling can read it without a second query.
+    pub serial: CertSerial,
     pub cert_state: CertState,
     pub expiry_block: u64,
     pub mint_block: u64,
@@ -241,6 +248,26 @@ sp_api::decl_runtime_apis! {
         /// Full cert status for a thumbprint. Returns `None` if the
         /// thumbprint has no lookup entry (never existed or purged).
         fn cert_status(thumbprint: [u8; 32]) -> Option<CertStatusResponse<AccountId>>;
+
+        /// Industry-standard X.509 / RFC 6960 cert status lookup:
+        /// given the `(issuer, serial)` identity tuple a relying
+        /// party would extract from an X.509 cert + its AIA-pointed
+        /// OCSP request, return the same `CertStatusResponse` the
+        /// thumbprint-keyed `cert_status` returns.
+        ///
+        /// Resolves through `CertByIssuerSerial → Thumbprint`. Returns
+        /// `None` if no cert with `(issuer, serial)` exists — same
+        /// semantics as OCSP `unknown`.
+        ///
+        /// This is the bridge between Rostro-native lookups (by
+        /// thumbprint) and the X.509 / web-PKI world (by issuer +
+        /// serial). Designed so a future DER gateway can sit in front
+        /// of this method, translate request encodings, and produce
+        /// RFC 6960 OCSPResponse bytes from the same underlying state.
+        fn cert_status_by_serial(
+            issuer: AccountId,
+            serial: CertSerial,
+        ) -> Option<CertStatusResponse<AccountId>>;
 
         /// Compact summaries of every cert `issuer` has issued that
         /// still has a lookup entry.

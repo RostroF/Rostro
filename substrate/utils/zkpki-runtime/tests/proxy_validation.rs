@@ -22,6 +22,7 @@ use sp_core::crypto::AccountId32;
 use sp_runtime::{traits::IdentityLookup, BuildStorage};
 use zk_pki_primitives::crypto::DevicePublicKey;
 use zk_pki_primitives::eku::Eku;
+use zk_pki_runtime::test_serial;
 
 // ──────────────────────────────────────────────────────────────────────
 // Fixtures shared across both runtimes
@@ -50,7 +51,7 @@ fn test_cert_ec_pubkey() -> Vec<u8> {
 
 mod positive {
     use super::*;
-    use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki};
+    use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki, test_serial};
 
     fn new_test_ext() -> sp_io::TestExternalities {
         let mut t = frame_system::GenesisConfig::<Runtime>::default()
@@ -92,6 +93,8 @@ mod positive {
                 empty_att,
                 1_000_000u64,
                 empty_ekus,
+            
+                test_serial(1),
             ));
         });
     }
@@ -111,6 +114,8 @@ mod positive {
                 empty_att.clone(),
                 1_000_000u64,
                 empty_ekus.clone(),
+            
+                test_serial(2),
             ));
             assert_ok!(ZkPki::issue_issuer_cert(
                 RuntimeOrigin::signed(account(ROOT_ACCOUNT)),
@@ -120,6 +125,8 @@ mod positive {
                 empty_att,
                 500_000u64,
                 empty_ekus,
+            
+                test_serial(3),
             ));
         });
     }
@@ -267,6 +274,8 @@ mod negative {
                     empty_att,
                     1_000_000u64,
                     empty_ekus,
+                
+                    test_serial(4),
                 ),
                 zk_pki_pallet::Error::<RejectTest>::ProxyNotFound,
             );
@@ -339,6 +348,8 @@ mod negative {
                     empty_att,
                     500_000u64,
                     empty_ekus,
+                
+                    test_serial(5),
                 ),
                 zk_pki_pallet::Error::<RejectTest>::ProxyNotFound,
             );

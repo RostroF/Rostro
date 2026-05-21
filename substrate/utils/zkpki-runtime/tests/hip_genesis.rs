@@ -27,7 +27,7 @@ use zk_pki_primitives::hip::{
     StrongBoxHipProof, Tpm2Flavor, Tpm2HipProof,
 };
 use zk_pki_primitives::template::{PopMechanism, PopRequirement};
-use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki};
+use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki, test_serial};
 use zk_pki_tpm::test_mock_verifier::MockVerdict;
 use zk_pki_tpm::AttestationPayloadV3;
 
@@ -104,6 +104,8 @@ fn setup(pop_required: bool) -> ([u8; 32], u64) {
         empty_att.clone(),
         1_000_000u64,
         if pop_required { pop_cap_ekus.clone() } else { empty_cap_ekus.clone() },
+    
+        test_serial(1),
     ));
     assert_ok!(ZkPki::issue_issuer_cert(
         RuntimeOrigin::signed(account(ROOT_ACCOUNT)),
@@ -113,6 +115,8 @@ fn setup(pop_required: bool) -> ([u8; 32], u64) {
         empty_att,
         500_000u64,
         if pop_required { pop_cap_ekus } else { empty_cap_ekus },
+    
+        test_serial(2),
     ));
     assert_ok!(ZkPki::create_cert_template(
         RuntimeOrigin::signed(account(ISSUER_ACCOUNT)),
@@ -140,6 +144,8 @@ fn setup(pop_required: bool) -> ([u8; 32], u64) {
         10_000u64,
         template_name(),
         empty_meta,
+    
+        test_serial(3),
     ));
     let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
         account(ISSUER_ACCOUNT),
@@ -439,6 +445,8 @@ fn pop_mint_with_strongbox_proof_records_strongbox_fingerprint() {
             empty_att.clone(),
             1_000_000u64,
             pop_cap_ekus.clone(),
+        
+            test_serial(4),
         ));
         assert_ok!(ZkPki::issue_issuer_cert(
             RuntimeOrigin::signed(account(ROOT_ACCOUNT)),
@@ -448,6 +456,8 @@ fn pop_mint_with_strongbox_proof_records_strongbox_fingerprint() {
             empty_att,
             500_000u64,
             pop_cap_ekus,
+        
+            test_serial(5),
         ));
         assert_ok!(ZkPki::create_cert_template(
             RuntimeOrigin::signed(account(ISSUER_ACCOUNT)),
@@ -467,6 +477,8 @@ fn pop_mint_with_strongbox_proof_records_strongbox_fingerprint() {
             10_000u64,
             template_name(),
             empty_meta,
+        
+            test_serial(6),
         ));
         let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
             account(ISSUER_ACCOUNT),

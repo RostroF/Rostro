@@ -26,7 +26,7 @@ use sp_runtime::BuildStorage;
 use zk_pki_pallet::Config;
 use zk_pki_primitives::crypto::DevicePublicKey;
 use zk_pki_primitives::template::PopRequirement;
-use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki};
+use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki, test_serial};
 use zk_pki_tpm::test_mock_verifier::MockVerdict;
 use zk_pki_tpm::AttestationPayloadV3;
 
@@ -115,6 +115,8 @@ fn setup_up_to_offer(user: [u8; 32]) -> ([u8; 32], u64) {
         empty_att.clone(),
         1_000_000u64,
         empty_cap_ekus.clone(),
+    
+        test_serial(1),
     ));
     assert_ok!(ZkPki::issue_issuer_cert(
         RuntimeOrigin::signed(account(ROOT_ACCOUNT)),
@@ -124,6 +126,8 @@ fn setup_up_to_offer(user: [u8; 32]) -> ([u8; 32], u64) {
         empty_att,
         500_000u64,
         empty_cap_ekus,
+    
+        test_serial(2),
     ));
     assert_ok!(ZkPki::create_cert_template(
         RuntimeOrigin::signed(account(ISSUER_ACCOUNT)),
@@ -143,6 +147,8 @@ fn setup_up_to_offer(user: [u8; 32]) -> ([u8; 32], u64) {
         10_000u64,
         template_name(),
         empty_meta,
+    
+        test_serial(3),
     ));
     let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
         account(ISSUER_ACCOUNT),
@@ -365,6 +371,8 @@ fn deregister_root_releases_issuer_deposit_correctly() {
             empty_att.clone(),
             1_000_000u64,
             empty_cap_ekus.clone(),
+        
+            test_serial(4),
         ));
         assert_ok!(ZkPki::issue_issuer_cert(
             RuntimeOrigin::signed(account(ROOT_ACCOUNT)),
@@ -374,6 +382,8 @@ fn deregister_root_releases_issuer_deposit_correctly() {
             empty_att,
             500_000u64,
             empty_cap_ekus,
+        
+            test_serial(5),
         ));
 
         // Confirm exactly 2 × CertDeposit reserved on the root; the

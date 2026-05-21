@@ -23,6 +23,7 @@ use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_runtime::traits::Block as BlockT;
 
+use zk_pki_primitives::cert::CertSerial;
 use zk_pki_primitives::runtime_api::{
     CertStatusResponse, CertSummary, EntityStatusResponse, ZkPkiApi,
 };
@@ -87,6 +88,19 @@ pub trait ZkPkiRpcApi<BlockHash, AccountId> {
         block_number: u64,
         at: Option<BlockHash>,
     ) -> RpcResult<bool>;
+
+    /// X.509 / RFC 6960 cert status lookup by `(issuer, serial)`.
+    /// Returns the same `CertStatusResponse` as `cert_status` but
+    /// resolved via the industry-standard identity tuple rather than
+    /// the Rostro-native thumbprint. Bridge endpoint for relying
+    /// parties bringing X.509 lookup semantics.
+    #[method(name = "zkpki_certStatusBySerial")]
+    fn cert_status_by_serial(
+        &self,
+        issuer: AccountId,
+        serial: CertSerial,
+        at: Option<BlockHash>,
+    ) -> RpcResult<Option<CertStatusResponse<AccountId>>>;
 }
 
 /// RPC handler implementation. Generic over the client + block so any
@@ -184,6 +198,18 @@ where
         let api = self.client.runtime_api();
         let at_hash = at.unwrap_or_else(|| self.client.info().best_hash);
         api.chain_valid_at(at_hash, thumbprint, block_number)
+            .map_err(rpc_err)
+    }
+
+    fn cert_status_by_serial(
+        &self,
+        issuer: AccountId,
+        serial: CertSerial,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<Option<CertStatusResponse<AccountId>>> {
+        let api = self.client.runtime_api();
+        let at_hash = at.unwrap_or_else(|| self.client.info().best_hash);
+        api.cert_status_by_serial(at_hash, issuer, serial)
             .map_err(rpc_err)
     }
 }

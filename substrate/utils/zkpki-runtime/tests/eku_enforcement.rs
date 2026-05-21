@@ -21,7 +21,7 @@ use sp_runtime::BuildStorage;
 use zk_pki_primitives::crypto::DevicePublicKey;
 use zk_pki_primitives::eku::Eku;
 use zk_pki_primitives::template::{PopMechanism, PopRequirement};
-use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki};
+use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki, test_serial};
 use zk_pki_tpm::test_mock_verifier::MockVerdict;
 use zk_pki_tpm::AttestationPayloadV3;
 
@@ -104,6 +104,8 @@ fn register_root_with(caps: CapEkus) -> frame_support::dispatch::DispatchResult 
         empty_att,
         1_000_000u64,
         caps,
+    
+        test_serial(1),
     )
 }
 
@@ -119,6 +121,8 @@ fn issue_issuer_cert_with(caps: CapEkus) -> frame_support::dispatch::DispatchRes
         empty_att,
         500_000u64,
         caps,
+    
+        test_serial(2),
     )
 }
 
@@ -409,6 +413,8 @@ fn mint_cert_writes_ekus_to_hot_record() {
             10_000u64,
             template_name(),
             empty_meta,
+        
+            test_serial(3),
         ));
         let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
             account(ISSUER_ACCOUNT),
@@ -461,6 +467,8 @@ fn cert_status_returns_ekus() {
             10_000u64,
             template_name(),
             empty_meta,
+        
+            test_serial(4),
         ));
         let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
             account(ISSUER_ACCOUNT),
