@@ -26,7 +26,7 @@ pub mod pallet {
             ABSOLUTE_MAX_ISSUERS_PER_ROOT, MAX_ATTESTATION_LEN, MAX_METADATA_LEN,
             MAX_SUSPENSION_REASON_LEN,
         },
-        cert::{CertCanonical, CertSerial, CertState, SchemaVersion, Thumbprint, CURRENT_SCHEMA_VERSION},
+        cert::{CertCanonical, CertState, SchemaVersion, Thumbprint, CURRENT_SCHEMA_VERSION},
         contract::ContractOffer,
         crypto::DevicePublicKey,
         ek::EkHash,
@@ -325,38 +325,6 @@ pub mod pallet {
         Blake2_128Concat,
         Thumbprint,
         (),
-        OptionQuery,
-    >;
-
-    /// X.509 identity index: `(issuer, serial) → Thumbprint`.
-    ///
-    /// RFC 5280 §4.1.2.2 makes `(issuer name, serial)` the canonical
-    /// cert identifier in the X.509 ecosystem; this is the
-    /// industry-standard OCSP / status-lookup key. Populated at every
-    /// cert-creating extrinsic (`register_root`, `issue_issuer_cert`,
-    /// `mint_cert`, `reissue_cert`, `renew_cert`) and removed in
-    /// `remove_cert_entry` so the index is consistent with the
-    /// canonical cert state.
-    ///
-    /// Uniqueness of `(issuer, serial)` is enforced at insertion —
-    /// every cert-creating path errors with `SerialReused` if the
-    /// caller hands in a serial the issuer has already used. This is
-    /// the storage-level enforcement of the "MUST be unique for each
-    /// certificate issued by a given CA" rule.
-    ///
-    /// `Blake2_128Concat` on both keys: the issuer is user-controlled
-    /// (any registered AccountId) and the serial is user-supplied
-    /// (issuer picks via off-chain RNG), so the collision-resistant
-    /// hasher is required on both segments to defeat adversarial trie
-    /// shaping.
-    #[pallet::storage]
-    pub type CertByIssuerSerial<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        Blake2_128Concat,
-        CertSerial,
-        Thumbprint,
         OptionQuery,
     >;
 
@@ -955,25 +923,6 @@ pub mod pallet {
         /// client-supplied parameter and chain-derives only — see
         /// `ZK-PKI ec_key_pub Binding` memory.
         MimeWrapEcKeyPubMismatch,
-
-        // ── X.509 serial number (RFC 5280 §4.1.2.2) ──
-        /// Cert-creating extrinsic was handed a serial the issuer has
-        /// already used (the `(issuer, serial)` tuple already
-        /// resolves to a `Thumbprint` in `CertByIssuerSerial`). RFC
-        /// 5280 mandates uniqueness of `(issuer name, serial)` across
-        /// every cert a given CA issues; the chain enforces this at
-        /// insertion. Caller should regenerate via
-        /// `rostro_shop_rng::RostroShopRng::cert_serial` and retry.
-        SerialReused,
-        /// Submitted serial is not a conforming positive ASN.1
-        /// INTEGER: either the high bit of byte 0 is set (would force
-        /// the DER encoding to a 21-octet 0x00-prefixed form, busting
-        /// the RFC 5280 20-octet ceiling) or the value is all zeros
-        /// (zero is not a positive integer). The
-        /// `RostroShopRng::cert_serial` helper produces only
-        /// conforming values; this error signals the caller fabricated
-        /// a serial or has a buggy generator.
-        SerialNotPositive,
     }
 
     // ---------------------------------------------------------------------------
@@ -1107,16 +1056,9 @@ pub mod pallet {
             attestation: BoundedVec<u8, ConstU32<MAX_ATTESTATION_LEN>>,
             ttl_blocks: BlockNumberFor<T>,
             capability_ekus: BoundedVec<Eku, ConstU32<MAX_CAPABILITY_EKUS>>,
-            // X.509 serial for the root's self-signed cert.
-            // Root-assigned via off-chain
-            // `RostroShopRng::cert_serial`. Indexed under
-            // `(who, serial)` — root is its own issuer for the
-            // self-signed cert.
-            serial: CertSerial,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             ensure!(device_pubkey.is_valid(), Error::<T>::InvalidPublicKey);
-            Self::validate_serial(&serial)?;
             ensure!(!Roots::<T>::contains_key(&who), Error::<T>::RootAlreadyRegistered);
             ensure!(!Issuers::<T>::contains_key(&who), Error::<T>::AddressIsIssuer);
             if let Some(dereg) = DeregisteredRoots::<T>::get(&who) {
@@ -1165,18 +1107,13 @@ pub mod pallet {
             let expiry_block = now.saturating_add(ttl_blocks);
             let canonical = CertCanonical {
                 schema_version: CURRENT_SCHEMA_VERSION,
-                root: who.clone(), issuer: who.clone(), serial,
-                user: who.clone(),
+                root: who.clone(), issuer: who.clone(), user: who.clone(),
                 user_pubkey: device_pubkey.clone(), registration_block: now,
                 expiry: expiry_block,
                 metadata: BoundedVec::<u8, ConstU32<MAX_METADATA_LEN>>::default(),
             };
             let thumbprint = Self::compute_thumbprint(&canonical);
             ensure!(!CertLookupHot::<T>::contains_key(thumbprint), Error::<T>::ThumbprintCollision);
-            // Reserve the `(issuer=who, serial)` slot before any
-            // writes — root self-issues, so the index namespace is
-            // its own SS58.
-            Self::index_serial(&who, &serial, thumbprint)?;
             let deposit = T::CertDeposit::get();
             Self::hold_cert_deposit(&who, deposit)?;
             let ek_opt = if att_type.is_pop_eligible() { Some(ek_hash) } else { None };
@@ -1193,7 +1130,6 @@ pub mod pallet {
             });
             CertLookupCold::<T>::insert(thumbprint, CertRecordCold {
                 thumbprint,
-                serial,
                 cert_ec_pubkey: device_pubkey,
                 deposit,
                 genesis_os_version: None,
@@ -1229,18 +1165,9 @@ pub mod pallet {
             attestation: BoundedVec<u8, ConstU32<MAX_ATTESTATION_LEN>>,
             ttl_blocks: BlockNumberFor<T>,
             capability_ekus: BoundedVec<Eku, ConstU32<MAX_CAPABILITY_EKUS>>,
-            // X.509 serial for the issuer's cert. Root-assigned via
-            // off-chain `RostroShopRng::cert_serial`. Indexed under
-            // `(root_addr, serial)` — root is the CA issuing the
-            // issuer cert, so the X.509 namespace is the root's.
-            // Must be unique against the root's own self-signed cert
-            // serial and every prior issuer cert serial that root
-            // has issued.
-            serial: CertSerial,
         ) -> DispatchResult {
             let root_addr = ensure_signed(origin)?;
             ensure!(device_pubkey.is_valid(), Error::<T>::InvalidPublicKey);
-            Self::validate_serial(&serial)?;
             let now = <frame_system::Pallet<T>>::block_number();
             Self::enforce_challenge_deadline_root(&root_addr, now);
             let root_rec = Roots::<T>::get(&root_addr).ok_or(Error::<T>::NotARoot)?;
@@ -1308,16 +1235,12 @@ pub mod pallet {
             Self::hold_cert_deposit(&root_addr, deposit)?;
             let canonical = CertCanonical {
                 schema_version: CURRENT_SCHEMA_VERSION,
-                root: root_addr.clone(), issuer: root_addr.clone(), serial,
-                user: issuer.clone(),
+                root: root_addr.clone(), issuer: root_addr.clone(), user: issuer.clone(),
                 user_pubkey: device_pubkey.clone(), registration_block: now, expiry: expiry_block,
                 metadata: BoundedVec::<u8, ConstU32<MAX_METADATA_LEN>>::default(),
             };
             let thumbprint = Self::compute_thumbprint(&canonical);
             ensure!(!CertLookupHot::<T>::contains_key(thumbprint), Error::<T>::ThumbprintCollision);
-            // Reserve `(root_addr, serial)` — root is the CA issuing
-            // this issuer cert, so its serial namespace is the root's.
-            Self::index_serial(&root_addr, &serial, thumbprint)?;
             let ek_opt = if att_type.is_pop_eligible() { Some(ek_hash) } else { None };
             CertLookupHot::<T>::insert(thumbprint, CertRecordHot {
                 schema_version: CURRENT_SCHEMA_VERSION, thumbprint,
@@ -1332,7 +1255,6 @@ pub mod pallet {
             });
             CertLookupCold::<T>::insert(thumbprint, CertRecordCold {
                 thumbprint,
-                serial,
                 cert_ec_pubkey: device_pubkey,
                 deposit,
                 genesis_os_version: None,
@@ -1375,17 +1297,8 @@ pub mod pallet {
             ttl_blocks: BlockNumberFor<T>,
             template_name: BoundedVec<u8, ConstU32<MAX_TEMPLATE_NAME_LEN>>,
             metadata: BoundedVec<u8, ConstU32<MAX_METADATA_LEN>>,
-            // X.509 serial the issuer pre-assigns for the cert this
-            // offer will mint. Issuer generates off-chain via
-            // `RostroShopRng::cert_serial`; pallet validates format
-            // here (positive, non-zero) and stores on the offer. The
-            // uniqueness check against `CertByIssuerSerial` is
-            // deferred to `mint_cert` — letting an offer expire
-            // unfilled must not burn the serial.
-            serial: CertSerial,
         ) -> DispatchResult {
             let issuer_addr = ensure_signed(origin)?;
-            Self::validate_serial(&serial)?;
             let now = <frame_system::Pallet<T>>::block_number();
             Self::enforce_challenge_deadline_issuer(&issuer_addr, now);
             let issuer_rec = Issuers::<T>::get(&issuer_addr).ok_or(Error::<T>::NotAnIssuer)?;
@@ -1436,7 +1349,6 @@ pub mod pallet {
                 issuer: issuer_addr.clone(), user: user.clone(), nonce, expiry_block,
                 created_at: now, ttl_blocks, deposit: offer_deposit, metadata,
                 template_name,
-                serial,
             });
             OfferIndex::<T>::insert(&offer_key, nonce);
             Self::push_to_offer_expiry_index(expiry_block, nonce)?;
@@ -1722,27 +1634,14 @@ pub mod pallet {
                 );
             }
             let ek_opt = if att_type.is_pop_eligible() { Some(ek_hash) } else { None };
-            // Serial was pre-assigned + format-validated at
-            // `offer_contract`. Re-validate defensively in case the
-            // offer was crafted to bypass that path (storage was
-            // tampered, etc.) — cheap belt-and-braces.
-            Self::validate_serial(&offer.serial)?;
             let canonical = CertCanonical {
                 schema_version: CURRENT_SCHEMA_VERSION,
-                root: issuer_rec.root.clone(), issuer: offer.issuer.clone(),
-                serial: offer.serial,
-                user: who.clone(),
+                root: issuer_rec.root.clone(), issuer: offer.issuer.clone(), user: who.clone(),
                 user_pubkey: device_pubkey.clone(), registration_block: now, expiry: expiry_block,
                 metadata: offer.metadata.clone(),
             };
             let thumbprint = Self::compute_thumbprint(&canonical);
             ensure!(!CertLookupHot::<T>::contains_key(thumbprint), Error::<T>::ThumbprintCollision);
-            // Reserve `(offer.issuer, offer.serial)` — the issuer's
-            // own namespace, not the root's. End-user cert serials
-            // live in the issuer's serial space (RFC 5280 §4.1.2.2:
-            // "MUST be unique for each certificate issued by a given
-            // CA", and the issuer is the CA here).
-            Self::index_serial(&offer.issuer, &offer.serial, thumbprint)?;
 
             // ──────────── Fee system ────────────
             //
@@ -1851,7 +1750,6 @@ pub mod pallet {
             });
             CertLookupCold::<T>::insert(thumbprint, CertRecordCold {
                 thumbprint,
-                serial: offer.serial,
                 cert_ec_pubkey: device_pubkey,
                 deposit,
                 genesis_os_version: None,
@@ -2092,15 +1990,9 @@ pub mod pallet {
             origin: OriginFor<T>, old_thumbprint: Thumbprint, new_device_pubkey: DevicePublicKey,
             new_attestation: BoundedVec<u8, ConstU32<MAX_ATTESTATION_LEN>>,
             new_ttl_blocks: BlockNumberFor<T>, new_metadata: BoundedVec<u8, ConstU32<MAX_METADATA_LEN>>,
-            // X.509 serial for the new cert. Every reissued cert is a
-            // new X.509 identity and gets a fresh serial. Issuer
-            // generates off-chain via `RostroShopRng::cert_serial`;
-            // must be unique against this issuer's prior serials.
-            new_serial: CertSerial,
         ) -> DispatchResult {
             let issuer_addr = ensure_signed(origin)?;
             ensure!(new_device_pubkey.is_valid(), Error::<T>::InvalidPublicKey);
-            Self::validate_serial(&new_serial)?;
             let now = <frame_system::Pallet<T>>::block_number();
             Self::enforce_challenge_deadline_issuer(&issuer_addr, now);
             let issuer_rec = Issuers::<T>::get(&issuer_addr).ok_or(Error::<T>::NotAnIssuer)?;
@@ -2134,19 +2026,12 @@ pub mod pallet {
             let new_ek_hash: Option<EkHash> = if att_type.is_pop_eligible() { Some(new_ek_hash_raw) } else { None };
             let canonical = CertCanonical {
                 schema_version: CURRENT_SCHEMA_VERSION,
-                root: old_rec.root.clone(), issuer: issuer_addr.clone(),
-                serial: new_serial,
-                user: old_rec.user.clone(),
+                root: old_rec.root.clone(), issuer: issuer_addr.clone(), user: old_rec.user.clone(),
                 user_pubkey: new_device_pubkey.clone(), registration_block: now, expiry: new_expiry,
                 metadata: new_metadata.clone(),
             };
             let new_thumbprint = Self::compute_thumbprint(&canonical);
             ensure!(!CertLookupHot::<T>::contains_key(new_thumbprint), Error::<T>::ThumbprintCollision);
-            // Reserve `(issuer_addr, new_serial)` BEFORE removing the
-            // old cert — otherwise an issuer could grief by reissuing
-            // a cert under a serial it had previously freed, briefly
-            // double-occupying the slot.
-            Self::index_serial(&issuer_addr, &new_serial, new_thumbprint)?;
             let new_deposit = T::CertDeposit::get();
             // #2 — hold first. If fails, nothing touched.
             Self::hold_cert_deposit(&issuer_addr, new_deposit)?;
@@ -2169,7 +2054,6 @@ pub mod pallet {
             });
             CertLookupCold::<T>::insert(new_thumbprint, CertRecordCold {
                 thumbprint: new_thumbprint,
-                serial: new_serial,
                 cert_ec_pubkey: new_device_pubkey,
                 deposit: new_deposit,
                 genesis_os_version: None,
@@ -2304,18 +2188,9 @@ pub mod pallet {
             attestation: BoundedVec<u8, ConstU32<MAX_ATTESTATION_LEN>>,
             new_ttl_blocks: BlockNumberFor<T>,
             successor_signature: BoundedVec<u8, ConstU32<MAX_ATTESTATION_LEN>>,
-            // X.509 serial for the renewed cert. Each renewal mints a
-            // *new* cert (RFC 5280: every cert is a distinct identity)
-            // so a fresh serial is required. Generated off-chain via
-            // `RostroShopRng::cert_serial`. Same indexing rule as the
-            // original mint path: root renewals reserve `(who,
-            // new_serial)`; issuer renewals reserve `(issuer_rec.root,
-            // new_serial)` since the root is the CA.
-            new_serial: CertSerial,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             ensure!(new_device_pubkey.is_valid(), Error::<T>::InvalidPublicKey);
-            Self::validate_serial(&new_serial)?;
             let now = <frame_system::Pallet<T>>::block_number();
 
             // TPM attestation for new key
@@ -2347,18 +2222,13 @@ pub mod pallet {
                 let expiry_block = now.saturating_add(new_ttl_blocks);
                 let canonical = CertCanonical {
                     schema_version: CURRENT_SCHEMA_VERSION,
-                    root: who.clone(), issuer: who.clone(),
-                    serial: new_serial,
-                    user: who.clone(),
+                    root: who.clone(), issuer: who.clone(), user: who.clone(),
                     user_pubkey: new_device_pubkey.clone(), registration_block: now,
                     expiry: expiry_block,
                     metadata: BoundedVec::<u8, ConstU32<MAX_METADATA_LEN>>::default(),
                 };
                 let new_thumbprint = Self::compute_thumbprint(&canonical);
                 ensure!(!CertLookupHot::<T>::contains_key(new_thumbprint), Error::<T>::ThumbprintCollision);
-                // Reserve `(who, new_serial)` — root self-issues the
-                // renewed cert under its own X.509 namespace.
-                Self::index_serial(&who, &new_serial, new_thumbprint)?;
 
                 // Successor binding: old keypair signs the new thumbprint.
                 // `verify_successor_sig` reads the Cold row for the pubkey.
@@ -2383,7 +2253,6 @@ pub mod pallet {
                 });
                 CertLookupCold::<T>::insert(new_thumbprint, CertRecordCold {
                     thumbprint: new_thumbprint,
-                    serial: new_serial,
                     cert_ec_pubkey: new_device_pubkey.clone(),
                     deposit,
                     genesis_os_version: None,
@@ -2452,20 +2321,13 @@ pub mod pallet {
 
                 let canonical = CertCanonical {
                     schema_version: CURRENT_SCHEMA_VERSION,
-                    root: issuer_rec.root.clone(), issuer: issuer_rec.root.clone(),
-                    serial: new_serial,
-                    user: who.clone(),
+                    root: issuer_rec.root.clone(), issuer: issuer_rec.root.clone(), user: who.clone(),
                     user_pubkey: new_device_pubkey.clone(), registration_block: now,
                     expiry: expiry_block,
                     metadata: BoundedVec::<u8, ConstU32<MAX_METADATA_LEN>>::default(),
                 };
                 let new_thumbprint = Self::compute_thumbprint(&canonical);
                 ensure!(!CertLookupHot::<T>::contains_key(new_thumbprint), Error::<T>::ThumbprintCollision);
-                // Reserve `(issuer_rec.root, new_serial)` — root is
-                // the CA for issuer certs (X.509 namespace = the
-                // root's), so the renewed issuer cert lives in the
-                // same root's serial space as the original.
-                Self::index_serial(&issuer_rec.root, &new_serial, new_thumbprint)?;
 
                 // Successor binding — pubkey sourced from Cold row.
                 ensure!(
@@ -2489,7 +2351,6 @@ pub mod pallet {
                 });
                 CertLookupCold::<T>::insert(new_thumbprint, CertRecordCold {
                     thumbprint: new_thumbprint,
-                    serial: new_serial,
                     cert_ec_pubkey: new_device_pubkey.clone(),
                     deposit,
                     genesis_os_version: None,
@@ -2910,45 +2771,6 @@ pub mod pallet {
             sp_io::hashing::blake2_256(&canonical.encode())
         }
 
-        /// X.509 serial format check — RFC 5280 §4.1.2.2.
-        ///
-        /// Accepts iff the value is a conforming positive ASN.1
-        /// INTEGER: high bit of byte 0 clear (so DER encodes in ≤20
-        /// octets without a 0x00 prefix) AND not all zeros (zero is
-        /// not a positive integer). Both conditions reject as
-        /// `SerialNotPositive` — single error keeps the surface tight;
-        /// in practice `rostro_shop_rng::RostroShopRng::cert_serial`
-        /// produces conforming values, so a failure here means the
-        /// caller fabricated or buggy-generated the serial.
-        ///
-        /// Uniqueness (`(issuer, serial)` not already in
-        /// `CertByIssuerSerial`) is checked separately at the
-        /// insertion site via `index_serial`.
-        pub(crate) fn validate_serial(serial: &CertSerial) -> DispatchResult {
-            ensure!(serial[0] & 0x80 == 0, Error::<T>::SerialNotPositive);
-            ensure!(serial != &[0u8; 20], Error::<T>::SerialNotPositive);
-            Ok(())
-        }
-
-        /// Reserve a `(issuer, serial)` slot in `CertByIssuerSerial` for
-        /// the given `thumbprint`. Errors with `SerialReused` if the
-        /// slot is already populated — the X.509 uniqueness invariant
-        /// the chain enforces. Called from every cert-creating
-        /// extrinsic after `validate_serial` and after the thumbprint
-        /// is computed.
-        pub(crate) fn index_serial(
-            issuer: &T::AccountId,
-            serial: &CertSerial,
-            thumbprint: Thumbprint,
-        ) -> DispatchResult {
-            ensure!(
-                !CertByIssuerSerial::<T>::contains_key(issuer, serial),
-                Error::<T>::SerialReused,
-            );
-            CertByIssuerSerial::<T>::insert(issuer, serial, thumbprint);
-            Ok(())
-        }
-
         /// Place the `CertDeposit` hold on `who` for `amount`.
         /// `fungible::MutateHold::hold` returns an error if the free
         /// balance is insufficient — bubbles up as a dispatch error.
@@ -3309,14 +3131,6 @@ pub mod pallet {
         /// `template_name` and skip this path — templates scope
         /// end-user mints only.
         fn remove_cert_entry(thumbprint: Thumbprint, rec: &CertRecordHot<T::AccountId, BlockNumberFor<T>>) {
-            // Read cold first so we can unindex `(issuer, serial) →
-            // thumbprint` before the Cold record is gone. If cold is
-            // already missing (orphan-cleanup path) the serial index
-            // either was never written or has already been cleaned —
-            // skip silently.
-            if let Some(cold) = CertLookupCold::<T>::get(thumbprint) {
-                CertByIssuerSerial::<T>::remove(&rec.issuer, &cold.serial);
-            }
             CertLookupHot::<T>::remove(thumbprint);
             CertLookupCold::<T>::remove(thumbprint);
             // Mime-wrap binding pair, if any. Stored only for
@@ -3582,17 +3396,6 @@ pub mod pallet {
                         .map(|tpl| tpl.pop_requirement)
                 };
 
-            // X.509 serial pulled from the Cold record. Cold is on
-            // the OCSP response path because (issuer, serial) is
-            // exactly the X.509 identity tuple relying parties want.
-            // If Cold is missing (atomic-pair invariant violation —
-            // shouldn't happen) the serial defaults to all-zero,
-            // which is *also* the SerialNotPositive sentinel so a
-            // misreading downstream verifier will reject.
-            let serial = CertLookupCold::<T>::get(thumbprint)
-                .map(|c| c.serial)
-                .unwrap_or([0u8; 20]);
-
             Some(CertStatusResponse {
                 status,
                 this_update: now_u64,
@@ -3600,7 +3403,6 @@ pub mod pallet {
                 revocation_time,
                 revocation_reason,
                 thumbprint,
-                serial,
                 cert_state,
                 expiry_block: record.expiry_block.clone().unique_saturated_into(),
                 mint_block: record.mint_block.clone().unique_saturated_into(),
@@ -3617,23 +3419,6 @@ pub mod pallet {
                 template_pop_requirement,
                 ekus: record.ekus.clone(),
             })
-        }
-
-        /// X.509 / RFC 6960 lookup: resolves `(issuer, serial) →
-        /// CertStatusResponse`. Delegates to `query_cert_status`
-        /// after resolving the thumbprint via `CertByIssuerSerial`.
-        /// Returns `None` if `(issuer, serial)` is not in the index
-        /// (never existed or already removed via `remove_cert_entry`).
-        pub fn query_cert_status_by_serial(
-            issuer: T::AccountId,
-            serial: CertSerial,
-        ) -> Option<zk_pki_primitives::runtime_api::CertStatusResponse<T::AccountId>>
-        where
-            BlockNumberFor<T>: UniqueSaturatedInto<u64>,
-            BlockNumberFor<T>: Clone + PartialOrd,
-        {
-            let thumbprint = CertByIssuerSerial::<T>::get(&issuer, &serial)?;
-            Self::query_cert_status(thumbprint)
         }
 
         /// `cert_authentication` query. Returns the minimum info
@@ -3933,15 +3718,6 @@ pub mod pallet {
     #[scale_info(skip_type_params(BlockNumber, Balance))]
     pub struct CertRecordCold<BlockNumber, Balance> {
         pub thumbprint: Thumbprint,
-        /// X.509 serial assigned at mint. Forms the `(issuer, serial)`
-        /// industry-standard identity tuple together with
-        /// `CertRecordHot.issuer`. Stored on Cold (not Hot) because
-        /// the OCSP-by-serial lookup path goes through
-        /// `CertByIssuerSerial → Thumbprint → CertRecordHot` and so
-        /// the serial itself does not need to be on the hot read path.
-        /// Useful on Cold for audit, DER export, and reverse-lookup
-        /// "what serial does this thumbprint correspond to."
-        pub serial: CertSerial,
         /// Device public key (P-256, P-521, or ML-DSA depending on
         /// hardware). Used for successor signature verification
         /// during renewal.

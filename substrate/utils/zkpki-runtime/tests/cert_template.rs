@@ -15,7 +15,7 @@ use sp_core::crypto::AccountId32;
 use sp_runtime::BuildStorage;
 use zk_pki_primitives::crypto::DevicePublicKey;
 use zk_pki_primitives::template::{PopMechanism, PopRequirement};
-use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki, test_serial};
+use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki};
 use zk_pki_tpm::test_mock_verifier::MockVerdict;
 use zk_pki_tpm::AttestationPayloadV3;
 
@@ -107,8 +107,6 @@ fn register_root_and_issuer_with_ekus(root_caps: CapEkus, issuer_caps: CapEkus) 
         empty_att.clone(),
         1_000_000u64,
         root_caps,
-    
-        test_serial(1),
     ));
     assert_ok!(ZkPki::issue_issuer_cert(
         RuntimeOrigin::signed(account(ROOT_ACCOUNT)),
@@ -118,8 +116,6 @@ fn register_root_and_issuer_with_ekus(root_caps: CapEkus, issuer_caps: CapEkus) 
         empty_att,
         500_000u64,
         issuer_caps,
-    
-        test_serial(2),
     ));
 }
 
@@ -258,8 +254,6 @@ fn mint_under_template(
         10_000u64,
         template,
         empty_meta,
-    
-        test_serial(3),
     ));
     let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
         account(ISSUER_ACCOUNT),
@@ -606,8 +600,6 @@ fn offer_cert_with_inactive_template_rejected() {
                 10_000u64,
                 default_template_name(),
                 empty_meta,
-            
-                test_serial(4),
             ),
             zk_pki_pallet::Error::<Runtime>::TemplateInactive,
         );
@@ -627,8 +619,6 @@ fn offer_cert_template_not_found_rejected() {
                 10_000u64,
                 template_name_of(b"nonexistent"),
                 empty_meta,
-            
-                test_serial(5),
             ),
             zk_pki_pallet::Error::<Runtime>::TemplateNotFound,
         );
@@ -649,8 +639,6 @@ fn offer_cert_ttl_below_min_rejected() {
                 500u64,
                 default_template_name(),
                 empty_meta,
-            
-                test_serial(6),
             ),
             zk_pki_pallet::Error::<Runtime>::TemplateTtlOutOfRange,
         );
@@ -671,8 +659,6 @@ fn offer_cert_ttl_above_max_rejected() {
                 500_000u64,
                 default_template_name(),
                 empty_meta,
-            
-                test_serial(7),
             ),
             zk_pki_pallet::Error::<Runtime>::TemplateTtlOutOfRange,
         );
@@ -708,8 +694,6 @@ fn offer_cert_max_certs_exceeded_rejected() {
                 10_000u64,
                 default_template_name(),
                 empty_meta,
-            
-                test_serial(8),
             ),
             zk_pki_pallet::Error::<Runtime>::TemplateMaxCertsReached,
         );
@@ -732,8 +716,6 @@ fn mint_cert_pop_required_packed_rejected() {
             10_000u64,
             default_template_name(),
             empty_meta,
-        
-            test_serial(9),
         ));
         let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
             account(ISSUER_ACCOUNT),

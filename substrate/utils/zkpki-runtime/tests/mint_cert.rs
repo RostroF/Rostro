@@ -34,7 +34,7 @@ use sp_core::crypto::AccountId32;
 use sp_runtime::BuildStorage;
 use zk_pki_primitives::crypto::DevicePublicKey;
 use zk_pki_primitives::template::PopRequirement;
-use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki, test_serial};
+use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki};
 use zk_pki_tpm::test_mock_verifier::MockVerdict;
 use zk_pki_tpm::AttestationPayloadV3;
 
@@ -127,8 +127,6 @@ fn setup_up_to_offer() -> ([u8; 32], BlockNumber) {
         empty_att.clone(),
         1_000_000u64,
         empty_cap_ekus.clone(),
-    
-        test_serial(1),
     ));
 
     // 2. Issue issuer cert.
@@ -140,8 +138,6 @@ fn setup_up_to_offer() -> ([u8; 32], BlockNumber) {
         empty_att.clone(),
         500_000u64,
         empty_cap_ekus,
-    
-        test_serial(2),
     ));
 
     // 3. Create a permissive cert template the offer can reference.
@@ -165,8 +161,6 @@ fn setup_up_to_offer() -> ([u8; 32], BlockNumber) {
         10_000u64,
         template_name(),
         empty_meta,
-    
-        test_serial(3),
     ));
 
     // Look up the nonce via OfferIndex (issuer, user → nonce).
@@ -307,8 +301,6 @@ fn mint_cert_ek_dedup_blocks_second_cert() {
             10_000u64,
             template_name(),
             empty_meta,
-        
-            test_serial(4),
         ));
         let ui_key2 = zk_pki_primitives::keys::IssuerUserKey::new(
             account(ISSUER_ACCOUNT),
@@ -382,8 +374,6 @@ fn mint_cert_packed_skips_ek_dedup() {
             10_000u64,
             template_name(),
             empty_meta,
-        
-            test_serial(5),
         ));
         let ui_key2 = zk_pki_primitives::keys::IssuerUserKey::new(
             account(ISSUER_ACCOUNT),

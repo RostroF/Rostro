@@ -17,7 +17,7 @@ use zk_pki_primitives::runtime_api::{
     CertState, EntityState, EntityType, OcspStatus, RevocationReason,
 };
 use zk_pki_primitives::template::PopRequirement;
-use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki, test_serial};
+use zk_pki_runtime::{Runtime, RuntimeOrigin, ZkPki};
 use zk_pki_tpm::test_mock_verifier::MockVerdict;
 use zk_pki_tpm::AttestationPayloadV3;
 
@@ -98,8 +98,6 @@ fn setup_up_to_offer() -> ([u8; 32], u64) {
         empty_att.clone(),
         1_000_000u64,
         empty_cap_ekus.clone(),
-    
-        test_serial(1),
     ));
     assert_ok!(ZkPki::issue_issuer_cert(
         RuntimeOrigin::signed(account(ROOT_ACCOUNT)),
@@ -109,8 +107,6 @@ fn setup_up_to_offer() -> ([u8; 32], u64) {
         empty_att,
         500_000u64,
         empty_cap_ekus,
-    
-        test_serial(2),
     ));
     assert_ok!(ZkPki::create_cert_template(
         RuntimeOrigin::signed(account(ISSUER_ACCOUNT)),
@@ -130,8 +126,6 @@ fn setup_up_to_offer() -> ([u8; 32], u64) {
         10_000u64,
         template_name(),
         empty_meta,
-    
-        test_serial(3),
     ));
     let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
         account(ISSUER_ACCOUNT),
@@ -326,8 +320,6 @@ fn entity_status_returns_correct_state() {
             empty_att,
             1_000_000u64,
             empty_cap_ekus,
-        
-            test_serial(4),
         ));
 
         let status = zk_pki_pallet::Pallet::<Runtime>::query_entity_status(

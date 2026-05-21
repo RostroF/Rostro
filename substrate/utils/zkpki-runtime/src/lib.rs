@@ -6,32 +6,6 @@
 
 pub mod proxy_validator;
 
-/// Deterministic X.509-conforming cert serial for integration tests.
-///
-/// Produces a 20-byte serial that satisfies the pallet's
-/// `validate_serial` invariants (high bit clear, non-zero) without
-/// needing the `rostro-shop-rng` entropy stack online for every test
-/// fixture. The `tag` byte goes in position 0 (mod 0x80 to guarantee
-/// positive); a constant tail in positions 1..20 makes the resulting
-/// value distinct from every other test serial with a different tag.
-///
-/// Use a different `tag` for every cert-creating call within a single
-/// test scope so the `(issuer, serial)` uniqueness check passes —
-/// duplicate tags within the same issuer will (correctly) trip
-/// `Error::SerialReused`. Across separate tests with separate
-/// `new_test_ext` instances, tags can be reused freely; storage is
-/// reset per test.
-pub fn test_serial(tag: u8) -> [u8; 20] {
-    let mut s = [0u8; 20];
-    s[0] = tag & 0x7F; // ensure positive ASN.1 INTEGER
-    // Constant tail keeps the value non-zero even when tag == 0, and
-    // makes the byte pattern obvious in debug output.
-    for (i, slot) in s.iter_mut().enumerate().skip(1) {
-        *slot = i as u8;
-    }
-    s
-}
-
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{
     derive_impl,

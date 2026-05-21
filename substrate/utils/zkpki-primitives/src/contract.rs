@@ -3,7 +3,6 @@ use scale_info::TypeInfo;
 use frame_support::{traits::ConstU32, BoundedVec};
 
 use crate::bounds::MAX_METADATA_LEN;
-use crate::cert::CertSerial;
 use crate::template::MAX_TEMPLATE_NAME_LEN;
 
 /// A genesis contract offer created by an issuer for a specific user.
@@ -41,11 +40,4 @@ pub struct ContractOffer<AccountId, BlockNumber, Balance> {
     /// active `CertTemplate` owned by `issuer` at the time of offer
     /// creation. Copied to `CertRecordHot.template_name` at mint.
     pub template_name: BoundedVec<u8, ConstU32<MAX_TEMPLATE_NAME_LEN>>,
-    /// X.509 serial the issuer pre-assigned for the cert this offer
-    /// will mint. RFC 5280 §4.1.2.2 — issuer-assigned, positive,
-    /// unique within `(issuer, serial)` namespace. Generated off-chain
-    /// by the issuer via `rostro_shop_rng::RostroShopRng::cert_serial`
-    /// and validated at `offer_contract` time. Read at `mint_cert` and
-    /// indexed into `CertByIssuerSerial`.
-    pub serial: CertSerial,
 }

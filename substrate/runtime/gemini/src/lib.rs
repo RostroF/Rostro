@@ -1375,13 +1375,6 @@ impl_runtime_apis! {
 		) -> Option<zk_pki_primitives::runtime_api::CertAuthInfo<AccountId>> {
 			zk_pki_pallet::Pallet::<Runtime>::query_cert_authentication(thumbprint)
 		}
-
-		fn cert_status_by_serial(
-			issuer: AccountId,
-			serial: zk_pki_primitives::cert::CertSerial,
-		) -> Option<zk_pki_primitives::runtime_api::CertStatusResponse<AccountId>> {
-			zk_pki_pallet::Pallet::<Runtime>::query_cert_status_by_serial(issuer, serial)
-		}
 	}
 }
 

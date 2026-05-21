@@ -32,7 +32,7 @@ use zk_pki_primitives::hip::{
 };
 use zk_pki_primitives::pop::{derive_pop_nonce, PopAssertion};
 use zk_pki_primitives::template::{PopMechanism, PopRequirement};
-use zk_pki_runtime::{Runtime, RuntimeEvent, RuntimeOrigin, ZkPki, test_serial};
+use zk_pki_runtime::{Runtime, RuntimeEvent, RuntimeOrigin, ZkPki};
 use zk_pki_tpm::test_mock_verifier::MockVerdict;
 use zk_pki_tpm::AttestationPayloadV3;
 
@@ -196,8 +196,6 @@ fn mint_pop_cert_for(user: [u8; 32]) -> [u8; 32] {
         empty_att(),
         1_000_000u64,
         pop_cap.clone(),
-    
-        test_serial(1),
     ));
     assert_ok!(ZkPki::issue_issuer_cert(
         RuntimeOrigin::signed(account(ROOT_ACCOUNT)),
@@ -207,8 +205,6 @@ fn mint_pop_cert_for(user: [u8; 32]) -> [u8; 32] {
         empty_att(),
         500_000u64,
         pop_cap,
-    
-        test_serial(2),
     ));
     assert_ok!(ZkPki::create_cert_template(
         RuntimeOrigin::signed(account(ISSUER_ACCOUNT)),
@@ -228,8 +224,6 @@ fn mint_pop_cert_for(user: [u8; 32]) -> [u8; 32] {
         10_000u64,
         template_name(),
         empty_meta,
-    
-        test_serial(3),
     ));
     let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
         account(ISSUER_ACCOUNT),
@@ -288,8 +282,6 @@ fn mint_non_pop_cert_for(user: [u8; 32]) -> [u8; 32] {
         empty_att(),
         1_000_000u64,
         empty_cap.clone(),
-    
-        test_serial(4),
     ));
     assert_ok!(ZkPki::issue_issuer_cert(
         RuntimeOrigin::signed(account(ROOT_ACCOUNT)),
@@ -299,8 +291,6 @@ fn mint_non_pop_cert_for(user: [u8; 32]) -> [u8; 32] {
         empty_att(),
         500_000u64,
         empty_cap,
-    
-        test_serial(5),
     ));
     assert_ok!(ZkPki::create_cert_template(
         RuntimeOrigin::signed(account(ISSUER_ACCOUNT)),
@@ -320,8 +310,6 @@ fn mint_non_pop_cert_for(user: [u8; 32]) -> [u8; 32] {
         10_000u64,
         template_name(),
         empty_meta,
-    
-        test_serial(6),
     ));
     let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
         account(ISSUER_ACCOUNT),
