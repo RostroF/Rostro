@@ -431,6 +431,22 @@ use seccompiler::{
 /// the kernel to SIGKILL the entire process immediately.
 #[cfg(target_arch = "x86_64")]
 fn install_seccomp(_config: &NodeSandboxConfig) -> Result<(), SandboxError> {
+	// Stack two BPF programs. The kernel evaluates all stacked seccomp
+	// filters and takes the minimum action (most restrictive). Order of
+	// installation doesn't affect the resulting decision, only ordering
+	// of evaluation; we install the clone3-ENOSYS filter first so its
+	// presence is logged before the main filter's bulk allowlist.
+	let clone3_filter = force_clone3_enosys_filter()?;
+	let clone3_bpf: BpfProgram = clone3_filter
+		.try_into()
+		.map_err(|e| seccomp_err("clone3-enosys compile", e))?;
+	seccompiler::apply_filter_all_threads(&clone3_bpf)
+		.map_err(|e| seccomp_err("clone3-enosys apply", e))?;
+	log::info!(
+		"Aegis seccomp: clone3-ENOSYS filter installed (forces glibc ≥2.34 \
+		 fallback to legacy clone, which is then arg-filtered for CLONE_NEW*)"
+	);
+
 	let (filter, action_label) = build_seccomp_filter_with_label()?;
 	let bpf: BpfProgram = filter
 		.try_into()
@@ -438,8 +454,8 @@ fn install_seccomp(_config: &NodeSandboxConfig) -> Result<(), SandboxError> {
 	seccompiler::apply_filter_all_threads(&bpf)
 		.map_err(|e| seccomp_err("apply", e))?;
 	log::info!(
-		"Aegis seccomp: filter installed ({action_label} on violation, TSYNC \
-		 across all threads)"
+		"Aegis seccomp: main filter installed ({action_label} on violation, \
+		 TSYNC across all threads)"
 	);
 	Ok(())
 }
@@ -687,22 +703,15 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	// Kernel-internal signal: tells the kernel an interrupted syscall
 	// should resume. Required for correct signal handling.
 	libc::SYS_restart_syscall,
-	// Phase 5 (2026-05-23): clone3 was originally OMITTED on the
-	// theory that "glibc and rust std use plain clone() for thread
-	// creation." Real-hardware perf trace on kernel 6.19 + glibc 2.41
-	// showed 43 clone3 calls during 180s init+idle — modern glibc
-	// uses clone3 directly on Linux ≥5.5, including via `posix_spawn`
-	// (which Rust's `Command::spawn` calls). Without clone3, the
-	// supervisor SIGKILLs the moment it tries to spawn the child.
+	// clone3 is NOT in the plain allowlist. It's handled by a separate
+	// stacked filter that returns ENOSYS for it — see
+	// `force_clone3_enosys_filter()`. glibc ≥2.34 reacts to ENOSYS by
+	// retrying via legacy `clone()`, which then hits the
+	// `clone_no_namespace_rules()` arg filter and is denied if it asks
+	// for CLONE_NEW*. This closes the soundness gap that would otherwise
+	// exist (seccomp can't deref the `clone_args` struct that carries
+	// flags for clone3).
 	//
-	// Soundness gap accepted: seccomp can't inspect `clone_args`
-	// (struct behind a pointer), so namespace-creation flags
-	// (CLONE_NEW*) pass through unfiltered. Defense in depth:
-	//   * `kernel.unprivileged_userns_clone = 0` blocks unprivileged
-	//     user-namespace creation at the kernel level.
-	//   * Production validators should drop CAP_SYS_ADMIN before
-	//     exec'ing the child (v2 hardening item).
-	libc::SYS_clone3,
 	// prctl is a multiplexer; flat-allow is safe because
 	// PR_SET_NO_NEW_PRIVS (set in Phase 3b via Landlock) prevents
 	// PR_SET_SECCOMP from loosening the filter. Could arg-filter in
@@ -900,6 +909,60 @@ fn clone_no_namespace_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 	)
 	.map_err(|e| seccomp_err("clone.flags cond", e))?])
 	.map_err(|e| seccomp_err("clone.flags rule", e))?])
+}
+
+/// Build a small secondary filter that intercepts `clone3` and returns
+/// `ENOSYS`, forcing glibc to fall back to legacy `clone()`. That
+/// fallback then hits [`clone_no_namespace_rules`] in the main filter
+/// and is denied if it asks for any `CLONE_NEW*` flag.
+///
+/// **Why a separate filter, not a rule on the main filter.** The main
+/// filter constructed in [`build_seccomp_filter_with_label`] uses a
+/// single `match_action` (`SeccompAction::Allow`) for every matched
+/// rule — that's the seccompiler API shape. To return ENOSYS for one
+/// syscall we install a second BPF program; the kernel evaluates all
+/// stacked filters and takes the minimum (= most restrictive) action.
+/// `SECCOMP_RET_ERRNO (0x00050000) < SECCOMP_RET_ALLOW (0x7fff0000)`
+/// and also `< SECCOMP_RET_KILL_PROCESS (0x80000000)`, so ENOSYS wins
+/// no matter what the main filter says about clone3 (it currently says
+/// nothing — clone3 is omitted from the allowlist, which would
+/// otherwise produce KILL_PROCESS; ENOSYS still wins).
+///
+/// **Why ENOSYS and not EPERM.** glibc ≥2.34 has explicit ENOSYS-
+/// fallback code in `__clone3`: on `-ENOSYS` it retries with legacy
+/// `SYS_clone`. EPERM bubbles to the caller as a clone failure (any
+/// `Command::spawn` in tokio/libp2p dies). ENOSYS is the "syscall does
+/// not exist" contract; the fallback engages transparently.
+///
+/// **Why clone3 only, not the whole `*2`-variant family.** Other arg-
+/// blind variants in the allowlist (`epoll_pwait2`, `preadv2`,
+/// `pwritev2`) carry no namespace/escalation flags — `sigset_t*` and
+/// `RWF_*` respectively. clone3 is the only one whose struct-pointer
+/// arg shape lets the attacker carry namespace-creation flags through
+/// a check seccomp cannot perform. Forcing fallback on the others
+/// would cost real I/O perf for no security benefit. `openat2` would
+/// be a similar gap if added — its resolve flags are *tighter* than
+/// openat though, so it would only ever be a hardening primitive, not
+/// a soundness gap.
+///
+/// **Operator requirement: glibc ≥2.34** (Aug 2021). Older glibc lacks
+/// the fallback, so clone3 will return ENOSYS to the application and
+/// any process spawn fails. Every supported validator distro (Ubuntu
+/// 22.04+, Debian 12+, Fedora 36+, RHEL 9+) ships ≥2.34. musl libc
+/// does NOT ship the fallback — Rostro binaries are glibc, so this
+/// isn't a concern today; would be if the build ever switched to
+/// musl-static for portability. See PHASE5_NOTES.md "Bug 2 (revised)".
+#[cfg(target_arch = "x86_64")]
+fn force_clone3_enosys_filter() -> Result<SeccompFilter, SandboxError> {
+	// Empty rule vec = "match unconditionally on this syscall number."
+	let rules = vec![(libc::SYS_clone3, vec![])];
+	SeccompFilter::new(
+		rules.into_iter().collect(),
+		SeccompAction::Allow,                      // mismatch: let main filter decide
+		SeccompAction::Errno(libc::ENOSYS as u32), // match: synthesize -ENOSYS
+		TargetArch::x86_64,
+	)
+	.map_err(|e| seccomp_err("clone3-enosys filter.new", e))
 }
 
 /// Build the rule list for `socket`: allow a tight set of address
@@ -1436,6 +1499,33 @@ mod tests {
 
 	#[cfg(target_arch = "x86_64")]
 	#[test]
+	fn clone3_enosys_filter_compiles() {
+		// The helper must build and compile to a valid BPF program;
+		// install_seccomp() loads this into the kernel, so a malformed
+		// rule shape would brick the supervisor at startup.
+		let filter = force_clone3_enosys_filter().unwrap();
+		let bpf: BpfProgram = filter.try_into().expect("compile clone3-enosys");
+		assert!(!bpf.is_empty(), "compiled BPF program must be non-empty");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn clone3_is_not_in_plain_allowlist() {
+		// Regression catch: clone3 must NEVER appear in the plain
+		// allowlist. It's handled by the stacked clone3-ENOSYS filter
+		// installed in install_seccomp(). Re-adding it here would
+		// reopen the soundness gap closed in the 2026-05-23 revision
+		// of Bug 2 (struct-pointer arg = CLONE_NEW* passes through
+		// unfiltered).
+		assert!(
+			!PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_clone3),
+			"clone3 must be handled by force_clone3_enosys_filter, \
+			 not allow-listed directly",
+		);
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
 	fn socket_rules_allow_inet_unix_and_netlink_route() {
 		// Phase 5 second-pass (2026-05-23): four rules — INET, INET6,
 		// UNIX (domain-only), plus AF_NETLINK gated to NETLINK_ROUTE
@@ -1515,14 +1605,12 @@ mod tests {
 			libc::SYS_syslog,
 			libc::SYS_open_by_handle_at,
 			libc::SYS_name_to_handle_at,
-			// Phase 5 (2026-05-23): clone3 was originally on this
-			// dangerous-list with the note "if any caller hits it we'll
-			// see the kill in Phase 5 and decide." Phase 5 did see it
-			// (43 calls in 180s init+idle on kernel 6.19 + glibc 2.41),
-			// and we decided to ALLOW. clone3 is now in
-			// PLAIN_ALLOWED_SYSCALLS with a documented soundness gap
-			// (can't filter struct-pointer flags). See the rationale
-			// block at the array entry. Removed from this test.
+			// clone3 is intentionally NOT asserted here — it's allowed
+			// to be present at the kernel-syscall level so the stacked
+			// clone3-ENOSYS filter can intercept it (see
+			// force_clone3_enosys_filter). The separate test
+			// `clone3_is_not_in_plain_allowlist` asserts it stays out
+			// of the *plain* allowlist, which is the actual invariant.
 		];
 		for sys in dangerous {
 			assert!(

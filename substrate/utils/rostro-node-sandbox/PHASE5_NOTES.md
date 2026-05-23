@@ -105,12 +105,39 @@ directly on Linux ≥5.5, including from `posix_spawn` (which Rust's
 `std::process::Command::spawn` calls). Omitting `clone3` makes the
 sandbox unusable on any current distro.
 
-**Fix:** Add `libc::SYS_clone3` to `PLAIN_ALLOWED_SYSCALLS` with an
-explicit rationale block. Soundness gap accepted: seccomp can't inspect
-`clone_args` (struct behind a pointer), so namespace-creation flags
-(`CLONE_NEW*`) pass through unfiltered.
+**Fix (initial, 2026-05-23 first-pass):** Add `libc::SYS_clone3` to
+`PLAIN_ALLOWED_SYSCALLS` with an explicit rationale block. Soundness
+gap accepted: seccomp can't inspect `clone_args` (struct behind a
+pointer), so namespace-creation flags (`CLONE_NEW*`) pass through
+unfiltered.
 
-**Mitigation:**
+**Fix (revised, 2026-05-23 red-team follow-up):** The accepted gap was
+red-teamed and confirmed reachable — a `clone3(CLONE_NEWUSER)` call
+from inside the sandbox successfully created a user namespace, then
+chained to a systemd-reachable escape. Closed by removing `SYS_clone3`
+from the plain allowlist and installing a **second** stacked seccomp
+BPF filter — `force_clone3_enosys_filter()` — that returns `ENOSYS`
+for `clone3`. glibc ≥2.34's `__clone3` reacts to `-ENOSYS` by
+retrying with legacy `SYS_clone`, which then hits the existing
+`clone_no_namespace_rules()` `CLONE_NEW*` MaskedEq filter and is
+SIGKILL'd if it asks for any namespace flag. The kernel takes the
+minimum of stacked-filter actions (`ENOSYS=0x00050000 < ALLOW < KILL`)
+so ENOSYS wins regardless of what the main filter says about clone3.
+
+**Operator requirement: glibc ≥2.34** (Aug 2021). Older glibc lacks the
+`__clone3` ENOSYS-fallback, so process spawns will fail outright on
+those hosts. Every supported validator distro ships ≥2.34 (Ubuntu
+22.04+, Debian 12+, Fedora 36+, RHEL 9+). musl static builds do NOT
+ship the fallback; Rostro releases are glibc — this becomes a concern
+only if the build ever switches to musl-static for portability.
+
+Why `ENOSYS` and not `EPERM`/`EACCES`: only `ENOSYS` triggers glibc's
+fallback path. `EPERM` would bubble to the caller as a clone failure
+and break every `Command::spawn` in tokio/libp2p. `ENOSYS` is the
+"syscall does not exist" contract; the fallback engages transparently.
+
+**Defense-in-depth still applies** (now redundant with the ENOSYS
+intercept, but kept):
 - `kernel.unprivileged_userns_clone = 0` (set in our hardening sysctls)
   blocks unprivileged user-namespace creation at the kernel level.
 - v2 hardening item: production validators should drop `CAP_SYS_ADMIN`
@@ -400,11 +427,12 @@ denying execute on RW paths; adopt when we bump the kernel floor.
 
 ### Pending #7 — CAP_SYS_ADMIN drop (v2 hardening)
 
-Bug 2's fix accepts the `clone3` soundness gap (no arg filtering
-possible). The defense-in-depth path is dropping `CAP_SYS_ADMIN` before
-exec'ing the child so even root inside the child can't create
-namespaces with `CLONE_NEW*`. Supervisor needs root for cgroup setup;
-drop the cap between setup and exec.
+Bug 2's revised fix (clone3 ENOSYS intercept) closes the original
+soundness gap directly. CAP_SYS_ADMIN drop is now belt-and-suspenders,
+not the primary defense — still worth doing so a `CAP_SYS_ADMIN`-
+holding compromised child can't reach for other admin-gated syscalls
+(`mount` family, `setns` outside of seccomp, etc.). Supervisor needs
+root for cgroup setup; drop the cap between setup and exec.
 
 ## Diagnostic tooling added
 
