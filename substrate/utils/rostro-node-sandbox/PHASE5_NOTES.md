@@ -114,15 +114,29 @@ unfiltered.
 **Fix (revised, 2026-05-23 red-team follow-up):** The accepted gap was
 red-teamed and confirmed reachable — a `clone3(CLONE_NEWUSER)` call
 from inside the sandbox successfully created a user namespace, then
-chained to a systemd-reachable escape. Closed by removing `SYS_clone3`
-from the plain allowlist and installing a **second** stacked seccomp
-BPF filter — `force_clone3_enosys_filter()` — that returns `ENOSYS`
-for `clone3`. glibc ≥2.34's `__clone3` reacts to `-ENOSYS` by
-retrying with legacy `SYS_clone`, which then hits the existing
-`clone_no_namespace_rules()` `CLONE_NEW*` MaskedEq filter and is
-SIGKILL'd if it asks for any namespace flag. The kernel takes the
-minimum of stacked-filter actions (`ENOSYS=0x00050000 < ALLOW < KILL`)
-so ENOSYS wins regardless of what the main filter says about clone3.
+chained to a systemd-reachable escape. Closed by installing a **second**
+stacked seccomp BPF filter — `force_clone3_enosys_filter()` — that
+returns `ENOSYS` for `clone3`. glibc ≥2.34's `__clone3` reacts to
+`-ENOSYS` by retrying with legacy `SYS_clone`, which then hits the
+existing `clone_no_namespace_rules()` `CLONE_NEW*` MaskedEq filter and
+is SIGKILL'd if it asks for any namespace flag.
+
+**Subtlety that bit the first deploy attempt (2026-05-23 v1 → v2):**
+The kernel stacks filters and picks the **signed minimum** of their
+return actions — `kernel/seccomp.c`: `ACTION_ONLY(ret) ((s32)(ret &
+SECCOMP_RET_ACTION_FULL))`. The `s32` cast puts `KILL_PROCESS
+(0x80000000)` at `INT_MIN`, so it WINS every contest. v1 of this fix
+removed `SYS_clone3` from `PLAIN_ALLOWED_SYSCALLS` on the assumption
+that ERRNO (`0x00050000` = +327680 signed) would beat KILL_PROCESS in
+unsigned-min stacking. Deploy to debian-01 SIGSYS'd the supervisor on
+its first `Command::spawn` (audit: `pid=2057 syscall=435 code=0x80000000`).
+v2 keeps `SYS_clone3` IN the main allowlist so main returns ALLOW
+(+2.1B signed) and the ENOSYS shadow filter's ERRNO (+327680 signed)
+wins the min — supervisor stays alive, glibc fallback engages, legacy
+`clone(CLONE_NEW*)` SIGKILLs as designed. The takeaway: stacked
+seccomp filters are SIGNED-min, not unsigned-min; KILL_PROCESS cannot
+be overridden by a stacked ERRNO. Shadow-not-replace is the load-bearing
+pattern.
 
 **Operator requirement: glibc ≥2.34** (Aug 2021). Older glibc lacks the
 `__clone3` ENOSYS-fallback, so process spawns will fail outright on

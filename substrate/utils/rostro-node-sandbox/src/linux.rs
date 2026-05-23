@@ -703,15 +703,21 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	// Kernel-internal signal: tells the kernel an interrupted syscall
 	// should resume. Required for correct signal handling.
 	libc::SYS_restart_syscall,
-	// clone3 is NOT in the plain allowlist. It's handled by a separate
-	// stacked filter that returns ENOSYS for it — see
-	// `force_clone3_enosys_filter()`. glibc ≥2.34 reacts to ENOSYS by
-	// retrying via legacy `clone()`, which then hits the
-	// `clone_no_namespace_rules()` arg filter and is denied if it asks
-	// for CLONE_NEW*. This closes the soundness gap that would otherwise
-	// exist (seccomp can't deref the `clone_args` struct that carries
-	// flags for clone3).
-	//
+	// clone3 is flat-allowed HERE, but a stacked secondary filter
+	// returns ENOSYS for it — see `force_clone3_enosys_filter()`. The
+	// kernel evaluates stacked filters and picks the *signed* minimum
+	// action (per `ACTION_ONLY((s32))` cast in kernel seccomp.c), so:
+	//   * KILL_PROCESS (0x80000000 → INT_MIN signed) WINS every contest.
+	//   * ERRNO (0x00050000 → +327680 signed) BEATS ALLOW (0x7fff0000
+	//     → +2.1B signed).
+	// If clone3 weren't in this allowlist, the main filter's default
+	// KILL_PROCESS would beat the ENOSYS filter and the supervisor would
+	// SIGSYS the first time it called Command::spawn. Allowing here +
+	// shadowing with ENOSYS in the second filter is the load-bearing
+	// pattern. glibc ≥2.34's __clone3 reacts to ENOSYS by retrying via
+	// legacy clone(), which then hits clone_no_namespace_rules() and is
+	// denied if it asks for CLONE_NEW*.
+	libc::SYS_clone3,
 	// prctl is a multiplexer; flat-allow is safe because
 	// PR_SET_NO_NEW_PRIVS (set in Phase 3b via Landlock) prevents
 	// PR_SET_SECCOMP from loosening the filter. Could arg-filter in
@@ -921,12 +927,20 @@ fn clone_no_namespace_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 /// single `match_action` (`SeccompAction::Allow`) for every matched
 /// rule — that's the seccompiler API shape. To return ENOSYS for one
 /// syscall we install a second BPF program; the kernel evaluates all
-/// stacked filters and takes the minimum (= most restrictive) action.
-/// `SECCOMP_RET_ERRNO (0x00050000) < SECCOMP_RET_ALLOW (0x7fff0000)`
-/// and also `< SECCOMP_RET_KILL_PROCESS (0x80000000)`, so ENOSYS wins
-/// no matter what the main filter says about clone3 (it currently says
-/// nothing — clone3 is omitted from the allowlist, which would
-/// otherwise produce KILL_PROCESS; ENOSYS still wins).
+/// stacked filters and picks the **signed minimum** of all returned
+/// actions (kernel/seccomp.c: `ACTION_ONLY(ret) ((s32)(ret &
+/// SECCOMP_RET_ACTION_FULL))`). Casting to `s32` puts `KILL_PROCESS
+/// (0x80000000)` at `INT_MIN`, so it wins every contest — naive
+/// stacking does NOT let ERRNO override it. The pattern that DOES work:
+///   * Main filter: clone3 **in** `PLAIN_ALLOWED_SYSCALLS` → ALLOW
+///     (+2.1B signed)
+///   * This filter: clone3 → ERRNO(ENOSYS) (+327680 signed)
+///   * `min(ALLOW, ERRNO) = ERRNO` → glibc sees `-ENOSYS` and falls back.
+/// Removing clone3 from the main allowlist sets main's contribution to
+/// the default action (KILL_PROCESS = INT_MIN signed), which would beat
+/// any ERRNO and SIGSYS the supervisor on its first Command::spawn.
+/// Confirmed empirically on Debian 13 / kernel 6.12.88 during the
+/// 2026-05-23 lab deploy — see PHASE5_NOTES.md "Bug 2 (revised v2)".
 ///
 /// **Why ENOSYS and not EPERM.** glibc ≥2.34 has explicit ENOSYS-
 /// fallback code in `__clone3`: on `-ENOSYS` it retries with legacy
@@ -951,7 +965,7 @@ fn clone_no_namespace_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 /// 22.04+, Debian 12+, Fedora 36+, RHEL 9+) ships ≥2.34. musl libc
 /// does NOT ship the fallback — Rostro binaries are glibc, so this
 /// isn't a concern today; would be if the build ever switched to
-/// musl-static for portability. See PHASE5_NOTES.md "Bug 2 (revised)".
+/// musl-static for portability.
 #[cfg(target_arch = "x86_64")]
 fn force_clone3_enosys_filter() -> Result<SeccompFilter, SandboxError> {
 	// Empty rule vec = "match unconditionally on this syscall number."
@@ -959,7 +973,7 @@ fn force_clone3_enosys_filter() -> Result<SeccompFilter, SandboxError> {
 	SeccompFilter::new(
 		rules.into_iter().collect(),
 		SeccompAction::Allow,                      // mismatch: let main filter decide
-		SeccompAction::Errno(libc::ENOSYS as u32), // match: synthesize -ENOSYS
+		SeccompAction::Errno(libc::ENOSYS as u32), // match: synthesize -ENOSYS (beats main's ALLOW)
 		TargetArch::x86_64,
 	)
 	.map_err(|e| seccomp_err("clone3-enosys filter.new", e))
@@ -1510,17 +1524,20 @@ mod tests {
 
 	#[cfg(target_arch = "x86_64")]
 	#[test]
-	fn clone3_is_not_in_plain_allowlist() {
-		// Regression catch: clone3 must NEVER appear in the plain
-		// allowlist. It's handled by the stacked clone3-ENOSYS filter
-		// installed in install_seccomp(). Re-adding it here would
-		// reopen the soundness gap closed in the 2026-05-23 revision
-		// of Bug 2 (struct-pointer arg = CLONE_NEW* passes through
-		// unfiltered).
+	fn clone3_present_in_plain_allowlist_for_stacked_pattern() {
+		// Regression catch: clone3 MUST appear in the plain allowlist
+		// so the main filter returns ALLOW for it (signed-positive
+		// action value). The stacked ENOSYS filter then beats ALLOW
+		// via the kernel's signed-min stacking rule. Removing clone3
+		// here makes the main filter's default KILL_PROCESS (signed
+		// INT_MIN) win every contest, SIGSYS'ing the supervisor on its
+		// first Command::spawn — confirmed empirically on Debian 13 /
+		// kernel 6.12.88 during the 2026-05-23 lab deploy.
 		assert!(
-			!PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_clone3),
-			"clone3 must be handled by force_clone3_enosys_filter, \
-			 not allow-listed directly",
+			PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_clone3),
+			"clone3 must be in PLAIN_ALLOWED_SYSCALLS so main filter \
+			 returns ALLOW; ENOSYS shadow filter beats ALLOW but cannot \
+			 beat KILL_PROCESS in signed-min stacking",
 		);
 	}
 
@@ -1605,12 +1622,11 @@ mod tests {
 			libc::SYS_syslog,
 			libc::SYS_open_by_handle_at,
 			libc::SYS_name_to_handle_at,
-			// clone3 is intentionally NOT asserted here — it's allowed
-			// to be present at the kernel-syscall level so the stacked
-			// clone3-ENOSYS filter can intercept it (see
-			// force_clone3_enosys_filter). The separate test
-			// `clone3_is_not_in_plain_allowlist` asserts it stays out
-			// of the *plain* allowlist, which is the actual invariant.
+			// clone3 is intentionally NOT asserted here — it's in
+			// PLAIN_ALLOWED_SYSCALLS by design (kernel signed-min
+			// stacking forces this, see force_clone3_enosys_filter).
+			// The companion test clone3_present_in_plain_allowlist_for_stacked_pattern
+			// asserts the inverse invariant.
 		];
 		for sys in dangerous {
 			assert!(
