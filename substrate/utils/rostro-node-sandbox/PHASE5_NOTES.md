@@ -1,9 +1,10 @@
 # Phase 5 — first-pass outcome (2026-05-23)
 
-Real-Linux validation of `rostro-node-sandbox` against the bare-metal lab
-described in [VALIDATION.md](VALIDATION.md). This document captures what
-was caught, what was fixed, what's still open, and how to run the next
-iteration.
+Real-Linux validation of **Aegis** (the `rostro-node-sandbox` crate plus
+its `rostro-supervisor` driver — host-level isolation envelope installed
+before `gemini-node` exec) against the bare-metal lab described in
+[VALIDATION.md](VALIDATION.md). This document captures what was caught,
+what was fixed, what's still open, and how to run the next iteration.
 
 ## Lab configuration
 
@@ -234,26 +235,85 @@ through the full chain init:
 
 ## What's still incomplete
 
-### Pending #1 — re-baseline UNDER the supervisor
+### Pending #1 — re-baseline UNDER the supervisor — CLOSED 2026-05-23
 
-In `KillProcess` mode (production action), gemini-node SIGKILLs early in
-startup. In `Log` mode (diagnostic action), the same gemini-node runs
-through full init + idle for ~30s. Means the supervised process makes
-syscalls that the strace baseline didn't capture — likely because the
-baseline ran `gemini-node` directly, not under `rostro-supervisor`. The
-parent-process / env / inheritance shape differs and surfaces additional
-early-startup syscalls.
+Root cause of the `KillProcess`-mode early SIGKILL was NOT a missing
+plain syscall. The supervised gemini-node uses exactly 61 unique plain
+syscalls during 5min INIT+IDLE — **zero of them outside the existing
+`PLAIN_ALLOWED_SYSCALLS`.** First-pass instinct ("the supervised process
+makes syscalls the direct baseline didn't capture") was wrong.
 
-**Action:** Capture a baseline UNDER the supervisor. Either:
-- `SeccompAction::Log` + audit subsystem reading the denial log (Fedora
-  doesn't have `auditd` running by default; install + start)
-- Or: `perf trace --pid <supervised-gemini-node>` from outside
-- Or: temporarily allow ALL syscalls (broad-then-narrow), capture under
-  sandbox, then re-tighten
+The real cause was three categories of denial surfacing once the
+process ran far enough into init. Found by capturing under
+`ROSTRO_SKIP_SECCOMP=1` (Landlock still active) with strace as the
+supervisor's child, looking for `EACCES` returns; then narrowing to
+the specific paths/syscalls and tightening one layer at a time.
 
-The new `ROSTRO_SKIP_LANDLOCK` and `ROSTRO_SKIP_SECCOMP` env vars
-(added in this commit) help isolate per-primitive failures during this
-work.
+**(a) `mprotect(addr, 8MiB, PROT_READ|PROT_EXEC)`** — PolkaVM's runtime
+executor flips a freshly-JIT'd 8MiB page from RW to RX (W^X). The
+original `mprotect_no_exec_rules` denied any `mprotect` with
+`PROT_EXEC` set, killing the process the first time the runtime
+compiled a function. Observed: **1035 such calls in 5min idle.**
+
+`mprotect_no_exec_rules` → renamed `mprotect_safe_rules`, two rules:
+`(prot & PROT_EXEC) == 0` (existing) plus `(prot & PROT_EXEC) != 0
+AND (prot & PROT_WRITE) == 0` (W^X-preserving JIT flip). True W^X
+violations (`PROT_WRITE` AND `PROT_EXEC`) remain denied by absence.
+
+**(b) `socket(AF_NETLINK, SOCK_DGRAM|SOCK_CLOEXEC, NETLINK_ROUTE)`** —
+`std::net` / libp2p enumerate local interfaces via netlink-route
+during bind. The original `socket_safe_families_rules` allowed only
+INET/INET6/UNIX, so the first netlink socket call SIGKILL'd. Observed:
+2 calls.
+
+`socket_safe_families_rules` adds one tight rule:
+`(domain == AF_NETLINK) AND (protocol == NETLINK_ROUTE)`. Other
+netlink protocols (`NETLINK_AUDIT`, `NETLINK_NETFILTER`,
+`NETLINK_KOBJECT_UEVENT`, etc.) remain denied. Doc comment updated
+to reflect the new position.
+
+**(c) Five Landlock RO-path gaps.** With (a) and (b) fixed, gemini-node
+still SIGKILL'd — turned out the failure had shifted to Landlock,
+not seccomp. Strace surfaced these `EACCES` returns under the active
+Landlock policy:
+
+| Path | Used by | Note |
+|---|---|---|
+| `/proc/self/cgroup`, `/proc/self/maps`, `/proc/self/task/<tid>/comm`, `/proc/sys/kernel/random/uuid` | substrate sysinfo, tokio thread metadata, glibc UUID | `/proc/self` is a **symlink** to `/proc/<pid>`; Landlock evaluates the resolved target, so granting only `/proc/self` denies every actual descendant read |
+| `/sys/devices/virtual/block/<dev>/queue/logical_block_size` | RocksDB I/O sizing | the supervised gemini-node's data dir often sits on a dm/loop device |
+| `/etc/localtime`, `/usr/share/zoneinfo/<TZ>` | substrate logging timestamps + chrono | `/etc/localtime` is a symlink into `/usr/share/zoneinfo/` |
+| `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` | rustls-native-certs | on Fedora, files visible at `/etc/pki/tls/certs/*.0` are hash-named symlinks into `/etc/pki/ca-trust/extracted/`; Debian/Ubuntu store the bundle directly in `/etc/ssl/certs` |
+
+`BASELINE_RO_PATHS` updated: `/proc/self` → `/proc` (Landlock needs the
+parent of the symlink target, not the symlink itself; matches what
+Bubblewrap / Firejail do — info-leak surface accepted, PID-namespace
+masking is a v2 hardening item), plus `/sys/block`,
+`/sys/devices/virtual/block`, `/etc/localtime`, `/usr/share/zoneinfo`,
+`/etc/pki/ca-trust/extracted`. Missing entries are silently skipped
+per the existing convention, so Debian/Ubuntu nodes ignore the
+Fedora-specific cert path.
+
+**Verified 2026-05-23** on all three lab nodes simultaneously in
+KillProcess + active-Landlock mode (no `ROSTRO_SKIP_*` env vars):
+
+| Node | Distro | Idle ticks (5min) | Errors |
+|---|---|---|---|
+| rostro-fedora-01 | Fedora 44 / kernel 6.19.10 | 63 | 0 |
+| rostro-debian-01 | Debian 13 / kernel 6.12.88 | 54 | 0 |
+| rostro-ubuntu-01 | Ubuntu 24.04.4 / kernel 6.8.0 | 54 | 0 |
+
+How the gap was found: `ROSTRO_SKIP_LANDLOCK=1 ROSTRO_SKIP_SECCOMP=1`,
+supervisor exec's `/usr/bin/strace -ff -e signal=none -o ...`, which
+exec's gemini-node — strace captures from the first syscall, no
+strace-attach blind spot. Capture machinery preserved under
+`~/rostro-testnet-lab/playbooks/under-supervisor-{strace,syscalls}.sh`.
+
+Diagnostic env var also added in this pass:
+`ROSTRO_SECCOMP_ACTION=log` flips the default seccomp action to
+`SeccompAction::Log` (emits one audit record per denied syscall and
+ALLOWS the call). Sibling to the existing `ROSTRO_SKIP_*` Phase 5
+diagnostic pattern. Unset/`kill` = production. Anything else =
+install fails fast (no silent fallback).
 
 ### Pending #2 — runtime-execution baseline
 
@@ -322,9 +382,14 @@ Lesson captured for future-me in memory `feedback_substrate_shutdown_shape`.
 ### Pending #5 — adversarial + OOM + perf-delta sign-off
 
 Phase 5 steps 5–7 in VALIDATION.md (ptrace adversarial test, OOM cgroup
-behavior, perf-delta sandbox-on vs sandbox-off) cannot run until #1 is
-closed — they require gemini-node to actually stay alive under
-`KillProcess` mode.
+behavior, perf-delta sandbox-on vs sandbox-off) are gated on the
+Pending #1 fixes surviving a clean `KillProcess`-mode run on the lab.
+The second-pass capture itself was under `ROSTRO_SKIP_SECCOMP=1` (the
+"allow-all then narrow" strategy), so KillProcess behavior with the
+new `mprotect_safe_rules` + AF_NETLINK rule has been validated by
+unit tests + filter compilation only. Next work: build, ship, run
+the full sandbox on the lab for ≥5min, confirm gemini-node stays
+alive, then walk the three remaining sign-off steps.
 
 ### Pending #6 — Landlock execute-denial on RW paths (v2 hardening)
 

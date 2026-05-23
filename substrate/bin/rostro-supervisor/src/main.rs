@@ -580,7 +580,7 @@ fn run(args: Args) -> ExitCode {
 		match rostro_node_sandbox::install(&sandbox_config) {
 			Ok(h) => {
 				log::info!(
-					"rostro-node-sandbox: installed (cgroup={}, landlock={}, seccomp=enabled)",
+					"Aegis: installed (cgroup={}, landlock={}, seccomp=enabled)",
 					if sandbox_config.memory_cap().is_some() || sandbox_config.cpu_cap().is_some() {
 						"enabled"
 					} else {

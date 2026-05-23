@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
-//! `rostro-node-sandbox` — host-level isolation envelope applied by
-//! `rostro-supervisor` before exec'ing the node binary.
+//! `rostro-node-sandbox` — implementation of **Aegis**, the host-level
+//! isolation envelope applied by `rostro-supervisor` before exec'ing
+//! the node binary.
+//!
+//! "Aegis" is the user-facing name (matches the Gemini / Star phase
+//! naming arc). The crate name stays descriptive so external readers
+//! can find it; operator-facing log lines use `Aegis: ...`.
 //!
 //! ## What this is
 //!
