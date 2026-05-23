@@ -277,30 +277,47 @@ the crate considers V1 the floor and warns when kernel is *strictly
 greater*. Cosmetic but worth investigating; might be a crate-version
 issue.
 
-### Pending #4 — separate dev-mode regression
+### Pending #4 — separate dev-mode regression — RETRACTED 2026-05-23
 
-`gemini-node --dev` (raw, NO supervisor, NO sandbox) terminates after
-~30–45 seconds of idle with:
+This item was **a false alarm** and is retracted.
 
-```
-ERROR tokio-runtime-worker rc_service::task_manager:
-Essential task `txpool-background` failed. Shutting down service.
-```
+The "Essential task `txpool-background` failed" log we observed at
+~30–45s on the lab was the **orderly SIGTERM shutdown sequence**, not a
+regression. Two substrate-internal subtleties stack to produce the
+misleading log line:
 
-This reproduces on all three lab nodes, with and without sandbox.
+1. `TaskManager::into_task_registry(self)` does a partial move out of
+   `self.task_registry`, so Rust skips the struct-level `Drop`. The
+   inner `_signal: Signal` still drops individually, firing `on_exit`
+   to all spawned tasks.
+2. `sync_bridge_task` (the second of two essential tasks named
+   `txpool-background`, in
+   `substrate/client/transaction-pool/src/fork_aware_txpool/tx_mem_pool.rs`)
+   is a `for request in rx` over a `std::sync::mpsc::Receiver` running
+   on a tokio blocking thread. It can't observe `on_exit` (synchronous recv blocks the
+   thread). It only exits when its `Sender` is dropped, which happens
+   *after* the rest of the service has torn down. So sync_bridge_task
+   dies last and naturally, its `catch_unwind.map(...)` callback at
+   `task_manager/mod.rs:283` fires, and we see the misleading error
+   log even though shutdown was clean.
 
-The user reports that "before messing with any kind of sandbox, the
-nodes ran and peered" — meaning gemini-node ran indefinitely in prior
-testing. **Something in sandbox-v0 (or between Phase Z's ship date
-2026-05-16 and now) introduced a dev-mode txpool-background regression.**
+**Repro confirmation on 2026-05-23:**
+- WSL `gemini-node --dev` + `timeout 130s` → dies at 127s with the
+  misleading log line.
+- WSL `gemini-node --dev` with NO timeout → ran 5 minutes clean,
+  block #49 produced and finalized normally.
+- Lab 3-node trio (Alice on rostro-fedora-01 validator + Bob on
+  rostro-debian-01 validator + Charlie on rostro-ubuntu-01
+  non-validator, `--chain local`, deterministic node-keys, started
+  via `nohup` over SSH to avoid session-timeout SIGTERM) produced
+  thousands of blocks over hours with zero failures.
 
-Most likely culprits to investigate:
-- Recent fork-aware txpool changes
-- PolkaVM runtime revalidation timer
-- Some periodic task ending its input stream
+The earlier "30–45s on all three lab nodes" observation was most
+likely also SIGTERM-driven by something in the test harness
+(supervisor, SSH timeout, shell timeout). It is not reproducible
+from a clean direct-run-as-rostro-user invocation.
 
-This is NOT a sandbox concern but it blocks Phase Star bring-up
-(can't peer if nodes die after 30s) — high priority to find and fix.
+Lesson captured for future-me in memory `feedback_substrate_shutdown_shape`.
 
 ### Pending #5 — adversarial + OOM + perf-delta sign-off
 
