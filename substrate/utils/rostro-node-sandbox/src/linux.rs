@@ -27,11 +27,23 @@ use super::{NodeSandboxConfig, SandboxError, SandboxHandle};
 /// install the earlier primitives.
 pub(crate) fn install(config: &NodeSandboxConfig) -> Result<SandboxHandle, SandboxError> {
 	let cgroup_child = install_cgroup(config)?;
-	// Thread the child cgroup path into Landlock so the supervisor's
-	// subsequent `place_child_in_cgroup` writes (which target a file
-	// inside this dir) aren't blocked by the Landlock policy.
-	install_landlock(config, cgroup_child.as_deref())?;
-	install_seccomp(config)?;
+	// PHASE 5 DIAGNOSTIC (2026-05-23): allow skipping Landlock and/or
+	// seccomp independently via env vars so we can isolate which
+	// primitive is responsible for a failure mode without rebuilding.
+	// Both default to enabled; set to "1" to skip.
+	if std::env::var_os("ROSTRO_SKIP_LANDLOCK").is_none() {
+		// Thread the child cgroup path into Landlock so the supervisor's
+		// subsequent `place_child_in_cgroup` writes (which target a file
+		// inside this dir) aren't blocked by the Landlock policy.
+		install_landlock(config, cgroup_child.as_deref())?;
+	} else {
+		log::warn!("rostro-node-sandbox: Landlock SKIPPED via ROSTRO_SKIP_LANDLOCK");
+	}
+	if std::env::var_os("ROSTRO_SKIP_SECCOMP").is_none() {
+		install_seccomp(config)?;
+	} else {
+		log::warn!("rostro-node-sandbox: seccomp SKIPPED via ROSTRO_SKIP_SECCOMP");
+	}
 	Ok(SandboxHandle { cgroup_child })
 }
 
@@ -113,22 +125,27 @@ fn install_cgroup(config: &NodeSandboxConfig) -> Result<Option<PathBuf>, Sandbox
 		);
 	}
 
-	// Move the supervisor itself into the OUTER cgroup. Note: a
-	// cgroup with child cgroups can only contain processes if its
-	// children are all empty OR it's the v2 root. Since `child` is a
-	// child cgroup but starts empty, moving supervisor into
-	// supervisor_group is fine on a fresh setup. If a process is
-	// already in `child`, this write fails — but since we just
-	// created `child`, that can't happen here.
-	write_cgroup_file(&supervisor_group, "cgroup.procs", &pid.to_string())?;
+	// Phase 5 (2026-05-23): do NOT move the supervisor into
+	// `supervisor_group`. The cgroup v2 "no internal processes" rule
+	// rejects moving a process into a cgroup whose `subtree_control`
+	// has enabled controllers (which we just did at line 88 to give
+	// caps to `child_group`). The supervisor stays in its inherited
+	// cgroup (e.g. `user.slice/...session.scope` under systemd) which
+	// is uncapped from our perspective — functionally equivalent to
+	// the original two-tier intent. The kernel returns EBUSY on the
+	// migration attempt when `supervisor_group` has descendants with
+	// controllers enabled, which is always true once `subtree_control`
+	// is set above.
+	let _ = pid; // formerly used for the rejected migration
 
 	log::info!(
-		"rostro-node-sandbox cgroup: installed; supervisor in {} (uncapped), \
-		 child cgroup at {} (memory_max={:?}, cpu_max={:?})",
-		supervisor_group.display(),
+		"rostro-node-sandbox cgroup: installed; supervisor stays in its \
+		 inherited cgroup (uncapped), child cgroup at {} (memory_max={:?}, \
+		 cpu_max={:?}, oom_kill_atomic={})",
 		child_group.display(),
 		config.memory_cap(),
 		config.cpu_cap(),
+		oom_group_path.exists(),
 	);
 	Ok(Some(child_group))
 }
@@ -152,6 +169,16 @@ const BASELINE_RO_PATHS: &[&str] = &[
 	// Process self-introspection: getrandom, thread metadata,
 	// /proc/self/maps for debug logging, etc.
 	"/proc/self",
+	// Phase 5 (2026-05-23): substrate sizes its trie cache from
+	// /proc/meminfo; without this it sees "total 0 bytes" and
+	// panics on initialization. /proc/cpuinfo + /proc/loadavg
+	// are read by tokio + rayon for thread-pool sizing.
+	"/proc/meminfo",
+	"/proc/cpuinfo",
+	"/proc/loadavg",
+	"/proc/uptime",
+	"/proc/stat",
+	"/sys/devices/system/cpu",
 	// DNS resolution for libp2p bootnodes + telemetry endpoints.
 	"/etc/resolv.conf",
 	"/etc/hosts",
@@ -161,6 +188,22 @@ const BASELINE_RO_PATHS: &[&str] = &[
 	// the most common locations covered here.
 	"/etc/ssl/certs",
 	"/etc/pki/tls/certs",
+	// Phase 5 (2026-05-23): the dynamic loader + shared libraries.
+	// Without these, the kernel's exec fails with EACCES because
+	// Landlock denies read on the ELF interpreter (PT_INTERP, e.g.
+	// /lib64/ld-linux-x86-64.so.2) and the resolver can't open
+	// /etc/ld.so.cache to find libc.so.6, libpthread.so.0, etc.
+	// Per-distro locations:
+	//   * Fedora/RHEL family — /lib64, /usr/lib64
+	//   * Debian/Ubuntu — /lib, /usr/lib, plus /lib/x86_64-linux-gnu
+	// We list all four parent dirs; missing ones are silently skipped.
+	"/etc/ld.so.cache",
+	"/etc/ld.so.conf",
+	"/etc/ld.so.conf.d",
+	"/lib",
+	"/lib64",
+	"/usr/lib",
+	"/usr/lib64",
 ];
 
 /// Build the Landlock ruleset from config + baseline. Returns the
@@ -395,16 +438,13 @@ fn build_seccomp_filter() -> Result<SeccompFilter, SandboxError> {
 	}
 
 	// Argument-filtered allows.
-	rules.push((libc::SYS_mmap, mmap_no_exec_rules()?));
+	rules.push((libc::SYS_mmap, mmap_safe_rules()?));
 	rules.push((libc::SYS_mprotect, mprotect_no_exec_rules()?));
 	rules.push((libc::SYS_clone, clone_no_namespace_rules()?));
 	rules.push((libc::SYS_socket, socket_safe_families_rules()?));
 	rules.push((libc::SYS_ioctl, ioctl_safe_cmds_rules()?));
-	// clone3 deliberately omitted: arg is a struct pointer; seccomp
-	// can't inspect memory, so we can't filter its flags. Glibc and
-	// rust std use plain clone() for thread creation through current
-	// versions; clone3 calls will die. Revisit if Phase 5 strace
-	// shows them.
+	// clone3 added to PLAIN_ALLOWED_SYSCALLS as of Phase 5 (2026-05-23).
+	// See the rationale block at that array entry.
 
 	SeccompFilter::new(
 		rules.into_iter().collect(),
@@ -460,6 +500,12 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	libc::SYS_faccessat2,
 	libc::SYS_readlinkat,
 	libc::SYS_getcwd,
+	// Phase 5 (2026-05-23): observed in baseline across Fedora 44 +
+	// Debian 13 + Ubuntu 24.04. Old-style variants still hit by some
+	// glibc/Rust paths despite *at preferences. Landlock enforces the
+	// actual path policy so seccomp-allowing these is safe.
+	libc::SYS_access,
+	libc::SYS_readlink,
 	// Sync / flush — RocksDB needs these for durability.
 	libc::SYS_fdatasync,
 	libc::SYS_fsync,
@@ -472,6 +518,11 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	libc::SYS_renameat2,
 	libc::SYS_unlinkat,
 	libc::SYS_symlinkat,
+	// Phase 5 (2026-05-23): old-style FS ops also observed; Landlock
+	// still controls path access.
+	libc::SYS_mkdir,
+	libc::SYS_rename,
+	libc::SYS_unlink,
 	libc::SYS_utimensat,
 	libc::SYS_fchmod,
 	libc::SYS_fchmodat,
@@ -546,6 +597,28 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	libc::SYS_get_robust_list,
 	libc::SYS_arch_prctl, // x86_64 TLS setup
 	libc::SYS_set_tid_address,
+	// Phase 5 (2026-05-23): glibc + Rust use rseq for fast TLS access
+	// on Linux ≥4.18; observed across all three baseline distros.
+	libc::SYS_rseq,
+	// Kernel-internal signal: tells the kernel an interrupted syscall
+	// should resume. Required for correct signal handling.
+	libc::SYS_restart_syscall,
+	// Phase 5 (2026-05-23): clone3 was originally OMITTED on the
+	// theory that "glibc and rust std use plain clone() for thread
+	// creation." Real-hardware perf trace on kernel 6.19 + glibc 2.41
+	// showed 43 clone3 calls during 180s init+idle — modern glibc
+	// uses clone3 directly on Linux ≥5.5, including via `posix_spawn`
+	// (which Rust's `Command::spawn` calls). Without clone3, the
+	// supervisor SIGKILLs the moment it tries to spawn the child.
+	//
+	// Soundness gap accepted: seccomp can't inspect `clone_args`
+	// (struct behind a pointer), so namespace-creation flags
+	// (CLONE_NEW*) pass through unfiltered. Defense in depth:
+	//   * `kernel.unprivileged_userns_clone = 0` blocks unprivileged
+	//     user-namespace creation at the kernel level.
+	//   * Production validators should drop CAP_SYS_ADMIN before
+	//     exec'ing the child (v2 hardening item).
+	libc::SYS_clone3,
 	// prctl is a multiplexer; flat-allow is safe because
 	// PR_SET_NO_NEW_PRIVS (set in Phase 3b via Landlock) prevents
 	// PR_SET_SECCOMP from loosening the filter. Could arg-filter in
@@ -608,20 +681,60 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	libc::SYS_setrlimit,
 ];
 
-/// Build the rule list for `mmap`: deny `PROT_EXEC` in the prot arg
-/// (arg index 2). MaskedEq(mask=PROT_EXEC, value=0) means "the bits
-/// in PROT_EXEC must all be zero" — i.e., the caller is not asking
-/// for executable pages.
+/// Build the rule list for `mmap`. Two rules OR'd:
+///
+/// 1. **PROT_EXEC unset** → allow (regardless of flags). Covers normal
+///    R/RW allocations: Rust heap, stack growth, anonymous mappings.
+///
+/// 2. **PROT_EXEC set AND MAP_ANONYMOUS unset** → allow. Covers
+///    file-backed executable mappings: the dynamic loader (`ld.so`)
+///    mapping shared library `.text` segments. Without this, every
+///    dynamically-linked binary inside the sandbox SIGKILLs on its
+///    first attempt to map libc.so.6's text. Landlock contains *which*
+///    files can be opened, so the loader can only exec code from
+///    paths permitted by the operator's RO ruleset.
+///
+/// What stays DENIED (no rule matches): `(PROT_EXEC set) AND
+/// (MAP_ANONYMOUS set)` — anonymous executable mappings, i.e.
+/// classic JIT-spray. A compromised in-sandbox process can still
+/// write to a permitted RW path and re-mmap that file executable;
+/// closing that gap requires Landlock-execute-denial on RW paths,
+/// tracked as a v2 hardening.
+///
+/// Phase 5 (2026-05-23): split from `mmap_no_exec_rules`. Original
+/// rule denied ALL PROT_EXEC and consequently killed every dynamic
+/// loader, making the sandbox unusable in practice.
 #[cfg(target_arch = "x86_64")]
-fn mmap_no_exec_rules() -> Result<Vec<SeccompRule>, SandboxError> {
-	Ok(vec![SeccompRule::new(vec![Cond::new(
-		2, // arg2 = prot
-		ArgLen::Dword,
-		SeccompCmpOp::MaskedEq(libc::PROT_EXEC as u64),
-		0,
-	)
-	.map_err(|e| seccomp_err("mmap.prot cond", e))?])
-	.map_err(|e| seccomp_err("mmap.prot rule", e))?])
+fn mmap_safe_rules() -> Result<Vec<SeccompRule>, SandboxError> {
+	Ok(vec![
+		// Rule 1: (prot & PROT_EXEC) == 0
+		SeccompRule::new(vec![Cond::new(
+			2,
+			ArgLen::Dword,
+			SeccompCmpOp::MaskedEq(libc::PROT_EXEC as u64),
+			0,
+		)
+		.map_err(|e| seccomp_err("mmap.prot=0 cond", e))?])
+		.map_err(|e| seccomp_err("mmap.prot=0 rule", e))?,
+		// Rule 2: (prot & PROT_EXEC) == PROT_EXEC AND (flags & MAP_ANONYMOUS) == 0
+		SeccompRule::new(vec![
+			Cond::new(
+				2,
+				ArgLen::Dword,
+				SeccompCmpOp::MaskedEq(libc::PROT_EXEC as u64),
+				libc::PROT_EXEC as u64,
+			)
+			.map_err(|e| seccomp_err("mmap.prot=exec cond", e))?,
+			Cond::new(
+				3,
+				ArgLen::Dword,
+				SeccompCmpOp::MaskedEq(libc::MAP_ANONYMOUS as u64),
+				0,
+			)
+			.map_err(|e| seccomp_err("mmap.anon=0 cond", e))?,
+		])
+		.map_err(|e| seccomp_err("mmap.exec-file rule", e))?,
+	])
 }
 
 /// Same idea as `mmap` for `mprotect`: deny `PROT_EXEC` (arg 2).
@@ -711,6 +824,9 @@ fn ioctl_safe_cmds_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 		(libc::FIONBIO as u64, "FIONBIO"),
 		(libc::TCGETS as u64, "TCGETS"),
 		(libc::TIOCGPGRP as u64, "TIOCGPGRP"),
+		// Phase 5 (2026-05-23): modern terminal config that supports
+		// c_ispeed/c_ospeed. Observed in all three baseline distros.
+		(libc::TCGETS2 as u64, "TCGETS2"),
 	];
 	let mut rules = Vec::with_capacity(SAFE_IOCTLS.len());
 	for (cmd, name) in SAFE_IOCTLS {
@@ -859,7 +975,13 @@ mod tests {
 	}
 
 	#[test]
-	fn install_cgroup_writes_self_pid_to_supervisor_procs() {
+	fn install_cgroup_does_not_move_supervisor_pid() {
+		// Phase 5 (2026-05-23): supervisor stays in its inherited
+		// cgroup. cgroup v2 "no internal processes" rule rejects
+		// moving the supervisor into `supervisor_group` once we've
+		// enabled controllers on its subtree (which we must, to cap
+		// the child). Verify install completes without attempting the
+		// migration.
 		let root = fake_cgroup_root();
 		let cfg = NodeSandboxConfig::new()
 			.cgroup_root(&root)
@@ -867,9 +989,16 @@ mod tests {
 		install_cgroup(&cfg).unwrap();
 		let pid = std::process::id();
 		let supervisor_group = root.join(format!("rostro-node-{pid}"));
+		// supervisor_group.cgroup.procs should be the file we never wrote,
+		// which the fake_cgroup_root setup leaves empty.
 		let written =
-			std::fs::read_to_string(supervisor_group.join("cgroup.procs")).unwrap();
-		assert_eq!(written.trim(), pid.to_string());
+			std::fs::read_to_string(supervisor_group.join("cgroup.procs"))
+				.unwrap_or_default();
+		assert_eq!(
+			written.trim(),
+			"",
+			"supervisor PID must not be written to supervisor_group's cgroup.procs"
+		);
 	}
 
 	#[test]
@@ -1074,15 +1203,13 @@ mod tests {
 
 	#[cfg(target_arch = "x86_64")]
 	#[test]
-	fn mmap_rule_denies_prot_exec() {
-		let rules = mmap_no_exec_rules().unwrap();
-		assert_eq!(rules.len(), 1, "single rule: deny PROT_EXEC");
-		// Sanity that the rule struct contains the expected condition.
-		// We don't directly inspect rule internals (private fields),
-		// but we can verify the BPF program rejects PROT_EXEC by
-		// compiling a filter that uses this rule and structurally
-		// checking it. For deeper validation, Phase 5 runs an actual
-		// mmap(PROT_EXEC) and verifies it's killed.
+	fn mmap_rule_two_paths_safe_exec() {
+		// Phase 5 (2026-05-23): two rules — one for PROT_EXEC=0 (any
+		// flags), one for PROT_EXEC=set + MAP_ANONYMOUS=0 (file-backed
+		// exec, ld.so library loading). Anonymous executable mappings
+		// (JIT-spray) remain DENIED by absence of any matching rule.
+		let rules = mmap_safe_rules().unwrap();
+		assert_eq!(rules.len(), 2, "two rules: no-exec + file-backed-exec");
 	}
 
 	#[cfg(target_arch = "x86_64")]
@@ -1176,10 +1303,14 @@ mod tests {
 			libc::SYS_syslog,
 			libc::SYS_open_by_handle_at,
 			libc::SYS_name_to_handle_at,
-			// clone3 is denied (struct-pointer flags arg can't be
-			// filtered by seccomp; if any caller hits it we'll see
-			// the kill in Phase 5 and decide).
-			libc::SYS_clone3,
+			// Phase 5 (2026-05-23): clone3 was originally on this
+			// dangerous-list with the note "if any caller hits it we'll
+			// see the kill in Phase 5 and decide." Phase 5 did see it
+			// (43 calls in 180s init+idle on kernel 6.19 + glibc 2.41),
+			// and we decided to ALLOW. clone3 is now in
+			// PLAIN_ALLOWED_SYSCALLS with a documented soundness gap
+			// (can't filter struct-pointer flags). See the rationale
+			// block at the array entry. Removed from this test.
 		];
 		for sys in dangerous {
 			assert!(
