@@ -526,6 +526,7 @@ fn build_seccomp_filter_with_label()
 	rules.push((libc::SYS_clone, clone_no_namespace_rules()?));
 	rules.push((libc::SYS_socket, socket_safe_families_rules()?));
 	rules.push((libc::SYS_ioctl, ioctl_safe_cmds_rules()?));
+	rules.push((libc::SYS_prlimit64, prlimit64_self_only_rules()?));
 	// clone3 added to PLAIN_ALLOWED_SYSCALLS as of Phase 5 (2026-05-23).
 	// See the rationale block at that array entry.
 
@@ -631,6 +632,12 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	libc::SYS_fdatasync,
 	libc::SYS_fsync,
 	libc::SYS_sync_file_range,
+	// F08 fix (2026-05-24): RocksDB calls posix_fadvise() for compaction
+	// and WAL I/O hints. Without this on the allowlist the node was in a
+	// continuous SIGSYS crash-restart loop on debian-01 the first time
+	// compaction fired (red-team observation Phase 5 second-pass). Benign
+	// advisory syscall — no security implications.
+	libc::SYS_fadvise64,
 	// File ops. mkdirat/renameat/unlinkat go through Landlock for
 	// path policy. fcntl is a multiplexer but operations are mostly
 	// safe (FD_CLOEXEC, file locking).
@@ -644,6 +651,10 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	libc::SYS_mkdir,
 	libc::SYS_rename,
 	libc::SYS_unlink,
+	// F17 fix (2026-05-24): symlinkat was allowed but symlink was not —
+	// an asymmetric oversight. Landlock controls the path policy either
+	// way; older glibc/Rust paths still hit symlink(2) directly.
+	libc::SYS_symlink,
 	libc::SYS_utimensat,
 	libc::SYS_fchmod,
 	libc::SYS_fchmodat,
@@ -793,11 +804,14 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	libc::SYS_getcpu,
 
 	// ── Resource limits (self only) ───────────────────────────────
-	// prlimit64 can target other PIDs but the kernel rejects without
-	// CAP_SYS_RESOURCE, and we don't grant that. Arg-filtering
-	// on pid=0 is a future tightening.
+	// getrlimit/setrlimit take no PID argument — implicitly self.
+	// prlimit64 IS arg-filtered separately (see prlimit64_self_only_rules)
+	// to require pid=0; flat-allowing it lets a compromised child set
+	// rlimits on arbitrary other host PIDs because the supervisor runs
+	// as root and the kernel's CAP_SYS_RESOURCE check passes. F01
+	// red-team confirmed: setting RLIMIT_NOFILE=8 on PID 1 (systemd)
+	// bricked debian-01's sshd — fix-forward 2026-05-24.
 	libc::SYS_getrlimit,
-	libc::SYS_prlimit64,
 	libc::SYS_setrlimit,
 ];
 
@@ -910,6 +924,31 @@ fn mprotect_safe_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 		])
 		.map_err(|e| seccomp_err("mprotect.jit-flip rule", e))?,
 	])
+}
+
+/// Build the rule list for `prlimit64`: arg0 (pid) must be 0 (= self).
+///
+/// `prlimit64(pid, resource, new_lim, old_lim)` can read OR set rlimits
+/// on any PID when the kernel's per-resource permission check passes.
+/// As root (the supervisor runs setuid root, and the sandboxed child
+/// inherits root), the kernel allows cross-PID writes without CAP_SYS_RESOURCE
+/// gating — F01 red-team confirmed by setting RLIMIT_NOFILE=8 on PID 1
+/// (systemd), bricking sshd on debian-01.
+///
+/// glibc maps `getrlimit(2)`/`setrlimit(2)` and `prlimit64(0, ...)`
+/// transparently to this syscall with `pid=0`. Substrate's own rlimit
+/// raises hit pid=0. The arg filter preserves every legitimate caller
+/// and blocks the cross-PID weaponization.
+#[cfg(target_arch = "x86_64")]
+fn prlimit64_self_only_rules() -> Result<Vec<SeccompRule>, SandboxError> {
+	Ok(vec![SeccompRule::new(vec![Cond::new(
+		0, // arg0 = pid
+		ArgLen::Dword,
+		SeccompCmpOp::Eq,
+		0,
+	)
+	.map_err(|e| seccomp_err("prlimit64.pid cond", e))?])
+	.map_err(|e| seccomp_err("prlimit64.pid rule", e))?])
 }
 
 /// Build the rule list for `clone`: deny namespace-creation flags.
@@ -1572,6 +1611,28 @@ mod tests {
 	fn clone_rule_denies_namespace_flags() {
 		let rules = clone_no_namespace_rules().unwrap();
 		assert_eq!(rules.len(), 1, "single rule: deny CLONE_NEW*");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn prlimit64_rule_requires_pid_zero() {
+		// F01 regression: any rule must constrain arg0 (pid). One rule
+		// is enough — Eq 0 is the constraint. The compiled BPF check
+		// is exercised end-to-end by build_seccomp_filter_compiles_to_bpf.
+		let rules = prlimit64_self_only_rules().unwrap();
+		assert_eq!(rules.len(), 1, "single rule: pid == 0");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn prlimit64_not_in_plain_allowlist() {
+		// F01 regression: prlimit64 MUST go through prlimit64_self_only_rules,
+		// not the plain allowlist. Re-adding it here flat-allowed reopens
+		// the cross-PID rlimit write that bricked debian-01.
+		assert!(
+			!PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_prlimit64),
+			"prlimit64 must be arg-filtered for pid=0, not flat-allowed",
+		);
 	}
 
 	#[cfg(target_arch = "x86_64")]

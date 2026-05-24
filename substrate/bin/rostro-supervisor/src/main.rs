@@ -110,8 +110,11 @@ struct Args {
 	/// supervisor scans this directory for any `<name>.new` files
 	/// and atomically rotates each to `<name>`. Defaults to the
 	/// parent directory of the child binary, matching the verifier's
-	/// resolve-relative-to-`current_exe()` convention. Pass an empty
-	/// string to disable the scan entirely (single-file mode).
+	/// resolve-relative-to-`current_exe()` convention. Omit the flag
+	/// entirely to fall back to that default; to disable the scan use
+	/// `--canonical-dir /dev/null` (or any path that contains no
+	/// `*.new` files). Clap rejects `--canonical-dir ""` — empty
+	/// strings are not a valid `PathBuf` argument.
 	#[arg(long)]
 	canonical_dir: Option<PathBuf>,
 
@@ -138,9 +141,12 @@ struct Args {
 	backoff_ceiling_secs: u64,
 
 	/// Path to the persisted supervisor state file. Defaults to
-	/// `<canonical-dir>/.supervisor-state`. Pass an empty string to
-	/// disable persistence entirely (counters become per-invocation;
-	/// useful for tests, NOT for production validators).
+	/// `<canonical-dir>/.supervisor-state`. Omit the flag to use the
+	/// default. There is no current way to fully disable persistence
+	/// — clap rejects `--state-file ""` (empty strings are not a
+	/// valid `PathBuf` argument); the closest is to point it at a
+	/// path on a tmpfs that doesn't survive reboot. Add a real
+	/// disable mechanism if a test path needs one.
 	#[arg(long)]
 	state_file: Option<PathBuf>,
 
