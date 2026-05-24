@@ -1,0 +1,25 @@
+[package]
+name = "rostro-node-sandbox"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Host-level sandbox primitives applied by rostro-supervisor before exec'ing gemini-node. Wraps cgroup v2 self-cap, Landlock filesystem rules, and seccomp-bpf syscall allowlist behind a single install() entry point. Linux is the target today; Windows and macOS impls are stubs returning PlatformUnsupported. Apache-2.0; std-only by design (the supervisor is the only caller and is std)."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+log = { workspace = true, default-features = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }
+landlock = "0.4"
+seccompiler = "0.4"
+
+[features]
+default = []

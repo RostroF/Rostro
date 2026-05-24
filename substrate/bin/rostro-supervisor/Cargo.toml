@@ -20,6 +20,7 @@ path = "src/main.rs"
 clap = { workspace = true, features = ["derive"] }
 env_logger = { workspace = true }
 log = { workspace = true, default-features = true }
+rostro-node-sandbox = { workspace = true, default-features = false }
 
 [features]
 default = []
