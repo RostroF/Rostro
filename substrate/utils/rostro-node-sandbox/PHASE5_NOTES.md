@@ -439,14 +439,16 @@ in-sandbox process can write malicious code to a permitted RW path
 (`/opt/rostro/data`) and mmap it executable. Landlock 6.4+ supports
 denying execute on RW paths; adopt when we bump the kernel floor.
 
-### Pending #7 — CAP_SYS_ADMIN drop (v2 hardening)
+### Pending #7 — CAP_SYS_ADMIN drop — CLOSED 2026-05-24 (`6c59927c9e`)
 
-Bug 2's revised fix (clone3 ENOSYS intercept) closes the original
-soundness gap directly. CAP_SYS_ADMIN drop is now belt-and-suspenders,
-not the primary defense — still worth doing so a `CAP_SYS_ADMIN`-
-holding compromised child can't reach for other admin-gated syscalls
-(`mount` family, `setns` outside of seccomp, etc.). Supervisor needs
-root for cgroup setup; drop the cap between setup and exec.
+Originally tracked as v2 hardening, demoted to belt-and-suspenders
+after Bug 2's clone3 ENOSYS fix, then promoted back to load-bearing
+by the [[least_privilege_validator_principle]] (Parity dev's
+"polkadot basically runs with sudo" framing). Closed via
+`Command::pre_exec` hook on every child spawn calling
+`prctl(PR_CAPBSET_DROP, CAP_SYS_ADMIN=21)`. Supervisor itself keeps
+the capability for cgroup writes; the bounding-set drop is permanent
++ can't be raised.
 
 ## Red-team follow-up (2026-05-23 → ongoing)
 
@@ -475,22 +477,25 @@ the original PoC against the deployed lab nodes.
 | F03 socket(AF_INET6, SOCK_RAW, IPPROTO_RAW) — raw IPv6 packet injection | ARG-FILTER BYPASS | `e135235b8e` | Rewrote `socket_safe_families_rules()` from "domain-only" to (domain, type) pairs requiring `(type & 0xF) ∈ {SOCK_STREAM, SOCK_DGRAM}` for AF_INET/AF_INET6. SOCK_RAW (3) denied by absence. AF_UNIX kept domain-only (local IPC). AF_NETLINK still gated to NETLINK_ROUTE. UDP kept for future QUIC libp2p paths. Phase C LOG-mode round confirmed zero unexpected socket combinations across all 3 lab nodes; flipped to KILL mode 2026-05-24 with 0 SIGSYS audits. |
 | Lab-bring-up gap: readahead | RELIABILITY (ubuntu-only crash) | `2cbff9bf00` | ubuntu-01 (Ubuntu 24.04, kernel 6.8, glibc 2.39) hit `readahead(2)` 10x in 18min sustained operation; debian-01 (6.12, glibc 2.41) and fedora-01 (6.19, glibc 2.41) didn't. Surfaced via ROSTRO_SECCOMP_ACTION=log diagnostic mode during lab bring-up. RocksDB sequential SST scan / WAL replay paths use it on some glibc/kernel combos. Added `SYS_readahead` to plain allowlist; benign advisory syscall like fadvise64. Updates the cross-distro consistency note: sustained operation diverges where init+idle didn't. |
 | F04 setsockopt SO_ATTACH_FILTER + multiplexer reach | ARG-FILTER BYPASS | `e6bb1c35e7` + `dde3a211df` (iter 2) | Removed `SYS_setsockopt` from plain allowlist; added `setsockopt_safe_options_rules()` whitelisting (level, option) pairs. iter 1 shipped the 4 pairs from Phase A's `--dev --no-mdns` strace baseline; lab `--chain=local` (mDNS enabled by default) immediately crashed on `tokio-runtime-w` syscall=54. Direct strace on fedora-01 with `--chain=local` surfaced 3 mDNS pairs (`IP_MULTICAST_TTL`, `IP_MULTICAST_LOOP`, `IP_ADD_MEMBERSHIP` for joining 224.0.0.251). iter 2 whitelist = 7 pairs total. Verified: all 3 nodes synced at block #931 with 0 KILL audits under sustained peering. Methodological lesson saved: [[feedback_aegis_baseline_methodology]] — Phase A baseline workload must match deployment CLI; audit aggregation must filter `exe=` not `comm=` (worker threads have different names). |
+| Pending #7 CAP_SYS_ADMIN drop | DEFENSE-IN-DEPTH (promoted from belt-and-suspenders) | `6c59927c9e` + `03d68cf919` (memfd cascade) | Supervisor adds `Command::pre_exec` hook calling `prctl(PR_CAPBSET_DROP, CAP_SYS_ADMIN=21)`. Bounding-set drop is monotone + permanent, can't be raised. Supervisor itself keeps cap for cgroup writes. F07 whitelist extended to allow `PR_CAPBSET_DROP` (cap drops only reduce privilege). Cascade fix: polkavm JIT falls off its linux-raw-sandbox path without CAP_SYS_ADMIN onto a memfd_create-based generic backend; `SYS_memfd_create` added to allowlist (still gated by mmap W^X arg filter). Lab verified at #1184 with all 3 nodes synced, 0 SIGSYS. |
+| F13 ftruncate residual (inherited writable fds) | CONFIRMED ESCAPE residual | `226c2d0225` | Supervisor adds second `Command::pre_exec` hook calling `close_range(3, UINT_MAX, 0)` to close every inherited fd above stdio. Defeats the `/proc/self/fd/N`-reopen attack chain on any inherited writable inode, even if some C-dependency holds non-CLOEXEC fds (libsystemd journal, landlock-rs ruleset, glibc nss). Linux 5.9+; ENOSYS-tolerant fallback for older kernels. Lab verified at #1223 with 0 KILL audits. |
+| F05 mmap PROT_EXEC file-backed (shellcode in RW path) | DESIGN-PERMITTED → CLOSED via Landlock | `23a8410f4c` | Landlock RW path rules now use `AccessFs::from_all(abi) & !AccessFs::Execute` instead of `all_fs`. Kernel rejects `mmap(PROT_EXEC)` on any file in `--sandbox-rw-path`. RO paths keep Execute via `read_fs` (required for supervisor to exec gemini-node binary). Cgroup-extra path also denies Execute since cgroup files aren't binaries. Lab verified at #1276 with 0 KILL audits and 0 new errors. F06 (anon W→X) remains by-design for PolkaVM JIT; threat-model item. |
 
 ### Still open
 
 Tracked separately in `~/rostro-testnet-lab/notes/redteam-2026-05-23/REPORT.md`:
 
-- **F05** mmap PROT_EXEC file-backed — design-permitted; Landlock
-  execute-deny on RW (Pending #6) closes it.
-- **F06** mprotect W→X — design-permitted (PolkaVM JIT).
+- **F06** mprotect W→X — design-permitted (PolkaVM JIT). See
+  [`THREAT_MODEL.md`](THREAT_MODEL.md) §3.
 - **F13 ftruncate residual** — fchmod/fchown family closed (see above);
   ftruncate kept for RocksDB still allows the /proc/self/fd-reopen
   pattern against inherited writable-inode fds. Mitigation is
   supervisor CLOEXEC discipline (audit + close non-essential fds
   before exec) — separate work item.
-- **F14 / F22 / F25 / F28-31** — /proc info leak surfaces. Design-implied
-  because supervisor runs as root and we don't namespace; most are
-  threat-model items to document rather than fix.
+- **F14 / F22 / F25 / F28-31** — /proc info leak surfaces.
+  Documented in [`THREAT_MODEL.md`](THREAT_MODEL.md) §3 — design-
+  implied because supervisor runs as root and we don't PID-namespace.
+  Lateral recon, not escalation.
 
 ## Diagnostic tooling added
 
