@@ -638,6 +638,16 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	// compaction fired (red-team observation Phase 5 second-pass). Benign
 	// advisory syscall — no security implications.
 	libc::SYS_fadvise64,
+	// Lab-bring-up gap (2026-05-24): RocksDB calls readahead() for
+	// sequential-read prefetching on the WAL replay + sequential SST
+	// scan paths. ubuntu-01 (kernel 6.8) hit it 10x in 18min of
+	// sustained operation under --chain=local (debian 6.12 + fedora
+	// 6.19 didn't). Cross-distro variance: glibc 2.39's readahead
+	// wrapper triggers the syscall directly where 2.41's may take a
+	// different path. Benign advisory like fadvise64. Cross-distro
+	// memory note `[[codebase_inventory]]` ("identical 63-syscall set")
+	// was init+idle only and overstated cross-distro consistency.
+	libc::SYS_readahead,
 	// File ops. mkdirat/renameat/unlinkat go through Landlock for
 	// path policy. fcntl is a multiplexer but operations are mostly
 	// safe (FD_CLOEXEC, file locking).
