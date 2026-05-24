@@ -656,10 +656,19 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	// way; older glibc/Rust paths still hit symlink(2) directly.
 	libc::SYS_symlink,
 	libc::SYS_utimensat,
-	libc::SYS_fchmod,
-	libc::SYS_fchmodat,
-	libc::SYS_fchown,
-	libc::SYS_fchownat,
+	// F13 fix (2026-05-24): fchmod/fchown/fchmodat/fchownat REMOVED.
+	// Red-team confirmed: open /etc/resolv.conf O_RDONLY → reopen via
+	// /proc/self/fd/N as O_RDWR → fchmod(fd, 0666) succeeds because
+	// the kernel's fchmod check looks at inode write permission for
+	// the calling EUID (root in our sandbox), NOT the open mode of the
+	// passed-in fd. Landlock filters open(), not fchmod() on existing
+	// fds. Phase A 10-min sustained strace baseline (102 blocks,
+	// debian-01) + Phase 5 5-min init+idle baseline (fedora-01) both
+	// show ZERO calls to any of these four syscalls from substrate
+	// + libp2p + tokio + rust-std + RocksDB. Denial is safe.
+	//
+	// fsetxattr was never on the allowlist — same primitive applies
+	// but already closed by absence.
 	libc::SYS_fcntl,
 	// Pipes.
 	libc::SYS_pipe2,
@@ -1621,6 +1630,32 @@ mod tests {
 		// is exercised end-to-end by build_seccomp_filter_compiles_to_bpf.
 		let rules = prlimit64_self_only_rules().unwrap();
 		assert_eq!(rules.len(), 1, "single rule: pid == 0");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn fchmod_family_not_in_plain_allowlist() {
+		// F13 regression: fchmod / fchown / fchmodat / fchownat MUST
+		// stay off the allowlist. Re-adding ANY of them reopens the
+		// /proc/self/fd-reopen escape — kernel fchmod doesn't check
+		// the fd's open mode, only inode write perm for EUID (root
+		// in our sandbox), so a RO-opened fd reopened via
+		// /proc/self/fd/N as O_RDWR can flip permissions on any
+		// file the supervisor (root) can write. fsetxattr too,
+		// already denied by absence.
+		let denied = &[
+			libc::SYS_fchmod,
+			libc::SYS_fchmodat,
+			libc::SYS_fchown,
+			libc::SYS_fchownat,
+			libc::SYS_fsetxattr,
+		];
+		for sys in denied {
+			assert!(
+				!PLAIN_ALLOWED_SYSCALLS.contains(sys),
+				"syscall {sys} re-added to allowlist — reopens F13",
+			);
+		}
 	}
 
 	#[cfg(target_arch = "x86_64")]
