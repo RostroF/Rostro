@@ -1057,10 +1057,18 @@ fn setsockopt_safe_options_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 	// IPPROTO_TCP (6) and IPPROTO_IPV6 (41) respectively — same values
 	// the kernel matches.
 	const PAIRS: &[(u64, u64, &str)] = &[
-		(libc::SOL_SOCKET   as u64, libc::SO_REUSEADDR  as u64, "SOL_SOCKET/SO_REUSEADDR"),
-		(libc::SOL_SOCKET   as u64, libc::SO_REUSEPORT  as u64, "SOL_SOCKET/SO_REUSEPORT"),
-		(libc::IPPROTO_TCP  as u64, libc::TCP_NODELAY   as u64, "IPPROTO_TCP/TCP_NODELAY"),
-		(libc::IPPROTO_IPV6 as u64, libc::IPV6_V6ONLY   as u64, "IPPROTO_IPV6/IPV6_V6ONLY"),
+		(libc::SOL_SOCKET   as u64, libc::SO_REUSEADDR     as u64, "SOL_SOCKET/SO_REUSEADDR"),
+		(libc::SOL_SOCKET   as u64, libc::SO_REUSEPORT     as u64, "SOL_SOCKET/SO_REUSEPORT"),
+		(libc::IPPROTO_TCP  as u64, libc::TCP_NODELAY      as u64, "IPPROTO_TCP/TCP_NODELAY"),
+		(libc::IPPROTO_IPV6 as u64, libc::IPV6_V6ONLY      as u64, "IPPROTO_IPV6/IPV6_V6ONLY"),
+		// Lab gap (2026-05-24): mDNS multicast group join, observed via
+		// direct strace on `--chain=local` (Phase A used `--dev --no-mdns`
+		// and so missed these). libp2p uses mDNS for LAN peer discovery
+		// by default; ALL three are needed (membership join + TTL +
+		// loopback). Multicast group is `224.0.0.251` (standard mDNS).
+		(libc::IPPROTO_IP   as u64, libc::IP_MULTICAST_TTL  as u64, "IPPROTO_IP/IP_MULTICAST_TTL"),
+		(libc::IPPROTO_IP   as u64, libc::IP_MULTICAST_LOOP as u64, "IPPROTO_IP/IP_MULTICAST_LOOP"),
+		(libc::IPPROTO_IP   as u64, libc::IP_ADD_MEMBERSHIP as u64, "IPPROTO_IP/IP_ADD_MEMBERSHIP"),
 	];
 	let mut rules = Vec::with_capacity(PAIRS.len());
 	for (level, option, label) in PAIRS {
@@ -1883,8 +1891,8 @@ mod tests {
 		// Conds (level + option). Compiled BPF correctness is exercised
 		// end-to-end by build_seccomp_filter_compiles_to_bpf.
 		let rules = setsockopt_safe_options_rules().unwrap();
-		assert_eq!(rules.len(), 4,
-			"SOL_SOCKET+SO_REUSEADDR, SOL_SOCKET+SO_REUSEPORT, IPPROTO_TCP+TCP_NODELAY, IPPROTO_IPV6+IPV6_V6ONLY");
+		assert_eq!(rules.len(), 7,
+			"4 Phase A pairs + 3 mDNS multicast pairs (IP_MULTICAST_TTL, IP_MULTICAST_LOOP, IP_ADD_MEMBERSHIP)");
 	}
 
 	#[cfg(target_arch = "x86_64")]
