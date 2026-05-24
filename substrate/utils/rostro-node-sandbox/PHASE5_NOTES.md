@@ -448,6 +448,53 @@ holding compromised child can't reach for other admin-gated syscalls
 (`mount` family, `setns` outside of seccomp, etc.). Supervisor needs
 root for cgroup setup; drop the cap between setup and exec.
 
+## Red-team follow-up (2026-05-23 → ongoing)
+
+After Phase 5 second-pass landed, an adversarial pass on
+rostro-debian-01 produced a finding catalogue with F-numbers
+(`~/rostro-testnet-lab/notes/redteam-2026-05-23/REPORT.md`).
+Two ROE-bounded escapes (F01 prlimit64 cross-PID brick on PID 1;
+F02 clone3 namespace creation) plus a cgroup containment failure
+(F12 memory.swap.max spill) and assorted arg-filter bypasses.
+Each commit below is verified end-to-end with a probe that mirrors
+the original PoC against the deployed lab nodes.
+
+### Closed
+
+| Finding | Severity | Commit | Fix shape |
+|---|---|---|---|
+| F02 clone3(CLONE_NEW*) namespace creation | CONFIRMED ESCAPE | `0e725eb425` | Stacked seccomp filter returns `ENOSYS` for clone3; glibc ≥2.34 falls back to legacy `clone()` which hits the existing `CLONE_NEW*` MaskedEq filter and SIGKILLs. Bug 2 entry above has the signed-min-stacking subtlety that bit v1 (`919fadd8ce`). |
+| F12 memory.max silently exceeded via swap | CONTAINMENT BROKEN | `076e6ac462` | `memory.swap.max=0` adjacent to `memory.max` write. Install log gains `swap_max_pinned=true\|false` so operators can see at boot whether the cap is real. Verified: 1.5 GiB allocation under a 1 GiB cap now OOM-killed instead of spilling. |
+| F01 prlimit64 cross-PID write | CONFIRMED ESCAPE (bricked debian-01) | `43b8aab94f` | `prlimit64_self_only_rules()` requires arg0 (pid) == 0. Verified: `prlimit64(pid=1, RLIMIT_NOFILE, ...)` now SIGKILL'd at seccomp before kernel sees it; `prlimit64(pid=0, ...)` (the legitimate getrlimit/setrlimit path) still works. |
+| F08 fadvise64 crash-restart loop | RELIABILITY (validator can't run) | `43b8aab94f` | `SYS_fadvise64` added to plain allowlist. RocksDB's `posix_fadvise()` no longer SIGSYSes during compaction. |
+| F17 symlink(2) denied while symlinkat(2) allowed | RELIABILITY oversight | `43b8aab94f` | `SYS_symlink` added; Landlock still gates the path policy. |
+| F09 `--state-file` / `--canonical-dir` docstring lied | DOC DISCONNECT | `43b8aab94f` | Both docstrings rewritten to describe actual clap behavior. `--canonical-dir` gets a workaround (point at a `*.new`-free dir); `--state-file` honestly says no disable mechanism exists today. |
+
+### Still open
+
+Tracked separately in `~/rostro-testnet-lab/notes/redteam-2026-05-23/REPORT.md`:
+
+- **F03** socket(AF_INET6, SOCK_RAW, IPPROTO_RAW) — arg filter allows
+  AF_INET6 with any protocol; raw IPv6 packet injection reachable.
+- **F04** setsockopt SO_ATTACH_FILTER — flat-allowed; kernel cBPF VM
+  reachable despite `bpf(2)` being denied.
+- **F05** mmap PROT_EXEC file-backed — design-permitted; Landlock
+  execute-deny on RW (Pending #6) closes it.
+- **F06** mprotect W→X — design-permitted (PolkaVM JIT).
+- **F07** prctl multiplexer flat-allowed — PR_SET_PTRACER_ANY +
+  PR_SET_DUMPABLE + PR_CAPBSET_DROP + PR_SET_MM reachable. Needs
+  arg-filter on the option name.
+- **F13** Landlock fchmod bypass via /proc/self/fd reopen — same for
+  fchown/ftruncate. fsetxattr already denied at seccomp.
+- **F14 / F22 / F25 / F28-31** — /proc info leak surfaces. Design-implied
+  because supervisor runs as root and we don't namespace; most are
+  threat-model items to document rather than fix.
+- **F15 / F16** — operator misconfig: if `--state-file` or
+  `--canonical-dir` overlaps `--sandbox-rw-path`, the sandboxed child
+  can poison supervisor counters (F15) or stage `attacker-payload.new`
+  for rotation by the next swap (F16). Need supervisor-side path-overlap
+  validation at startup.
+
 ## Diagnostic tooling added
 
 For future iterations, the install function now respects two env vars
