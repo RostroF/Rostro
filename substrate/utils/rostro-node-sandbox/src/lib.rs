@@ -285,6 +285,61 @@ impl SandboxHandle {
 	pub fn cgroup_child_path(&self) -> Option<&std::path::Path> {
 		self.cgroup_child.as_deref()
 	}
+
+	/// Pending #7 fix (2026-05-24): drop `CAP_SYS_ADMIN` from the
+	/// calling process's capability bounding set. Intended to be
+	/// installed as a [`std::os::unix::process::CommandExt::pre_exec`]
+	/// hook on the child binary — runs in the forked-but-not-yet-execed
+	/// child, before its first instruction of gemini-node code.
+	///
+	/// **Why bounding-set drop and not just effective-set:** dropping
+	/// from the bounding set is permanent for the process AND all its
+	/// descendants — a process can never RAISE a cap above its bounding
+	/// set, even via setuid binaries or `cap_raise`. Effective-set drops
+	/// can be undone if other bits are still set. Bounding-set drop is
+	/// the only one-way mechanism.
+	///
+	/// **Why CAP_SYS_ADMIN specifically:** the catch-all "root-can-do-
+	/// anything" capability for ~30 admin operations including
+	/// `mount(2)`, `setns(2)`, `unshare(NEWUSER)`, `pivot_root`,
+	/// `quotactl`, `bpf(2)` (already denied at seccomp), `keyctl`,
+	/// `swapon`, etc. With seccomp blocking most of these directly,
+	/// dropping CAP_SYS_ADMIN closes any kernel path we missed — a
+	/// future kernel might add a new admin operation whose syscall isn't
+	/// in our deny list but whose semantics need CAP_SYS_ADMIN. This is
+	/// belt-and-suspenders defense-in-depth, aligned with
+	/// [[least_privilege_validator_principle]].
+	///
+	/// **Why pre_exec and not the supervisor's own drop:** the supervisor
+	/// itself needs CAP_SYS_ADMIN (or root + CAP_DAC_OVERRIDE) to write
+	/// `/sys/fs/cgroup/...` files during cgroup setup. Dropping in
+	/// pre_exec — which runs AFTER the supervisor has done its setup
+	/// but BEFORE the child becomes gemini-node — preserves the
+	/// supervisor's ability while neutering the child.
+	///
+	/// **F07 prctl filter interaction:** `PR_CAPBSET_DROP` is explicitly
+	/// allowed in `prctl_safe_options_rules`. The threat F07 named
+	/// ("attacker drops caps for evasion") is countered by the fact
+	/// that cap drops are monotone — calling `PR_CAPBSET_DROP` only
+	/// REDUCES privilege, never adds.
+	///
+	/// `CAP_SYS_ADMIN` = 21 per `<linux/capability.h>`. libc has no
+	/// constant for this; the literal is documented at use site.
+	#[cfg(target_os = "linux")]
+	pub fn drop_cap_sys_admin_in_child() -> std::io::Result<()> {
+		// CAP_SYS_ADMIN per <linux/capability.h> — not in libc 0.2.
+		const CAP_SYS_ADMIN: libc::c_ulong = 21;
+		// SAFETY: prctl with PR_CAPBSET_DROP + a valid cap number has no
+		// memory-safety implications; failure returns -1/errno per usual
+		// syscall contract.
+		let rc = unsafe {
+			libc::prctl(libc::PR_CAPBSET_DROP, CAP_SYS_ADMIN, 0, 0, 0)
+		};
+		if rc != 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+		Ok(())
+	}
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────

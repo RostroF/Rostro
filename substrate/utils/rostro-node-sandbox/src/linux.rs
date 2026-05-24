@@ -983,8 +983,9 @@ fn prlimit64_self_only_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 	.map_err(|e| seccomp_err("prlimit64.pid rule", e))?])
 }
 
-/// Build the rule list for `prctl`: whitelist arg0 (option) to
-/// `PR_SET_NAME` (15) only.
+/// Build the rule list for `prctl`: whitelist arg0 (option) to two
+/// values — `PR_SET_NAME` (15) for thread naming + `PR_CAPBSET_DROP`
+/// (24) for the Pending #7 supervisor-pre-exec cap drop.
 ///
 /// `prctl(2)` is a multiplexer with ~40 distinct operations. Most are
 /// privileged-adjacent — F07 red-team demonstrated:
@@ -993,31 +994,40 @@ fn prlimit64_self_only_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 ///   scope, letting any host process attach a debugger to the sandbox.
 /// - `PR_SET_DUMPABLE(1)` — flips the process to attachable for
 ///   gdb/ptrace even if SUID transitions cleared it.
-/// - `PR_CAPBSET_DROP(CAP_SYS_ADMIN)` — drops specific capabilities,
-///   useful for evading capability-aware monitoring.
 /// - `PR_SET_MM(START_CODE, ...)` — manipulates the process's own
 ///   memory map metadata.
 ///
-/// Phase A 600s sustained baseline (debian-01, 102 blocks, gemini-node
-/// under --chain=local) observed prctl 53 times — ALL `PR_SET_NAME`
-/// from Rust std + tokio worker thread naming. Whitelisting that one
-/// option closes every reachable operation above.
+/// Phase A 600s sustained baseline observed prctl 53 times — ALL
+/// `PR_SET_NAME`. `PR_CAPBSET_DROP` is added not because the workload
+/// uses it, but because the supervisor's `Command::pre_exec` hook
+/// (Pending #7 fix, 2026-05-24) calls it to drop CAP_SYS_ADMIN from
+/// the child between fork() and execve(). Allowing the operation
+/// trades a "drop caps for evasion" attacker primitive for the much
+/// bigger gain of unconditional CAP_SYS_ADMIN removal at every child
+/// spawn — and dropping caps is monotone (one-way reduction), so the
+/// attacker only hurts themselves by calling it.
 ///
 /// Operations that would harmlessly land here in the future
-/// (`PR_GET_NAME` to read back a thread name, `PR_SET_PDEATHSIG` for
-/// child-cleanup signals, `PR_SET_KEEPCAPS` to preserve caps across
-/// uid drops) are NOT preemptively allowed — wait for the audit log
-/// to surface a real need, then add with rationale.
+/// (`PR_GET_NAME`, `PR_SET_PDEATHSIG`, `PR_SET_KEEPCAPS`) are NOT
+/// preemptively allowed — wait for the audit log to surface a real
+/// need, then add with rationale.
 #[cfg(target_arch = "x86_64")]
 fn prctl_safe_options_rules() -> Result<Vec<SeccompRule>, SandboxError> {
-	Ok(vec![SeccompRule::new(vec![Cond::new(
-		0, // arg0 = option
-		ArgLen::Dword,
-		SeccompCmpOp::Eq,
-		libc::PR_SET_NAME as u64,
-	)
-	.map_err(|e| seccomp_err("prctl.option=PR_SET_NAME cond", e))?])
-	.map_err(|e| seccomp_err("prctl.option=PR_SET_NAME rule", e))?])
+	const OPTIONS: &[(u64, &str)] = &[
+		(libc::PR_SET_NAME      as u64, "PR_SET_NAME"),
+		(libc::PR_CAPBSET_DROP  as u64, "PR_CAPBSET_DROP"),
+	];
+	let mut rules = Vec::with_capacity(OPTIONS.len());
+	for (opt, label) in OPTIONS {
+		rules.push(
+			SeccompRule::new(vec![Cond::new(
+				0, ArgLen::Dword, SeccompCmpOp::Eq, *opt,
+			)
+			.map_err(|e| seccomp_err(&format!("prctl.option={label} cond"), e))?])
+			.map_err(|e| seccomp_err(&format!("prctl.option={label} rule"), e))?,
+		);
+	}
+	Ok(rules)
 }
 
 /// Build the rule list for `setsockopt`: whitelist arg1 (level) +
@@ -1876,11 +1886,12 @@ mod tests {
 
 	#[cfg(target_arch = "x86_64")]
 	#[test]
-	fn prctl_rule_whitelists_pr_set_name_only() {
-		// F07 regression: prctl arg0 must equal PR_SET_NAME (15).
-		// Single rule with a single Eq condition.
+	fn prctl_rule_whitelists_set_name_and_capbset_drop() {
+		// F07 + Pending #7: prctl arg0 must be PR_SET_NAME (15) for
+		// thread naming OR PR_CAPBSET_DROP (24) for the supervisor's
+		// pre_exec cap-drop hook. Two rules ORed together.
 		let rules = prctl_safe_options_rules().unwrap();
-		assert_eq!(rules.len(), 1, "single rule: option == PR_SET_NAME");
+		assert_eq!(rules.len(), 2, "PR_SET_NAME + PR_CAPBSET_DROP");
 	}
 
 	#[cfg(target_arch = "x86_64")]
