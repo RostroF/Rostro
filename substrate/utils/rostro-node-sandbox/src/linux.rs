@@ -650,6 +650,22 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	// memory note `[[codebase_inventory]]` ("identical 63-syscall set")
 	// was init+idle only and overstated cross-distro consistency.
 	libc::SYS_readahead,
+	// Pending #7 cascade (2026-05-24): polkavm's JIT backend uses
+	// memfd_create() to obtain an anonymous backing fd for executable
+	// code regions. The CAP_SYS_ADMIN drop (Pending #7) makes polkavm
+	// fall off its linux-raw-sandbox code path onto the generic memfd
+	// path. Adding memfd_create is safe because:
+	//   1. mmap_safe_rules() still enforces W^X (no PROT_WRITE +
+	//      PROT_EXEC simultaneously). A memfd mapped exec must first
+	//      be filled write-only, then mprotect-flipped — the JIT-flip
+	//      rule allows this for runtime executors, same as for
+	//      file-backed mappings (F05 design-permitted).
+	//   2. memfd_create itself produces only an fd; the dangerous
+	//      operation is the subsequent mmap, which IS arg-filtered.
+	// Red-team Appendix A noted memfd_create was previously SIGKILL'd
+	// (denied by absence); that defense relied on polkavm not needing
+	// it, which Pending #7 changed.
+	libc::SYS_memfd_create,
 	// File ops. mkdirat/renameat/unlinkat go through Landlock for
 	// path policy. fcntl is a multiplexer but operations are mostly
 	// safe (FD_CLOEXEC, file locking).
