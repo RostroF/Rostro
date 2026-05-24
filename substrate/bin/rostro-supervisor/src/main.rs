@@ -683,21 +683,26 @@ fn run(args: Args) -> ExitCode {
 		let mut cmd = Command::new(&child_path);
 		cmd.args(&args.child_args);
 
-		// Pending #7 fix (2026-05-24): drop CAP_SYS_ADMIN from the child
-		// between fork() and execve(). Runs in the forked-but-pre-exec
+		// Pre-exec hardening (2026-05-24): run in the forked-but-pre-exec
 		// child where seccomp + landlock are already inherited from
-		// supervisor, but the new gemini-node image hasn't started. Drop
-		// is to the bounding set so it's permanent + cannot be raised.
-		// Supervisor itself keeps CAP_SYS_ADMIN to write cgroup files.
-		// pre_exec only engages when the sandbox is active — skipping
-		// when --unsafe-skip-sandbox so the diagnostic mode behaves
-		// identically to pre-Pending-#7.
+		// supervisor, but the new gemini-node image hasn't started.
+		// Order matters for auditability, not correctness:
+		//   (1) close inherited fds (F13 residual — defeats the
+		//       /proc/self/fd-reopen attack on inherited writable
+		//       inodes by closing those fds before exec)
+		//   (2) drop CAP_SYS_ADMIN (Pending #7 — defense in depth
+		//       against unknown kernel admin paths)
+		// Both engage only when the sandbox is active; --unsafe-skip-sandbox
+		// behaves identically to the pre-hardening shape.
 		#[cfg(target_os = "linux")]
 		if sandbox_handle.is_some() {
 			use std::os::unix::process::CommandExt;
-			// SAFETY: closure is panic-free + thread-safe (single
-			// prctl(2) call); pre_exec doc requires both.
+			// SAFETY: both closures are panic-free + thread-safe (each
+			// is a single syscall); pre_exec doc requires both.
+			// pre_exec closures run in REGISTRATION order per std docs,
+			// so close_inherited_fds runs first, then drop_cap_sys_admin.
 			unsafe {
+				cmd.pre_exec(SandboxHandle::close_inherited_fds_in_child);
 				cmd.pre_exec(SandboxHandle::drop_cap_sys_admin_in_child);
 			}
 		}

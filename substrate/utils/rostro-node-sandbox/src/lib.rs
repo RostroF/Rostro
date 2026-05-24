@@ -340,6 +340,61 @@ impl SandboxHandle {
 		}
 		Ok(())
 	}
+
+	/// F13 residual fix (2026-05-24): close every inherited fd above
+	/// stdin/stdout/stderr in the forked-but-pre-exec child. Intended
+	/// to run as a [`std::os::unix::process::CommandExt::pre_exec`]
+	/// hook, BEFORE [`drop_cap_sys_admin_in_child`] (ordering is for
+	/// auditability — neither depends on the other).
+	///
+	/// **Why:** F13 closed the fchmod-family via seccomp, but the
+	/// underlying primitive (open /proc/self/fd/N to reopen an inherited
+	/// fd with different mode) still works for any syscall we DIDN'T
+	/// deny — most importantly `ftruncate(2)`, which RocksDB needs and
+	/// so couldn't be denied outright. If the supervisor opened a file
+	/// without `O_CLOEXEC`, the child inherits that fd; reopening via
+	/// `/proc/self/fd/<N>` as `O_RDWR` lets the child truncate the file.
+	///
+	/// Rust's `std::fs::File` opens with `O_CLOEXEC` by default, but
+	/// supervisor-side C dependencies (libsystemd journal socket,
+	/// landlock-rs ruleset fds, sd_notify, glibc nss caches) may keep
+	/// long-lived fds without the flag. Explicit close-range in pre_exec
+	/// removes that uncertainty entirely.
+	///
+	/// Uses `close_range(2)` (Linux 5.9+, kernel commit `278a5fbaed89`).
+	/// Falls back to ENOSYS-tolerant no-op on older kernels — those
+	/// would need a manual `/proc/self/fd` walk, but our lab floor is
+	/// 6.8 so the fallback is not implemented.
+	///
+	/// `close_range` IS in the seccomp allowlist (sibling of `close`).
+	#[cfg(target_os = "linux")]
+	pub fn close_inherited_fds_in_child() -> std::io::Result<()> {
+		// SAFETY: close_range(first, last, flags) closes fds in [first, last].
+		// Range is "3..=UINT_MAX" — close everything except stdio. Failure
+		// returns -1/errno per syscall contract. ENOSYS on kernel <5.9 is
+		// the only expected error and is tolerated (best-effort hardening).
+		let rc = unsafe {
+			libc::syscall(
+				libc::SYS_close_range,
+				3 as libc::c_uint,
+				libc::c_uint::MAX,
+				0 as libc::c_uint,
+			)
+		};
+		if rc != 0 {
+			let err = std::io::Error::last_os_error();
+			if err.raw_os_error() == Some(libc::ENOSYS) {
+				// Pre-5.9 kernel; can't close inherited fds without a
+				// /proc walk. Lab floor is 6.8 so this branch is unused.
+				// Don't fail the spawn — the F13 residual remains open
+				// on truly ancient kernels but the rest of the sandbox
+				// still applies.
+				return Ok(());
+			}
+			return Err(err);
+		}
+		Ok(())
+	}
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
