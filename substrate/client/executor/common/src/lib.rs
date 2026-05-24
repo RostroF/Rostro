@@ -27,5 +27,14 @@ pub mod util;
 pub mod wasm_runtime;
 
 pub(crate) fn is_polkavm_enabled() -> bool {
-	std::env::var_os("SUBSTRATE_ENABLE_POLKAVM").map_or(false, |value| value == "1")
+	// Rostro default flipped to PolkaVM-on (2026-05-24): the chain
+	// runs the RISC-V runtime via PolkaVM, so refusing PolkaVM blobs
+	// would refuse the genesis WASM_BINARY itself. Operators wanting
+	// strict WASM-only set ROSTRO_DISABLE_POLKAVM=1.
+	//
+	// Upstream substrate's `SUBSTRATE_ENABLE_POLKAVM=1` opt-in is
+	// gone — the env var becomes a no-op. Existing scripts that set
+	// it still work (they just don't do anything new); the opt-out
+	// is the only meaningful control here.
+	std::env::var_os("ROSTRO_DISABLE_POLKAVM").map_or(true, |value| value != "1")
 }

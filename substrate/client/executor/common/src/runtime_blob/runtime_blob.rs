@@ -48,8 +48,12 @@ impl RuntimeBlob {
 	///
 	/// Returns `Err` if the blob cannot be deserialized.
 	///
-	/// Will only accept a PolkaVM program if the `SUBSTRATE_ENABLE_POLKAVM` environment
-	/// variable is set to `1`.
+	/// Rostro accepts BOTH PolkaVM and WASM blobs by default — the
+	/// chain runs the RISC-V runtime via PolkaVM and the genesis
+	/// `WASM_BINARY` for `gemini-{dev,local,star}` is itself a PolkaVM
+	/// blob. Operators wanting strict WASM-only refusal set
+	/// `ROSTRO_DISABLE_POLKAVM=1` (then PolkaVM blobs return an error
+	/// here instead of being parsed).
 	pub fn new(raw_blob: &[u8]) -> Result<Self, WasmError> {
 		if raw_blob.starts_with(b"PVM\0") {
 			if crate::is_polkavm_enabled() {
@@ -57,7 +61,7 @@ impl RuntimeBlob {
 				let blob = polkavm::ProgramBlob::parse(raw.clone())?;
 				return Ok(Self(BlobKind::PolkaVM((blob, raw))));
 			} else {
-				return Err(WasmError::Other("expected a WASM runtime blob, found a PolkaVM runtime blob; set the 'SUBSTRATE_ENABLE_POLKAVM' environment variable to enable the experimental PolkaVM-based executor".to_string()));
+				return Err(WasmError::Other("expected a WASM runtime blob, found a PolkaVM runtime blob; unset ROSTRO_DISABLE_POLKAVM (or set to 0) to accept PolkaVM blobs (Rostro default)".to_string()));
 			}
 		}
 

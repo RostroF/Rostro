@@ -39,10 +39,11 @@ const POLKAVM_MAGIC: &[u8; 4] = b"PVM\0";
 /// Two-executor backing for `GenesisConfigBuilderRuntimeCaller` — Phase
 /// Star B7. WasmExecutor handles legacy WASM blobs (so substrate's own
 /// test runtimes keep working); RostroCodeExecutor handles PVM blobs.
-/// Upstream substrate's WasmExecutor has no PolkaVM dispatch branch — the
-/// SUBSTRATE_ENABLE_POLKAVM env var only gates blob *acceptance* via
-/// `RuntimeBlob::new`, not the actual call path — so PVM runtimes
-/// constructed from `ChainSpec::builder(WASM_BINARY...)` would otherwise
+/// Upstream substrate's WasmExecutor has no PolkaVM dispatch branch —
+/// blob *acceptance* is gated by `ROSTRO_DISABLE_POLKAVM` opt-out (Rostro
+/// defaults to accepting PolkaVM blobs since 2026-05-24), but the actual
+/// call path still has to branch here on the blob kind. Otherwise PVM
+/// runtimes constructed from `ChainSpec::builder(WASM_BINARY...)` would
 /// hit `as_webassembly_blob` and trap during genesis construction.
 enum GenesisExecutor<EHF>
 where

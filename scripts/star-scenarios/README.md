@@ -9,8 +9,13 @@ bounded time, asserts via per-node log greps, then tears down.
 Build both binaries first:
 
 ```
-SUBSTRATE_ENABLE_POLKAVM=1 cargo build --release -p gemini-node -p rostro-supervisor
+SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p gemini-node -p rostro-supervisor
 ```
+
+(`SUBSTRATE_RUNTIME_TARGET=riscv` is a build-time selector for the
+RISC-V runtime; runtime-side acceptance is Rostro-default-on per
+`ROSTRO_DISABLE_POLKAVM` semantics — no `SUBSTRATE_ENABLE_POLKAVM=1`
+required since 2026-05-24.)
 
 The scenarios use the binaries at `target/release/gemini-node` and
 `target/release/rostro-supervisor`. Override via `GEMINI_NODE` and

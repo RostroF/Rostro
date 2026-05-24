@@ -249,15 +249,16 @@ Two binaries today, both pointed at a RostroVM-executable runtime via
 | `rostro-node` | `rostro-runtime` | Aura + GRANDPA | single-node solochain iteration |
 | `gemini-node` | `gemini-runtime` | Sassafras + GRANDPA | multi-node peering testbeds |
 
-At runtime, set `SUBSTRATE_ENABLE_POLKAVM=1` so substrate's runtime-blob
-loader accepts the RISC-V blob magic. The convenience scripts below already
-export it.
+At runtime, Rostro accepts both WASM and PolkaVM runtime blobs by
+default — the RISC-V runtime is built via `SUBSTRATE_RUNTIME_TARGET=riscv`
+and loaded directly. Operators wanting strict WASM-only mode set
+`ROSTRO_DISABLE_POLKAVM=1` (rare; the chain expects PolkaVM blobs).
 
 ### Single-node solochain (`rostro-node`)
 
 ```sh
 SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p rostro-node
-SUBSTRATE_ENABLE_POLKAVM=1 ./target/release/rostro-node \
+./target/release/rostro-node \
   --dev --tmp --alice --rpc-port 9944
 ```
 
@@ -336,7 +337,7 @@ If you'd rather not use the scripts, the equivalent of one validator is:
   --suri "//Alice" --base-path /tmp/gemini-alice --chain-id gemini-local
 
 # Boot the validator.
-SUBSTRATE_ENABLE_POLKAVM=1 ROSTRO_RPC_SHIELD=1 \
+ROSTRO_RPC_SHIELD=1 \
   ./target/release/gemini-node \
   --chain local --base-path /tmp/gemini-alice --alice --validator \
   --port 30333 --rpc-port 9944 --no-mdns \
