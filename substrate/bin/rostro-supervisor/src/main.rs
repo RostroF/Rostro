@@ -222,6 +222,60 @@ fn build_sandbox_config(args: &Args) -> NodeSandboxConfig {
 	config
 }
 
+/// F15/F16 fix (2026-05-24): reject CLI configs where the supervisor's
+/// state file or canonical-dir sits inside any `--sandbox-rw-path`.
+///
+/// The threat: the sandboxed child has write access to every path in
+/// `sandbox_rw_paths`. If `state_file` lives there, the child can
+/// rewrite supervisor restart counters (F15 — escape the
+/// max-crash-restarts circuit breaker, hide swap counts). If
+/// `canonical_dir` lives there, the child can drop
+/// `<name>.new` files for the supervisor to atomically rotate in on
+/// the next swap (F16 — full RCE on the supervisor at restart).
+///
+/// `Path::starts_with` is component-aware (so `/opt/rostro/data` does
+/// not accidentally match `/opt/rostro/data-other`), but does NOT
+/// resolve symlinks. Operators are expected to pass absolute, canonical
+/// paths — the sandbox config already requires absolute `--sandbox-*-path`
+/// values. Defense against symlink-based path confusion is a separate
+/// concern (the child can't fchmod arbitrary symlinks into the cgroup
+/// dir without first having a write primitive there).
+fn validate_no_rw_path_overlap(
+	canonical_dir: Option<&Path>,
+	state_path: Option<&Path>,
+	rw_paths: &[PathBuf],
+) -> Result<(), String> {
+	for rw in rw_paths {
+		if let Some(cd) = canonical_dir {
+			if cd.starts_with(rw) {
+				return Err(format!(
+					"F16 misconfig: --canonical-dir {} sits inside \
+					 --sandbox-rw-path {}; a compromised sandboxed child can \
+					 drop attacker-payload.new there for the supervisor to \
+					 atomically rotate in on the next swap. Pick a \
+					 canonical-dir OUTSIDE every --sandbox-rw-path.",
+					cd.display(),
+					rw.display(),
+				));
+			}
+		}
+		if let Some(sp) = state_path {
+			if sp.starts_with(rw) {
+				return Err(format!(
+					"F15 misconfig: --state-file {} sits inside \
+					 --sandbox-rw-path {}; a compromised sandboxed child can \
+					 rewrite supervisor restart counters from inside the \
+					 sandbox, escaping the max-crash-restarts circuit \
+					 breaker. Pick a state-file OUTSIDE every --sandbox-rw-path.",
+					sp.display(),
+					rw.display(),
+				));
+			}
+		}
+	}
+	Ok(())
+}
+
 /// Banner shown once at supervisor startup when sandbox is disabled.
 /// Multiple lines so it's hard to miss in a scrolling log; per-restart
 /// warning inside the spawn loop is shorter.
@@ -549,6 +603,19 @@ fn run(args: Args) -> ExitCode {
 			.map(|d| d.join(STATE_FILE_NAME)),
 	};
 
+	// F15/F16: refuse to launch if state-file or canonical-dir sits
+	// inside any sandbox RW path. Fail-fast BEFORE installing the
+	// sandbox so the operator sees a clear error and no privileged
+	// resources are committed to a misconfig.
+	if let Err(msg) = validate_no_rw_path_overlap(
+		canonical_dir.as_deref(),
+		state_path.as_deref(),
+		&args.sandbox_rw_paths,
+	) {
+		log::error!("{msg}");
+		return ExitCode::FAILURE;
+	}
+
 	log::info!(
 		"rostro-supervisor starting; child={}, staged={}, canonical_dir={}, state_file={}, \
 		 max_restarts={}, max_crash_restarts={}, crash_window_secs={}, backoff_ceiling_secs={}",
@@ -763,6 +830,91 @@ fn main() -> ExitCode {
 mod tests {
 	use super::*;
 	use std::io::Write;
+
+	#[test]
+	fn rw_overlap_allows_disjoint_paths() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let canon = PathBuf::from("/opt/rostro/bin");
+		let state = PathBuf::from("/opt/rostro/bin/.supervisor-state");
+		assert!(validate_no_rw_path_overlap(
+			Some(&canon), Some(&state), &rw,
+		).is_ok());
+	}
+
+	#[test]
+	fn rw_overlap_allows_no_rw_paths() {
+		let rw: Vec<PathBuf> = vec![];
+		let canon = PathBuf::from("/anywhere");
+		let state = PathBuf::from("/anywhere/state");
+		assert!(validate_no_rw_path_overlap(
+			Some(&canon), Some(&state), &rw,
+		).is_ok());
+	}
+
+	#[test]
+	fn rw_overlap_rejects_state_file_inside_rw_path() {
+		// F15 scenario: state-file at /opt/rostro/data/state and
+		// RW path at /opt/rostro/data — child can rewrite counters.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let canon = PathBuf::from("/opt/rostro/bin");
+		let state = PathBuf::from("/opt/rostro/data/state");
+		let err = validate_no_rw_path_overlap(
+			Some(&canon), Some(&state), &rw,
+		).unwrap_err();
+		assert!(err.contains("F15"), "expected F15 error, got: {err}");
+		assert!(err.contains("state-file"), "expected state-file ref, got: {err}");
+	}
+
+	#[test]
+	fn rw_overlap_rejects_canonical_dir_inside_rw_path() {
+		// F16 scenario: canonical-dir = RW path — child drops *.new
+		// for atomic rotation by next swap.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let canon = PathBuf::from("/opt/rostro/data");
+		let state = PathBuf::from("/opt/rostro/bin/state");
+		let err = validate_no_rw_path_overlap(
+			Some(&canon), Some(&state), &rw,
+		).unwrap_err();
+		assert!(err.contains("F16"), "expected F16 error, got: {err}");
+		assert!(err.contains("canonical-dir"), "expected canonical-dir ref, got: {err}");
+	}
+
+	#[test]
+	fn rw_overlap_rejects_canonical_dir_nested_under_rw_path() {
+		// Nested case: canonical-dir is a subdir of an RW path.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let canon = PathBuf::from("/opt/rostro/data/nested");
+		let err = validate_no_rw_path_overlap(
+			Some(&canon), None, &rw,
+		).unwrap_err();
+		assert!(err.contains("F16"), "expected F16 error, got: {err}");
+	}
+
+	#[test]
+	fn rw_overlap_treats_path_components_correctly() {
+		// /opt/rostro/data must NOT match /opt/rostro/data-other —
+		// starts_with is component-aware, not byte-prefix.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let canon = PathBuf::from("/opt/rostro/data-other");
+		let state = PathBuf::from("/opt/rostro/data-other/state");
+		assert!(validate_no_rw_path_overlap(
+			Some(&canon), Some(&state), &rw,
+		).is_ok(), "data-other must not match data");
+	}
+
+	#[test]
+	fn rw_overlap_handles_multiple_rw_paths() {
+		// Overlap with the SECOND rw_path still gets caught.
+		let rw = vec![
+			PathBuf::from("/srv/keys"),
+			PathBuf::from("/opt/rostro/data"),
+		];
+		let canon = PathBuf::from("/opt/rostro/data/canonical");
+		let err = validate_no_rw_path_overlap(
+			Some(&canon), None, &rw,
+		).unwrap_err();
+		assert!(err.contains("/opt/rostro/data"), "should name the matching rw_path: {err}");
+	}
 
 	#[test]
 	fn default_staged_appends_new_suffix() {
