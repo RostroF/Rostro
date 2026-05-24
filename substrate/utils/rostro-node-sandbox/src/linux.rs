@@ -527,6 +527,7 @@ fn build_seccomp_filter_with_label()
 	rules.push((libc::SYS_socket, socket_safe_families_rules()?));
 	rules.push((libc::SYS_ioctl, ioctl_safe_cmds_rules()?));
 	rules.push((libc::SYS_prlimit64, prlimit64_self_only_rules()?));
+	rules.push((libc::SYS_prctl, prctl_safe_options_rules()?));
 	// clone3 added to PLAIN_ALLOWED_SYSCALLS as of Phase 5 (2026-05-23).
 	// See the rationale block at that array entry.
 
@@ -769,11 +770,15 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	// legacy clone(), which then hits clone_no_namespace_rules() and is
 	// denied if it asks for CLONE_NEW*.
 	libc::SYS_clone3,
-	// prctl is a multiplexer; flat-allow is safe because
-	// PR_SET_NO_NEW_PRIVS (set in Phase 3b via Landlock) prevents
-	// PR_SET_SECCOMP from loosening the filter. Could arg-filter in
-	// a follow-up if any specific operation becomes a concern.
-	libc::SYS_prctl,
+	// F07 fix (2026-05-24): prctl is NOT in the plain allowlist. It's
+	// arg-filtered separately (prctl_safe_options_rules) to allow only
+	// PR_SET_NAME — Phase A's 600s sustained baseline observed prctl
+	// 53 times, ALL PR_SET_NAME (Rust std + tokio thread naming).
+	// Flat-allowing prctl let red-team reach PR_SET_PTRACER(ANY)
+	// (Yama bypass), PR_SET_DUMPABLE (gdb attach surface),
+	// PR_CAPBSET_DROP (selective cap drop), and PR_SET_MM (memory map
+	// manipulation). New operations beyond PR_SET_NAME will SIGSYS —
+	// flip ROSTRO_SECCOMP_ACTION=log to surface, then add to whitelist.
 	// Exec for the supervisor's `Command::new + spawn` flow + any
 	// internal exec the runtime does (it shouldn't).
 	libc::SYS_execve,
@@ -970,6 +975,43 @@ fn prlimit64_self_only_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 	.map_err(|e| seccomp_err("prlimit64.pid rule", e))?])
 }
 
+/// Build the rule list for `prctl`: whitelist arg0 (option) to
+/// `PR_SET_NAME` (15) only.
+///
+/// `prctl(2)` is a multiplexer with ~40 distinct operations. Most are
+/// privileged-adjacent — F07 red-team demonstrated:
+///
+/// - `PR_SET_PTRACER(PR_SET_PTRACER_ANY)` — overrides Yama ptrace
+///   scope, letting any host process attach a debugger to the sandbox.
+/// - `PR_SET_DUMPABLE(1)` — flips the process to attachable for
+///   gdb/ptrace even if SUID transitions cleared it.
+/// - `PR_CAPBSET_DROP(CAP_SYS_ADMIN)` — drops specific capabilities,
+///   useful for evading capability-aware monitoring.
+/// - `PR_SET_MM(START_CODE, ...)` — manipulates the process's own
+///   memory map metadata.
+///
+/// Phase A 600s sustained baseline (debian-01, 102 blocks, gemini-node
+/// under --chain=local) observed prctl 53 times — ALL `PR_SET_NAME`
+/// from Rust std + tokio worker thread naming. Whitelisting that one
+/// option closes every reachable operation above.
+///
+/// Operations that would harmlessly land here in the future
+/// (`PR_GET_NAME` to read back a thread name, `PR_SET_PDEATHSIG` for
+/// child-cleanup signals, `PR_SET_KEEPCAPS` to preserve caps across
+/// uid drops) are NOT preemptively allowed — wait for the audit log
+/// to surface a real need, then add with rationale.
+#[cfg(target_arch = "x86_64")]
+fn prctl_safe_options_rules() -> Result<Vec<SeccompRule>, SandboxError> {
+	Ok(vec![SeccompRule::new(vec![Cond::new(
+		0, // arg0 = option
+		ArgLen::Dword,
+		SeccompCmpOp::Eq,
+		libc::PR_SET_NAME as u64,
+	)
+	.map_err(|e| seccomp_err("prctl.option=PR_SET_NAME cond", e))?])
+	.map_err(|e| seccomp_err("prctl.option=PR_SET_NAME rule", e))?])
+}
+
 /// Build the rule list for `clone`: deny namespace-creation flags.
 /// arg 0 = flags. We require (flags & CLONE_NEW*) == 0 for all six
 /// namespace bits. A successful match means the caller is asking for
@@ -1084,25 +1126,60 @@ fn force_clone3_enosys_filter() -> Result<SeccompFilter, SandboxError> {
 ///     anything else.
 #[cfg(target_arch = "x86_64")]
 fn socket_safe_families_rules() -> Result<Vec<SeccompRule>, SandboxError> {
-	let mut rules = Vec::with_capacity(4);
+	let mut rules = Vec::with_capacity(6);
 
-	// Plain domain-only rules.
-	for family in [libc::AF_INET, libc::AF_INET6, libc::AF_UNIX] {
-		rules.push(
-			SeccompRule::new(vec![Cond::new(
-				0, // arg0 = domain
-				ArgLen::Dword,
-				SeccompCmpOp::Eq,
-				family as u64,
-			)
-			.map_err(|e| {
-				seccomp_err(&format!("socket.domain={family} cond"), e)
-			})?])
-			.map_err(|e| seccomp_err(&format!("socket.domain={family} rule"), e))?,
-		);
+	// F03 fix (2026-05-24): for AF_INET / AF_INET6 the previous rule
+	// only constrained arg0 (domain) and let arg1 (type) through
+	// unconstrained — so `socket(AF_INET6, SOCK_RAW, IPPROTO_RAW)`
+	// succeeded, letting a compromised sandboxed process craft + inject
+	// arbitrary IPv6 packets (red-team F03). Tighten by requiring
+	// `(type & SOCK_TYPE_MASK) ∈ {SOCK_STREAM, SOCK_DGRAM}` — type is
+	// arg1 with the upper bits used for `SOCK_CLOEXEC` (0x80000) and
+	// `SOCK_NONBLOCK` (0x800), so mask with 0xF to get the base type
+	// (kernel layout: 4 low bits = type, upper bits = flags).
+	//
+	// SOCK_STREAM (1) keeps TCP working. SOCK_DGRAM (2) keeps UDP
+	// working — important for QUIC libp2p paths (not exercised in
+	// Phase A baseline but reasonable forward compat). SOCK_RAW (3)
+	// is the attack vector — denied by absence. SOCK_SEQPACKET (5),
+	// SOCK_RDM (4), SOCK_PACKET (10), SOCK_DCCP (6) likewise denied.
+	const SOCK_TYPE_MASK: u64 = 0xF;
+	for family in [libc::AF_INET, libc::AF_INET6] {
+		for base_type in [libc::SOCK_STREAM, libc::SOCK_DGRAM] {
+			rules.push(
+				SeccompRule::new(vec![
+					Cond::new(0, ArgLen::Dword, SeccompCmpOp::Eq, family as u64)
+						.map_err(|e| seccomp_err(&format!("socket.{family}.domain cond"), e))?,
+					Cond::new(
+						1, // arg1 = type (with CLOEXEC/NONBLOCK flags OR'd in)
+						ArgLen::Dword,
+						SeccompCmpOp::MaskedEq(SOCK_TYPE_MASK),
+						base_type as u64,
+					)
+					.map_err(|e| seccomp_err(&format!("socket.{family}.{base_type}.type cond"), e))?,
+				])
+				.map_err(|e| seccomp_err(&format!("socket.{family}.{base_type} rule"), e))?,
+			);
+		}
 	}
 
-	// AF_NETLINK is gated to NETLINK_ROUTE only — see fn-level comment.
+	// AF_UNIX: local IPC, no raw-packet escape concern; any type is
+	// fine. Phase A didn't observe AF_UNIX use but keep allowed for
+	// substrate's UDS-based components (RPC, prometheus exporter if
+	// configured for socket transport).
+	rules.push(
+		SeccompRule::new(vec![Cond::new(
+			0, ArgLen::Dword, SeccompCmpOp::Eq, libc::AF_UNIX as u64,
+		)
+		.map_err(|e| seccomp_err("socket.unix cond", e))?])
+		.map_err(|e| seccomp_err("socket.unix rule", e))?,
+	);
+
+	// AF_NETLINK is gated to NETLINK_ROUTE only — interface enumeration
+	// for libp2p / std::net (observed in both init+idle and sustained
+	// Phase A baselines). All other NETLINK protocols (AUDIT, NETFILTER,
+	// KOBJECT_UEVENT, etc.) denied by absence — red-team Appendix A
+	// confirmed they SIGKILL correctly.
 	rules.push(
 		SeccompRule::new(vec![
 			Cond::new(0, ArgLen::Dword, SeccompCmpOp::Eq, libc::AF_NETLINK as u64)
@@ -1713,13 +1790,37 @@ mod tests {
 	#[cfg(target_arch = "x86_64")]
 	#[test]
 	fn socket_rules_allow_inet_unix_and_netlink_route() {
-		// Phase 5 second-pass (2026-05-23): four rules — INET, INET6,
-		// UNIX (domain-only), plus AF_NETLINK gated to NETLINK_ROUTE
-		// protocol (std::net / libp2p interface enumeration). Other
-		// NETLINK protocols (NETLINK_AUDIT, NETLINK_NETFILTER, ...)
-		// remain denied by absence.
+		// F03 fix (2026-05-24): six rules — (AF_INET|AF_INET6) x
+		// (SOCK_STREAM|SOCK_DGRAM) = 4 explicit type-constrained rules,
+		// plus AF_UNIX domain-only, plus AF_NETLINK gated to
+		// NETLINK_ROUTE. AF_INET[6]+SOCK_RAW denied by absence (the
+		// previous "domain-only" rules for AF_INET/INET6 let SOCK_RAW
+		// through, the F03 escape vector).
 		let rules = socket_safe_families_rules().unwrap();
-		assert_eq!(rules.len(), 4, "INET + INET6 + UNIX + (NETLINK,NETLINK_ROUTE)");
+		assert_eq!(rules.len(), 6,
+			"INET+STREAM, INET+DGRAM, INET6+STREAM, INET6+DGRAM, UNIX, (NETLINK,NETLINK_ROUTE)");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn prctl_rule_whitelists_pr_set_name_only() {
+		// F07 regression: prctl arg0 must equal PR_SET_NAME (15).
+		// Single rule with a single Eq condition.
+		let rules = prctl_safe_options_rules().unwrap();
+		assert_eq!(rules.len(), 1, "single rule: option == PR_SET_NAME");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn prctl_not_in_plain_allowlist() {
+		// F07 regression: prctl is a multiplexer; flat-allow reopens
+		// PR_SET_PTRACER(ANY) (Yama bypass), PR_SET_DUMPABLE, etc.
+		// Re-adding to PLAIN_ALLOWED_SYSCALLS reopens F07.
+		assert!(
+			!PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_prctl),
+			"prctl must be arg-filtered to PR_SET_NAME via prctl_safe_options_rules, \
+			 not flat-allowed",
+		);
 	}
 
 	#[cfg(target_arch = "x86_64")]
