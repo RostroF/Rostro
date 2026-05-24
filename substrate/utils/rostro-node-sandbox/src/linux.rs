@@ -528,6 +528,7 @@ fn build_seccomp_filter_with_label()
 	rules.push((libc::SYS_ioctl, ioctl_safe_cmds_rules()?));
 	rules.push((libc::SYS_prlimit64, prlimit64_self_only_rules()?));
 	rules.push((libc::SYS_prctl, prctl_safe_options_rules()?));
+	rules.push((libc::SYS_setsockopt, setsockopt_safe_options_rules()?));
 	// clone3 added to PLAIN_ALLOWED_SYSCALLS as of Phase 5 (2026-05-23).
 	// See the rationale block at that array entry.
 
@@ -804,7 +805,14 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	libc::SYS_sendmmsg,
 	libc::SYS_recvmmsg,
 	libc::SYS_shutdown,
-	libc::SYS_setsockopt,
+	// F04 fix (2026-05-24): setsockopt is NOT in the plain allowlist.
+	// It's arg-filtered separately (setsockopt_safe_options_rules) to a
+	// whitelist of (level, option) pairs observed in Phase A sustained
+	// peering. Flat-allowing setsockopt let red-team reach
+	// SO_ATTACH_FILTER — which attaches a cBPF program to a socket and
+	// runs in the kernel BPF VM despite bpf(2) being explicitly denied.
+	// New (level, option) pairs not in the whitelist will SIGSYS —
+	// flip ROSTRO_SECCOMP_ACTION=log to surface, then add with rationale.
 	libc::SYS_getsockopt,
 	// I/O multiplexing — tokio + libp2p hot path.
 	libc::SYS_epoll_create1,
@@ -1010,6 +1018,63 @@ fn prctl_safe_options_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 	)
 	.map_err(|e| seccomp_err("prctl.option=PR_SET_NAME cond", e))?])
 	.map_err(|e| seccomp_err("prctl.option=PR_SET_NAME rule", e))?])
+}
+
+/// Build the rule list for `setsockopt`: whitelist arg1 (level) +
+/// arg2 (optname) pairs observed in Phase A sustained peering.
+///
+/// `setsockopt(2)` is a multiplexer: same syscall number, dozens of
+/// reachable code paths inside the kernel depending on (level, option).
+/// Flat-allowing it lets a sandboxed process reach `SO_ATTACH_FILTER`
+/// — attaches a cBPF program to a socket that the kernel runs on
+/// every received packet, bypassing the explicit `bpf(2)` denial
+/// entirely (F04 red-team).
+///
+/// Phase A 600s sustained baseline (debian-01 + 2 peers + 102 blocks)
+/// observed setsockopt 10 times across 4 distinct (level, option)
+/// pairs:
+///
+/// - `(SOL_SOCKET, SO_REUSEADDR)` — libp2p listener rebind
+/// - `(SOL_SOCKET, SO_REUSEPORT)` — multi-process listener sharing
+/// - `(IPPROTO_TCP, TCP_NODELAY)` — disable Nagle's for libp2p framing
+/// - `(IPPROTO_IPV6, IPV6_V6ONLY)` — dual-stack listener IPv6-only
+///   binding
+///
+/// Each pair gets its own SeccompRule (two ANDed Conds: level + option);
+/// seccomp ORs rules so a match on ANY pair allows.
+///
+/// New pairs that surface under different workloads (real peering at
+/// scale, QUIC, large transfer tuning via `SO_RCVBUF`/`SO_SNDBUF`,
+/// keepalive via `TCP_KEEPIDLE`+friends) will SIGSYS — flip
+/// `ROSTRO_SECCOMP_ACTION=log` to capture the (level, option) values
+/// from the audit log, then add with rationale. Don't pre-emptively
+/// whitelist forward-looking options — the least-privilege principle
+/// is "only what's empirically needed" (see [[least_privilege_validator_principle]]).
+#[cfg(target_arch = "x86_64")]
+fn setsockopt_safe_options_rules() -> Result<Vec<SeccompRule>, SandboxError> {
+	// (level, option) pairs as i32 → u64 widening. SOL_TCP and SOL_IPV6
+	// aren't separate libc constants but their numeric values are
+	// IPPROTO_TCP (6) and IPPROTO_IPV6 (41) respectively — same values
+	// the kernel matches.
+	const PAIRS: &[(u64, u64, &str)] = &[
+		(libc::SOL_SOCKET   as u64, libc::SO_REUSEADDR  as u64, "SOL_SOCKET/SO_REUSEADDR"),
+		(libc::SOL_SOCKET   as u64, libc::SO_REUSEPORT  as u64, "SOL_SOCKET/SO_REUSEPORT"),
+		(libc::IPPROTO_TCP  as u64, libc::TCP_NODELAY   as u64, "IPPROTO_TCP/TCP_NODELAY"),
+		(libc::IPPROTO_IPV6 as u64, libc::IPV6_V6ONLY   as u64, "IPPROTO_IPV6/IPV6_V6ONLY"),
+	];
+	let mut rules = Vec::with_capacity(PAIRS.len());
+	for (level, option, label) in PAIRS {
+		rules.push(
+			SeccompRule::new(vec![
+				Cond::new(1, ArgLen::Dword, SeccompCmpOp::Eq, *level)
+					.map_err(|e| seccomp_err(&format!("setsockopt.{label}.level cond"), e))?,
+				Cond::new(2, ArgLen::Dword, SeccompCmpOp::Eq, *option)
+					.map_err(|e| seccomp_err(&format!("setsockopt.{label}.option cond"), e))?,
+			])
+			.map_err(|e| seccomp_err(&format!("setsockopt.{label} rule"), e))?,
+		);
+	}
+	Ok(rules)
 }
 
 /// Build the rule list for `clone`: deny namespace-creation flags.
@@ -1808,6 +1873,31 @@ mod tests {
 		// Single rule with a single Eq condition.
 		let rules = prctl_safe_options_rules().unwrap();
 		assert_eq!(rules.len(), 1, "single rule: option == PR_SET_NAME");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn setsockopt_rules_whitelist_phase_a_pairs() {
+		// F04 regression: 4 (level, option) pairs observed in Phase A
+		// sustained peering. Each is a separate SeccompRule with two
+		// Conds (level + option). Compiled BPF correctness is exercised
+		// end-to-end by build_seccomp_filter_compiles_to_bpf.
+		let rules = setsockopt_safe_options_rules().unwrap();
+		assert_eq!(rules.len(), 4,
+			"SOL_SOCKET+SO_REUSEADDR, SOL_SOCKET+SO_REUSEPORT, IPPROTO_TCP+TCP_NODELAY, IPPROTO_IPV6+IPV6_V6ONLY");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn setsockopt_not_in_plain_allowlist() {
+		// F04 regression: setsockopt is a multiplexer; flat-allow reopens
+		// SO_ATTACH_FILTER (cBPF VM via socket) despite bpf(2) being
+		// denied. Re-adding to PLAIN_ALLOWED_SYSCALLS reopens F04.
+		assert!(
+			!PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_setsockopt),
+			"setsockopt must be arg-filtered via setsockopt_safe_options_rules, \
+			 not flat-allowed",
+		);
 	}
 
 	#[cfg(target_arch = "x86_64")]
