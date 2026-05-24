@@ -101,6 +101,25 @@ fn install_cgroup(config: &NodeSandboxConfig) -> Result<Option<PathBuf>, Sandbox
 
 	if let Some(max) = config.memory_cap() {
 		write_cgroup_file(&child_group, "memory.max", &max.to_string())?;
+		// F12 fix (2026-05-24): memory.max alone caps anon allocations
+		// but the kernel still allows spill to host swap, silently
+		// raising the effective ceiling by however much swap exists.
+		// Red-team confirmed a 5GB allocation surviving under a 4GB
+		// cap because the overflow went to swap (memory.events.max=1010
+		// fired but OOM never did). memory.swap.max=0 pins the cap at
+		// memory.max for real. Kernel ≥4.5 + CONFIG_MEMCG_SWAP; absent
+		// → warn + continue (older kernels or no swap controller).
+		let swap_max_path = child_group.join("memory.swap.max");
+		if swap_max_path.exists() {
+			write_cgroup_file(&child_group, "memory.swap.max", "0")?;
+		} else {
+			log::warn!(
+				"Aegis cgroup: memory.swap.max not available at {} \
+				 (kernel < 4.5 or no CONFIG_MEMCG_SWAP); memory cap can \
+				 be silently exceeded via swap if any swap is configured",
+				swap_max_path.display(),
+			);
+		}
 	}
 	if let Some((max, period)) = config.cpu_cap() {
 		write_cgroup_file(&child_group, "cpu.max", &format!("{max} {period}"))?;
@@ -138,10 +157,12 @@ fn install_cgroup(config: &NodeSandboxConfig) -> Result<Option<PathBuf>, Sandbox
 	// is set above.
 	let _ = pid; // formerly used for the rejected migration
 
+	let swap_max_pinned = config.memory_cap().is_some()
+		&& child_group.join("memory.swap.max").exists();
 	log::info!(
 		"Aegis cgroup: installed; supervisor stays in its \
 		 inherited cgroup (uncapped), child cgroup at {} (memory_max={:?}, \
-		 cpu_max={:?}, oom_kill_atomic={})",
+		 swap_max_pinned={swap_max_pinned}, cpu_max={:?}, oom_kill_atomic={})",
 		child_group.display(),
 		config.memory_cap(),
 		config.cpu_cap(),
@@ -1235,6 +1256,48 @@ mod tests {
 			written.trim(),
 			"",
 			"supervisor PID must not be written to supervisor_group's cgroup.procs"
+		);
+	}
+
+	#[test]
+	fn install_cgroup_writes_swap_max_zero_when_file_present() {
+		// F12 regression: without memory.swap.max=0, anon allocations
+		// spill to host swap and silently raise the effective cap.
+		// Pre-create the child cgroup dir + memory.swap.max so the
+		// exists() check fires, then assert install wrote "0".
+		let root = fake_cgroup_root();
+		let pid = std::process::id();
+		let child_group = root
+			.join(format!("rostro-node-{pid}"))
+			.join("child");
+		std::fs::create_dir_all(&child_group).unwrap();
+		std::fs::write(child_group.join("memory.swap.max"), b"max\n").unwrap();
+		let cfg = NodeSandboxConfig::new()
+			.cgroup_root(&root)
+			.memory_max_bytes(1024 * 1024);
+		install_cgroup(&cfg).unwrap();
+		let written = std::fs::read_to_string(child_group.join("memory.swap.max")).unwrap();
+		assert_eq!(
+			written.trim(),
+			"0",
+			"memory.swap.max must be pinned to 0 so the memory cap can't \
+			 be silently exceeded via swap",
+		);
+	}
+
+	#[test]
+	fn install_cgroup_skips_swap_max_when_file_absent() {
+		// Warn-and-continue path: kernels without CONFIG_MEMCG_SWAP
+		// or hosts with no swap controller compiled in. Install must
+		// still succeed.
+		let root = fake_cgroup_root();
+		let cfg = NodeSandboxConfig::new()
+			.cgroup_root(&root)
+			.memory_max_bytes(1024 * 1024);
+		let child = install_cgroup(&cfg).unwrap().unwrap();
+		assert!(
+			!child.join("memory.swap.max").exists(),
+			"tmpdir setup doesn't create swap.max; warn-and-skip branch exercised",
 		);
 	}
 
