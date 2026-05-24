@@ -470,6 +470,7 @@ the original PoC against the deployed lab nodes.
 | F17 symlink(2) denied while symlinkat(2) allowed | RELIABILITY oversight | `43b8aab94f` | `SYS_symlink` added; Landlock still gates the path policy. |
 | F09 `--state-file` / `--canonical-dir` docstring lied | DOC DISCONNECT | `43b8aab94f` | Both docstrings rewritten to describe actual clap behavior. `--canonical-dir` gets a workaround (point at a `*.new`-free dir); `--state-file` honestly says no disable mechanism exists today. |
 | F15 / F16 state-file / canonical-dir overlapping sandbox RW path | MISCONFIG-CONDITIONAL ESCALATION | `f6de430a54` | `validate_no_rw_path_overlap()` runs before sandbox install and refuses the launch with a clear F-numbered error if either path sits inside any `--sandbox-rw-path`. Verified: F15 attack (`--state-file /opt/rostro/data/state --sandbox-rw-path /opt/rostro/data`) exits 1 with the F15 error; F16 attack (`--canonical-dir /opt/rostro/data --sandbox-rw-path /opt/rostro/data`) exits 1 with the F16 error; clean config still runs through to sandbox install. |
+| F13 fchmod/fchown bypass via /proc/self/fd reopen | CONFIRMED ESCAPE (host file perms) | `92fd518af7` | Removed `fchmod`, `fchown`, `fchmodat`, `fchownat` from `PLAIN_ALLOWED_SYSCALLS` outright. fsetxattr was already denied by absence. Phase A 10-min sustained strace (102 blocks on debian-01) + Phase 5 5-min fedora baseline both observed ZERO calls to any of the four from substrate + libp2p + tokio + rust-std + RocksDB, so denial is safe. Verified: F13 probe in-sandbox observes SIGSYS on all five syscalls (fchmod / fchown / fchmodat / fchownat / fsetxattr) under the new build. Residual: ftruncate-via-reopen attack on inherited fds remains (ftruncate kept because RocksDB needs it); mitigation is supervisor CLOEXEC discipline — open follow-up item. |
 
 ### Still open
 
@@ -485,8 +486,11 @@ Tracked separately in `~/rostro-testnet-lab/notes/redteam-2026-05-23/REPORT.md`:
 - **F07** prctl multiplexer flat-allowed — PR_SET_PTRACER_ANY +
   PR_SET_DUMPABLE + PR_CAPBSET_DROP + PR_SET_MM reachable. Needs
   arg-filter on the option name.
-- **F13** Landlock fchmod bypass via /proc/self/fd reopen — same for
-  fchown/ftruncate. fsetxattr already denied at seccomp.
+- **F13 ftruncate residual** — fchmod/fchown family closed (see above);
+  ftruncate kept for RocksDB still allows the /proc/self/fd-reopen
+  pattern against inherited writable-inode fds. Mitigation is
+  supervisor CLOEXEC discipline (audit + close non-essential fds
+  before exec) — separate work item.
 - **F14 / F22 / F25 / F28-31** — /proc info leak surfaces. Design-implied
   because supervisor runs as root and we don't namespace; most are
   threat-model items to document rather than fix.
