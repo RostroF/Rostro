@@ -471,21 +471,19 @@ the original PoC against the deployed lab nodes.
 | F09 `--state-file` / `--canonical-dir` docstring lied | DOC DISCONNECT | `43b8aab94f` | Both docstrings rewritten to describe actual clap behavior. `--canonical-dir` gets a workaround (point at a `*.new`-free dir); `--state-file` honestly says no disable mechanism exists today. |
 | F15 / F16 state-file / canonical-dir overlapping sandbox RW path | MISCONFIG-CONDITIONAL ESCALATION | `f6de430a54` | `validate_no_rw_path_overlap()` runs before sandbox install and refuses the launch with a clear F-numbered error if either path sits inside any `--sandbox-rw-path`. Verified: F15 attack (`--state-file /opt/rostro/data/state --sandbox-rw-path /opt/rostro/data`) exits 1 with the F15 error; F16 attack (`--canonical-dir /opt/rostro/data --sandbox-rw-path /opt/rostro/data`) exits 1 with the F16 error; clean config still runs through to sandbox install. |
 | F13 fchmod/fchown bypass via /proc/self/fd reopen | CONFIRMED ESCAPE (host file perms) | `92fd518af7` | Removed `fchmod`, `fchown`, `fchmodat`, `fchownat` from `PLAIN_ALLOWED_SYSCALLS` outright. fsetxattr was already denied by absence. Phase A 10-min sustained strace (102 blocks on debian-01) + Phase 5 5-min fedora baseline both observed ZERO calls to any of the four from substrate + libp2p + tokio + rust-std + RocksDB, so denial is safe. Verified: F13 probe in-sandbox observes SIGSYS on all five syscalls (fchmod / fchown / fchmodat / fchownat / fsetxattr) under the new build. Residual: ftruncate-via-reopen attack on inherited fds remains (ftruncate kept because RocksDB needs it); mitigation is supervisor CLOEXEC discipline — open follow-up item. |
+| F07 prctl multiplexer flat-allowed | ARG-FILTER BYPASS | `e135235b8e` | Removed `SYS_prctl` from plain allowlist; added `prctl_safe_options_rules()` whitelisting only `PR_SET_NAME` (option=15). Phase A 600s sustained baseline observed prctl 53 times, ALL `PR_SET_NAME` (Rust std + tokio worker thread naming). Closes the F07 escape paths: `PR_SET_PTRACER_ANY` (Yama bypass), `PR_SET_DUMPABLE`, `PR_CAPBSET_DROP`, `PR_SET_MM`. Phase C LOG-mode round on all 3 lab nodes captured zero unexpected prctl operations under sustained block production; flipped to KILL mode 2026-05-24 with 0 SIGSYS audits. |
+| F03 socket(AF_INET6, SOCK_RAW, IPPROTO_RAW) — raw IPv6 packet injection | ARG-FILTER BYPASS | `e135235b8e` | Rewrote `socket_safe_families_rules()` from "domain-only" to (domain, type) pairs requiring `(type & 0xF) ∈ {SOCK_STREAM, SOCK_DGRAM}` for AF_INET/AF_INET6. SOCK_RAW (3) denied by absence. AF_UNIX kept domain-only (local IPC). AF_NETLINK still gated to NETLINK_ROUTE. UDP kept for future QUIC libp2p paths. Phase C LOG-mode round confirmed zero unexpected socket combinations across all 3 lab nodes; flipped to KILL mode 2026-05-24 with 0 SIGSYS audits. |
+| Lab-bring-up gap: readahead | RELIABILITY (ubuntu-only crash) | `2cbff9bf00` | ubuntu-01 (Ubuntu 24.04, kernel 6.8, glibc 2.39) hit `readahead(2)` 10x in 18min sustained operation; debian-01 (6.12, glibc 2.41) and fedora-01 (6.19, glibc 2.41) didn't. Surfaced via ROSTRO_SECCOMP_ACTION=log diagnostic mode during lab bring-up. RocksDB sequential SST scan / WAL replay paths use it on some glibc/kernel combos. Added `SYS_readahead` to plain allowlist; benign advisory syscall like fadvise64. Updates the cross-distro consistency note: sustained operation diverges where init+idle didn't. |
 
 ### Still open
 
 Tracked separately in `~/rostro-testnet-lab/notes/redteam-2026-05-23/REPORT.md`:
 
-- **F03** socket(AF_INET6, SOCK_RAW, IPPROTO_RAW) — arg filter allows
-  AF_INET6 with any protocol; raw IPv6 packet injection reachable.
 - **F04** setsockopt SO_ATTACH_FILTER — flat-allowed; kernel cBPF VM
   reachable despite `bpf(2)` being denied.
 - **F05** mmap PROT_EXEC file-backed — design-permitted; Landlock
   execute-deny on RW (Pending #6) closes it.
 - **F06** mprotect W→X — design-permitted (PolkaVM JIT).
-- **F07** prctl multiplexer flat-allowed — PR_SET_PTRACER_ANY +
-  PR_SET_DUMPABLE + PR_CAPBSET_DROP + PR_SET_MM reachable. Needs
-  arg-filter on the option name.
 - **F13 ftruncate residual** — fchmod/fchown family closed (see above);
   ftruncate kept for RocksDB still allows the /proc/self/fd-reopen
   pattern against inherited writable-inode fds. Mitigation is
