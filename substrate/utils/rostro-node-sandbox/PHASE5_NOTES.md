@@ -469,6 +469,7 @@ the original PoC against the deployed lab nodes.
 | F08 fadvise64 crash-restart loop | RELIABILITY (validator can't run) | `43b8aab94f` | `SYS_fadvise64` added to plain allowlist. RocksDB's `posix_fadvise()` no longer SIGSYSes during compaction. |
 | F17 symlink(2) denied while symlinkat(2) allowed | RELIABILITY oversight | `43b8aab94f` | `SYS_symlink` added; Landlock still gates the path policy. |
 | F09 `--state-file` / `--canonical-dir` docstring lied | DOC DISCONNECT | `43b8aab94f` | Both docstrings rewritten to describe actual clap behavior. `--canonical-dir` gets a workaround (point at a `*.new`-free dir); `--state-file` honestly says no disable mechanism exists today. |
+| F15 / F16 state-file / canonical-dir overlapping sandbox RW path | MISCONFIG-CONDITIONAL ESCALATION | `f6de430a54` | `validate_no_rw_path_overlap()` runs before sandbox install and refuses the launch with a clear F-numbered error if either path sits inside any `--sandbox-rw-path`. Verified: F15 attack (`--state-file /opt/rostro/data/state --sandbox-rw-path /opt/rostro/data`) exits 1 with the F15 error; F16 attack (`--canonical-dir /opt/rostro/data --sandbox-rw-path /opt/rostro/data`) exits 1 with the F16 error; clean config still runs through to sandbox install. |
 
 ### Still open
 
@@ -489,11 +490,6 @@ Tracked separately in `~/rostro-testnet-lab/notes/redteam-2026-05-23/REPORT.md`:
 - **F14 / F22 / F25 / F28-31** — /proc info leak surfaces. Design-implied
   because supervisor runs as root and we don't namespace; most are
   threat-model items to document rather than fix.
-- **F15 / F16** — operator misconfig: if `--state-file` or
-  `--canonical-dir` overlaps `--sandbox-rw-path`, the sandboxed child
-  can poison supervisor counters (F15) or stage `attacker-payload.new`
-  for rotation by the next swap (F16). Need supervisor-side path-overlap
-  validation at startup.
 
 ## Diagnostic tooling added
 
