@@ -278,6 +278,21 @@ fn build_landlock_ruleset(
 	let abi = ABI::V1;
 	let all_fs = AccessFs::from_all(abi);
 	let read_fs = AccessFs::from_read(abi);
+	// F05 fix (Phase E, 2026-05-24): RW paths grant every fs op EXCEPT
+	// Execute. Closes the design-permitted shellcode injection from
+	// red-team F05 — attacker writes binary to /opt/rostro/data,
+	// mmap PROT_EXEC succeeds because Landlock previously granted Exec
+	// on RW paths, then attacker jumps in. With Execute denied on RW
+	// inodes, the kernel rejects both `execve()` and `mmap(PROT_EXEC)`
+	// on files there. Read-only paths (gemini-node binary etc.) keep
+	// Execute via `read_fs` (the landlock-rs default for `from_read()`
+	// includes Execute, which is required for the supervisor to exec
+	// gemini-node from `--sandbox-ro-path`).
+	//
+	// Pattern from landlock-rs docs (`fs.rs:42`). Anon mmap PROT_EXEC
+	// (no file backing) isn't covered by Landlock — that's F06,
+	// by-design for the PolkaVM JIT.
+	let rw_no_exec_fs = all_fs & !AccessFs::Execute;
 
 	let mut rs: RulesetCreated = Ruleset::default()
 		.set_compatibility(CompatLevel::BestEffort)
@@ -312,7 +327,7 @@ fn build_landlock_ruleset(
 		let fd = PathFd::new(path).map_err(|e| {
 			landlock_err(&format!("PathFd::new(rw {})", path.display()), e)
 		})?;
-		rs = rs.add_rule(PathBeneath::new(fd, all_fs)).map_err(|e| {
+		rs = rs.add_rule(PathBeneath::new(fd, rw_no_exec_fs)).map_err(|e| {
 			landlock_err(&format!("add_rule(rw {})", path.display()), e)
 		})?;
 	}
@@ -334,7 +349,10 @@ fn build_landlock_ruleset(
 		let fd = PathFd::new(path).map_err(|e| {
 			landlock_err(&format!("PathFd::new(cgroup {})", path.display()), e)
 		})?;
-		rs = rs.add_rule(PathBeneath::new(fd, all_fs)).map_err(|e| {
+		// Cgroup files aren't executables, so deny Execute here too —
+		// principle of least privilege. Aligns with the F05 fix on
+		// user-config RW paths.
+		rs = rs.add_rule(PathBeneath::new(fd, rw_no_exec_fs)).map_err(|e| {
 			landlock_err(&format!("add_rule(cgroup {})", path.display()), e)
 		})?;
 	}
