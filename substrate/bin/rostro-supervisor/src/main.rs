@@ -402,6 +402,45 @@ fn validate_stdio_log_placement(
 			));
 		}
 	}
+	// F-NEW-R4-01 closure (2026-05-25): the "outside every rw_path" branch
+	// previously fell through to Ok(()) with no further check. The
+	// /security-review surfaced that an operator passing
+	// `--sandbox-stdio-log /etc/sudoers.d/00-rostro-log` would slip past
+	// the validation; the supervisor would open the file AS ROOT
+	// (`O_CREAT | O_APPEND | O_WRONLY` pre-Cannae) and the per-spawn
+	// reader thread would append the child's bytes verbatim (the file
+	// leg of the relay is unprefixed). A compromised child calling
+	// `println!("\n%admin ALL=(ALL) NOPASSWD: ALL\n")` lands attacker-
+	// controlled sudoers rules; same shape for `/etc/cron.d/*`,
+	// `/etc/profile.d/*.sh`, `/etc/ld.so.conf.d/*.conf`,
+	// `/etc/logrotate.d/*`, `/etc/systemd/*`. Each is a different
+	// daemon parser that runs the file content as root with no
+	// executable bit required.
+	//
+	// Apply `path_is_under_stdio_system_prefix` (a TREE denylist —
+	// matches any descendant of the listed system dirs, not just
+	// exact-match). Normalize first via `normalize_path_for_denylist`
+	// to cover the R3-03 bypass shapes (`/etc/`, `//etc`,
+	// `/etc/sudoers.d/foo/../bar`, etc.).
+	let normalized = normalize_path_for_denylist(p)?;
+	if let Some(prefix) = path_is_under_stdio_system_prefix(&normalized) {
+		return Err(format!(
+			"F-NEW-R4-01 misconfig: --sandbox-stdio-log {} (normalized: {}) \
+			 sits under {}, a system-managed directory tree. The supervisor \
+			 opens the stdio log as root and the per-spawn pipe-relay reader \
+			 appends the child's stdout/stderr bytes verbatim. A compromised \
+			 child can emit attacker-controlled bytes that the host's system \
+			 daemons parse as root (sudo for /etc/sudoers.d/, cron for \
+			 /etc/cron.d/, logrotate for /etc/logrotate.d/, ld.so for \
+			 /etc/ld.so.conf.d/, …) — turning operator misconfig into \
+			 root escalation. Pick a path inside an --sandbox-rw-path (e.g. \
+			 <rw>/.gemini-node-stdio.log), under /var/log/, /srv/, /opt/, \
+			 or /dev/null to discard.",
+			p.display(),
+			normalized.display(),
+			prefix,
+		));
+	}
 	Ok(())
 }
 
@@ -428,6 +467,99 @@ const SYSTEM_TOPLEVEL_DENYLIST: &[&str] = &[
 	"/dev", "/proc", "/sys", "/run", "/etc", "/usr", "/var", "/srv", "/opt",
 	"/root", "/home", "/mnt", "/media", "/tmp",
 ];
+
+/// F-NEW-R4-01 closure (2026-05-25): tree-denylist for `--sandbox-stdio-log`
+/// placements OUTSIDE every `--sandbox-rw-path`. The R2-03 stdio-log
+/// validator accepted "any path outside the rw_paths," but the supervisor
+/// then opens that path AS ROOT and the per-spawn reader thread appends
+/// child-controlled bytes via the already-open fd (Landlock gates `open(2)`
+/// not subsequent writes on existing fds). The /security-review surfaced
+/// this as an attack-chain opener: an operator who picks
+/// `--sandbox-stdio-log /etc/sudoers.d/00-rostro-log` hands the compromised
+/// child a root-privileged append primitive into a directory that sudo
+/// parses on every invocation. `/etc/cron.d/*`, `/etc/profile.d/*.sh`,
+/// `/etc/ld.so.conf.d/*.conf`, `/etc/logrotate.d/*`, `/etc/systemd/*`,
+/// `/etc/init.d/*` all have the same shape: the daemon parses the
+/// containing dir as root, no executable bit required.
+///
+/// The fix is asymmetric to `SYSTEM_TOPLEVEL_DENYLIST` because stdio-log
+/// can be NESTED inside a system dir (the file at `/etc/sudoers.d/foo`
+/// is the attack; `/etc` itself isn't a file). So this denylist matches
+/// PREFIXES — refuse any path that's INSIDE any entry. Allows legitimate
+/// log targets (`/var/log/rostro.log`, `/srv/rostro/log`, `/tmp/foo.log`,
+/// `<rw>/foo.log`) which are NOT inside the denylisted system trees.
+///
+/// Note: `/var` is NOT in this list because `/var/log/` is the standard
+/// log target. `/tmp` is NOT in this list because temp logs are
+/// legitimate for dev. Operators who want stricter placement can pass
+/// `/dev/null` or a path inside an `--sandbox-rw-path`.
+const STDIO_LOG_SYSTEM_PREFIX_DENYLIST: &[&str] = &[
+	"/etc",   // sudoers.d, cron.d, profile.d, ld.so.conf.d, logrotate.d, systemd, init.d, sysctl.d, modprobe.d, pam.d, security, bash_completion.d, …
+	"/usr",   // /usr/lib/systemd, /usr/share/applications, /usr/local/sbin, …
+	"/bin",   // any-named-file shadows a system command if PATH includes it
+	"/sbin",  // same
+	"/lib",   // shared libraries; ld.so loads anything matching SONAME
+	"/lib32",
+	"/lib64",
+	"/libx32",
+	"/boot",  // kernel + initramfs; not parsed at runtime but writes here are a sign of misconfig
+];
+
+/// Returns true if `normalized` is either equal to one of the prefix-denylist
+/// entries OR sits inside one of them (i.e., `<denylisted>/anything`).
+/// `normalized` MUST be the output of `normalize_path_for_denylist` — the
+/// caller is responsible for refusing `..` components and stripping
+/// trailing slashes / `.` components / double slashes before this call.
+fn path_is_under_stdio_system_prefix(normalized: &Path) -> Option<&'static str> {
+	for prefix in STDIO_LOG_SYSTEM_PREFIX_DENYLIST {
+		let prefix_path = Path::new(prefix);
+		if normalized == prefix_path || normalized.starts_with(prefix_path) {
+			return Some(prefix);
+		}
+	}
+	None
+}
+
+/// F-NEW-R4-02 closure (2026-05-25): substring-mangle any `STATE_DELTA`
+/// occurrence in a byte buffer destined for the journald-mirror leg of
+/// the pipe-relay. The supervisor's own state-delta lines (emitted via
+/// `SupervisorState::emit_delta_to_journal`) go directly to stderr at
+/// column 0; child lines go via the reader thread with a `[child-stdio] `
+/// prefix and are therefore NEVER at column 0. The documented
+/// reconstruction command is `journalctl … | grep '^STATE_DELTA' | tail -1`
+/// — line-anchored, so child-injected `[child-stdio] STATE_DELTA …` lines
+/// don't match. This sanitizer is belt-and-suspenders: an operator
+/// running an ad-hoc un-anchored grep, or a future code change that
+/// drops the `[child-stdio] ` prefix, would re-open the injection. By
+/// replacing the substring `STATE_DELTA` with `STATE_DELTA_FROM_CHILD`
+/// in the relay output, even a no-prefix relay-line is non-matching
+/// against `grep 'STATE_DELTA '` (the trailing-space-style grep) and
+/// the suffix makes the origin explicit to any operator who inspects.
+///
+/// Returns the bytes unchanged when no `STATE_DELTA` substring is
+/// present (the common case — substrate's `tracing` output doesn't
+/// emit that magic string).
+fn sanitize_state_delta_for_relay(buf: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+	const NEEDLE: &[u8] = b"STATE_DELTA";
+	const REPLACEMENT: &[u8] = b"STATE_DELTA_FROM_CHILD";
+	// Fast path: no occurrences.
+	if !buf.windows(NEEDLE.len()).any(|w| w == NEEDLE) {
+		return std::borrow::Cow::Borrowed(buf);
+	}
+	// Slow path: build a new buffer with every `STATE_DELTA` replaced.
+	let mut out = Vec::with_capacity(buf.len() + REPLACEMENT.len() - NEEDLE.len());
+	let mut i = 0;
+	while i < buf.len() {
+		if i + NEEDLE.len() <= buf.len() && &buf[i..i + NEEDLE.len()] == NEEDLE {
+			out.extend_from_slice(REPLACEMENT);
+			i += NEEDLE.len();
+		} else {
+			out.push(buf[i]);
+			i += 1;
+		}
+	}
+	std::borrow::Cow::Owned(out)
+}
 
 /// F-NEW-R3-03 closure (2026-05-25): normalize a path to its textual
 /// canonical form before exact-match comparison against the denylist.
@@ -801,7 +933,18 @@ impl SupervisorState {
 	/// cache (still updated when not sandboxed, e.g.
 	/// `--unsafe-skip-sandbox` runs); journald is the canonical
 	/// source. Operator can reconstruct state via:
-	///   `journalctl -u rostro-supervisor --output=cat | grep STATE_DELTA | tail -1`
+	///   `journalctl -u rostro-supervisor --output=cat | grep '^STATE_DELTA' | tail -1`
+	///
+	/// **F-NEW-R4-02 closure (2026-05-25)**: the recovery `grep` is
+	/// anchored at line-start (`^STATE_DELTA`). The supervisor's own
+	/// emissions go via `eprintln!` directly to stderr at column 0;
+	/// the pipe-relay reader prefixes child lines with `[child-stdio] `,
+	/// so the child can't emit a line that starts with `STATE_DELTA`
+	/// regardless of what bytes it puts on its stdout. Defense-in-depth:
+	/// the reader also substring-mangles any `STATE_DELTA` occurrence in
+	/// the child's bytes before forwarding to stderr (see the relay
+	/// reader thread in `run()`), so even if a future change drops the
+	/// `[child-stdio] ` prefix, the attack-line shape is mangled too.
 	///
 	/// **Format choice**: single-line key=value pairs, journald-friendly
 	/// and `awk`-parseable. Schema version is explicit so future
@@ -844,9 +987,12 @@ impl SupervisorState {
 					 now degraded to per-supervisor-lifetime. journald \
 					 STATE_DELTA mirror IS emitted; operator can \
 					 reconstruct via `journalctl -u rostro-supervisor \
-					 --output=cat | grep STATE_DELTA | tail -1` and \
+					 --output=cat | grep '^STATE_DELTA' | tail -1` and \
 					 hand-seed the state file at the next restart if \
-					 caps need to span deployments.",
+					 caps need to span deployments. (Grep anchor `^` is \
+					 load-bearing per F-NEW-R4-02 — unanchored grep would \
+					 also match child-injected `[child-stdio] STATE_DELTA…` \
+					 lines that defeat the reconstruction via tail -1.)",
 					path.display(),
 					e,
 				);
@@ -1079,6 +1225,14 @@ fn run(args: Args) -> ExitCode {
 				.append(true)
 				.write(true)
 				.custom_flags(libc::O_NOFOLLOW)
+				.mode(0o600) // F-NEW-R4-01 defense-in-depth: root-only readable.
+				             // If a misconfigured stdio_log ever lands in a path
+				             // that some other daemon scans, mode 0600 prevents
+				             // non-root parsers from reading the file at all.
+				             // The supervisor (root) opens + writes via the
+				             // already-open fd; the child's writes go through
+				             // the pipe-relay, not via an open of the path —
+				             // so child UID 1000 can't open this either.
 				.open(&path)
 			{
 				Ok(f) => {
@@ -1312,17 +1466,35 @@ fn run(args: Args) -> ExitCode {
 									// Write to the global mirror file
 									// (O_APPEND + optional chattr +a).
 									// &File implements Write on Unix.
+									// File leg is the operator's local grep
+									// target; bytes are unmodified so the
+									// operator sees what the child actually
+									// emitted. journald leg (below) is the
+									// security-critical mirror and IS
+									// sanitized.
 									let _ = std::io::Write::write_all(
 										&mut file_arc_for_thread.as_ref(),
 										&buf,
 									);
 									// Mirror to supervisor stderr (→ journald
-									// under systemd). Prefix per line so the
-									// operator can grep child-vs-supervisor
-									// logs apart in `journalctl --output=cat`.
+									// under systemd). F-NEW-R4-02 closure:
+									// substring-mangle any `STATE_DELTA`
+									// occurrence in the child's bytes before
+									// forwarding. The `[child-stdio] ` prefix
+									// already keeps child lines from starting
+									// with `STATE_DELTA` (so the documented
+									// `grep '^STATE_DELTA'` recovery is
+									// already safe), but mangling provides
+									// belt-and-suspenders against operators
+									// running ad-hoc un-anchored greps OR
+									// against a future change that drops the
+									// prefix. Cheap: byte-level substring
+									// replace at relay-time.
+									let sanitized =
+										sanitize_state_delta_for_relay(&buf);
 									let mut stderr = std::io::stderr().lock();
 									let _ = stderr.write_all(b"[child-stdio] ");
-									let _ = stderr.write_all(&buf);
+									let _ = stderr.write_all(&sanitized);
 								},
 								Err(_) => break,
 							}
@@ -2398,5 +2570,189 @@ mod tests {
 			s.crashes.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(","),
 		);
 		assert_eq!(line, format!("STATE_DELTA schema={} swap_count=0 crashes=[]", STATE_SCHEMA_VERSION));
+	}
+
+	// ─── F-NEW-R4-01: stdio-log system-prefix denylist ───────────────────
+
+	#[test]
+	fn stdio_log_placement_rejects_etc_sudoers_d() {
+		// The /security-review's HIGH finding — operator misconfig that
+		// the supervisor's earlier validator (R2-03) would have accepted.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/etc/sudoers.d/00-rostro-log");
+		let err = validate_stdio_log_placement(Some(&stdio), &rw).unwrap_err();
+		assert!(err.contains("F-NEW-R4-01"), "expected F-NEW-R4-01 error, got: {err}");
+		assert!(err.contains("/etc"), "expected /etc prefix mention, got: {err}");
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_etc_cron_d() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/etc/cron.d/rostro");
+		let err = validate_stdio_log_placement(Some(&stdio), &rw).unwrap_err();
+		assert!(err.contains("F-NEW-R4-01"), "expected F-NEW-R4-01 error, got: {err}");
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_etc_profile_d() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/etc/profile.d/00rostro.sh");
+		assert!(validate_stdio_log_placement(Some(&stdio), &rw).is_err());
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_etc_ld_so_conf_d() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/etc/ld.so.conf.d/00rostro.conf");
+		assert!(validate_stdio_log_placement(Some(&stdio), &rw).is_err());
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_etc_logrotate_d() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/etc/logrotate.d/rostro");
+		assert!(validate_stdio_log_placement(Some(&stdio), &rw).is_err());
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_etc_systemd() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/etc/systemd/system.conf.d/00rostro.conf");
+		assert!(validate_stdio_log_placement(Some(&stdio), &rw).is_err());
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_usr_subpaths() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		for p in [
+			"/usr/lib/systemd/system/rostro.service",
+			"/usr/local/sbin/rostro-log",
+			"/usr/share/applications/rostro.desktop",
+		] {
+			assert!(
+				validate_stdio_log_placement(Some(&PathBuf::from(p)), &rw).is_err(),
+				"expected refusal for {p}",
+			);
+		}
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_bin_lib_boot() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		for p in [
+			"/bin/rostro-log",
+			"/sbin/rostro-log",
+			"/lib/rostro.so.1",
+			"/lib64/rostro.so.1",
+			"/boot/grub/00rostro.cfg",
+		] {
+			assert!(
+				validate_stdio_log_placement(Some(&PathBuf::from(p)), &rw).is_err(),
+				"expected refusal for {p}",
+			);
+		}
+	}
+
+	#[test]
+	fn stdio_log_placement_accepts_var_log() {
+		// /var/log is the canonical log target; must remain accepted.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/var/log/rostro/gemini-node.log");
+		assert!(validate_stdio_log_placement(Some(&stdio), &rw).is_ok());
+	}
+
+	#[test]
+	fn stdio_log_placement_accepts_srv_opt_tmp_home() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		for p in [
+			"/srv/rostro/log/stdio.log",
+			"/opt/rostro/log/stdio.log",
+			"/tmp/rostro-stdio.log",
+			"/home/coder/rostro-stdio.log",
+		] {
+			assert!(
+				validate_stdio_log_placement(Some(&PathBuf::from(p)), &rw).is_ok(),
+				"expected acceptance for {p}",
+			);
+		}
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_etc_via_r3_03_bypass_shapes() {
+		// R3-03 normalization MUST apply BEFORE the R4-01 prefix check.
+		// Trailing slash, double slash, dot-component, and `..` bypass
+		// shapes against /etc/sudoers.d/* are all caught.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		// trailing slash on prefix (file path can't have trailing slash for
+		// a file, so this case tests the leaf component).
+		assert!(validate_stdio_log_placement(
+			Some(&PathBuf::from("/etc//sudoers.d/foo")), &rw
+		).is_err());
+		assert!(validate_stdio_log_placement(
+			Some(&PathBuf::from("/etc/./sudoers.d/foo")), &rw
+		).is_err());
+		// `..` is refused by normalize_path_for_denylist before the prefix
+		// check runs (R3-03 closure).
+		let err = validate_stdio_log_placement(
+			Some(&PathBuf::from("/var/log/../etc/sudoers.d/foo")), &rw
+		).unwrap_err();
+		assert!(err.contains("F-NEW-R3-03"), "expected R3-03 refusal first, got: {err}");
+	}
+
+	// ─── F-NEW-R4-02: sanitize_state_delta_for_relay ─────────────────────
+
+	#[test]
+	fn sanitize_state_delta_passes_through_when_no_match() {
+		// Common case: substrate tracing log line. Should be borrowed
+		// (zero-copy) when no STATE_DELTA substring present.
+		let buf = b"2026-05-25 12:34:56.789  INFO substrate: Imported #42\n";
+		let out = sanitize_state_delta_for_relay(buf);
+		assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
+		assert_eq!(out.as_ref(), buf);
+	}
+
+	#[test]
+	fn sanitize_state_delta_mangles_attacker_injection() {
+		let buf = b"STATE_DELTA schema=1 swap_count=0 crashes=[]\n";
+		let out = sanitize_state_delta_for_relay(buf);
+		assert!(matches!(out, std::borrow::Cow::Owned(_)));
+		let s = std::str::from_utf8(&out).unwrap();
+		assert!(s.contains("STATE_DELTA_FROM_CHILD schema=1"), "got: {s}");
+		// Critical property: the result does NOT contain `STATE_DELTA `
+		// (the trailing-space form used by reasonable un-anchored grep
+		// queries). It contains `STATE_DELTA_FROM_CHILD` which doesn't.
+		assert!(
+			!s.contains("STATE_DELTA "),
+			"sanitized output still contains `STATE_DELTA ` substring: {s}",
+		);
+	}
+
+	#[test]
+	fn sanitize_state_delta_mangles_substring_in_middle() {
+		// Even if the child wraps STATE_DELTA in other text, mangle it.
+		let buf = b"prefix STATE_DELTA injected schema=1 suffix\n";
+		let out = sanitize_state_delta_for_relay(buf);
+		let s = std::str::from_utf8(&out).unwrap();
+		assert!(s.contains("STATE_DELTA_FROM_CHILD injected"));
+	}
+
+	#[test]
+	fn sanitize_state_delta_handles_multiple_occurrences() {
+		let buf = b"STATE_DELTA one STATE_DELTA two STATE_DELTA three\n";
+		let out = sanitize_state_delta_for_relay(buf);
+		let s = std::str::from_utf8(&out).unwrap();
+		// All three replaced; no `STATE_DELTA ` (with space) survives.
+		assert_eq!(s.matches("STATE_DELTA_FROM_CHILD").count(), 3);
+		assert_eq!(s.matches("STATE_DELTA ").count(), 0);
+	}
+
+	#[test]
+	fn sanitize_state_delta_handles_partial_at_end() {
+		// Partial-substring at end-of-buffer (e.g., line wrap) must not
+		// match: the byte-window check requires the full needle.
+		let buf = b"line ends with STATE_DELT\n";
+		let out = sanitize_state_delta_for_relay(buf);
+		assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
+		assert_eq!(out.as_ref(), buf);
 	}
 }
