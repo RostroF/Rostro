@@ -347,6 +347,109 @@ fn validate_no_rw_path_overlap(
 	Ok(())
 }
 
+/// F-NEW-R2-03 fix (2026-05-25): refuse `--sandbox-stdio-log` placements
+/// that point deep into an `--sandbox-rw-path` subtree. The agent-B
+/// round-2 pen-test demonstrated that the supervisor (root) opening a
+/// stdio target with `O_CREAT|O_APPEND` and then handing it to the
+/// child as fd 1/2 turns a write-anywhere stdio fd into a write-into-
+/// sensitive-internal-file primitive (e.g.,
+/// `<rw>/chains/gemini-dev/db/full/000008.log` — RocksDB WAL). The
+/// inherited fd 1/2 is unrestricted by Landlock (Landlock gates the
+/// `open(2)` call, not subsequent writes on already-open fds), so any
+/// operator misconfig here is permanent corruption potential.
+///
+/// **Rule**: `--sandbox-stdio-log <path>` is permitted only if EITHER:
+///   1. `path` is OUTSIDE every `--sandbox-rw-path` (operator picks a
+///      separate log location; the child can write to it via fd 1/2
+///      but the target is outside the sandbox's sensitive set), OR
+///   2. `path` is the IMMEDIATE child of some `--sandbox-rw-path`
+///      (i.e., `path.parent() == that rw_path`). This permits the
+///      default location `<first-rw-path>/.gemini-node-stdio.log` and
+///      operator-chosen dotfiles at the rw-path root, but refuses
+///      anything deeper.
+///   3. `path` is exactly `/dev/null` (explicit discard).
+///
+/// `None` (operator didn't pass `--sandbox-stdio-log`) is the default
+/// case and falls under rule 2 automatically via the resolution in
+/// the spawn loop.
+fn validate_stdio_log_placement(
+	stdio_log: Option<&Path>,
+	rw_paths: &[PathBuf],
+) -> Result<(), String> {
+	let Some(p) = stdio_log else { return Ok(()) };
+	if p == Path::new("/dev/null") {
+		return Ok(());
+	}
+	for rw in rw_paths {
+		if p.starts_with(rw) {
+			// Inside this rw_path. Permitted only if it's an immediate
+			// child (parent == rw_path).
+			if p.parent() == Some(rw.as_path()) {
+				return Ok(());
+			}
+			return Err(format!(
+				"F-NEW-R2-03 misconfig: --sandbox-stdio-log {} sits deeper \
+				 than the immediate-child level of --sandbox-rw-path {}. A \
+				 compromised child holds fd 1/2 open to this file at root \
+				 ownership; pointing it at a deep subpath turns inherited \
+				 stdout/stderr into a write primitive into sensitive \
+				 in-sandbox files (RocksDB WAL/MANIFEST etc.). Use an \
+				 immediate-child path like {}/.gemini-node-stdio.log, OR a \
+				 path OUTSIDE every --sandbox-rw-path, OR /dev/null.",
+				p.display(),
+				rw.display(),
+				rw.display(),
+			));
+		}
+	}
+	Ok(())
+}
+
+/// F-NEW-R2-04 fix (2026-05-25): refuse `--sandbox-rw-path` values that
+/// are system-managed top-level directories. The agent-B round-2
+/// pen-test confirmed that `install_noexec_remount` operates on the
+/// supervisor's HOST mount namespace (no `unshare(CLONE_NEWNS)`
+/// upstream), so `mount(MS_BIND|MS_REMOUNT|MS_NOEXEC)` on `/`, `/etc`,
+/// `/usr`, etc. is host-visible and persists until reboot. An operator
+/// misconfig of `--sandbox-rw-path /etc` would `MS_NOEXEC`-remount the
+/// host's `/etc`, breaking every system script that exec's from there
+/// (cron, init.d, journald drop-ins, anything that calls
+/// `/etc/something.sh`).
+///
+/// The proper architectural fix is `unshare(CLONE_NEWNS)` to contain
+/// the bind-remount to the supervisor's mount namespace. Tracked for a
+/// separate decision (UX cost: operators expect host-visible mounts
+/// for debugging). This validation is the stopgap: refuse the worst
+/// cases at parse time. The descent rule allows nested paths
+/// (`/var/lib/rostro` ✓) but refuses the bare top-level dir
+/// (`/var` ✗).
+const SYSTEM_TOPLEVEL_DENYLIST: &[&str] = &[
+	"/", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/boot",
+	"/dev", "/proc", "/sys", "/run", "/etc", "/usr", "/var", "/srv", "/opt",
+	"/root", "/home", "/mnt", "/media", "/tmp",
+];
+
+fn validate_rw_paths_not_system_dirs(rw_paths: &[PathBuf]) -> Result<(), String> {
+	for rw in rw_paths {
+		let rw_str = rw.to_string_lossy();
+		for denied in SYSTEM_TOPLEVEL_DENYLIST {
+			if rw_str.as_ref() == *denied {
+				return Err(format!(
+					"F-NEW-R2-04 misconfig: --sandbox-rw-path {} is a \
+					 system-managed top-level directory. Cannae's \
+					 `install_noexec_remount` would `mount(MS_BIND|MS_NOEXEC)` \
+					 this path in the host mount namespace, breaking every \
+					 system process that exec's from there. Use a nested \
+					 path like {}/rostro-data instead.",
+					rw.display(),
+					if rw_str.as_ref() == "/" { "/var/lib" } else { denied },
+				));
+			}
+		}
+	}
+	Ok(())
+}
+
 /// Banner shown once at supervisor startup when sandbox is disabled.
 /// Multiple lines so it's hard to miss in a scrolling log; per-restart
 /// warning inside the spawn loop is shorter.
@@ -687,6 +790,48 @@ fn run(args: Args) -> ExitCode {
 		return ExitCode::FAILURE;
 	}
 
+	// F-NEW-R2-04: refuse `--sandbox-rw-path` values that name a
+	// system-managed top-level directory (`/etc`, `/usr`, etc.). The
+	// noexec bind-remount on those paths would propagate to the host
+	// mount namespace and break system services.
+	if let Err(msg) = validate_rw_paths_not_system_dirs(&args.sandbox_rw_paths) {
+		log::error!("{msg}");
+		return ExitCode::FAILURE;
+	}
+
+	// F-NEW-R2-03: refuse `--sandbox-stdio-log` placements that point
+	// deep into an `--sandbox-rw-path` subtree (the symlink-and-overlap
+	// family of stdio-fd-misuse attacks). Default location (immediate
+	// child of first rw_path) is permitted; deeper paths are not.
+	if let Err(msg) = validate_stdio_log_placement(
+		args.sandbox_stdio_log.as_deref(),
+		&args.sandbox_rw_paths,
+	) {
+		log::error!("{msg}");
+		return ExitCode::FAILURE;
+	}
+
+	// F-NEW-R2-01: refuse `--sandbox-rlimit-as-bytes=0` at parse time.
+	// The earlier semantics — `Some(0) => None` meaning "leave RLIMIT_AS
+	// at inherited (unlimited)" — inverted the convention used by
+	// `--sandbox-rlimit-memlock-bytes` where `0` means "hard deny mlock."
+	// An operator with the muscle memory of the MEMLOCK convention who
+	// passes `--sandbox-rlimit-as-bytes=0` thinking they're hardening
+	// would actually re-open F-NEW-01 (TOCTOU host-memory burst).
+	// Refuse explicitly with a pointer to the right way to skip:
+	// omit the flag entirely.
+	if args.sandbox_rlimit_as_bytes == Some(0) {
+		log::error!(
+			"F-NEW-R2-01 misconfig: --sandbox-rlimit-as-bytes=0 is refused. \
+			 RLIMIT_AS=0 would make any allocation impossible. To skip the \
+			 RLIMIT_AS hardening and leave it at inherited (NOT recommended; \
+			 re-opens F-NEW-01 host-memory-burst), omit the flag entirely \
+			 OR pass a large explicit value. To hard-cap, pass the desired \
+			 byte ceiling (default = sandbox-memory-max + 1 GiB)."
+		);
+		return ExitCode::FAILURE;
+	}
+
 	// Phase G: when sandbox is active AND we run as root, require both
 	// --sandbox-child-uid AND --sandbox-child-gid. The supervisor needs
 	// root for cgroup setup; the child must NOT inherit it or it can
@@ -826,6 +971,7 @@ fn run(args: Args) -> ExitCode {
 		#[cfg(target_os = "linux")]
 		{
 			use std::fs::OpenOptions;
+			use std::os::unix::fs::OpenOptionsExt;
 			let stdio_target: Option<PathBuf> = args
 				.sandbox_stdio_log
 				.clone()
@@ -835,10 +981,23 @@ fn run(args: Args) -> ExitCode {
 						.map(|rw| rw.join(".gemini-node-stdio.log"))
 				});
 			if let Some(path) = stdio_target {
+				// F-NEW-R2-02 closure (2026-05-25): `O_NOFOLLOW` refuses
+				// to follow a symlink at the final path component. An
+				// attacker (or earlier-compromised child from a prior
+				// run) could plant a symlink at the default location
+				// `<rw>/.gemini-node-stdio.log → <rw>/chains/.../MANIFEST`
+				// and the supervisor (root) would have opened the
+				// MANIFEST as the child's writable stdout. With
+				// `O_NOFOLLOW`, the open fails ELOOP if a symlink is in
+				// the way, and we fall back to inherited stdio with a
+				// loud warning. `/dev/null` is special-cased: it's
+				// validated as not-a-symlink by convention (kernel
+				// device node, not a userland file).
 				match OpenOptions::new()
 					.create(true)
 					.append(true)
 					.write(true)
+					.custom_flags(libc::O_NOFOLLOW)
 					.open(&path)
 				{
 					Ok(stdout_file) => {
@@ -852,21 +1011,48 @@ fn run(args: Args) -> ExitCode {
 								);
 							},
 							Err(e) => {
-								log::warn!(
+								// F-NEW-R2-02: fail-stop instead of falling
+								// back to inherited stdio. The fall-back
+								// would silently re-open the F-NEW-02 lane.
+								log::error!(
 									"Cannae stdio: could not clone fd for stderr ({e}); \
-									 falling back to supervisor's inherited stdio. F-NEW-02 \
-									 mitigation NOT applied for this spawn."
+									 refusing to spawn with mixed stdio. Fix the underlying \
+									 filesystem error (likely fd table exhaustion or NFS \
+									 corruption) before retrying."
 								);
+								return ExitCode::FAILURE;
 							},
 						}
 					},
 					Err(e) => {
-						log::warn!(
-							"Cannae stdio: could not open {} for child stdout/stderr ({e}); \
-							 falling back to supervisor's inherited stdio. F-NEW-02 \
-							 mitigation NOT applied for this spawn.",
+						// F-NEW-R2-02: any open error here is a security
+						// indicator, not an operational one. ELOOP from
+						// O_NOFOLLOW = symlink-plant attack. ENOENT = the
+						// rw_path doesn't exist yet (supervisor misconfig).
+						// EACCES = permission issue at the supervisor level.
+						// In all cases, fail-stop rather than fall back to
+						// inherited stdio (which would silently re-open
+						// F-NEW-02).
+						let kind_note = match e.raw_os_error() {
+							Some(libc::ELOOP) => " (ELOOP — symlink at the stdio path; \
+								possible attack: an attacker may have planted a symlink \
+								at the default location pointing into a sensitive file. \
+								Investigate before retrying.)",
+							Some(libc::EACCES) => " (EACCES — supervisor lacks permission \
+								to open the stdio path; usually means the parent dir is \
+								not writable by root or has restrictive mount flags)",
+							Some(libc::ENOENT) => " (ENOENT — parent directory doesn't \
+								exist; --sandbox-rw-path may not have been created yet)",
+							_ => "",
+						};
+						log::error!(
+							"Cannae stdio: could not open {} for child stdout/stderr ({e}){}. \
+							 Refusing to spawn — falling back to inherited stdio would \
+							 silently re-open F-NEW-02.",
 							path.display(),
+							kind_note,
 						);
+						return ExitCode::FAILURE;
 					},
 				}
 			} else {
@@ -914,11 +1100,9 @@ fn run(args: Args) -> ExitCode {
 			// Resolve rlimit values once, here, where args is in scope.
 			// RLIMIT_AS default: memory cap + 1 GiB headroom for mmap'd
 			// RO libs + runtime blob that count against AS but not memcg.
-			// `Some(0)` from the operator => skip RLIMIT_AS (treat 0 as
-			// "leave inherited", per docstring; we never want to set
-			// RLIMIT_AS = 0 which would make exec impossible).
+			// `Some(0)` is already refused at parse time (F-NEW-R2-01),
+			// so we don't have a corresponding match arm here.
 			let rlimit_as = match args.sandbox_rlimit_as_bytes {
-				Some(0) => None,
 				Some(v) => Some(v),
 				None => args
 					.sandbox_memory_max_bytes
@@ -1727,5 +1911,106 @@ mod tests {
 	fn write(path: &Path, bytes: &[u8]) {
 		let mut f = std::fs::File::create(path).unwrap();
 		f.write_all(bytes).unwrap();
+	}
+
+	// ─── F-NEW-R2-03: stdio-log placement validation ─────────────────────
+
+	#[test]
+	fn stdio_log_placement_accepts_none() {
+		// Operator didn't pass --sandbox-stdio-log; default resolution
+		// happens later in the spawn loop. Validation should not fail.
+		assert!(validate_stdio_log_placement(None, &[PathBuf::from("/opt/rostro/data")]).is_ok());
+	}
+
+	#[test]
+	fn stdio_log_placement_accepts_immediate_child_of_rw_path() {
+		// The default-shape path is an immediate child of the rw_path.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/opt/rostro/data/.gemini-node-stdio.log");
+		assert!(validate_stdio_log_placement(Some(&stdio), &rw).is_ok());
+	}
+
+	#[test]
+	fn stdio_log_placement_accepts_outside_all_rw_paths() {
+		// Operator chooses a log location outside the sandbox.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/var/log/rostro/gemini-node.log");
+		assert!(validate_stdio_log_placement(Some(&stdio), &rw).is_ok());
+	}
+
+	#[test]
+	fn stdio_log_placement_accepts_dev_null() {
+		// Explicit discard.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/dev/null");
+		assert!(validate_stdio_log_placement(Some(&stdio), &rw).is_ok());
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_deep_subpath_of_rw() {
+		// F-NEW-R2-03 attack shape: operator points stdio at RocksDB
+		// internals so the child's fd 1/2 corrupts the DB.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/opt/rostro/data/chains/gemini-dev/db/full/000008.log");
+		let err = validate_stdio_log_placement(Some(&stdio), &rw).unwrap_err();
+		assert!(err.contains("F-NEW-R2-03"), "expected F-NEW-R2-03 error, got: {err}");
+		assert!(err.contains("immediate-child"), "expected immediate-child guidance, got: {err}");
+	}
+
+	#[test]
+	fn stdio_log_placement_treats_path_components_correctly() {
+		// /opt/rostro/data must NOT match /opt/rostro/data-other — same
+		// component-aware property as the F15/F16 validator.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/opt/rostro/data-other/log/stdio.log");
+		assert!(validate_stdio_log_placement(Some(&stdio), &rw).is_ok());
+	}
+
+	// ─── F-NEW-R2-04: top-level system-dir refusal ───────────────────────
+
+	#[test]
+	fn rw_paths_system_dir_rejects_etc() {
+		let rw = vec![PathBuf::from("/etc")];
+		let err = validate_rw_paths_not_system_dirs(&rw).unwrap_err();
+		assert!(err.contains("F-NEW-R2-04"), "expected F-NEW-R2-04 error, got: {err}");
+		assert!(err.contains("system-managed"), "expected system-managed wording, got: {err}");
+	}
+
+	#[test]
+	fn rw_paths_system_dir_rejects_root() {
+		let rw = vec![PathBuf::from("/")];
+		let err = validate_rw_paths_not_system_dirs(&rw).unwrap_err();
+		assert!(err.contains("F-NEW-R2-04"), "expected F-NEW-R2-04 error, got: {err}");
+	}
+
+	#[test]
+	fn rw_paths_system_dir_rejects_var_directly_but_allows_nested() {
+		// /var → reject; /var/lib/rostro → accept (descendants allowed).
+		assert!(validate_rw_paths_not_system_dirs(&[PathBuf::from("/var")]).is_err());
+		assert!(validate_rw_paths_not_system_dirs(&[PathBuf::from("/var/lib/rostro")]).is_ok());
+	}
+
+	#[test]
+	fn rw_paths_system_dir_rejects_tmp_directly_but_allows_nested() {
+		// /tmp → reject (would noexec-remount the whole tmpfs);
+		// /tmp/rostro-bp-alice → accept (legit test path used by WSL dev).
+		assert!(validate_rw_paths_not_system_dirs(&[PathBuf::from("/tmp")]).is_err());
+		assert!(validate_rw_paths_not_system_dirs(&[PathBuf::from("/tmp/rostro-bp-alice")]).is_ok());
+	}
+
+	#[test]
+	fn rw_paths_system_dir_rejects_multiple_paths_one_bad() {
+		// Mixed list: one good + one denylisted → reject.
+		let rw = vec![
+			PathBuf::from("/var/lib/rostro"),
+			PathBuf::from("/usr"),
+		];
+		assert!(validate_rw_paths_not_system_dirs(&rw).is_err());
+	}
+
+	#[test]
+	fn rw_paths_system_dir_accepts_empty_list() {
+		// No rw paths → nothing to validate.
+		assert!(validate_rw_paths_not_system_dirs(&[]).is_ok());
 	}
 }
