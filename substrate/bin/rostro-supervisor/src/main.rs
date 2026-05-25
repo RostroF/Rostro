@@ -468,6 +468,47 @@ const SYSTEM_TOPLEVEL_DENYLIST: &[&str] = &[
 	"/root", "/home", "/mnt", "/media", "/tmp",
 ];
 
+/// F-NEW-R4-V5 closure (2026-05-25): refuse `--state-file == --sandbox-stdio-log`.
+/// The audit surfaced that both paths are opened by the supervisor as root
+/// AND have different write disciplines: the state file uses the
+/// "write `.tmp` then rename" atomic pattern; the stdio file is held open
+/// O_APPEND for the supervisor's lifetime. If they collide, the
+/// `save_atomic` rename atomically replaces the open stdio fd's inode
+/// with a new one — the supervisor's stdio fd continues writing to the
+/// orphaned inode, and the file path now contains state-counter text
+/// instead of child stdio. Either: (a) operator's `tail -f` on the stdio
+/// log starts seeing serialized state counters interleaved with child
+/// logs, OR (b) the next state save loses the prior state on the
+/// orphan-vs-rename race. Forensics broken silently.
+///
+/// Refuse at parse time. Symmetric with F15/F16 overlap-rejection family.
+fn validate_state_and_stdio_disjoint(
+	state_path: Option<&Path>,
+	stdio_log: Option<&Path>,
+) -> Result<(), String> {
+	let (Some(sp), Some(sl)) = (state_path, stdio_log) else { return Ok(()) };
+	// Normalize both via the same canonicalizer the denylist uses (R3-03),
+	// so trailing slashes / double slashes / `.` components don't make
+	// equivalent paths look distinct. `..` in either path is refused by
+	// normalize_path_for_denylist as a separate concern.
+	let sp_norm = normalize_path_for_denylist(sp)?;
+	let sl_norm = normalize_path_for_denylist(sl)?;
+	if sp_norm == sl_norm {
+		return Err(format!(
+			"F-NEW-R4-V5 misconfig: --state-file {} and --sandbox-stdio-log {} \
+			 resolve to the same path ({}). The supervisor opens stdio O_APPEND \
+			 for its lifetime AND uses `save_atomic` (`write .tmp + rename`) for \
+			 state — the rename atomically replaces the open stdio inode with \
+			 the state file's inode, orphaning the stdio fd writes and \
+			 overwriting the operator-visible content. Pick distinct paths.",
+			sp.display(),
+			sl.display(),
+			sp_norm.display(),
+		));
+	}
+	Ok(())
+}
+
 /// F-NEW-R4-01 closure (2026-05-25): tree-denylist for `--sandbox-stdio-log`
 /// placements OUTSIDE every `--sandbox-rw-path`. The R2-03 stdio-log
 /// validator accepted "any path outside the rw_paths," but the supervisor
@@ -518,6 +559,85 @@ fn path_is_under_stdio_system_prefix(normalized: &Path) -> Option<&'static str> 
 		}
 	}
 	None
+}
+
+/// F-NEW-R4-V2 closure (2026-05-25): bounded line-read for the pipe-relay
+/// reader thread. Wraps `BufRead::read_until` with a per-line cap so a
+/// compromised child writing a single multi-GiB line (no newline) can't
+/// drive the supervisor's RSS up unboundedly. The supervisor lives in the
+/// uncapped outer cgroup; without a per-line cap the host's OOM killer
+/// would be the only backstop, and an OOM-killed supervisor degrades the
+/// F-NEW-R3-01 counter-cap promise.
+///
+/// When the line exceeds the cap, returns the truncated content with an
+/// explicit `[cannae: line truncated]` marker appended (newline included)
+/// so the operator sees the truncation in journald.
+const MAX_RELAY_LINE_BYTES: usize = 64 * 1024;
+
+fn bounded_read_until_newline<R: std::io::BufRead>(
+	r: &mut R,
+	buf: &mut Vec<u8>,
+	max: usize,
+) -> std::io::Result<usize> {
+	let mut total = 0usize;
+	loop {
+		if buf.len() >= max {
+			// Cap hit. Append truncation marker + synthetic newline so the
+			// outer loop sees one complete "line".
+			buf.extend_from_slice(b"[cannae: line truncated]\n");
+			return Ok(total);
+		}
+		let available = match r.fill_buf() {
+			Ok(b) => b,
+			Err(e) => return Err(e),
+		};
+		if available.is_empty() {
+			return Ok(total); // EOF
+		}
+		let remaining_cap = max - buf.len();
+		let chunk_max = available.len().min(remaining_cap);
+		// Search for newline only within the bounded chunk.
+		if let Some(pos) = available[..chunk_max].iter().position(|&b| b == b'\n') {
+			buf.extend_from_slice(&available[..=pos]);
+			r.consume(pos + 1);
+			return Ok(total + pos + 1);
+		}
+		// No newline in chunk; append all of it and continue (or hit cap).
+		buf.extend_from_slice(&available[..chunk_max]);
+		r.consume(chunk_max);
+		total += chunk_max;
+	}
+}
+
+/// Per-spawn pipe-relay reader body. Factored out for `catch_unwind`
+/// + future testability. Reads line-by-line (bounded per
+/// `MAX_RELAY_LINE_BYTES`) from `read_file`, writes to (a) the global
+/// in-sandbox mirror file (unsanitized, for operator-local grep) and
+/// (b) supervisor stderr with `[child-stdio] ` prefix + STATE_DELTA
+/// substring mangling (F-NEW-R4-02). Exits at pipe EOF.
+fn relay_reader_body(
+	read_file: std::fs::File,
+	file_arc: std::sync::Arc<std::fs::File>,
+) {
+	use std::io::Write;
+	let mut reader = std::io::BufReader::new(read_file);
+	let mut buf = Vec::with_capacity(4096);
+	loop {
+		buf.clear();
+		match bounded_read_until_newline(&mut reader, &mut buf, MAX_RELAY_LINE_BYTES) {
+			Ok(0) if buf.is_empty() => break, // EOF: child closed its pipe end
+			Ok(_) => {
+				// File leg: verbatim bytes for operator-local grep.
+				let _ = Write::write_all(&mut file_arc.as_ref(), &buf);
+				// journald leg: F-NEW-R4-02 sanitized.
+				let sanitized = sanitize_state_delta_for_relay(&buf);
+				let mut stderr = std::io::stderr().lock();
+				let _ = stderr.write_all(b"[child-stdio] ");
+				let _ = stderr.write_all(&sanitized);
+			},
+			Err(_) => break,
+		}
+	}
 }
 
 /// F-NEW-R4-02 closure (2026-05-25): substring-mangle any `STATE_DELTA`
@@ -886,7 +1006,21 @@ impl SupervisorState {
 	/// Atomic save: write to `<path>.tmp`, then rename onto `<path>`.
 	/// On POSIX `rename(2)` is atomic; Windows `MoveFileExW` (which
 	/// `std::fs::rename` uses) is the rough equivalent.
+	///
+	/// F-NEW-R4-V8 closure (2026-05-25): the tmp open uses `O_NOFOLLOW`
+	/// + mode 0600. Symmetric with the stdio mirror file's
+	/// F-NEW-R2-02 open. If a local non-root user has write access to
+	/// the state-file directory (operator misconfig — `mkdir -m 777`
+	/// or chmod loosening), they could plant
+	/// `<state-file>.tmp → /etc/passwd` and the supervisor (root)
+	/// would clobber `/etc/passwd` with serialized state content. The
+	/// state-file's directory is `/var/lib/rostro/` on the lab (root
+	/// 0755), so the prerequisite is operator misconfig; refuse via
+	/// O_NOFOLLOW + ELOOP-on-symlink at the kernel layer.
 	fn save_atomic(&self, path: &Path) -> std::io::Result<()> {
+		use std::io::Write;
+		#[cfg(target_os = "linux")]
+		use std::os::unix::fs::OpenOptionsExt;
 		let mut tmp = path.to_path_buf();
 		let mut name = tmp
 			.file_name()
@@ -899,7 +1033,27 @@ impl SupervisorState {
 				std::fs::create_dir_all(parent)?;
 			}
 		}
-		std::fs::write(&tmp, self.serialize())?;
+		let serialized = self.serialize();
+		// Open the tmp with O_NOFOLLOW (refuses symlink-plant attacks) +
+		// O_TRUNC (drop any prior tmp content). Mode 0600 — only root
+		// (the supervisor) should read the state.
+		#[cfg(target_os = "linux")]
+		let mut tmp_file = std::fs::OpenOptions::new()
+			.create(true)
+			.write(true)
+			.truncate(true)
+			.custom_flags(libc::O_NOFOLLOW)
+			.mode(0o600)
+			.open(&tmp)?;
+		#[cfg(not(target_os = "linux"))]
+		let mut tmp_file = std::fs::OpenOptions::new()
+			.create(true)
+			.write(true)
+			.truncate(true)
+			.open(&tmp)?;
+		tmp_file.write_all(serialized.as_bytes())?;
+		tmp_file.sync_all()?;
+		drop(tmp_file);
 		std::fs::rename(&tmp, path)?;
 		Ok(())
 	}
@@ -1095,6 +1249,18 @@ fn run(args: Args) -> ExitCode {
 	if let Err(msg) = validate_stdio_log_placement(
 		args.sandbox_stdio_log.as_deref(),
 		&args.sandbox_rw_paths,
+	) {
+		log::error!("{msg}");
+		return ExitCode::FAILURE;
+	}
+
+	// F-NEW-R4-V5: refuse `--state-file == --sandbox-stdio-log`. Both are
+	// supervisor-opened-as-root with mutually-incompatible write
+	// disciplines (atomic-rename vs O_APPEND-for-lifetime); collision
+	// silently breaks forensics. Symmetric with F15/F16.
+	if let Err(msg) = validate_state_and_stdio_disjoint(
+		state_path.as_deref(),
+		args.sandbox_stdio_log.as_deref(),
 	) {
 		log::error!("{msg}");
 		return ExitCode::FAILURE;
@@ -1367,7 +1533,6 @@ fn run(args: Args) -> ExitCode {
 		// PROT_EXEC, just appended to.
 		#[cfg(target_os = "linux")]
 		{
-			use std::io::{BufRead, Write};
 			use std::os::unix::io::FromRawFd;
 			if let Some(file_arc) = stdio_global_file.as_ref() {
 				// F-NEW-R3-02 closure (2026-05-25): pipe-relay child stdio
@@ -1456,48 +1621,35 @@ fn run(args: Args) -> ExitCode {
 				std::thread::Builder::new()
 					.name("cannae-stdio-relay".to_string())
 					.spawn(move || {
-						let mut reader = std::io::BufReader::new(read_file);
-						let mut buf = Vec::with_capacity(4096);
-						loop {
-							buf.clear();
-							match reader.read_until(b'\n', &mut buf) {
-								Ok(0) => break, // EOF: child closed its pipe end
-								Ok(_) => {
-									// Write to the global mirror file
-									// (O_APPEND + optional chattr +a).
-									// &File implements Write on Unix.
-									// File leg is the operator's local grep
-									// target; bytes are unmodified so the
-									// operator sees what the child actually
-									// emitted. journald leg (below) is the
-									// security-critical mirror and IS
-									// sanitized.
-									let _ = std::io::Write::write_all(
-										&mut file_arc_for_thread.as_ref(),
-										&buf,
-									);
-									// Mirror to supervisor stderr (→ journald
-									// under systemd). F-NEW-R4-02 closure:
-									// substring-mangle any `STATE_DELTA`
-									// occurrence in the child's bytes before
-									// forwarding. The `[child-stdio] ` prefix
-									// already keeps child lines from starting
-									// with `STATE_DELTA` (so the documented
-									// `grep '^STATE_DELTA'` recovery is
-									// already safe), but mangling provides
-									// belt-and-suspenders against operators
-									// running ad-hoc un-anchored greps OR
-									// against a future change that drops the
-									// prefix. Cheap: byte-level substring
-									// replace at relay-time.
-									let sanitized =
-										sanitize_state_delta_for_relay(&buf);
-									let mut stderr = std::io::stderr().lock();
-									let _ = stderr.write_all(b"[child-stdio] ");
-									let _ = stderr.write_all(&sanitized);
-								},
-								Err(_) => break,
-							}
+						// F-NEW-R4-V3 closure (2026-05-25): wrap the entire
+						// reader body in `catch_unwind`. If the body panics
+						// (today or under a future change), the thread would
+						// otherwise just exit silently — the child would
+						// continue writing, fill the 64 KiB pipe, block, and
+						// the supervisor's spawn loop would never see a crash
+						// (child is alive, just stuck). Block production
+						// stops without forensics. The fix on panic:
+						// `std::process::exit(2)` from the panicking thread,
+						// which terminates the WHOLE supervisor — systemd
+						// then restarts it. Loud failure beats silent hang.
+						// (We don't `exit(0)` because that would look like
+						// clean shutdown to systemd's restart policy.)
+						let body_result = std::panic::catch_unwind(
+							std::panic::AssertUnwindSafe(|| {
+								relay_reader_body(read_file, file_arc_for_thread)
+							}),
+						);
+						if let Err(panic_payload) = body_result {
+							let msg = panic_payload
+								.downcast_ref::<&'static str>()
+								.copied()
+								.unwrap_or("(non-string panic payload)");
+							eprintln!(
+								"FATAL: cannae-stdio-relay thread panicked: {msg}. \
+								 Supervisor exiting (systemd will restart) so the \
+								 child doesn't hang on a full pipe with no relay."
+							);
+							std::process::exit(2);
 						}
 					})
 					.ok(); // If thread spawn fails, supervisor continues
@@ -2754,5 +2906,108 @@ mod tests {
 		let out = sanitize_state_delta_for_relay(buf);
 		assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
 		assert_eq!(out.as_ref(), buf);
+	}
+
+	// ─── F-NEW-R4-V2: bounded_read_until_newline ────────────────────────
+
+	#[test]
+	fn bounded_read_returns_short_line_unchanged() {
+		use std::io::Cursor;
+		let mut r = std::io::BufReader::new(Cursor::new(b"hello\nworld\n"));
+		let mut buf = Vec::new();
+		let n = bounded_read_until_newline(&mut r, &mut buf, 100).unwrap();
+		assert_eq!(n, 6);
+		assert_eq!(buf.as_slice(), b"hello\n");
+	}
+
+	#[test]
+	fn bounded_read_truncates_at_cap_with_marker() {
+		// Line is 200 bytes of 'A' with NO newline; cap at 64.
+		use std::io::Cursor;
+		let line = vec![b'A'; 200];
+		let mut r = std::io::BufReader::new(Cursor::new(line));
+		let mut buf = Vec::new();
+		let _ = bounded_read_until_newline(&mut r, &mut buf, 64).unwrap();
+		// buf should be exactly 64 A's followed by the truncation marker + \n.
+		let marker = b"[cannae: line truncated]\n";
+		assert_eq!(&buf[..64], &vec![b'A'; 64][..]);
+		assert_eq!(&buf[64..], marker);
+		// Critical property: total buf len is bounded.
+		assert_eq!(buf.len(), 64 + marker.len());
+	}
+
+	#[test]
+	fn bounded_read_handles_eof_without_newline() {
+		use std::io::Cursor;
+		let mut r = std::io::BufReader::new(Cursor::new(b"no-newline-here"));
+		let mut buf = Vec::new();
+		let _ = bounded_read_until_newline(&mut r, &mut buf, 100).unwrap();
+		// EOF returns; buf has the partial content.
+		assert_eq!(buf.as_slice(), b"no-newline-here");
+	}
+
+	#[test]
+	fn bounded_read_eof_on_empty_input() {
+		use std::io::Cursor;
+		let empty: &[u8] = b"";
+		let mut r = std::io::BufReader::new(Cursor::new(empty));
+		let mut buf = Vec::new();
+		let n = bounded_read_until_newline(&mut r, &mut buf, 100).unwrap();
+		assert_eq!(n, 0);
+		assert!(buf.is_empty());
+	}
+
+	// ─── F-NEW-R4-V5: state-file ↔ stdio-log disjointness ───────────────
+
+	#[test]
+	fn state_stdio_disjoint_accepts_none() {
+		// Either flag unset → no collision possible.
+		assert!(validate_state_and_stdio_disjoint(None, None).is_ok());
+		assert!(validate_state_and_stdio_disjoint(
+			Some(&PathBuf::from("/var/lib/rostro/state")),
+			None,
+		)
+		.is_ok());
+		assert!(validate_state_and_stdio_disjoint(
+			None,
+			Some(&PathBuf::from("/var/log/rostro.log")),
+		)
+		.is_ok());
+	}
+
+	#[test]
+	fn state_stdio_disjoint_accepts_distinct_paths() {
+		let state = PathBuf::from("/var/lib/rostro/state");
+		let stdio = PathBuf::from("/var/log/rostro.log");
+		assert!(validate_state_and_stdio_disjoint(Some(&state), Some(&stdio)).is_ok());
+	}
+
+	#[test]
+	fn state_stdio_disjoint_rejects_exact_collision() {
+		let p = PathBuf::from("/var/log/rostro.log");
+		let err = validate_state_and_stdio_disjoint(Some(&p), Some(&p)).unwrap_err();
+		assert!(err.contains("F-NEW-R4-V5"), "expected R4-V5 error, got: {err}");
+		assert!(err.contains("resolve to the same path"));
+	}
+
+	#[test]
+	fn state_stdio_disjoint_rejects_collision_via_normalization() {
+		// `/var/log/rostro.log` vs `/var/log//rostro.log` — normalized
+		// equal. The validator MUST detect.
+		let state = PathBuf::from("/var/log/rostro.log");
+		let stdio = PathBuf::from("/var/log//rostro.log");
+		let err = validate_state_and_stdio_disjoint(Some(&state), Some(&stdio)).unwrap_err();
+		assert!(err.contains("F-NEW-R4-V5"), "expected R4-V5 error, got: {err}");
+	}
+
+	#[test]
+	fn state_stdio_disjoint_propagates_r3_03_dotdot_refusal() {
+		// `..` component should be refused upstream (R3-03) by either
+		// `normalize_path_for_denylist` call. The disjointness check
+		// surfaces the R3-03 error, not its own.
+		let state = PathBuf::from("/var/log/rostro.log");
+		let stdio = PathBuf::from("/var/log/../log/rostro.log");
+		let err = validate_state_and_stdio_disjoint(Some(&state), Some(&stdio)).unwrap_err();
+		assert!(err.contains("F-NEW-R3-03"), "expected R3-03 to fire first, got: {err}");
 	}
 }

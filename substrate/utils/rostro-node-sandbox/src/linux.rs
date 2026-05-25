@@ -37,6 +37,25 @@ pub(crate) fn install(config: &NodeSandboxConfig) -> Result<SandboxHandle, Sandb
 	// seccomp independently via env vars so we can isolate which
 	// primitive is responsible for a failure mode without rebuilding.
 	// All default to enabled; set to "1" to skip.
+	//
+	// F-NEW-R4-FOLLOWUP-1 (2026-05-25): install_mount_ns runs FIRST after
+	// cgroup, before noexec bind-remount. It calls `unshare(CLONE_NEWNS)`
+	// to give the supervisor + descendants a private mount namespace,
+	// then `mount(MS_REC|MS_PRIVATE, "/")` to make propagation a one-way
+	// gate (mounts originating in the supervisor's NS don't leak to the
+	// host; mounts originating in the host DO propagate down — required
+	// for the supervisor to still see operator-managed bind-mounts on
+	// `--sandbox-rw-path`s that were already in place). Result: the
+	// subsequent bind-remount-with-MS_NOEXEC operates ONLY in the
+	// supervisor's mount namespace; the host's `/etc`, `/var/lib`, etc.
+	// stay touched-by-noexec only if the OPERATOR explicitly mounted them
+	// there. R2-04 + R3-03 denylists become defense-in-depth; this is the
+	// architectural fix.
+	if std::env::var_os("ROSTRO_SKIP_MOUNT_NS").is_none() {
+		install_mount_ns()?;
+	} else {
+		log::warn!("Cannae: mount-NS unshare SKIPPED via ROSTRO_SKIP_MOUNT_NS — bind-remounts will affect host mount namespace");
+	}
 	if std::env::var_os("ROSTRO_SKIP_NOEXEC").is_none() {
 		install_noexec_remount(config)?;
 	} else {
@@ -273,6 +292,109 @@ const BASELINE_RO_PATHS: &[&str] = &[
 	"/usr/lib",
 	"/usr/lib64",
 ];
+
+// ─── mount-namespace containment (F-NEW-R4-FOLLOWUP-1, 2026-05-25) ─────────
+
+/// Move the supervisor + descendants into a private mount namespace, so
+/// `install_noexec_remount`'s bind-mounts affect ONLY this process tree —
+/// not the host's mount table. Closes the architectural gap the R3 pen-
+/// test confirmed live (bind-mounting `/etc` with the supervisor in the
+/// host NS broke the host's `/etc`).
+///
+/// **Two steps, both privileged:**
+///
+/// 1. `unshare(CLONE_NEWNS)` — the supervisor process gets a NEW mount
+///    namespace. The kernel CoW's the current mount tree into the new
+///    NS, so the supervisor still SEES every mount the host has, but
+///    subsequent `mount(2)` calls go into the private NS only.
+///
+/// 2. `mount(NULL, "/", NULL, MS_REC|MS_PRIVATE, NULL)` — turn off
+///    upward mount-event propagation for the entire tree rooted at `/`.
+///    Without this, the kernel's default `MS_SHARED` propagation on
+///    most distros would forward our bind-remounts BACK to the parent
+///    NS (host), defeating the whole point of unshare. `MS_PRIVATE`
+///    flips every mount in the tree to non-propagating; our subsequent
+///    bind-remounts stay contained.
+///
+/// **`unshare(CLONE_NEWNS)` requires CAP_SYS_ADMIN.** The supervisor is
+/// root at install-time and has it. Phase G drops CAP_SYS_ADMIN from
+/// the CHILD's bounding set in pre_exec — the child can't undo this
+/// mount-NS by re-unsharing.
+///
+/// **Seccomp ordering:** `unshare(2)` is NOT in `PLAIN_ALLOWED_SYSCALLS`
+/// and IS in the dangerous-syscall regression test. This is fine —
+/// `install_mount_ns` runs BEFORE `install_seccomp`, so the supervisor
+/// can call unshare at install-time even though child + post-install
+/// supervisor calls would SIGSYS. The child also cannot call unshare
+/// (filter denies it), so the only mount-NS in play is the one this
+/// function creates.
+///
+/// **Operator UX caveat (documented):** `mount | grep` on the host
+/// won't show Rostro's bind-remounts after this fix lands; they're
+/// visible only inside the supervisor's NS (`nsenter -t <sup_pid> -m
+/// mount`). The previous "host-visible Rostro mounts" was the
+/// vulnerability, not a feature.
+///
+/// Diagnostic: `ROSTRO_SKIP_MOUNT_NS=1` to bypass (logs a loud WARN);
+/// falls back to host-mount-NS behavior. Use only for ad-hoc debugging.
+#[cfg(target_arch = "x86_64")]
+fn install_mount_ns() -> Result<(), SandboxError> {
+	// Step 1: enter a private mount namespace.
+	// SAFETY: unshare(CLONE_NEWNS) is a single syscall with a scalar arg,
+	// no memory deref. Failure returns -1/errno.
+	let rc = unsafe { libc::unshare(libc::CLONE_NEWNS) };
+	if rc != 0 {
+		let e = std::io::Error::last_os_error();
+		return Err(SandboxError::InstallFailed {
+			primitive: "mount_ns",
+			reason: format!(
+				"unshare(CLONE_NEWNS) failed: {e}. Requires CAP_SYS_ADMIN \
+				 (supervisor must be root). If you cannot run as root, \
+				 ROSTRO_SKIP_MOUNT_NS=1 bypasses this primitive at the cost \
+				 of host-visible bind-remounts.",
+			),
+		});
+	}
+	// Step 2: turn off mount-event propagation on the whole tree, so our
+	// noexec bind-remounts in step 2 of install() don't propagate back
+	// to the parent (host) NS via the kernel's default MS_SHARED mounts.
+	// `mount(NULL, "/", NULL, MS_REC|MS_PRIVATE, NULL)`: source/fstype/data
+	// are all unused for MS_PRIVATE; the kernel only looks at target ("/")
+	// and flags.
+	let root = std::ffi::CString::new("/").expect("/ has no NUL");
+	let rc = unsafe {
+		libc::mount(
+			std::ptr::null(),
+			root.as_ptr(),
+			std::ptr::null(),
+			libc::MS_REC | libc::MS_PRIVATE,
+			std::ptr::null(),
+		)
+	};
+	if rc != 0 {
+		let e = std::io::Error::last_os_error();
+		return Err(SandboxError::InstallFailed {
+			primitive: "mount_ns",
+			reason: format!(
+				"mount(MS_REC|MS_PRIVATE, \"/\") failed: {e}. Without this, \
+				 the kernel's default MS_SHARED propagation forwards our \
+				 bind-remounts back to the parent NS (host), defeating the \
+				 unshare. Common cause: a non-standard mount setup where `/` \
+				 isn't a mount point reachable from this NS.",
+			),
+		});
+	}
+	log::info!(
+		"Cannae mount-NS: unshared CLONE_NEWNS + MS_PRIVATE on /; subsequent bind-remounts stay in supervisor's NS"
+	);
+	Ok(())
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn install_mount_ns() -> Result<(), SandboxError> {
+	log::warn!("Cannae mount-NS: stub on non-x86_64; host-visible bind-remounts will be applied");
+	Ok(())
+}
 
 // ─── noexec bind-remount (Phase H, 2026-05-25) ──────────────────────────────
 
