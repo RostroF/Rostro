@@ -197,6 +197,77 @@ struct Args {
 	#[arg(long, default_value_t = 100_000)]
 	sandbox_cpu_period_micros: u64,
 
+	/// Drop the spawned child to this numeric UID after `pre_exec`
+	/// hardening but before the new image starts. The supervisor stays
+	/// root (required for cgroup v2 setup + Landlock install); the child
+	/// runs as a non-root user. Closes red-team findings F-AGENT-C-01,
+	/// F-AGENT-C-03 (child writes its own cgroup interface files —
+	/// `memory.max=max`, `cpu.max="max 100000"`, `memory.swap.max=max` —
+	/// reversing every sandbox cap), and F-AGENT-C-05 (child sends
+	/// `kill(getppid(), SIGTERM)` to the root supervisor). cgroup files
+	/// are root-owned (kernel default); DAC blocks non-root writes.
+	/// `kill(2)` across UIDs requires CAP_KILL which we don't grant.
+	///
+	/// REQUIRED when the supervisor runs as root and the sandbox is
+	/// active (no `--unsafe-skip-sandbox`). Refused if set to 0.
+	#[arg(long)]
+	sandbox_child_uid: Option<u32>,
+
+	/// Drop the spawned child to this numeric GID. Same threat-model
+	/// notes as `--sandbox-child-uid`. Required when `--sandbox-child-uid`
+	/// is set. Refused if set to 0.
+	#[arg(long)]
+	sandbox_child_gid: Option<u32>,
+
+	/// F-NEW-01/04 closure (2026-05-25): cap the child's virtual address
+	/// space (RLIMIT_AS, bytes). Bounds burst-mmap during the small
+	/// window between `Command::spawn` and `place_child_in_cgroup` where
+	/// the child runs in the supervisor's inherited root cgroup without
+	/// `memory.max` enforcement. If unset, defaults to
+	/// `sandbox_memory_max_bytes + 1 GiB` (room for mmap'd RO libs +
+	/// runtime blob that count against AS but not against memcg). Set to
+	/// 0 to leave inherited (NOT recommended; defeats the TOCTOU close).
+	#[arg(long)]
+	sandbox_rlimit_as_bytes: Option<u64>,
+
+	/// F-NEW-01/04 closure: cap the per-user process count
+	/// (RLIMIT_NPROC). Defaults to 256 — comfortable headroom for
+	/// substrate's tokio worker pool (≈ cpu count × 2 + a handful of
+	/// blocking + chat + libp2p workers) but cuts fork-bomb runaway.
+	/// Set to 0 to leave inherited.
+	#[arg(long, default_value_t = 256)]
+	sandbox_rlimit_nproc: u64,
+
+	/// F-NEW-01/04 closure: cap mlock'd memory (RLIMIT_MEMLOCK, bytes).
+	/// Default 0 — no Rostro path requires `mlock`/`mlockall`, and
+	/// 0 turns mlock attempts into EAGAIN. Combined with the TOCTOU
+	/// window close, this removes the strongest "pin host RAM before
+	/// cgroup binds" vector. Operator override available if a future
+	/// dependency genuinely needs it.
+	#[arg(long, default_value_t = 0)]
+	sandbox_rlimit_memlock_bytes: u64,
+
+	/// F-NEW-02 closure (2026-05-25): redirect the child's stdout +
+	/// stderr to this file BEFORE fork. Closes the inherited-stdio-fd
+	/// attack lane where the supervisor's 1/2 (typically a journal-stream
+	/// socket on systemd or a redirect to a log file outside the sandbox)
+	/// gets handed to the child via the standard execve fd inheritance.
+	/// A compromised child can otherwise wipe or forge those logs to
+	/// mask attack evidence.
+	///
+	/// If unset, defaults to `<first-sandbox-rw-path>/.gemini-node-stdio.log`
+	/// (the supervisor opens it with O_CREAT|O_APPEND|O_WRONLY,0644 as
+	/// root, before exec; the child inherits a controlled fd at 1/2).
+	/// Pass `/dev/null` to discard child logs entirely. Pass an absolute
+	/// path outside `--sandbox-rw-path` if you have a separate log dir
+	/// (the supervisor opens it before Landlock applies, so reachability
+	/// at install time is the only constraint).
+	///
+	/// When no `--sandbox-rw-path` is set AND this flag is unset, the
+	/// child keeps the supervisor's inherited 1/2 (legacy behavior).
+	#[arg(long)]
+	sandbox_stdio_log: Option<PathBuf>,
+
 	/// Arguments forwarded to the child after `--`.
 	#[arg(last = true)]
 	child_args: Vec<OsString>,
@@ -616,6 +687,51 @@ fn run(args: Args) -> ExitCode {
 		return ExitCode::FAILURE;
 	}
 
+	// Phase G: when sandbox is active AND we run as root, require both
+	// --sandbox-child-uid AND --sandbox-child-gid. The supervisor needs
+	// root for cgroup setup; the child must NOT inherit it or it can
+	// reverse every cgroup cap via writes to its own
+	// /sys/fs/cgroup/.../{memory,cpu}.max and kill(getppid()) the
+	// supervisor (F-AGENT-C-01, F-AGENT-C-03, F-AGENT-C-05). Fail fast
+	// before any privileged resource is committed.
+	#[cfg(target_os = "linux")]
+	let child_uid_gid: Option<(u32, u32)> = {
+		// Pairing: both or neither, ever.
+		let pair = match (args.sandbox_child_uid, args.sandbox_child_gid) {
+			(Some(u), Some(g)) => Some((u, g)),
+			(None, None) => None,
+			_ => {
+				log::error!(
+					"--sandbox-child-uid and --sandbox-child-gid must both be provided or both omitted."
+				);
+				return ExitCode::FAILURE;
+			},
+		};
+		// Refuse uid=0 or gid=0 explicitly — they defeat the drop.
+		if let Some((u, g)) = pair {
+			if u == 0 || g == 0 {
+				log::error!(
+					"--sandbox-child-uid={u} --sandbox-child-gid={g} refused: zero defeats Phase G."
+				);
+				return ExitCode::FAILURE;
+			}
+		}
+		// SAFETY: getuid is infallible.
+		let supervisor_uid = unsafe { libc::getuid() };
+		if !args.unsafe_skip_sandbox && supervisor_uid == 0 && pair.is_none() {
+			log::error!(
+				"Phase G refuses to launch: supervisor runs as root but \
+				 --sandbox-child-uid + --sandbox-child-gid were not provided. \
+				 The sandboxed child would inherit root and could reverse \
+				 cgroup caps (F-AGENT-C-01/03) or kill the supervisor \
+				 (F-AGENT-C-05). Pass both flags with a non-root UID/GID \
+				 that owns --sandbox-rw-path."
+			);
+			return ExitCode::FAILURE;
+		}
+		pair
+	};
+
 	log::info!(
 		"rostro-supervisor starting; child={}, staged={}, canonical_dir={}, state_file={}, \
 		 max_restarts={}, max_crash_restarts={}, crash_window_secs={}, backoff_ceiling_secs={}",
@@ -653,7 +769,7 @@ fn run(args: Args) -> ExitCode {
 		match rostro_node_sandbox::install(&sandbox_config) {
 			Ok(h) => {
 				log::info!(
-					"Aegis: installed (cgroup={}, landlock={}, seccomp=enabled)",
+					"Cannae: installed (cgroup={}, landlock={}, seccomp=enabled)",
 					if sandbox_config.memory_cap().is_some() || sandbox_config.cpu_cap().is_some() {
 						"enabled"
 					} else {
@@ -683,27 +799,166 @@ fn run(args: Args) -> ExitCode {
 		let mut cmd = Command::new(&child_path);
 		cmd.args(&args.child_args);
 
-		// Pre-exec hardening (2026-05-24): run in the forked-but-pre-exec
-		// child where seccomp + landlock are already inherited from
-		// supervisor, but the new gemini-node image hasn't started.
-		// Order matters for auditability, not correctness:
+		// F-NEW-02 closure (2026-05-25): redirect the child's stdout +
+		// stderr to a controlled file BEFORE fork. The supervisor (still
+		// root, unfiltered) opens the target file; `Command::stdout/stderr`
+		// installs it as the child's fd 1/2 via the standard execve fd
+		// inheritance. Without this, the supervisor's own 1/2 — typically
+		// a journal-stream socket under systemd or an operator-chosen
+		// redirect outside `--sandbox-rw-path` — gets handed to the
+		// sandboxed child as a fully writable fd that Landlock cannot
+		// retroactively gate (Landlock checks `open(2)` paths, not
+		// pre-existing fds).
+		//
+		// Resolution order for the redirect target:
+		//   1. `--sandbox-stdio-log <path>` (explicit operator choice;
+		//      can be `/dev/null` to discard, or any absolute path).
+		//   2. `<first --sandbox-rw-path>/.gemini-node-stdio.log` if any
+		//      `--sandbox-rw-path` is configured (the conventional case).
+		//   3. Otherwise: keep supervisor's inherited 1/2 (legacy
+		//      behavior; matches `--unsafe-skip-sandbox` shape).
+		//
+		// Open with `O_CREAT|O_APPEND|O_WRONLY,0644`. Root-owned by
+		// default (supervisor is root); operator can `chown` after first
+		// run if they want post-supervisor-exit readability. The file
+		// lives inside the noexec bind-mount — fine, it's never mmap'd
+		// PROT_EXEC, just appended to.
+		#[cfg(target_os = "linux")]
+		{
+			use std::fs::OpenOptions;
+			let stdio_target: Option<PathBuf> = args
+				.sandbox_stdio_log
+				.clone()
+				.or_else(|| {
+					args.sandbox_rw_paths
+						.first()
+						.map(|rw| rw.join(".gemini-node-stdio.log"))
+				});
+			if let Some(path) = stdio_target {
+				match OpenOptions::new()
+					.create(true)
+					.append(true)
+					.write(true)
+					.open(&path)
+				{
+					Ok(stdout_file) => {
+						match stdout_file.try_clone() {
+							Ok(stderr_file) => {
+								cmd.stdout(std::process::Stdio::from(stdout_file));
+								cmd.stderr(std::process::Stdio::from(stderr_file));
+								log::info!(
+									"Cannae stdio: child 1/2 redirected to {}",
+									path.display(),
+								);
+							},
+							Err(e) => {
+								log::warn!(
+									"Cannae stdio: could not clone fd for stderr ({e}); \
+									 falling back to supervisor's inherited stdio. F-NEW-02 \
+									 mitigation NOT applied for this spawn."
+								);
+							},
+						}
+					},
+					Err(e) => {
+						log::warn!(
+							"Cannae stdio: could not open {} for child stdout/stderr ({e}); \
+							 falling back to supervisor's inherited stdio. F-NEW-02 \
+							 mitigation NOT applied for this spawn.",
+							path.display(),
+						);
+					},
+				}
+			} else {
+				log::debug!(
+					"Cannae stdio: no --sandbox-stdio-log and no --sandbox-rw-path; \
+					 child inherits supervisor's stdio (legacy shape)."
+				);
+			}
+		}
+
+		// Pre-exec hardening (2026-05-24, extended 2026-05-25 by Phase H+).
+		// Run in the forked-but-pre-exec child where seccomp + landlock
+		// are already inherited from supervisor, but the new gemini-node
+		// image hasn't started. Order is load-bearing:
 		//   (1) close inherited fds (F13 residual — defeats the
 		//       /proc/self/fd-reopen attack on inherited writable
-		//       inodes by closing those fds before exec)
-		//   (2) drop CAP_SYS_ADMIN (Pending #7 — defense in depth
-		//       against unknown kernel admin paths)
-		// Both engage only when the sandbox is active; --unsafe-skip-sandbox
+		//       inodes by closing those fds above stdio before exec)
+		//   (2) drop CAP_SYS_ADMIN (Pending #7). MUST run while still
+		//       root: PR_CAPBSET_DROP needs CAP_SETPCAP which a non-root
+		//       process without PR_SET_KEEPCAPS=1 lacks.
+		//   (3) drop CAP_SETUID + CAP_SETGID + CAP_KILL (Phase G
+		//       companion). Same root-requirement as (2). Removing
+		//       these from the bounding set before the UID drop in (5)
+		//       means the post-uid-drop effective set won't have them,
+		//       so the child can't setresuid(0) back to root or
+		//       kill(2) processes owned by other UIDs.
+		//   (4) apply rlimits (F-NEW-01/04, 2026-05-25). Bounds the
+		//       burst-mmap window between `Command::spawn` and
+		//       `place_child_in_cgroup` where the child runs in the
+		//       supervisor's inherited root cgroup without `memory.max`
+		//       enforcement. `prlimit64(pid=0, …)` is in the seccomp
+		//       allowlist. Position: BEFORE the UID drop because non-root
+		//       can only lower rlimits — defensive against a future
+		//       higher-than-soft passing.
+		//   (5) drop to non-root (uid, gid) (Phase G — closes
+		//       F-AGENT-C-01/03/05). One-way: after this the child
+		//       cannot reclaim root, cannot write its own cgroup
+		//       interface files (root-owned, DAC blocks), and cannot
+		//       kill the root supervisor.
+		// All engage only when the sandbox is active; --unsafe-skip-sandbox
 		// behaves identically to the pre-hardening shape.
 		#[cfg(target_os = "linux")]
 		if sandbox_handle.is_some() {
 			use std::os::unix::process::CommandExt;
-			// SAFETY: both closures are panic-free + thread-safe (each
-			// is a single syscall); pre_exec doc requires both.
-			// pre_exec closures run in REGISTRATION order per std docs,
-			// so close_inherited_fds runs first, then drop_cap_sys_admin.
+			// Resolve rlimit values once, here, where args is in scope.
+			// RLIMIT_AS default: memory cap + 1 GiB headroom for mmap'd
+			// RO libs + runtime blob that count against AS but not memcg.
+			// `Some(0)` from the operator => skip RLIMIT_AS (treat 0 as
+			// "leave inherited", per docstring; we never want to set
+			// RLIMIT_AS = 0 which would make exec impossible).
+			let rlimit_as = match args.sandbox_rlimit_as_bytes {
+				Some(0) => None,
+				Some(v) => Some(v),
+				None => args
+					.sandbox_memory_max_bytes
+					.map(|m| m.saturating_add(1024 * 1024 * 1024)),
+			};
+			let rlimit_nproc = if args.sandbox_rlimit_nproc == 0 {
+				None
+			} else {
+				Some(args.sandbox_rlimit_nproc)
+			};
+			// rlimit_memlock = 0 means "deny mlock entirely" (the
+			// default + Rostro's intended posture). Pass Some(0) through
+			// so the hook actually sets it.
+			let rlimit_memlock = Some(args.sandbox_rlimit_memlock_bytes);
+			// SAFETY: each closure is panic-free, thread-safe, and a
+			// short syscall sequence; pre_exec doc requires all of these.
+			// pre_exec closures run in REGISTRATION order per std docs.
 			unsafe {
 				cmd.pre_exec(SandboxHandle::close_inherited_fds_in_child);
 				cmd.pre_exec(SandboxHandle::drop_cap_sys_admin_in_child);
+				if let Some((uid, gid)) = child_uid_gid {
+					cmd.pre_exec(SandboxHandle::drop_root_caps_for_uid_drop_in_child);
+					cmd.pre_exec(move || {
+						SandboxHandle::apply_rlimits_in_child(
+							rlimit_as,
+							rlimit_nproc,
+							rlimit_memlock,
+						)
+					});
+					cmd.pre_exec(move || SandboxHandle::drop_to_uid_gid_in_child(uid, gid));
+				} else {
+					// Even without UID drop, rlimits are still meaningful.
+					cmd.pre_exec(move || {
+						SandboxHandle::apply_rlimits_in_child(
+							rlimit_as,
+							rlimit_nproc,
+							rlimit_memlock,
+						)
+					});
+				}
 			}
 		}
 
@@ -1309,6 +1564,12 @@ mod tests {
 			sandbox_memory_max_bytes: mem,
 			sandbox_cpu_max_micros: cpu_max,
 			sandbox_cpu_period_micros: cpu_period,
+			sandbox_child_uid: None,
+			sandbox_child_gid: None,
+			sandbox_rlimit_as_bytes: None,
+			sandbox_rlimit_nproc: 256,
+			sandbox_rlimit_memlock_bytes: 0,
+			sandbox_stdio_log: None,
 			child_args: Vec::new(),
 		}
 	}

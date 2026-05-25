@@ -22,5 +22,8 @@ env_logger = { workspace = true }
 log = { workspace = true, default-features = true }
 rostro-node-sandbox = { workspace = true, default-features = false }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }
+
 [features]
 default = []

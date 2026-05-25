@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
-//! `rostro-node-sandbox` — implementation of **Aegis**, the host-level
+//! `rostro-node-sandbox` — implementation of **Cannae**, the host-level
 //! isolation envelope applied by `rostro-supervisor` before exec'ing
 //! the node binary.
 //!
-//! "Aegis" is the user-facing name (matches the Gemini / Star phase
-//! naming arc). The crate name stays descriptive so external readers
-//! can find it; operator-facing log lines use `Aegis: ...`.
+//! "Cannae" is the user-facing name — a nod to Hannibal's 216 BC
+//! double envelopment, where a smaller force surrounded a larger one
+//! through concentric tactical layering. The sandbox follows the
+//! same shape: small auditable code surface, with cgroup + Landlock +
+//! seccomp + UID drop + capability drops forming concentric layers
+//! around a compromised validator's full ambient authority. Renamed
+//! from "Cannae" after the Phase G work (2026-05-25) — see
+//! `THREAT_MODEL.md`. The crate name stays descriptive so external
+//! readers can find it; operator-facing log lines use `Cannae: ...`.
 //!
 //! ## What this is
 //!
@@ -255,10 +261,86 @@ pub fn install(config: &NodeSandboxConfig) -> Result<SandboxHandle, SandboxError
 /// Returned by [`install`] on success. Carries the per-invocation
 /// state the supervisor needs for follow-on operations (currently:
 /// moving spawned child PIDs into the constrained cgroup).
+///
+/// **Cleanup (Drop, 2026-05-24)**: when the handle is dropped (typically
+/// supervisor exit), the per-invocation cgroup tree
+/// `/sys/fs/cgroup/rostro-node-<sup_pid>/{child,}` is rmdir'd. Closes
+/// red-team finding F-AGENT-C-04 (cgroup directory leak — debian-01
+/// accumulated 196 stale entries during one red-team session). cgroup v2
+/// requires the inner cgroup to be empty (no processes) before rmdir; if
+/// the supervisor drops the handle while a child is still running, the
+/// rmdir fails EBUSY and we log a warning rather than panic. Drop can't
+/// propagate errors so this is best-effort by design.
 #[derive(Debug)]
 pub struct SandboxHandle {
 	#[cfg(target_os = "linux")]
 	pub(crate) cgroup_child: Option<std::path::PathBuf>,
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for SandboxHandle {
+	fn drop(&mut self) {
+		let Some(child) = self.cgroup_child.as_deref() else { return };
+		// Inner cgroup first — must be empty (no procs) before parent.
+		// We call unlinkat(AT_FDCWD, path, AT_REMOVEDIR) explicitly rather
+		// than std::fs::remove_dir, which compiles to rmdir(2). rmdir
+		// is NOT in PLAIN_ALLOWED_SYSCALLS (Phase 5 deliberately limited
+		// to *at-family path syscalls; see comment above SYS_unlinkat at
+		// linux.rs:693). Wave-2 verification confirmed std::fs::remove_dir
+		// in this Drop body got SIGKILL'd by seccomp on every supervisor
+		// exit, leaving cgroup directories to leak — exactly the
+		// F-AGENT-C-04 reliability bug this Drop is meant to fix.
+		// unlinkat IS allowed; same syscall under the hood for a dir
+		// with AT_REMOVEDIR.
+		let rmdir_at = |p: &std::path::Path| -> std::io::Result<()> {
+			use std::os::unix::ffi::OsStrExt;
+			let bytes = p.as_os_str().as_bytes();
+			// Stack-allocated NUL-terminated buffer for paths <= 4095 bytes
+			// (PATH_MAX). cgroup paths are ~80 chars in practice; the
+			// PATH_MAX cap is defense against pathological inputs.
+			if bytes.len() >= libc::PATH_MAX as usize {
+				return Err(std::io::Error::new(
+					std::io::ErrorKind::InvalidInput,
+					"path exceeds PATH_MAX",
+				));
+			}
+			let mut buf = [0u8; libc::PATH_MAX as usize];
+			buf[..bytes.len()].copy_from_slice(bytes);
+			// SAFETY: AT_FDCWD = -100 i32; cstr is NUL-terminated;
+			// AT_REMOVEDIR is the documented flag for unlinkat-as-rmdir.
+			let rc = unsafe {
+				libc::unlinkat(
+					libc::AT_FDCWD,
+					buf.as_ptr() as *const libc::c_char,
+					libc::AT_REMOVEDIR,
+				)
+			};
+			if rc != 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			Ok(())
+		};
+		if let Err(e) = rmdir_at(child) {
+			log::warn!(
+				"Cannae cgroup: failed to remove {} on drop: {e} \
+				 (may leak; check /sys/fs/cgroup for stale rostro-node-* dirs)",
+				child.display(),
+			);
+			// Don't even try the parent if the child rmdir failed —
+			// the parent rmdir would fail with ENOTEMPTY anyway.
+			return;
+		}
+		// Parent cgroup (rostro-node-<pid>) — should now be empty.
+		if let Some(parent) = child.parent() {
+			if let Err(e) = rmdir_at(parent) {
+				log::warn!(
+					"Cannae cgroup: failed to remove {} on drop: {e} \
+					 (child cgroup removed but parent leaked)",
+					parent.display(),
+				);
+			}
+		}
+	}
 }
 
 impl SandboxHandle {
@@ -366,6 +448,170 @@ impl SandboxHandle {
 	/// would need a manual `/proc/self/fd` walk, but our lab floor is
 	/// 6.8 so the fallback is not implemented.
 	///
+	/// Phase G companion (2026-05-24): drop CAP_SETUID + CAP_SETGID +
+	/// CAP_KILL from the bounding set so the post-UID-drop child cannot
+	/// (a) reclaim root via `setresuid(0, 0, 0)` or (b) signal processes
+	/// owned by other UIDs (kernel's `kill(2)` UID check requires
+	/// CAP_KILL to cross UID boundaries). Runs AFTER
+	/// [`drop_cap_sys_admin_in_child`] and BEFORE
+	/// [`drop_to_uid_gid_in_child`] in the pre_exec chain. Same
+	/// PR_CAPBSET_DROP mechanism as the CAP_SYS_ADMIN drop — permanent,
+	/// monotone, requires CAP_SETPCAP in the caller's effective set (we
+	/// still have it because we're still root at this point).
+	///
+	/// **CAP_SETPCAP is NOT dropped here.** PR_CAPBSET_DROP itself
+	/// requires CAP_SETPCAP, so dropping it would prevent any further
+	/// bounding-set tightening. Per capabilities(7) the cap is only
+	/// dangerous if combined with file caps; the post-exec child has no
+	/// file caps and is non-root so the effective set is zero anyway.
+	///
+	/// **CAP numbers per `<linux/capability.h>`:**
+	///   CAP_SETUID = 7, CAP_SETGID = 6, CAP_KILL = 5.
+	/// libc has no constants; literals documented at use site.
+	#[cfg(target_os = "linux")]
+	pub fn drop_root_caps_for_uid_drop_in_child() -> std::io::Result<()> {
+		// SAFETY: same as drop_cap_sys_admin_in_child — single syscall,
+		// scalar args, no memory deref. Failure returns -1/errno.
+		for cap in [/* CAP_KILL */ 5, /* CAP_SETGID */ 6, /* CAP_SETUID */ 7] {
+			let rc = unsafe { libc::prctl(libc::PR_CAPBSET_DROP, cap, 0, 0, 0) };
+			if rc != 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+		}
+		Ok(())
+	}
+
+	/// Phase G fix (2026-05-24): drop the calling process to a non-root
+	/// (uid, gid). Intended as the LAST pre_exec hook before exec — after
+	/// [`close_inherited_fds_in_child`] and [`drop_cap_sys_admin_in_child`].
+	///
+	/// **Closes red-team findings** F-AGENT-C-01 (child writes
+	/// `memory.swap.max=max` to its own cgroup file), F-AGENT-C-03 (child
+	/// writes `memory.max=max` + `cpu.max="max 100000"` — full cgroup cap
+	/// bypass), and F-AGENT-C-05 (child sends `kill(getppid(), SIGTERM)`
+	/// to the supervisor). Root cause of all three: the child inherits
+	/// root caps from the (setuid-root) supervisor. cgroup interface files
+	/// are root-owned; DAC blocks non-root writes. `kill(2)` between
+	/// different UIDs requires CAP_KILL (we don't grant it).
+	///
+	/// **Order matters:** must run AFTER `drop_cap_sys_admin_in_child` —
+	/// `PR_CAPBSET_DROP` requires CAP_SETPCAP, which a non-root process
+	/// without `PR_SET_KEEPCAPS=1` lacks. We don't set KEEPCAPS, so cap
+	/// drops as root-then-uid-drop is the only working order. The
+	/// supervisor registers these in order:
+	///   (1) close_inherited_fds_in_child
+	///   (2) drop_cap_sys_admin_in_child  (still root + caps)
+	///   (3) drop_to_uid_gid_in_child     (loses caps + becomes uid)
+	///
+	/// **Order of (setgroups, setresgid, setresuid) inside this fn:**
+	/// `setgroups` must come first — only root can call it, and we lose
+	/// root after `setresuid`. Then `setresgid` (root can drop to any gid).
+	/// Then `setresuid` (root → non-root; one-way, can't undo).
+	#[cfg(target_os = "linux")]
+	pub fn drop_to_uid_gid_in_child(uid: u32, gid: u32) -> std::io::Result<()> {
+		if uid == 0 || gid == 0 {
+			return Err(std::io::Error::new(
+				std::io::ErrorKind::InvalidInput,
+				format!(
+					"refusing to drop to uid={uid} gid={gid}: zero defeats the \
+					 purpose; pass a non-root --sandbox-child-uid"
+				),
+			));
+		}
+		// SAFETY: setgroups(0, NULL) drops all supplementary groups —
+		// no memory dereference, single syscall. Must precede setresuid
+		// (root-only operation).
+		let rc = unsafe { libc::setgroups(0, std::ptr::null()) };
+		if rc != 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+		// SAFETY: setresgid with three scalar args, no memory deref.
+		let rc = unsafe { libc::setresgid(gid, gid, gid) };
+		if rc != 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+		// SAFETY: setresuid with three scalar args, no memory deref.
+		// This is the one-way step — after success, the process is
+		// non-root and can never reclaim root unless it had a setuid
+		// binary on a non-noexec path AND the bounding set still
+		// includes CAP_SYS_ADMIN (we dropped it in step 2 above) AND
+		// no further Landlock fs restriction (defense in depth still
+		// holds).
+		let rc = unsafe { libc::setresuid(uid, uid, uid) };
+		if rc != 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+		Ok(())
+	}
+
+	/// F-NEW-01 + F-NEW-04 closure (2026-05-25): set per-resource rlimits
+	/// on the child before exec. Bounds the burst-allocation window between
+	/// `Command::spawn` (which returns after the child is already executing)
+	/// and `place_child_in_cgroup` (which writes the child PID into
+	/// `cgroup.procs`). During that window the child sits in the
+	/// supervisor's inherited root cgroup with no `memory.max` /
+	/// `swap.max=0` / `cpu.max` enforcement — cgroup v2 charges pages at
+	/// allocation time and won't retroactively reclaim. A compromised
+	/// static initializer (or a malicious runtime blob's startup hook) can
+	/// `MADV_POPULATE_WRITE` multi-GB before the move-in lands, risking
+	/// host-wide OOM that the cgroup's atomic-kill can't prevent.
+	///
+	/// **Mitigation shape**: `prlimit64(pid=0, …)` with `arg0 == 0` is
+	/// already in the seccomp allowlist via [`super::linux::prlimit64_self_only_rules`],
+	/// so this hook runs cleanly under the inherited filter. RLIMIT_AS is
+	/// the load-bearing one — it bounds virtual address space, defeating
+	/// the burst-mmap vector even before the cgroup applies. RLIMIT_NPROC
+	/// caps fork bombs from inside the sandbox. RLIMIT_MEMLOCK = 0 denies
+	/// `mlock`/`mlockall` outright; no Rostro path needs locked pages.
+	///
+	/// **Ordering**: must run while the hook still has CAP_SYS_RESOURCE
+	/// (i.e., before [`drop_to_uid_gid_in_child`]). A non-root caller can
+	/// only *lower* an rlimit, but lowering is exactly what we want; the
+	/// CAP_SYS_RESOURCE point is defensive — if a future caller passes a
+	/// limit higher than the inherited soft limit, only root can raise.
+	/// Position in the chain: AFTER `close_inherited_fds_in_child` (any
+	/// order vs. the cap drops), BEFORE `drop_to_uid_gid_in_child`.
+	///
+	/// `None` for any value leaves that rlimit at its inherited setting
+	/// (operator opt-out). Pass `Some(0)` for hard refusal (e.g.
+	/// `rlimit_memlock = Some(0)` is the default-deny for mlock).
+	#[cfg(target_os = "linux")]
+	pub fn apply_rlimits_in_child(
+		rlimit_as_bytes: Option<u64>,
+		rlimit_nproc: Option<u64>,
+		rlimit_memlock_bytes: Option<u64>,
+	) -> std::io::Result<()> {
+		let set = |resource: u32, value: u64| -> std::io::Result<()> {
+			let lim = libc::rlimit64 { rlim_cur: value, rlim_max: value };
+			// SAFETY: prlimit64(pid=0, resource, &new_lim, NULL) — pid=0 means
+			// self (the only shape allowed by `prlimit64_self_only_rules`).
+			// `new_lim` is stack-allocated and valid for the duration of the
+			// syscall; `old_lim` is NULL (we don't read the old value).
+			let rc = unsafe {
+				libc::prlimit64(
+					0,
+					resource,
+					&lim as *const libc::rlimit64,
+					std::ptr::null_mut(),
+				)
+			};
+			if rc != 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			Ok(())
+		};
+		if let Some(v) = rlimit_as_bytes {
+			set(libc::RLIMIT_AS, v)?;
+		}
+		if let Some(v) = rlimit_nproc {
+			set(libc::RLIMIT_NPROC, v)?;
+		}
+		if let Some(v) = rlimit_memlock_bytes {
+			set(libc::RLIMIT_MEMLOCK, v)?;
+		}
+		Ok(())
+	}
+
 	/// `close_range` IS in the seccomp allowlist (sibling of `close`).
 	#[cfg(target_os = "linux")]
 	pub fn close_inherited_fds_in_child() -> std::io::Result<()> {

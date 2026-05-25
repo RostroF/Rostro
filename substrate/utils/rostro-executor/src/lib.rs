@@ -39,7 +39,7 @@ pub mod host_fn;
 pub use code_executor::RostroCodeExecutor;
 pub use host_fn::{register_substrate_host_functions, RostroFunctionContext};
 
-use polkavm::{CallError, Config, Engine, GasMeteringKind, InterruptKind, Linker, Module, ModuleConfig, Reg};
+use polkavm::{BackendKind, CallError, Config, Engine, GasMeteringKind, InterruptKind, Linker, Module, ModuleConfig, Reg};
 
 // ─── Error ─────────────────────────────────────────────────────────────────
 
@@ -124,15 +124,11 @@ impl RostroExecutor {
 	pub fn from_blob(blob: &[u8]) -> Result<Self, Error> {
 		let mut config = Config::from_env().unwrap_or_else(|_| Config::new());
 		config.set_allow_experimental(true);
-		// In-process sandbox is sufficient for runtime execution — the
-		// node already runs the executor inside its own process boundary
-		// and substrate's sp-panic-handler is the outer fault boundary.
-		if config.sandbox().is_none() {
-			config.set_sandbox(Some(polkavm::SandboxKind::Generic));
-		}
-		if std::env::var_os("POLKAVM_SANDBOXING_ENABLED").is_none() {
-			config.set_sandboxing_enabled(false);
-		}
+		// Phase H (2026-05-25): pin RostroVM's interpreter backend.
+		// Cannae provides the host-level sandbox so the JIT-path's
+		// in-process generic-sandbox is retired entirely. See
+		// `RostroCodeExecutor::new` for the full rationale.
+		config.set_backend(Some(BackendKind::Interpreter));
 
 		let engine = Engine::new(&config).map_err(|e| Error::EngineInit(e.to_string()))?;
 

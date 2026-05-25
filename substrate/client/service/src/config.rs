@@ -22,7 +22,11 @@ pub use jsonrpsee::server::BatchRequestConfig as RpcBatchRequestConfig;
 use prometheus_endpoint::Registry;
 use rc_chain_spec::ChainSpec;
 pub use rc_client_db::{BlocksPruning, Database, DatabaseSource, PruningMode};
-pub use rc_executor::{WasmExecutionMethod, WasmtimeInstantiationStrategy};
+pub use rc_executor::WasmExecutionMethod;
+// Phase H probe (2026-05-25): wasmtime instantiation strategy only
+// re-exported when rc-executor's wasmtime-backend feature is on.
+#[cfg(feature = "wasmtime-backend")]
+pub use rc_executor::WasmtimeInstantiationStrategy;
 pub use rc_network::{
 	config::{
 		MultiaddrWithPeerId, NetworkConfiguration, NodeKeyConfig, NonDefaultSetConfig, ProtocolId,

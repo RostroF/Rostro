@@ -67,6 +67,12 @@ impl std::fmt::Display for WasmExecutionMethod {
 
 /// Converts the execution method and instantiation strategy command line arguments
 /// into an execution method which can be used internally.
+///
+/// Phase H probe (2026-05-25): when the `wasmtime-backend` feature is off,
+/// every CLI choice collapses to `WasmExecutionMethod::Disabled`. gemini-node
+/// never reaches a code path that instantiates this value (it uses
+/// `RostroCodeExecutor` directly), so the CLI args are accepted but inert.
+#[cfg(feature = "wasmtime-backend")]
 pub fn execution_method_from_cli(
 	execution_method: WasmExecutionMethod,
 	instantiation_strategy: WasmtimeInstantiationStrategy,
@@ -93,6 +99,15 @@ pub fn execution_method_from_cli(
 			},
 		},
 	}
+}
+
+#[cfg(not(feature = "wasmtime-backend"))]
+pub fn execution_method_from_cli(
+	_execution_method: WasmExecutionMethod,
+	_instantiation_strategy: WasmtimeInstantiationStrategy,
+) -> rc_service::config::WasmExecutionMethod {
+	// Phase H probe: wasmtime backend disabled in this build.
+	rc_service::config::WasmExecutionMethod::default()
 }
 
 /// The default [`WasmExecutionMethod`].

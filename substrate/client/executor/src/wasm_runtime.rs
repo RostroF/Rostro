@@ -41,19 +41,40 @@ use std::{
 };
 
 /// Specification of different methods of executing the runtime Wasm code.
+///
+/// Phase H (2026-05-25): variants are feature-gated on `wasmtime-backend`.
+/// With the feature off (the Rostro chain build), the only variant is
+/// `Disabled`, and asking `create_wasm_runtime_with_code` to instantiate
+/// it returns `WasmError::Other`. gemini-node never reaches this path —
+/// it constructs `RostroCodeExecutor` (PolkaVM interpreter) directly.
 #[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum WasmExecutionMethod {
-	/// Uses the Wasmtime compiled runtime.
+	/// Uses the Wasmtime compiled runtime. Requires the `wasmtime-backend`
+	/// feature on this crate.
+	#[cfg(feature = "wasmtime-backend")]
 	Compiled {
 		/// The instantiation strategy to use.
 		instantiation_strategy: rc_executor_wasmtime::InstantiationStrategy,
 	},
+	/// Placeholder variant when `wasmtime-backend` is disabled. Used to
+	/// keep the enum non-empty for downstream type-completeness;
+	/// instantiation fails fast at runtime.
+	#[cfg(not(feature = "wasmtime-backend"))]
+	Disabled,
 }
 
 impl Default for WasmExecutionMethod {
 	fn default() -> Self {
-		Self::Compiled {
-			instantiation_strategy: rc_executor_wasmtime::InstantiationStrategy::PoolingCopyOnWrite,
+		#[cfg(feature = "wasmtime-backend")]
+		{
+			Self::Compiled {
+				instantiation_strategy:
+					rc_executor_wasmtime::InstantiationStrategy::PoolingCopyOnWrite,
+			}
+		}
+		#[cfg(not(feature = "wasmtime-backend"))]
+		{
+			Self::Disabled
 		}
 	}
 }
@@ -298,6 +319,7 @@ where
 	H: HostFunctions,
 {
 	match wasm_method {
+		#[cfg(feature = "wasmtime-backend")]
 		WasmExecutionMethod::Compiled { instantiation_strategy } => {
 			rc_executor_wasmtime::create_runtime::<H>(
 				blob,
@@ -318,6 +340,21 @@ where
 				},
 			)
 			.map(|runtime| -> Box<dyn WasmModule> { Box::new(runtime) })
+		},
+		#[cfg(not(feature = "wasmtime-backend"))]
+		WasmExecutionMethod::Disabled => {
+			// Phase H (2026-05-25): unreachable from gemini-node, which
+			// uses RostroCodeExecutor (PolkaVM interpreter) and never
+			// reaches this fn. Kept for compile-completeness so the
+			// surrounding API surface stays intact for downstream crates
+			// that name the types but never instantiate.
+			let _ = (blob, heap_alloc_strategy, allow_missing_func_imports, cache_path);
+			Err(WasmError::Other(
+				"WasmExecutor cannot instantiate: `wasmtime-backend` feature \
+				 is disabled in this build. Use RostroCodeExecutor for the \
+				 PolkaVM runtime path."
+					.into(),
+			))
 		},
 	}
 }

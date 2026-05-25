@@ -18,10 +18,10 @@ std = ["polkavm/std", "sp-wasm-interface/std"]
 
 [dependencies]
 # Vendored rostrovm fork (polkavm 0.32 + Tier 2 intrinsics + audit
-# hardening). `generic-sandbox` is required for the JIT path on Linux
-# x86_64 and is a no-op on the interpreter — matches how rostro-vm-bench
-# pulls the fork.
-polkavm = { workspace = true, default-features = false, features = ["std", "generic-sandbox"] }
+# hardening). Phase H (2026-05-25): pinned to the interpreter backend
+# in `RostroCodeExecutor::new` — Cannae provides the host-level sandbox
+# so the JIT-path-only `generic-sandbox` feature is dropped.
+polkavm = { workspace = true, default-features = false, features = ["std"] }
 thiserror = { workspace = true }
 sp-weights = { workspace = true, default-features = true }
 # Function / FunctionContext / HostFunctions / Value / ValueType /

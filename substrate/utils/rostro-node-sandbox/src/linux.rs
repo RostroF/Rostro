@@ -17,32 +17,43 @@ use super::{NodeSandboxConfig, SandboxError, SandboxHandle};
 /// Engage the Linux-side sandbox primitives in order:
 ///
 /// 1. cgroup v2 (Phase 3a)
-/// 2. Landlock (Phase 3b)
-/// 3. seccomp-bpf (Phase 3c)
+/// 2. noexec bind-remount on RW paths (Phase H, 2026-05-25)
+/// 3. Landlock (Phase 3b)
+/// 4. seccomp-bpf (Phase 3c)
 ///
-/// Order matters: cgroup self-cap before Landlock so that if Landlock
-/// later denies access to `/sys/fs/cgroup/...` (it won't, but defensive
-/// thinking), we've already done the cgroup write. seccomp goes last
-/// for the same reason — it filters out the syscalls we used to
-/// install the earlier primitives.
+/// Order matters:
+/// - cgroup self-cap before everything else so that if Landlock later
+///   denies access to `/sys/fs/cgroup/...` (it won't, but defensive
+///   thinking), we've already done the cgroup write.
+/// - noexec bind-remount before Landlock + seccomp because `mount(2)`
+///   isn't in the seccomp allowlist; it MUST run while the supervisor
+///   is still unfiltered. After seccomp install, neither supervisor nor
+///   child can undo the noexec.
+/// - seccomp goes last because it filters out the syscalls we used to
+///   install the earlier primitives.
 pub(crate) fn install(config: &NodeSandboxConfig) -> Result<SandboxHandle, SandboxError> {
 	let cgroup_child = install_cgroup(config)?;
 	// PHASE 5 DIAGNOSTIC (2026-05-23): allow skipping Landlock and/or
 	// seccomp independently via env vars so we can isolate which
 	// primitive is responsible for a failure mode without rebuilding.
-	// Both default to enabled; set to "1" to skip.
+	// All default to enabled; set to "1" to skip.
+	if std::env::var_os("ROSTRO_SKIP_NOEXEC").is_none() {
+		install_noexec_remount(config)?;
+	} else {
+		log::warn!("Cannae: noexec bind-remount SKIPPED via ROSTRO_SKIP_NOEXEC");
+	}
 	if std::env::var_os("ROSTRO_SKIP_LANDLOCK").is_none() {
 		// Thread the child cgroup path into Landlock so the supervisor's
 		// subsequent `place_child_in_cgroup` writes (which target a file
 		// inside this dir) aren't blocked by the Landlock policy.
 		install_landlock(config, cgroup_child.as_deref())?;
 	} else {
-		log::warn!("Aegis: Landlock SKIPPED via ROSTRO_SKIP_LANDLOCK");
+		log::warn!("Cannae: Landlock SKIPPED via ROSTRO_SKIP_LANDLOCK");
 	}
 	if std::env::var_os("ROSTRO_SKIP_SECCOMP").is_none() {
 		install_seccomp(config)?;
 	} else {
-		log::warn!("Aegis: seccomp SKIPPED via ROSTRO_SKIP_SECCOMP");
+		log::warn!("Cannae: seccomp SKIPPED via ROSTRO_SKIP_SECCOMP");
 	}
 	Ok(SandboxHandle { cgroup_child })
 }
@@ -56,7 +67,7 @@ pub(crate) fn install(config: &NodeSandboxConfig) -> Result<SandboxHandle, Sandb
 fn install_cgroup(config: &NodeSandboxConfig) -> Result<Option<PathBuf>, SandboxError> {
 	if config.memory_cap().is_none() && config.cpu_cap().is_none() {
 		log::info!(
-			"Aegis cgroup: no caps configured, skipping cgroup self-cap"
+			"Cannae cgroup: no caps configured, skipping cgroup self-cap"
 		);
 		return Ok(None);
 	}
@@ -114,7 +125,7 @@ fn install_cgroup(config: &NodeSandboxConfig) -> Result<Option<PathBuf>, Sandbox
 			write_cgroup_file(&child_group, "memory.swap.max", "0")?;
 		} else {
 			log::warn!(
-				"Aegis cgroup: memory.swap.max not available at {} \
+				"Cannae cgroup: memory.swap.max not available at {} \
 				 (kernel < 4.5 or no CONFIG_MEMCG_SWAP); memory cap can \
 				 be silently exceeded via swap if any swap is configured",
 				swap_max_path.display(),
@@ -138,7 +149,7 @@ fn install_cgroup(config: &NodeSandboxConfig) -> Result<Option<PathBuf>, Sandbox
 		write_cgroup_file(&child_group, "memory.oom.group", "1")?;
 	} else {
 		log::warn!(
-			"Aegis cgroup: memory.oom.group not available at {} \
+			"Cannae cgroup: memory.oom.group not available at {} \
 			 (kernel < 4.19?); OOM kills will be per-process",
 			oom_group_path.display(),
 		);
@@ -160,7 +171,7 @@ fn install_cgroup(config: &NodeSandboxConfig) -> Result<Option<PathBuf>, Sandbox
 	let swap_max_pinned = config.memory_cap().is_some()
 		&& child_group.join("memory.swap.max").exists();
 	log::info!(
-		"Aegis cgroup: installed; supervisor stays in its \
+		"Cannae cgroup: installed; supervisor stays in its \
 		 inherited cgroup (uncapped), child cgroup at {} (memory_max={:?}, \
 		 swap_max_pinned={swap_max_pinned}, cpu_max={:?}, oom_kill_atomic={})",
 		child_group.display(),
@@ -263,6 +274,121 @@ const BASELINE_RO_PATHS: &[&str] = &[
 	"/usr/lib64",
 ];
 
+// ─── noexec bind-remount (Phase H, 2026-05-25) ──────────────────────────────
+
+/// Bind-mount each `--sandbox-rw-path` onto itself and remount the
+/// bind with `MS_NOEXEC` so the kernel rejects `mmap(PROT_EXEC, fd, …)`
+/// on any inode under those paths at the VFS layer — before Landlock
+/// or seccomp see the call. Closes F05: file-backed shellcode staged
+/// in `--sandbox-rw-path` and reopened with `PROT_EXEC` now returns
+/// `EACCES` from the kernel mount layer.
+///
+/// **Why this lives here, not in Landlock.** `LANDLOCK_ACCESS_FS_EXECUTE`
+/// gates `execve(2)` only; the 2026-05-24 Wave-2 red-team confirmed
+/// Phase E's attempt to use it to block `mmap(PROT_EXEC)` was a no-op
+/// (`/runs/F05-mmap-exec-file.out`). `MS_NOEXEC` on the mount IS hooked
+/// by `mmap(2)` — the kernel checks `MNT_NOEXEC` on the file's mount
+/// before honoring `PROT_EXEC` for any file-backed mapping.
+///
+/// **Why this lives in `install()`, not in a separate helper.** `mount(2)`
+/// is NOT in `PLAIN_ALLOWED_SYSCALLS`; the supervisor can only call it
+/// before `install_seccomp` runs. Caller (`install`) sequences us
+/// between `install_cgroup` and `install_landlock`, while the
+/// supervisor still has CAP_SYS_ADMIN + an empty seccomp filter.
+///
+/// **Idempotence on restart.** When a supervisor restarts after a clean
+/// exit, the bind-mount from the previous invocation typically persists
+/// (we don't `umount` on drop — see [`SandboxHandle`]). The first
+/// `mount(MS_BIND)` returns `EBUSY`, which we tolerate; the second call
+/// (`MS_BIND | MS_REMOUNT | MS_NOEXEC`) is the load-bearing one and is
+/// idempotent (re-applying noexec is a no-op).
+///
+/// **WSL caveat (operator note).** WSL2's stock cgroup root doesn't
+/// delegate `+cpu` to subtrees by default; that's a separate setup
+/// issue. The mount call itself is unaffected — WSL2 exposes a normal
+/// kernel mount namespace and `mount(MS_BIND)` works as on bare metal.
+#[cfg(target_arch = "x86_64")]
+fn install_noexec_remount(config: &NodeSandboxConfig) -> Result<(), SandboxError> {
+	use std::ffi::CString;
+	use std::os::unix::ffi::OsStrExt;
+	if config.rw_paths().is_empty() {
+		log::info!(
+			"Cannae noexec: no --sandbox-rw-path configured, skipping bind-remount"
+		);
+		return Ok(());
+	}
+	for path in config.rw_paths() {
+		let c_path = CString::new(path.as_os_str().as_bytes()).map_err(|e| {
+			SandboxError::InstallFailed {
+				primitive: "noexec_remount",
+				reason: format!(
+					"path {} contains a NUL byte: {e}",
+					path.display(),
+				),
+			}
+		})?;
+		// SAFETY: c_path is NUL-terminated; flags are scalar constants;
+		// fstype + data are NULL (per mount(2) MS_BIND signature).
+		let rc = unsafe {
+			libc::mount(
+				c_path.as_ptr(),
+				c_path.as_ptr(),
+				std::ptr::null(),
+				libc::MS_BIND,
+				std::ptr::null(),
+			)
+		};
+		if rc != 0 {
+			let e = std::io::Error::last_os_error();
+			// EBUSY = path is already bind-mounted from a prior supervisor
+			// invocation. The remount step below will still re-apply
+			// noexec, which is what we care about. Any other errno is
+			// a real failure (EPERM if we lost CAP_SYS_ADMIN, EINVAL if
+			// path doesn't exist, etc.).
+			if e.raw_os_error() != Some(libc::EBUSY) {
+				return Err(SandboxError::InstallFailed {
+					primitive: "noexec_remount",
+					reason: format!(
+						"mount(MS_BIND, {}, self): {e}",
+						path.display(),
+					),
+				});
+			}
+			log::debug!(
+				"Cannae noexec: {} already bind-mounted (EBUSY); proceeding to remount",
+				path.display(),
+			);
+		}
+		// SAFETY: same as above. MS_REMOUNT requires the source to be
+		// an existing mount; the MS_BIND step above (or a prior
+		// invocation) ensures that.
+		let rc = unsafe {
+			libc::mount(
+				std::ptr::null(),
+				c_path.as_ptr(),
+				std::ptr::null(),
+				libc::MS_BIND | libc::MS_REMOUNT | libc::MS_NOEXEC,
+				std::ptr::null(),
+			)
+		};
+		if rc != 0 {
+			let e = std::io::Error::last_os_error();
+			return Err(SandboxError::InstallFailed {
+				primitive: "noexec_remount",
+				reason: format!(
+					"mount(MS_BIND|MS_REMOUNT|MS_NOEXEC, {}): {e}",
+					path.display(),
+				),
+			});
+		}
+		log::info!(
+			"Cannae noexec: {} bind-remounted MS_NOEXEC (file-backed mmap(PROT_EXEC) denied at VFS layer)",
+			path.display(),
+		);
+	}
+	Ok(())
+}
+
 /// Build the Landlock ruleset from config + baseline. Returns the
 /// constructed (but not-yet-applied) `RulesetCreated`. Factored out
 /// from [`install_landlock`] so unit tests can verify construction
@@ -307,7 +433,7 @@ fn build_landlock_ruleset(
 		let path = Path::new(path_str);
 		if !path.exists() {
 			log::debug!(
-				"Aegis landlock: baseline path {path_str} absent, skipping"
+				"Cannae landlock: baseline path {path_str} absent, skipping"
 			);
 			continue;
 		}
@@ -355,6 +481,39 @@ fn build_landlock_ruleset(
 		rs = rs.add_rule(PathBeneath::new(fd, rw_no_exec_fs)).map_err(|e| {
 			landlock_err(&format!("add_rule(cgroup {})", path.display()), e)
 		})?;
+		// F-AGENT-C-04 reliability fix (2026-05-25): also grant
+		// REMOVE_DIR on the cgroup parent dir (`/sys/fs/cgroup/`) so
+		// `Drop for SandboxHandle` can rmdir both the child cgroup
+		// (rostro-node-<pid>/child) AND the per-invocation parent
+		// (rostro-node-<pid>) on supervisor exit. Without this, Drop's
+		// `unlinkat(AT_REMOVEDIR)` returns EACCES from Landlock because
+		// rmdir's access check is on the PARENT of the removed dir, not
+		// the dir itself — and only the child path is in the ruleset.
+		//
+		// Safe to grant child-side: REMOVE_DIR alone is not RW; the child
+		// inherits the grant via exec but as a non-root process it can't
+		// rmdir cgroup dirs it doesn't own (kernel DAC blocks writes to
+		// root-owned dirs); rmdir of a non-empty / in-use cgroup returns
+		// EBUSY at the cgroup-v2 layer regardless of permissions.
+		//
+		// Computed as the cgroup ROOT (typically `/sys/fs/cgroup`) so the
+		// grant covers both `rostro-node-<sup_pid>/` and `…/child`.
+		if let Some(cgroup_root) = path.parent().and_then(|p| p.parent()) {
+			let fd = PathFd::new(cgroup_root).map_err(|e| {
+				landlock_err(
+					&format!("PathFd::new(cgroup root {})", cgroup_root.display()),
+					e,
+				)
+			})?;
+			let remove_dir_only =
+				AccessFs::RemoveDir | AccessFs::ReadDir;
+			rs = rs.add_rule(PathBeneath::new(fd, remove_dir_only)).map_err(|e| {
+				landlock_err(
+					&format!("add_rule(cgroup-root remove-dir {})", cgroup_root.display()),
+					e,
+				)
+			})?;
+		}
 	}
 
 	Ok(rs)
@@ -375,7 +534,7 @@ fn install_landlock(
 	match status.ruleset {
 		RulesetStatus::FullyEnforced => {
 			log::info!(
-				"Aegis landlock: fully enforced (no_new_privs={})",
+				"Cannae landlock: fully enforced (no_new_privs={})",
 				status.no_new_privs
 			);
 		},
@@ -385,7 +544,7 @@ fn install_landlock(
 			// subset still applies — log so operators know the
 			// posture is reduced.
 			log::warn!(
-				"Aegis landlock: partially enforced (kernel < requested ABI); \
+				"Cannae landlock: partially enforced (kernel < requested ABI); \
 				 strictest available subset is active"
 			);
 		},
@@ -394,7 +553,7 @@ fn install_landlock(
 			// Fall through; cgroup + seccomp still apply. Surface
 			// as warn so the operator can investigate.
 			log::warn!(
-				"Aegis landlock: NOT enforced — kernel lacks Landlock support \
+				"Cannae landlock: NOT enforced — kernel lacks Landlock support \
 				 or it's disabled at boot; rely on cgroup + seccomp only"
 			);
 		},
@@ -482,7 +641,7 @@ fn install_seccomp(_config: &NodeSandboxConfig) -> Result<(), SandboxError> {
 	seccompiler::apply_filter_all_threads(&clone3_bpf)
 		.map_err(|e| seccomp_err("clone3-enosys apply", e))?;
 	log::info!(
-		"Aegis seccomp: clone3-ENOSYS filter installed (forces glibc ≥2.34 \
+		"Cannae seccomp: clone3-ENOSYS filter installed (forces glibc ≥2.34 \
 		 fallback to legacy clone, which is then arg-filtered for CLONE_NEW*)"
 	);
 
@@ -493,7 +652,7 @@ fn install_seccomp(_config: &NodeSandboxConfig) -> Result<(), SandboxError> {
 	seccompiler::apply_filter_all_threads(&bpf)
 		.map_err(|e| seccomp_err("apply", e))?;
 	log::info!(
-		"Aegis seccomp: main filter installed ({action_label} on violation, \
+		"Cannae seccomp: main filter installed ({action_label} on violation, \
 		 TSYNC across all threads)"
 	);
 	Ok(())
@@ -506,7 +665,7 @@ fn install_seccomp(_config: &NodeSandboxConfig) -> Result<(), SandboxError> {
 #[cfg(not(target_arch = "x86_64"))]
 fn install_seccomp(_config: &NodeSandboxConfig) -> Result<(), SandboxError> {
 	log::warn!(
-		"Aegis seccomp: not yet supported on arch {}; skipping (cgroup + \
+		"Cannae seccomp: not yet supported on arch {}; skipping (cgroup + \
 		 Landlock still apply)",
 		std::env::consts::ARCH,
 	);
@@ -583,7 +742,7 @@ fn seccomp_default_action() -> Result<(SeccompAction, &'static str), SandboxErro
 		Err(_) | Ok("kill") => Ok((SeccompAction::KillProcess, "KILL_PROCESS")),
 		Ok("log") => {
 			log::warn!(
-				"Aegis seccomp: ROSTRO_SECCOMP_ACTION=log — denied syscalls \
+				"Cannae seccomp: ROSTRO_SECCOMP_ACTION=log — denied syscalls \
 				 will be LOGGED and ALLOWED. Diagnostic mode; do not use in production."
 			);
 			Ok((SeccompAction::Log, "LOG"))
@@ -668,22 +827,23 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	// memory note `[[codebase_inventory]]` ("identical 63-syscall set")
 	// was init+idle only and overstated cross-distro consistency.
 	libc::SYS_readahead,
-	// Pending #7 cascade (2026-05-24): polkavm's JIT backend uses
+	// F-MEMFD closure (2026-05-25): SYS_memfd_create is DENIED by
+	// absence. It was previously allowed (commit 03d68cf919, Pending #7
+	// cascade) because polkavm's JIT generic-sandbox path used
 	// memfd_create() to obtain an anonymous backing fd for executable
-	// code regions. The CAP_SYS_ADMIN drop (Pending #7) makes polkavm
-	// fall off its linux-raw-sandbox code path onto the generic memfd
-	// path. Adding memfd_create is safe because:
-	//   1. mmap_safe_rules() still enforces W^X (no PROT_WRITE +
-	//      PROT_EXEC simultaneously). A memfd mapped exec must first
-	//      be filled write-only, then mprotect-flipped — the JIT-flip
-	//      rule allows this for runtime executors, same as for
-	//      file-backed mappings (F05 design-permitted).
-	//   2. memfd_create itself produces only an fd; the dangerous
-	//      operation is the subsequent mmap, which IS arg-filtered.
-	// Red-team Appendix A noted memfd_create was previously SIGKILL'd
-	// (denied by absence); that defense relied on polkavm not needing
-	// it, which Pending #7 changed.
-	libc::SYS_memfd_create,
+	// code regions, falling back to it when CAP_SYS_ADMIN was dropped.
+	// Phase H pinned the runtime executor to PolkaVM's interpreter
+	// backend (no JIT, no generic-sandbox), making the carve-out dead
+	// permission — and the 2026-05-25 pen-test (agent A) demonstrated
+	// it as live attack surface: memfd_create + ftruncate + write +
+	// mmap(PROT_EXEC) executes arbitrary shellcode from kernel memory
+	// with no vfs path Landlock can gate. Strictly more powerful than
+	// F05/F06 because the memfd's only path is `/memfd:<name> (deleted)`
+	// reflected through /proc/self/fd/N, leaving no on-disk artifact.
+	//
+	// Re-adding memfd_create here without a documented runtime executor
+	// need reopens F-MEMFD. The regression test
+	// `memfd_create_not_in_plain_allowlist` enforces this contract.
 	// File ops. mkdirat/renameat/unlinkat go through Landlock for
 	// path policy. fcntl is a multiplexer but operations are mostly
 	// safe (FD_CLOEXEC, file locking).
@@ -879,6 +1039,23 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	// bricked debian-01's sshd — fix-forward 2026-05-24.
 	libc::SYS_getrlimit,
 	libc::SYS_setrlimit,
+
+	// ── Phase G (2026-05-24): UID drop for the sandboxed child ────
+	// The supervisor's pre_exec hook calls setgroups(0, NULL) +
+	// setresgid(gid) + setresuid(uid) to drop the child to non-root
+	// before exec. Without these in the allowlist, the supervisor's
+	// inherited seccomp filter SIGSYS-kills the pre_exec hook.
+	//
+	// Allowing them is safe because the matching cap-bounding-set
+	// drops (CAP_SETUID + CAP_SETGID via drop_root_caps_for_uid_drop_in_child)
+	// happen BEFORE setresuid succeeds. After the UID drop, the child
+	// is non-root with neither cap in its effective set → kernel
+	// EPERMs any attempt to call setresuid(0, ...) back to root, even
+	// though seccomp allows the syscall. Seccomp doesn't need to gate
+	// what capabilities already gate.
+	libc::SYS_setgroups,
+	libc::SYS_setresuid,
+	libc::SYS_setresgid,
 ];
 
 /// Build the rule list for `mmap`. Two rules OR'd:
@@ -947,17 +1124,24 @@ fn mmap_safe_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 /// W^X). Blanket-denying `PROT_EXEC` killed the supervised process the
 /// instant the runtime first compiled a function. Two rules:
 ///
-///   * Rule 1: `(prot & PROT_EXEC) == 0` — pages that never become
-///     executable. Heap, stack, RW data buffers.
-///   * Rule 2: `(prot & PROT_EXEC) != 0` AND `(prot & PROT_WRITE) == 0`
-///     — the JIT flip. The page is currently RW (committed via
-///     `mmap(... PROT_READ|PROT_WRITE, MAP_ANONYMOUS, ...)` which is
-///     allowed by `mmap_safe_rules`'s rule 1), JIT'd bytes were
-///     written, and this call drops write while granting exec.
+///   * Rule 1 (only rule): `(prot & PROT_EXEC) == 0` — pages that never
+///     become executable. Heap, stack, RW data buffers, and the final
+///     "revoke exec" step on a mapping being torn down.
 ///
-/// What's still denied (no matching rule): any `mprotect` that requests
-/// both `PROT_WRITE` AND `PROT_EXEC` — the true W^X-violating spray
-/// pattern. Calls with this shape SIGKILL the process under KillProcess.
+/// What's denied by absence: any `mprotect` that requests `PROT_EXEC`
+/// at all. This includes the W^X-preserving JIT flip (`PROT_READ |
+/// PROT_EXEC` after `PROT_READ | PROT_WRITE`) and the W^X-violating
+/// spray pattern (`PROT_WRITE | PROT_EXEC` directly). Both SIGKILL.
+///
+/// Phase H (2026-05-25): the previous Rule 2 — `PROT_EXEC != 0 AND
+/// PROT_WRITE == 0`, the JIT-flip carve-out — was REMOVED. Rationale:
+/// the runtime executor is pinned to PolkaVM's interpreter backend
+/// (no JIT), so no legitimate caller in gemini-node needs to flip an
+/// anonymous page to executable. The carve-out existed only because
+/// upstream polkavm 0.32's JIT was the original executor; Phase H's
+/// `RostroCodeExecutor::new` change makes it dead permission. The
+/// 2026-05-25 pen-test confirmed F06 (anon mprotect W→X) executed
+/// shellcode end-to-end under the previous rule.
 #[cfg(target_arch = "x86_64")]
 fn mprotect_safe_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 	Ok(vec![
@@ -970,25 +1154,6 @@ fn mprotect_safe_rules() -> Result<Vec<SeccompRule>, SandboxError> {
 		)
 		.map_err(|e| seccomp_err("mprotect.no-exec cond", e))?])
 		.map_err(|e| seccomp_err("mprotect.no-exec rule", e))?,
-		// Rule 2: (prot & PROT_EXEC) != 0 AND (prot & PROT_WRITE) == 0
-		// — JIT flip from RW page to RX page (W^X-preserving).
-		SeccompRule::new(vec![
-			Cond::new(
-				2,
-				ArgLen::Dword,
-				SeccompCmpOp::MaskedEq(libc::PROT_EXEC as u64),
-				libc::PROT_EXEC as u64,
-			)
-			.map_err(|e| seccomp_err("mprotect.exec-set cond", e))?,
-			Cond::new(
-				2,
-				ArgLen::Dword,
-				SeccompCmpOp::MaskedEq(libc::PROT_WRITE as u64),
-				0,
-			)
-			.map_err(|e| seccomp_err("mprotect.write-clear cond", e))?,
-		])
-		.map_err(|e| seccomp_err("mprotect.jit-flip rule", e))?,
 	])
 }
 
@@ -1809,14 +1974,32 @@ mod tests {
 
 	#[cfg(target_arch = "x86_64")]
 	#[test]
-	fn mprotect_rule_two_paths_safe_exec() {
-		// Phase 5 second-pass (2026-05-23): two rules — one for
-		// PROT_EXEC=0 (any flags), one for PROT_EXEC=set + PROT_WRITE=0
-		// (W^X-preserving JIT flip, PolkaVM runtime executor). True
-		// W^X-violating mprotect calls (PROT_WRITE + PROT_EXEC) remain
-		// DENIED by absence of any matching rule.
+	fn mprotect_rule_denies_all_exec_transitions() {
+		// Phase H (2026-05-25): single rule — PROT_EXEC == 0. The JIT-
+		// flip carve-out (Rule 2: PROT_EXEC=set + PROT_WRITE=0) was
+		// REMOVED when the runtime executor was pinned to PolkaVM's
+		// interpreter backend. Any caller that asks for PROT_EXEC now
+		// SIGKILLs, closing F06 (anon mprotect W→X JIT-flip). Re-adding
+		// a second rule here reopens F06 — confirmed live shellcode
+		// execution by the 2026-05-25 pen-test under the previous shape.
 		let rules = mprotect_safe_rules().unwrap();
-		assert_eq!(rules.len(), 2, "two rules: no-exec + jit-flip");
+		assert_eq!(rules.len(), 1, "single rule: no-exec only (Phase H)");
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn memfd_create_not_in_plain_allowlist() {
+		// F-MEMFD regression: SYS_memfd_create MUST stay off the
+		// allowlist. The 2026-05-25 pen-test (agent A) demonstrated
+		// memfd_create + ftruncate + write + mmap(PROT_EXEC) executes
+		// arbitrary shellcode from kernel memory with no vfs path
+		// Landlock can gate — strictly more powerful than F05/F06.
+		// Re-adding here without an interpreter-mode runtime executor
+		// need reopens F-MEMFD.
+		assert!(
+			!PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_memfd_create),
+			"memfd_create re-added to allowlist — reopens F-MEMFD",
+		);
 	}
 
 	#[cfg(target_arch = "x86_64")]
@@ -2019,10 +2202,19 @@ mod tests {
 			libc::SYS_swapon,
 			libc::SYS_swapoff,
 			libc::SYS_reboot,
+			// setuid/setgid stay dangerous — pre_exec uses setresuid/setresgid
+			// (3-arg variants) for the UID drop, not the 1-arg ambient forms.
 			libc::SYS_setuid,
 			libc::SYS_setgid,
-			libc::SYS_setresuid,
-			libc::SYS_setresgid,
+			// setresuid/setresgid/setgroups intentionally NOT asserted here
+			// as of Phase G (2026-05-24): they're in PLAIN_ALLOWED_SYSCALLS
+			// so the pre_exec UID drop works (see
+			// SandboxHandle::drop_to_uid_gid_in_child). The cap-bounding-set
+			// drop of CAP_SETUID + CAP_SETGID + CAP_KILL via
+			// SandboxHandle::drop_root_caps_for_uid_drop_in_child runs
+			// BEFORE setresuid → kernel rejects any setresuid(0,…)
+			// reclaim attempt with EPERM. Allow at seccomp, deny at
+			// capability — defense in depth at the right layer.
 			libc::SYS_capset,
 			libc::SYS_chroot,
 			libc::SYS_keyctl,

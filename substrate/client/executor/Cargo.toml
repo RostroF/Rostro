@@ -27,7 +27,12 @@ tracing = { workspace = true, default-features = true }
 
 codec = { workspace = true, default-features = true }
 rc-executor-common = { default-features = true, workspace = true }
-rc-executor-wasmtime = { default-features = true, workspace = true }
+# Phase H probe (2026-05-25): made optional so a Rostro build can drop
+# the wasmtime backend entirely (PolkaVM-only). Enabled by the
+# `wasmtime-backend` feature; left OFF by default in Rostro chain
+# builds so wasmtime's startup-time memfd_create + mprotect(PROT_EXEC)
+# don't trigger inside Cannae.
+rc-executor-wasmtime = { default-features = true, workspace = true, optional = true }
 sp-api = { default-features = true, workspace = true }
 sp-core = { default-features = true, workspace = true }
 sp-externalities = { default-features = true, workspace = true }
@@ -69,4 +74,12 @@ std = [
 	"sp-version/std",
 	"sp-wasm-interface/std",
 ]
+# Phase H probe (2026-05-25): opt-in wasmtime compiled backend. When
+# off, `WasmExecutionMethod` has no usable variant; constructing a
+# `WasmExecutor` and asking it to instantiate fails fast. Rostro chain
+# builds leave this off — RostroCodeExecutor (PolkaVM interpreter) is
+# the only runtime executor in use, and wasmtime's startup-time
+# memfd_create + mprotect(PROT_EXEC) are dead code paths that fire
+# inside Cannae if linked in.
+wasmtime-backend = ["dep:rc-executor-wasmtime", "sp-wasm-interface/wasmtime"]
 wasm-extern-trace = []

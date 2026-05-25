@@ -40,7 +40,7 @@ use alloc::{string::String, sync::Arc, vec::Vec};
 use core::marker::PhantomData;
 
 use codec::Decode;
-use polkavm::{CallError, Config, Engine, Module, ModuleConfig, Reg, SandboxKind};
+use polkavm::{BackendKind, CallError, Config, Engine, Module, ModuleConfig, Reg};
 use rc_executor::{error as rc_executor_error, RuntimeVersionOf};
 use sp_core::traits::{CallContext, CodeExecutor, ReadRuntimeVersion, RuntimeCode};
 use sp_externalities::Externalities;
@@ -66,18 +66,35 @@ impl<H: HostFunctions + 'static> Clone for RostroCodeExecutor<H> {
 }
 
 impl<H: HostFunctions + 'static> RostroCodeExecutor<H> {
-	/// Build a new executor with our standard config (generic sandbox,
-	/// sandboxing off unless `POLKAVM_SANDBOXING_ENABLED` is set, sync
-	/// gas metering opt-in per module).
+	/// Build a new executor pinned to RostroVM's interpreter backend.
+	///
+	/// **Phase H (2026-05-25):** RostroVM's chain-runtime workload runs
+	/// under the predecode-flatten interpreter, not the JIT-via-generic-
+	/// sandbox path inherited from upstream polkavm 0.32. Rationale:
+	///
+	/// - Upstream's JIT exists for contract execution (hot-path,
+	///   per-tx). Rostro's runtime is per-block, single blob — the
+	///   interpreter's per-instruction overhead is amortized across
+	///   block-level work, not call-level.
+	/// - The JIT path requires anonymous W→X mappings (PolkaVM's runtime
+	///   patches into mmap'd code pages) and the `generic-sandbox`
+	///   feature for per-instance memory isolation. Both are vestiges of
+	///   "polkavm as embeddable contract VM"; Cannae provides the
+	///   host-level envelope so the in-process sandbox is redundant.
+	/// - With interpreter pinned, Cannae's seccomp filter denies all
+	///   `mprotect(PROT_EXEC)` (no JIT-flip carve-out needed) and all
+	///   anonymous `mmap(PROT_EXEC)` — closing F06 in code. Combined
+	///   with the supervisor's `MS_NOEXEC` bind-mount on RW paths
+	///   (closes F05), Cannae achieves zero in-sandbox native code
+	///   execution.
+	///
+	/// `set_sandbox` and `set_sandboxing_enabled` are NOT called: both
+	/// are JIT-path concerns. The interpreter doesn't use a sandbox in
+	/// the polkavm sense at all.
 	pub fn new() -> Result<Self, String> {
 		let mut config = Config::from_env().unwrap_or_else(|_| Config::new());
 		config.set_allow_experimental(true);
-		if config.sandbox().is_none() {
-			config.set_sandbox(Some(SandboxKind::Generic));
-		}
-		if std::env::var_os("POLKAVM_SANDBOXING_ENABLED").is_none() {
-			config.set_sandboxing_enabled(false);
-		}
+		config.set_backend(Some(BackendKind::Interpreter));
 		let engine =
 			Engine::new(&config).map_err(|e| format!("RostroCodeExecutor engine init: {e}"))?;
 		Ok(Self { engine: Arc::new(engine), _phantom: PhantomData })

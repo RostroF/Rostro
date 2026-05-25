@@ -83,6 +83,9 @@ default = ["rocksdb"]
 # The RocksDB feature activates the RocksDB database backend. If it is not activated, and you pass
 # a path to a database, an error will be produced at runtime.
 rocksdb = ["rc-client-db/rocksdb"]
+# Phase H probe (2026-05-25): propagates the wasmtime backend opt-in to
+# rc-executor. Off by default in Rostro chain builds.
+wasmtime-backend = ["rc-executor/wasmtime-backend"]
 runtime-benchmarks = [
 	"rc-client-db/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",

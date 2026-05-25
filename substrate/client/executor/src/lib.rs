@@ -52,6 +52,10 @@ pub use rc_executor_common::{
 	error,
 	wasm_runtime::{HeapAllocStrategy, DEFAULT_HEAP_ALLOC_PAGES, DEFAULT_HEAP_ALLOC_STRATEGY},
 };
+// Phase H (2026-05-25): re-export of the wasmtime instantiation strategy
+// is feature-gated; with `wasmtime-backend` off, the type isn't in scope
+// and downstream callers must avoid referencing it.
+#[cfg(feature = "wasmtime-backend")]
 pub use rc_executor_wasmtime::InstantiationStrategy as WasmtimeInstantiationStrategy;
 
 /// Extracts the runtime version of a given runtime code.
