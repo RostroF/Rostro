@@ -1,0 +1,23 @@
+[package]
+name = "rostro-shop-rng"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Tier-2 local CSPRNG for non-consensus randomness. ChaCha20 DRBG seeded by mixing entropy from network-local sources (primarily the MLS chat ciphertext pool); ships an X.509 cert_serial() helper for zkpki issuers driven by OCSP. See randomness_primitives_design memo for the three-tier model."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+rand_chacha = { workspace = true, default-features = true }
+rand_core = { workspace = true, features = ["std", "getrandom"] }
+sp-crypto-hashing = { workspace = true, default-features = true }
+zeroize = { workspace = true, default-features = true }
+
+[dev-dependencies]
+rostro-chat-ephemeral-store = { path = "../rostro-chat-ephemeral-store" }
+rostro-chat-primitives = { path = "../rostro-chat-primitives" }
