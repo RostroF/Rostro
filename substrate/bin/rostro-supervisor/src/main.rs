@@ -914,18 +914,59 @@ enum ChildOutcome {
 }
 
 fn classify_exit(status: ExitStatus) -> ChildOutcome {
-	classify_exit_code(status.code())
+	#[cfg(unix)]
+	let signal = {
+		use std::os::unix::process::ExitStatusExt;
+		status.signal()
+	};
+	#[cfg(not(unix))]
+	let signal: Option<i32> = None;
+	classify_exit_code(status.code(), signal)
 }
 
 /// Testable core of [`classify_exit`]: works against the raw
-/// `Option<i32>` rather than `ExitStatus` so unit tests don't need
-/// `ExitStatusExt` (platform-gated).
-fn classify_exit_code(code: Option<i32>) -> ChildOutcome {
+/// `(Option<i32>, Option<i32>)` (exit code, terminating signal) rather
+/// than `ExitStatus` so unit tests don't need `ExitStatusExt` (platform-
+/// gated). When `code` is `None`, `signal` carries the terminating
+/// signal number on Unix — used to distinguish SIGSYS (seccomp policy
+/// violation) from SIGKILL (oom-kill / external) in the operator log.
+fn classify_exit_code(code: Option<i32>, signal: Option<i32>) -> ChildOutcome {
 	match code {
 		Some(0) => ChildOutcome::CleanExit,
 		Some(c) if c == EXIT_SWAP_AND_RESTART => ChildOutcome::SwapAndRestart,
 		Some(c) => ChildOutcome::Crashed { detail: format!("exit code {c}") },
-		None => ChildOutcome::Crashed { detail: "signal kill".to_string() },
+		None => ChildOutcome::Crashed { detail: format_signal_detail(signal) },
+	}
+}
+
+/// Format the operator-facing detail line for a signal kill. Named
+/// signals get a hint at the likely cause; unknown numbers fall through
+/// to a generic "signal N" with the raw number for further triage via
+/// `/var/log/audit/audit.log`.
+fn format_signal_detail(signal: Option<i32>) -> String {
+	match signal {
+		Some(31) => {
+			// libc::SIGSYS — kernel seccomp denial. Direct operators
+			// to the audit log where the actual syscall number lives.
+			"SIGSYS (seccomp policy violation — likely a syscall outside \
+			 Cannae's allowlist; check /var/log/audit/audit.log for the \
+			 SECCOMP record with syscall= and exe=)"
+				.to_string()
+		},
+		Some(9) => {
+			// Pointedly avoid the word "seccomp" in this branch — operators
+			// triaging the log should not pattern-match a SIGKILL onto the
+			// SIGSYS playbook. Common causes: cgroup OOM kill, external
+			// `kill -9`, systemd unit stop with KillMode=mixed.
+			"SIGKILL (external — cgroup OOM, systemd unit stop, or operator-issued; \
+			 check journalctl / dmesg, NOT the audit log)"
+				.to_string()
+		},
+		Some(15) => "SIGTERM (graceful-shutdown signal)".to_string(),
+		Some(11) => "SIGSEGV (segfault — application bug)".to_string(),
+		Some(6) => "SIGABRT (abort — assertion or panic)".to_string(),
+		Some(n) => format!("signal {n}"),
+		None => "signal kill (no signal info)".to_string(),
 	}
 }
 
@@ -2128,17 +2169,20 @@ mod tests {
 
 	#[test]
 	fn classify_clean_exit() {
-		assert_eq!(classify_exit_code(Some(0)), ChildOutcome::CleanExit);
+		assert_eq!(classify_exit_code(Some(0), None), ChildOutcome::CleanExit);
 	}
 
 	#[test]
 	fn classify_swap_request() {
-		assert_eq!(classify_exit_code(Some(EXIT_SWAP_AND_RESTART)), ChildOutcome::SwapAndRestart);
+		assert_eq!(
+			classify_exit_code(Some(EXIT_SWAP_AND_RESTART), None),
+			ChildOutcome::SwapAndRestart,
+		);
 	}
 
 	#[test]
 	fn classify_nonzero_is_crash() {
-		match classify_exit_code(Some(7)) {
+		match classify_exit_code(Some(7), None) {
 			ChildOutcome::Crashed { detail } => assert!(detail.contains("7")),
 			other => panic!("expected Crashed, got {other:?}"),
 		}
@@ -2146,9 +2190,50 @@ mod tests {
 
 	#[test]
 	fn classify_signal_kill_is_crash() {
-		match classify_exit_code(None) {
+		match classify_exit_code(None, None) {
 			ChildOutcome::Crashed { detail } => assert!(detail.contains("signal")),
 			other => panic!("expected Crashed, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn classify_sigsys_surfaces_seccomp_diagnosis() {
+		// F-LAB-RT-01 follow-on: SIGSYS should NOT be reported as a
+		// generic "signal kill" — operators need the seccomp hint and
+		// the audit-log pointer to triage. Regression catch for anyone
+		// flattening the signal taxonomy back to a single message.
+		match classify_exit_code(None, Some(31)) {
+			ChildOutcome::Crashed { detail } => {
+				assert!(detail.contains("SIGSYS"), "missing SIGSYS hint in {detail:?}");
+				assert!(detail.contains("seccomp"), "missing seccomp hint in {detail:?}");
+				assert!(detail.contains("audit.log"), "missing audit-log pointer in {detail:?}");
+			},
+			other => panic!("expected Crashed for SIGSYS, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn classify_sigkill_distinguished_from_sigsys() {
+		// Inverse of the SIGSYS test: SIGKILL must NOT be confused
+		// with a seccomp denial — they look identical at the wait_status
+		// level (exit code = None) but mean very different things.
+		match classify_exit_code(None, Some(9)) {
+			ChildOutcome::Crashed { detail } => {
+				assert!(detail.contains("SIGKILL"));
+				assert!(!detail.contains("seccomp"));
+			},
+			other => panic!("expected Crashed for SIGKILL, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn classify_unknown_signal_falls_through() {
+		// SIGUSR1 = 10 — not specially named in format_signal_detail.
+		// The generic "signal N" output preserves the raw number so an
+		// operator can look it up.
+		match classify_exit_code(None, Some(10)) {
+			ChildOutcome::Crashed { detail } => assert!(detail.contains("10")),
+			other => panic!("expected Crashed for signal 10, got {other:?}"),
 		}
 	}
 
@@ -2157,7 +2242,7 @@ mod tests {
 		// Sandbox design choice: only 0 and EXIT_SWAP_AND_RESTART get
 		// special treatment; sysexits (64-78) propagation was removed
 		// to close the attacker-controlled "kill the supervisor" path.
-		match classify_exit_code(Some(64)) {
+		match classify_exit_code(Some(64), None) {
 			ChildOutcome::Crashed { .. } => {},
 			other => panic!("expected Crashed for sysexits 64, got {other:?}"),
 		}

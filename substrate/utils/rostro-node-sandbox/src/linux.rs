@@ -767,6 +767,18 @@ fn install_seccomp(_config: &NodeSandboxConfig) -> Result<(), SandboxError> {
 		 fallback to legacy clone, which is then arg-filtered for CLONE_NEW*)"
 	);
 
+	let fchmod_filter = force_fchmod_family_silent_filter()?;
+	let fchmod_bpf: BpfProgram = fchmod_filter
+		.try_into()
+		.map_err(|e| seccomp_err("fchmod-silent compile", e))?;
+	seccompiler::apply_filter_all_threads(&fchmod_bpf)
+		.map_err(|e| seccomp_err("fchmod-silent apply", e))?;
+	log::info!(
+		"Cannae seccomp: fchmod-family silent-shadow filter installed \
+		 (fchmod/fchmodat/fchown/fchownat return ERRNO=0 with no effect; \
+		 closes F13 /proc/self/fd bypass + F-LAB-RT-01 keystore SIGSYS)"
+	);
+
 	let (filter, action_label) = build_seccomp_filter_with_label()?;
 	let bpf: BpfProgram = filter
 		.try_into()
@@ -984,19 +996,44 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	// way; older glibc/Rust paths still hit symlink(2) directly.
 	libc::SYS_symlink,
 	libc::SYS_utimensat,
-	// F13 fix (2026-05-24): fchmod/fchown/fchmodat/fchownat REMOVED.
-	// Red-team confirmed: open /etc/resolv.conf O_RDONLY → reopen via
-	// /proc/self/fd/N as O_RDWR → fchmod(fd, 0666) succeeds because
-	// the kernel's fchmod check looks at inode write permission for
-	// the calling EUID (root in our sandbox), NOT the open mode of the
-	// passed-in fd. Landlock filters open(), not fchmod() on existing
-	// fds. Phase A 10-min sustained strace baseline (102 blocks,
-	// debian-01) + Phase 5 5-min init+idle baseline (fedora-01) both
-	// show ZERO calls to any of these four syscalls from substrate
-	// + libp2p + tokio + rust-std + RocksDB. Denial is safe.
+	// F13 / F-LAB-RT-01 architecture (2026-05-25): fchmod / fchmodat /
+	// fchown / fchownat are in the plain allowlist BUT silently shadowed
+	// to a no-op via `force_fchmod_family_silent_filter()`.
 	//
-	// fsetxattr was never on the allowlist — same primitive applies
-	// but already closed by absence.
+	// History: F13 (2026-05-24) removed these four after the red-team
+	// showed open(O_RDONLY) → reopen via /proc/self/fd/N as O_RDWR →
+	// fchmod(fd, 0666) bypasses Landlock — the kernel's fchmod check
+	// looks at inode write permission for the calling EUID (root in our
+	// sandbox), NOT the open mode of the passed-in fd. With default-
+	// KILL_PROCESS that closes the bypass, but F-LAB-RT-01 (2026-05-25)
+	// showed legitimate keystore code (rc-keystore set_permissions(0o600)
+	// on a new key file) ALSO hits these and crashes the child via SIGSYS.
+	//
+	// Architecture per [feedback_seccomp_signed_min_stacking.md]:
+	//   * Main filter: fchmod-family in PLAIN_ALLOWED_SYSCALLS → ALLOW
+	//     (signed +2.1B). MUST be here so signed-min stacking lets the
+	//     shadow filter's ERRNO=0 (signed +327680) win — KILL_PROCESS
+	//     (signed INT_MIN) cannot be overridden by any stacked ERRNO.
+	//   * Stacked filter: ERRNO=0 (success-with-no-effect).
+	//   * `min(ALLOW, ERRNO=0) = ERRNO=0` → syscall returns 0, no
+	//     permission change occurs.
+	//
+	// Threat outcomes:
+	//   * F13 attacker (/proc/self/fd/N + fchmod): thinks it succeeded,
+	//     but no actual permission flip happens. Same security outcome as
+	//     KILL_PROCESS, *better* operationally (no remote-induced DoS).
+	//   * F-LAB-RT-01 keystore: set_permissions appears to succeed; key
+	//     file retains its O_CREAT default mode (0o600 with umask 077,
+	//     0o644 otherwise). The keystore RW path is Landlock-restricted
+	//     to the dedicated role UID + supervisor root, so umask is the
+	//     only at-rest gating — operator deploys SHOULD set umask 077.
+	//
+	// fsetxattr stays denied by absence (no observed caller; if a future
+	// path hits it, the supervisor SIGSYS classifier surfaces it clearly).
+	libc::SYS_fchmod,
+	libc::SYS_fchmodat,
+	libc::SYS_fchown,
+	libc::SYS_fchownat,
 	libc::SYS_fcntl,
 	// Pipes.
 	libc::SYS_pipe2,
@@ -1502,6 +1539,63 @@ fn force_clone3_enosys_filter() -> Result<SeccompFilter, SandboxError> {
 		TargetArch::x86_64,
 	)
 	.map_err(|e| seccomp_err("clone3-enosys filter.new", e))
+}
+
+/// Stacked filter that intercepts the four fchmod-family syscalls and
+/// makes them silent no-ops by returning `ERRNO(0)`.
+///
+/// **Why a silent shadow, not denial.** F13 (closed 2026-05-24) showed
+/// `open(O_RDONLY) → reopen as /proc/self/fd/N O_RDWR → fchmod(fd, 0666)`
+/// bypasses Landlock — the kernel's fchmod check uses inode write perm
+/// for the calling EUID (root in our sandbox), not the open mode. Denial
+/// via `KILL_PROCESS` closes the bypass but F-LAB-RT-01 (2026-05-25)
+/// showed legitimate keystore code (`rc-keystore` doing
+/// `File::set_permissions(0o600)` on a new key file) hits the same code
+/// path and SIGSYS-crashes the child. Silent shadow neutralizes BOTH:
+/// the bypass attacker's `chmod 0666` is a no-op (no permission flip)
+/// and the keystore's `chmod 0o600` is a no-op (key file retains its
+/// `O_CREAT` default mode under operator-set umask).
+///
+/// **Signed-min stacking dance.** Identical to the clone3 pattern in
+/// [`force_clone3_enosys_filter`]. The kernel takes the signed minimum
+/// of all stacked filters' actions; KILL_PROCESS (`0x80000000` →
+/// `INT_MIN`) wins every contest. So the four syscalls MUST be in
+/// [`PLAIN_ALLOWED_SYSCALLS`] (main filter returns `ALLOW` = `0x7fff0000`
+/// → +2.1B signed) and this stacked filter returns `ERRNO(0)`
+/// (`0x00050000` → +327680 signed). `min(ALLOW, ERRNO=0) = ERRNO=0` →
+/// the syscall returns 0 with no kernel-side action.
+///
+/// **Why ERRNO=0 and not ERRNO=EPERM.** EPERM propagates to the caller
+/// as a `PermissionDenied` error, which the keystore code's `?` operator
+/// surfaces to the RPC client (or fails the legitimate setup). ERRNO=0
+/// preserves the "syscall succeeded" contract callers expect while
+/// taking no kernel action. The trade-off: a caller relying on
+/// `fchmod` for correctness (the keystore is one) will believe the
+/// permission flip happened when it didn't. Mitigated by the Landlock-
+/// restricted RW path + dedicated role UID; operators should set
+/// `umask 077` so newly-created files inherit restrictive modes by
+/// default. Documented in `THREAT_MODEL.md`.
+///
+/// **fsetxattr not included.** No observed caller in Phase A baseline
+/// or Phase 5 idle, and the F-LAB-RT-01 trigger was specifically
+/// `fchmod`. fsetxattr stays denied by absence; if a future code path
+/// hits it the supervisor's SIGSYS classifier surfaces a clear log
+/// line pointing at this filter as the place to extend.
+#[cfg(target_arch = "x86_64")]
+fn force_fchmod_family_silent_filter() -> Result<SeccompFilter, SandboxError> {
+	let rules = vec![
+		(libc::SYS_fchmod, vec![]),
+		(libc::SYS_fchmodat, vec![]),
+		(libc::SYS_fchown, vec![]),
+		(libc::SYS_fchownat, vec![]),
+	];
+	SeccompFilter::new(
+		rules.into_iter().collect(),
+		SeccompAction::Allow,    // mismatch: let main filter decide
+		SeccompAction::Errno(0), // match: silent success (beats main's ALLOW via signed-min)
+		TargetArch::x86_64,
+	)
+	.map_err(|e| seccomp_err("fchmod-silent filter.new", e))
 }
 
 /// Build the rule list for `socket`: allow a tight set of address
@@ -2143,28 +2237,51 @@ mod tests {
 
 	#[cfg(target_arch = "x86_64")]
 	#[test]
-	fn fchmod_family_not_in_plain_allowlist() {
-		// F13 regression: fchmod / fchown / fchmodat / fchownat MUST
-		// stay off the allowlist. Re-adding ANY of them reopens the
-		// /proc/self/fd-reopen escape — kernel fchmod doesn't check
-		// the fd's open mode, only inode write perm for EUID (root
-		// in our sandbox), so a RO-opened fd reopened via
-		// /proc/self/fd/N as O_RDWR can flip permissions on any
-		// file the supervisor (root) can write. fsetxattr too,
-		// already denied by absence.
-		let denied = &[
+	fn fchmod_family_in_plain_allowlist_for_silent_shadow_pattern() {
+		// F13 + F-LAB-RT-01 architecture (2026-05-25): fchmod / fchmodat /
+		// fchown / fchownat MUST be in PLAIN_ALLOWED_SYSCALLS so the main
+		// filter returns ALLOW. The stacked `force_fchmod_family_silent_
+		// filter` then returns ERRNO=0 (success no-op), and signed-min
+		// stacking gives ERRNO=0. Removing any of these from the main
+		// allowlist sets main's contribution to KILL_PROCESS (signed
+		// INT_MIN), which would beat the ERRNO=0 shadow and SIGSYS the
+		// child on the next legitimate keystore set_permissions call
+		// (re-opens F-LAB-RT-01). The silent shadow ALSO closes the
+		// F13 /proc/self/fd/N bypass — no permission flip occurs even
+		// for the attacker, because the syscall is a kernel-side no-op.
+		let must_be_present = &[
 			libc::SYS_fchmod,
 			libc::SYS_fchmodat,
 			libc::SYS_fchown,
 			libc::SYS_fchownat,
-			libc::SYS_fsetxattr,
 		];
-		for sys in denied {
+		for sys in must_be_present {
 			assert!(
-				!PLAIN_ALLOWED_SYSCALLS.contains(sys),
-				"syscall {sys} re-added to allowlist — reopens F13",
+				PLAIN_ALLOWED_SYSCALLS.contains(sys),
+				"syscall {sys} removed from allowlist — KILL_PROCESS would \
+				 beat the silent-shadow ERRNO=0 in signed-min stacking, \
+				 SIGSYS'ing the child on legitimate keystore set_permissions \
+				 (re-opens F-LAB-RT-01)",
 			);
 		}
+		// fsetxattr stays denied by absence — no observed caller.
+		assert!(
+			!PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_fsetxattr),
+			"fsetxattr should remain denied by absence; if a legitimate \
+			 caller appears, add it to the silent-shadow filter rather \
+			 than flat-allowing here",
+		);
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn fchmod_silent_filter_compiles() {
+		// The helper must build and compile to a valid BPF program;
+		// install_seccomp() loads this into the kernel at supervisor
+		// startup, so a malformed rule shape would brick the supervisor.
+		let filter = force_fchmod_family_silent_filter().unwrap();
+		let bpf: BpfProgram = filter.try_into().expect("compile fchmod-silent");
+		assert!(!bpf.is_empty(), "compiled BPF program must be non-empty");
 	}
 
 	#[cfg(target_arch = "x86_64")]

@@ -34,7 +34,10 @@ pub trait SystemApi<Hash, Number> {
 	fn system_name(&self) -> Result<String, Error>;
 
 	/// Get the node implementation's version. Should be a semver string.
-	#[method(name = "system_version")]
+	///
+	/// Marked Unsafe in Rostro: exact build fingerprint enables CVE-targeting
+	/// against the specific binary running on a given operator's node.
+	#[method(name = "system_version", with_extensions)]
 	fn system_version(&self) -> Result<String, Error>;
 
 	/// Get the chain's name. Given as a string identifier.
@@ -58,14 +61,20 @@ pub trait SystemApi<Hash, Number> {
 	async fn system_health(&self) -> Result<Health, Error>;
 
 	/// Returns the base58-encoded PeerId of the node.
-	#[method(name = "system_localPeerId")]
+	///
+	/// Marked Unsafe in Rostro: libp2p identity disclosure feeds the RNS
+	/// reverse-lookup pipeline (operator → RNS → IRL attribution).
+	#[method(name = "system_localPeerId", with_extensions)]
 	async fn system_local_peer_id(&self) -> Result<String, Error>;
 
 	/// Returns the multi-addresses that the local node is listening on
 	///
 	/// The addresses include a trailing `/p2p/` with the local PeerId, and are thus suitable to
 	/// be passed to `addReservedPeer` or as a bootnode address for example.
-	#[method(name = "system_localListenAddresses")]
+	///
+	/// Marked Unsafe in Rostro: bind IPs + libp2p identity together reveal the
+	/// operator's network topology to anyone with RPC access.
+	#[method(name = "system_localListenAddresses", with_extensions)]
 	async fn system_local_listen_addresses(&self) -> Result<Vec<String>, Error>;
 
 	/// Returns currently connected peers
@@ -95,11 +104,17 @@ pub trait SystemApi<Hash, Number> {
 	async fn system_remove_reserved_peer(&self, peer_id: String) -> Result<(), Error>;
 
 	/// Returns the list of reserved peers
-	#[method(name = "system_reservedPeers")]
+	///
+	/// Marked Unsafe in Rostro: reveals the operator's curated peer topology
+	/// (validator buddies, snorkel routes, etc.) to anyone with RPC access.
+	#[method(name = "system_reservedPeers", with_extensions)]
 	async fn system_reserved_peers(&self) -> Result<Vec<String>, Error>;
 
 	/// Returns the roles the node is running as.
-	#[method(name = "system_nodeRoles")]
+	///
+	/// Marked Unsafe in Rostro: validator-status disclosure lets a network
+	/// attacker target only active authorities for resource attacks.
+	#[method(name = "system_nodeRoles", with_extensions)]
 	async fn system_node_roles(&self) -> Result<Vec<NodeRole>, Error>;
 
 	/// Returns the state of the syncing of the node: starting block, current best block, highest

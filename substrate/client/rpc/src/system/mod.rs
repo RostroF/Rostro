@@ -81,7 +81,8 @@ impl<B: traits::Block> SystemApiServer<B::Hash, <B::Header as HeaderT>::Number> 
 		Ok(self.info.impl_name.clone())
 	}
 
-	fn system_version(&self) -> Result<String, Error> {
+	fn system_version(&self, ext: &Extensions) -> Result<String, Error> {
+		check_if_safe(ext)?;
 		Ok(self.info.impl_version.clone())
 	}
 
@@ -103,13 +104,15 @@ impl<B: traits::Block> SystemApiServer<B::Hash, <B::Header as HeaderT>::Number> 
 		rx.await.map_err(|e| Error::Internal(e.to_string()))
 	}
 
-	async fn system_local_peer_id(&self) -> Result<String, Error> {
+	async fn system_local_peer_id(&self, ext: &Extensions) -> Result<String, Error> {
+		check_if_safe(ext)?;
 		let (tx, rx) = oneshot::channel();
 		let _ = self.send_back.unbounded_send(Request::LocalPeerId(tx));
 		rx.await.map_err(|e| Error::Internal(e.to_string()))
 	}
 
-	async fn system_local_listen_addresses(&self) -> Result<Vec<String>, Error> {
+	async fn system_local_listen_addresses(&self, ext: &Extensions) -> Result<Vec<String>, Error> {
+		check_if_safe(ext)?;
 		let (tx, rx) = oneshot::channel();
 		let _ = self.send_back.unbounded_send(Request::LocalListenAddresses(tx));
 		rx.await.map_err(|e| Error::Internal(e.to_string()))
@@ -158,13 +161,15 @@ impl<B: traits::Block> SystemApiServer<B::Hash, <B::Header as HeaderT>::Number> 
 		}
 	}
 
-	async fn system_reserved_peers(&self) -> Result<Vec<String>, Error> {
+	async fn system_reserved_peers(&self, ext: &Extensions) -> Result<Vec<String>, Error> {
+		check_if_safe(ext)?;
 		let (tx, rx) = oneshot::channel();
 		let _ = self.send_back.unbounded_send(Request::NetworkReservedPeers(tx));
 		rx.await.map_err(|e| Error::Internal(e.to_string()))
 	}
 
-	async fn system_node_roles(&self) -> Result<Vec<NodeRole>, Error> {
+	async fn system_node_roles(&self, ext: &Extensions) -> Result<Vec<NodeRole>, Error> {
+		check_if_safe(ext)?;
 		let (tx, rx) = oneshot::channel();
 		let _ = self.send_back.unbounded_send(Request::NodeRoles(tx));
 		rx.await.map_err(|e| Error::Internal(e.to_string()))

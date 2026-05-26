@@ -53,7 +53,7 @@ current build. F-numbers map to entries in
 |---|---|---|
 | F02 | `clone3(CLONE_NEWUSER)` namespace creation → systemd-reachable chain | Stacked seccomp filter returns ENOSYS for clone3; glibc falls back to legacy `clone()` which the existing CLONE_NEW* MaskedEq filter SIGKILLs |
 | F01 | `prlimit64(pid=1, RLIMIT_NOFILE=8)` → brick sshd | `prlimit64` arg-filtered to `pid == 0` (self) only |
-| F13 | `fchmod 0666 /etc/resolv.conf` via `/proc/self/fd/N` reopen | `fchmod` / `fchown` / `fchmodat` / `fchownat` denied; `close_range(3, UINT_MAX)` in child pre_exec eliminates inherited fds |
+| F13 | `fchmod 0666 /etc/resolv.conf` via `/proc/self/fd/N` reopen | `fchmod` / `fchown` / `fchmodat` / `fchownat` silently shadowed to `ERRNO(0)` via `force_fchmod_family_silent_filter` (stacked seccomp; signed-min stacking gives ERRNO=0 over main filter's ALLOW). Attacker's `chmod 0666` succeeds at the syscall return path but the kernel performs no permission change — same security outcome as KILL_PROCESS, no remote-induced DoS. F-LAB-RT-01 (2026-05-25) drove the architecture: legitimate keystore `set_permissions(0o600)` hit the original denial and SIGSYS'd the child. `close_range(3, UINT_MAX)` in child pre_exec still eliminates inherited fds. |
 | F03 | `socket(AF_INET6, SOCK_RAW, IPPROTO_RAW)` → raw packet injection | `socket` arg-filtered: `(domain ∈ {AF_INET, AF_INET6}) ∧ ((type & 0xF) ∈ {SOCK_STREAM, SOCK_DGRAM})`. SOCK_RAW denied by absence |
 | F04 | `setsockopt(SO_ATTACH_FILTER)` → kernel cBPF VM reach | `setsockopt` arg-filtered to 7 known-safe `(level, option)` pairs |
 | F07 | `prctl(PR_SET_PTRACER_ANY)` → Yama bypass; `PR_SET_DUMPABLE`, `PR_SET_MM` etc | `prctl` arg-filtered to `PR_SET_NAME` + `PR_CAPBSET_DROP` only |
@@ -317,9 +317,21 @@ escalation."
 
 ### F13 ftruncate-via-reopen — *partially* closed
 
-The fchmod family is denied outright (Pending #7 close_range also
-removes inherited writable fds), but `ftruncate(2)` itself remains
+The fchmod family is silent-shadowed to `ERRNO(0)` (see §2.1 F13 row
+and the `force_fchmod_family_silent_filter` rationale in `src/linux.rs`),
+so an attacker's `fchmod(fd, 0666)` succeeds at the syscall ABI but
+performs no actual permission flip. `ftruncate(2)` itself remains
 allowed because RocksDB needs it.
+
+The silent-shadow trade-off: legitimate code that calls `fchmod` for
+correctness (rc-keystore's `set_permissions(0o600)` is the canonical
+case) also gets the no-op. Files end up with their `O_CREAT` default
+mode (`0o600` if the operator process has `umask 077`, `0o644`
+otherwise). Mitigations: the rc-keystore RW path is Landlock-restricted
+to the dedicated role UID plus supervisor root; operator deploys
+should set `umask 077` so newly-created files inherit restrictive
+modes by default. F-NEW-R4-V8's `O_NOFOLLOW` close on the state-file
+write path remains independent of this layer.
 
 An attacker who can obtain a writable-inode fd via a path Landlock
 doesn't deny (i.e., something in `--sandbox-rw-path`) can still
@@ -396,10 +408,10 @@ the relevant section in the same PR. The `PHASE5_NOTES.md`
 red-team-follow-up tracker is the authoritative per-commit record;
 this doc is the user-facing summary.
 
-Last revised: 2026-05-25 (Phase G close — child UID drop +
-CAP_KILL/SETUID/SETGID bounding-set drop closes
-F-AGENT-C-01/03/05 + UID-reclaim; `Drop for SandboxHandle` via
-`unlinkat(AT_REMOVEDIR)` plus Landlock REMOVE_DIR grant on cgroup
-root closes F-AGENT-C-04 leak; F05 demoted to accepted-by-design —
-Phase E's `LANDLOCK_ACCESS_FS_EXECUTE` deny gates `execve(2)` only,
-not `mmap(PROT_EXEC)`).
+Last revised: 2026-05-25 (F-LAB-RT-01 close — fchmod-family silent-
+shadow filter replaces outright denial; legitimate keystore
+`set_permissions(0o600)` no longer SIGSYS'es the child, F13's
+`/proc/self/fd/N` bypass still defeated by ERRNO=0 no-op. Supervisor
+`classify_exit` now distinguishes SIGSYS / SIGKILL / SIGSEGV / SIGABRT
+/ SIGTERM so future seccomp policy gaps surface in operator logs with
+an audit-log pointer instead of generic "signal kill").
