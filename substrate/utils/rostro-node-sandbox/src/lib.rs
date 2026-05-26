@@ -83,6 +83,7 @@ pub struct NodeSandboxConfig {
 	memory_max_bytes: Option<u64>,
 	cpu_max_micros: Option<(u64, u64)>,
 	cgroup_root: Option<PathBuf>,
+	child_uid: Option<u32>,
 }
 
 impl NodeSandboxConfig {
@@ -133,6 +134,21 @@ impl NodeSandboxConfig {
 		self
 	}
 
+	/// Set the role's child UID. When set, the cgroup hierarchy is
+	/// named `rostro-node-uid-<uid>/child` instead of the default
+	/// PID-based `rostro-node-<pid>/child`. This stable name is what
+	/// makes F-LAB-RT-03's `nft … meta cgroupv2` RPC gate possible:
+	/// nftables can match against a known directory at deploy time,
+	/// rather than chasing a PID that changes every supervisor restart.
+	///
+	/// In production the supervisor's `--sandbox-child-uid` flag
+	/// supplies this. Tests omit it and accept the PID-based naming
+	/// (each test gets a fresh tmpfs root anyway).
+	pub fn child_uid(mut self, uid: u32) -> Self {
+		self.child_uid = Some(uid);
+		self
+	}
+
 	/// Read-write path list — public for callers that build the
 	/// config and want to log/inspect it.
 	pub fn rw_paths(&self) -> &[PathBuf] {
@@ -159,6 +175,12 @@ impl NodeSandboxConfig {
 		self.cgroup_root
 			.clone()
 			.unwrap_or_else(|| PathBuf::from("/sys/fs/cgroup"))
+	}
+
+	/// The role's child UID if configured. Used by [`linux::install_cgroup`]
+	/// to derive the stable `rostro-node-uid-<uid>` cgroup name.
+	pub fn child_uid_or(&self) -> Option<u32> {
+		self.child_uid
 	}
 
 	/// Validate the config. Run by [`install`] before touching any

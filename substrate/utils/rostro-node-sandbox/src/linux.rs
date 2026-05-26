@@ -108,10 +108,28 @@ fn install_cgroup(config: &NodeSandboxConfig) -> Result<Option<PathBuf>, Sandbox
 		});
 	}
 
-	let pid = std::process::id();
-	// Per-invocation directory names keep parallel supervisor
-	// instances (different PIDs) from colliding under the same root.
-	let supervisor_group = root.join(format!("rostro-node-{pid}"));
+	// F-LAB-RT-03 closure (2026-05-26): prefer a stable per-role name
+	// over the legacy PID-based one when `--sandbox-child-uid` is set.
+	//
+	// The PID-based name was a defensive hedge against parallel supervisor
+	// instances colliding under the same root. In practice the systemd
+	// unit serializes per-role (one supervisor per role per host), and
+	// each role gets a distinct child UID, so the UID-prefixed name is
+	// both unique AND stable across restarts. The stability is the
+	// load-bearing property: it lets the wrapper install a
+	// `meta cgroupv2 level1 "rostro-node-uid-<uid>"` nftables RPC gate
+	// ONCE at deploy time instead of re-installing on every supervisor
+	// cycle (which previously left a race window between supervisor
+	// start and rule install where the gate was open).
+	//
+	// Fallback to PID-based naming when child_uid is unset preserves
+	// the test suite's expectations (tests use a fake_cgroup_root +
+	// no child UID) and keeps single-host dev runs working.
+	let group_name = match config.child_uid_or() {
+		Some(uid) => format!("rostro-node-uid-{uid}"),
+		None => format!("rostro-node-{}", std::process::id()),
+	};
+	let supervisor_group = root.join(&group_name);
 	let child_group = supervisor_group.join("child");
 
 	fs::create_dir_all(&child_group).map_err(|e| SandboxError::InstallFailed {
@@ -185,18 +203,18 @@ fn install_cgroup(config: &NodeSandboxConfig) -> Result<Option<PathBuf>, Sandbox
 	// migration attempt when `supervisor_group` has descendants with
 	// controllers enabled, which is always true once `subtree_control`
 	// is set above.
-	let _ = pid; // formerly used for the rejected migration
-
 	let swap_max_pinned = config.memory_cap().is_some()
 		&& child_group.join("memory.swap.max").exists();
 	log::info!(
 		"Cannae cgroup: installed; supervisor stays in its \
-		 inherited cgroup (uncapped), child cgroup at {} (memory_max={:?}, \
-		 swap_max_pinned={swap_max_pinned}, cpu_max={:?}, oom_kill_atomic={})",
+		 inherited cgroup (uncapped), child cgroup at {} \
+		 (memory_max={:?}, swap_max_pinned={swap_max_pinned}, \
+		 cpu_max={:?}, oom_kill_atomic={}, group_name={})",
 		child_group.display(),
 		config.memory_cap(),
 		config.cpu_cap(),
 		oom_group_path.exists(),
+		group_name,
 	);
 	Ok(Some(child_group))
 }
@@ -517,7 +535,9 @@ fn install_noexec_remount(config: &NodeSandboxConfig) -> Result<(), SandboxError
 /// without restricting the test process itself.
 ///
 /// `cgroup_rw_extra` is an additional rw path threaded in from the
-/// cgroup install — typically `/sys/fs/cgroup/rostro-node-<pid>/child`.
+/// cgroup install — typically `/sys/fs/cgroup/rostro-node-uid-<uid>/child`
+/// in production (stable per-role name, F-LAB-RT-03 closure) or
+/// `/sys/fs/cgroup/rostro-node-<pid>/child` in test/dev fallback.
 /// `None` means cgroup setup was skipped (no caps configured).
 fn build_landlock_ruleset(
 	config: &NodeSandboxConfig,
@@ -606,11 +626,12 @@ fn build_landlock_ruleset(
 		// F-AGENT-C-04 reliability fix (2026-05-25): also grant
 		// REMOVE_DIR on the cgroup parent dir (`/sys/fs/cgroup/`) so
 		// `Drop for SandboxHandle` can rmdir both the child cgroup
-		// (rostro-node-<pid>/child) AND the per-invocation parent
-		// (rostro-node-<pid>) on supervisor exit. Without this, Drop's
-		// `unlinkat(AT_REMOVEDIR)` returns EACCES from Landlock because
-		// rmdir's access check is on the PARENT of the removed dir, not
-		// the dir itself — and only the child path is in the ruleset.
+		// (`rostro-node-uid-<uid>/child` in prod, `rostro-node-<pid>/child`
+		// in test fallback) AND the per-role parent on supervisor exit.
+		// Without this, Drop's `unlinkat(AT_REMOVEDIR)` returns EACCES
+		// from Landlock because rmdir's access check is on the PARENT
+		// of the removed dir, not the dir itself — and only the child
+		// path is in the ruleset.
 		//
 		// Safe to grant child-side: REMOVE_DIR alone is not RW; the child
 		// inherits the grant via exec but as a non-root process it can't
@@ -619,7 +640,7 @@ fn build_landlock_ruleset(
 		// EBUSY at the cgroup-v2 layer regardless of permissions.
 		//
 		// Computed as the cgroup ROOT (typically `/sys/fs/cgroup`) so the
-		// grant covers both `rostro-node-<sup_pid>/` and `…/child`.
+		// grant covers both the per-role parent and `…/child`.
 		if let Some(cgroup_root) = path.parent().and_then(|p| p.parent()) {
 			let fd = PathFd::new(cgroup_root).map_err(|e| {
 				landlock_err(
@@ -1826,6 +1847,55 @@ mod tests {
 		assert!(child.starts_with(&supervisor_group), "child nested under supervisor");
 		assert!(child.ends_with("child"), "child group named 'child'");
 		assert!(child.is_dir(), "child cgroup created");
+	}
+
+	#[test]
+	fn install_cgroup_uses_stable_uid_name_when_child_uid_set() {
+		// F-LAB-RT-03 closure (2026-05-26): when --sandbox-child-uid is
+		// passed (production lab path), the cgroup directory is named
+		// `rostro-node-uid-<uid>` instead of `rostro-node-<pid>`. The
+		// stable name is what makes the wrapper's `meta cgroupv2 level1`
+		// nftables rule installable ONCE at deploy time rather than
+		// re-installed every supervisor cycle.
+		let root = fake_cgroup_root();
+		let cfg = NodeSandboxConfig::new()
+			.cgroup_root(&root)
+			.memory_max_bytes(1024 * 1024)
+			.child_uid(2001);
+		let child = install_cgroup(&cfg).unwrap().expect("cgroup path returned");
+		let supervisor_group = root.join("rostro-node-uid-2001");
+		assert!(
+			supervisor_group.is_dir(),
+			"stable per-UID cgroup name must be used when child_uid is set",
+		);
+		assert!(child.starts_with(&supervisor_group), "child under stable name");
+		assert!(child.ends_with("child"), "child group named 'child'");
+		// And the PID-based path MUST NOT have been created in parallel.
+		let pid = std::process::id();
+		assert!(
+			!root.join(format!("rostro-node-{pid}")).exists(),
+			"PID-based fallback name must NOT appear when child_uid is set",
+		);
+	}
+
+	#[test]
+	fn install_cgroup_is_idempotent_for_stable_uid_name() {
+		// Stable-name regression: calling install twice with the same
+		// child_uid must reuse the existing cgroup, not error. This
+		// mirrors the supervisor-restart case where a prior crashed
+		// instance's cgroup may still exist on the host (the orphan-
+		// kill dance in the lab wrapper rmdir's it; the systemd-managed
+		// restart path may not). Since `fs::create_dir_all` is a no-op
+		// for existing dirs and `write_cgroup_file` is overwrite-OK,
+		// the second install should land cleanly.
+		let root = fake_cgroup_root();
+		let cfg = NodeSandboxConfig::new()
+			.cgroup_root(&root)
+			.memory_max_bytes(1024 * 1024)
+			.child_uid(2042);
+		let c1 = install_cgroup(&cfg).unwrap().unwrap();
+		let c2 = install_cgroup(&cfg).unwrap().unwrap();
+		assert_eq!(c1, c2, "same child_uid → same cgroup path");
 	}
 
 	#[test]

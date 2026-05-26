@@ -290,6 +290,20 @@ fn build_sandbox_config(args: &Args) -> NodeSandboxConfig {
 	if let Some(max) = args.sandbox_cpu_max_micros {
 		config = config.cpu_max(max, args.sandbox_cpu_period_micros);
 	}
+	// F-LAB-RT-03 closure (2026-05-26): thread the child UID into the
+	// sandbox config so install_cgroup names the hierarchy
+	// `rostro-node-uid-<uid>` instead of `rostro-node-<pid>`. Stable
+	// per-role name lets the wrapper's `meta cgroupv2 level1` nftables
+	// rule installed-once-at-deploy-time correctly gate cross-validator
+	// localhost RPC reach. Without this thread-through the cgroup name
+	// is PID-dependent and the nftables rule would need to be re-keyed
+	// every supervisor cycle (leaving a race window where the gate is
+	// open). When --sandbox-child-uid is omitted (test/dev runs that
+	// don't drop privileges), install_cgroup falls back to PID-based
+	// naming, preserving the existing test suite.
+	if let Some(uid) = args.sandbox_child_uid {
+		config = config.child_uid(uid);
+	}
 	config
 }
 
