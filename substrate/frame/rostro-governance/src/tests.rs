@@ -9,7 +9,7 @@
 use crate as pallet_rostro_governance;
 use crate::*;
 
-use frame_support::{assert_noop, assert_ok, derive_impl, traits::ConstU32};
+use frame_support::{assert_noop, assert_ok, derive_impl, traits::{ConstU32, ConstU64}};
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
@@ -40,6 +40,12 @@ impl pallet_rostro_governance::Config for Test {
 	type TotalDistricts = ConstU32<3>;
 	type MaxDistrictSize = ConstU32<32>;
 	type MaxCountryDelegation = ConstU32<32>;
+	type StrikesBeforePruning = ConstU32<3>;
+	// 200 blocks is a comfortable round-2 window for the test
+	// scenarios (parent voting_period_blocks of 10–100 leaves
+	// plenty of timing headroom). Production target: 43,200
+	// (72h at 6s blocks).
+	type Round2WindowBlocks = ConstU64<200>;
 }
 
 const US: CountryCode = *b"US";
@@ -348,21 +354,19 @@ fn tally_concurrent_assent_passes_when_both_chambers_agree() {
 		assert_ok!(Governance::tally(RuntimeOrigin::signed(ALICE), pid));
 		let p = Governance::proposal_of(pid).unwrap();
 		match p.state {
-			ProposalState::Tallied { winner, blocking_chamber } => {
-				assert_eq!(winner, Some(1));
-				assert_eq!(blocking_chamber, None);
+			ProposalState::Tallied(TallyOutcome::Passed { winner }) => {
+				assert_eq!(winner, 1);
 			},
-			_ => panic!("expected Tallied"),
+			_ => panic!("expected Tallied(Passed)"),
 		}
 	});
 }
 
 #[test]
-fn tally_blocks_when_upper_chamber_quorum_unmet() {
+fn tally_blocks_when_both_chambers_miss_quorum() {
 	ext().execute_with(|| {
-		// quorum=10 means upper chamber (7 voters total in v1
-		// since the same ballots count both ways) won't reach
-		// quorum.
+		// quorum=10 means both chambers (7 voters total in v1
+		// since the same ballots count both ways) miss quorum.
 		let pid = populate_voters_and_propose(10);
 		for acct in [ALICE, BOB, CHARLIE, DAVE, EVE, FRANK, GRACE] {
 			assert_ok!(Governance::cast_vote(
@@ -375,10 +379,16 @@ fn tally_blocks_when_upper_chamber_quorum_unmet() {
 		assert_ok!(Governance::tally(RuntimeOrigin::signed(ALICE), pid));
 		let p = Governance::proposal_of(pid).unwrap();
 		match p.state {
-			ProposalState::Tallied { winner, blocking_chamber: _ } => {
-				assert_eq!(winner, None);
+			ProposalState::Tallied(TallyOutcome::QuorumFailed {
+				upper_failed,
+				lower_failed,
+				escalated_to,
+			}) => {
+				assert!(upper_failed);
+				assert!(lower_failed);
+				assert_eq!(escalated_to, None);
 			},
-			_ => panic!("expected Tallied"),
+			_ => panic!("expected Tallied(QuorumFailed)"),
 		}
 	});
 }
@@ -454,4 +464,343 @@ fn irv_winner_handles_partial_rankings() {
 fn irv_winner_returns_none_for_empty_input() {
 	let ballots: Vec<Vec<CandidateId>> = alloc::vec![];
 	assert_eq!(crate::irv_winner(&ballots, &alloc::vec![1, 2, 3]), None);
+}
+
+// ─── 8b: strike accounting ─────────────────────────────────────────────
+
+/// Helper: drive a proposal end-to-end, optionally with a subset
+/// of voters casting. Returns the proposal id. Resets nothing —
+/// caller controls scenario setup.
+fn run_proposal_with_voters_casting(
+	non_casters_skipped: &[AccountId],
+) -> ProposalId {
+	let pid = NextProposalId::<Test>::get();
+	let start = System::block_number();
+	assert_ok!(Governance::propose(
+		RuntimeOrigin::signed(ALICE),
+		b"x".to_vec(),
+		alloc::vec![cand(1, b"Y"), cand(2, b"N")],
+		10,
+		1,
+		1,
+	));
+	for acct in [ALICE, BOB, CHARLIE, DAVE, EVE, FRANK, GRACE] {
+		if !Voters::<Test>::contains_key(&acct) || non_casters_skipped.contains(&acct) {
+			continue;
+		}
+		assert_ok!(Governance::cast_vote(
+			RuntimeOrigin::signed(acct),
+			pid,
+			alloc::vec![1, 2],
+		));
+	}
+	System::set_block_number(start + 11);
+	assert_ok!(Governance::tally(RuntimeOrigin::signed(ALICE), pid));
+	pid
+}
+
+#[test]
+fn tally_increments_missed_votes_for_eligible_non_casters() {
+	ext().execute_with(|| {
+		// All seven register before the proposal exists.
+		for (acct, country) in [
+			(ALICE, US), (BOB, US), (CHARLIE, UK), (DAVE, UK),
+			(EVE, FR), (FRANK, FR), (GRACE, US),
+		] {
+			assert_ok!(Governance::register_voter(RuntimeOrigin::signed(acct), country));
+		}
+		// BOB skips voting.
+		run_proposal_with_voters_casting(&[BOB]);
+		assert_eq!(Governance::voter_of(&BOB).unwrap().missed_votes, 1);
+		assert_eq!(Governance::voter_of(&ALICE).unwrap().missed_votes, 0);
+	});
+}
+
+#[test]
+fn tally_resets_missed_votes_for_casters() {
+	ext().execute_with(|| {
+		for (acct, country) in [(ALICE, US), (BOB, US)] {
+			assert_ok!(Governance::register_voter(RuntimeOrigin::signed(acct), country));
+		}
+		// Two proposals where BOB doesn't vote → strikes climb.
+		run_proposal_with_voters_casting(&[BOB]);
+		run_proposal_with_voters_casting(&[BOB]);
+		assert_eq!(Governance::voter_of(&BOB).unwrap().missed_votes, 2);
+		// Now BOB casts → strikes reset.
+		run_proposal_with_voters_casting(&[]);
+		assert_eq!(Governance::voter_of(&BOB).unwrap().missed_votes, 0);
+	});
+}
+
+#[test]
+fn tally_skips_voters_registered_after_proposal_creation() {
+	ext().execute_with(|| {
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(ALICE), US));
+		let pid = NextProposalId::<Test>::get();
+		assert_ok!(Governance::propose(
+			RuntimeOrigin::signed(ALICE),
+			b"x".to_vec(),
+			alloc::vec![cand(1, b"Y"), cand(2, b"N")],
+			10,
+			1,
+			1,
+		));
+		// BOB registers AFTER the proposal was created. He's not
+		// expected to vote on it.
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(BOB), UK));
+		assert_ok!(Governance::cast_vote(
+			RuntimeOrigin::signed(ALICE),
+			pid,
+			alloc::vec![1, 2],
+		));
+		System::set_block_number(20);
+		assert_ok!(Governance::tally(RuntimeOrigin::signed(ALICE), pid));
+		// BOB should NOT be struck for skipping pid.
+		assert_eq!(Governance::voter_of(&BOB).unwrap().missed_votes, 0);
+	});
+}
+
+// ─── 8b: addition-paced pruning ────────────────────────────────────────
+
+/// Drive enough proposals to push a target voter's missed_votes
+/// above the threshold (3). Only the target abstains; everyone
+/// else casts.
+fn accumulate_strikes(target: AccountId, count: u32) {
+	for _ in 0..count {
+		run_proposal_with_voters_casting(&[target]);
+	}
+}
+
+#[test]
+fn register_voter_swaps_out_eligible_non_voter_in_target_district() {
+	ext().execute_with(|| {
+		// TotalDistricts=3 → ALICE,BOB,CHARLIE go to districts 0,1,2.
+		// DAVE then targets district 0 (round-robin wraps).
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(ALICE), US));
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(BOB), UK));
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(CHARLIE), FR));
+		// Drive ALICE's strikes above threshold (3).
+		accumulate_strikes(ALICE, 3);
+		assert!(Governance::voter_of(&ALICE).unwrap().missed_votes >= 3);
+
+		// DAVE's registration should target district 0 and prune
+		// ALICE atomically.
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(DAVE), US));
+		assert!(Governance::voter_of(&ALICE).is_none(), "ALICE should be pruned");
+		// Roster size unchanged: ALICE replaced by DAVE.
+		assert_eq!(LowerDistrictRoster::<Test>::get(0).into_inner(), alloc::vec![DAVE]);
+		// ALICE also removed from her upper-country roster.
+		assert!(!UpperCountryRoster::<Test>::get(US).contains(&ALICE));
+	});
+}
+
+#[test]
+fn register_voter_no_swap_when_no_eligible_non_voter() {
+	ext().execute_with(|| {
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(ALICE), US));
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(BOB), UK));
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(CHARLIE), FR));
+		// No strikes. DAVE registers into district 0 → ALICE
+		// stays, DAVE just grows the district.
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(DAVE), US));
+		assert!(Governance::voter_of(&ALICE).is_some());
+		assert_eq!(LowerDistrictRoster::<Test>::get(0).into_inner(), alloc::vec![ALICE, DAVE]);
+	});
+}
+
+#[test]
+fn register_voter_does_not_prune_voter_below_threshold() {
+	ext().execute_with(|| {
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(ALICE), US));
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(BOB), UK));
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(CHARLIE), FR));
+		// Two strikes, threshold is 3 → not eligible.
+		accumulate_strikes(ALICE, 2);
+		assert_eq!(Governance::voter_of(&ALICE).unwrap().missed_votes, 2);
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(DAVE), US));
+		assert!(Governance::voter_of(&ALICE).is_some());
+		assert_eq!(LowerDistrictRoster::<Test>::get(0).into_inner(), alloc::vec![ALICE, DAVE]);
+	});
+}
+
+#[test]
+fn register_voter_only_prunes_target_district() {
+	ext().execute_with(|| {
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(ALICE), US));
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(BOB), UK));
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(CHARLIE), FR));
+		// ALICE accumulates strikes — she's in district 0.
+		accumulate_strikes(ALICE, 3);
+		// Force the next registration to target district 1 (BOB's
+		// district), not district 0 (ALICE's). The round-robin
+		// counter wraps mod TotalDistricts=3, so value 4 ≡ 1.
+		NextDistrictAssignment::<Test>::put(4);
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(DAVE), UK));
+		// District 1's non-voters are not ALICE → no prune in
+		// district 0. BOB has no strikes → no prune in district 1.
+		assert!(
+			Governance::voter_of(&ALICE).is_some(),
+			"ALICE in district 0 should not be pruned by registration into district 1",
+		);
+		assert!(Governance::voter_of(&BOB).is_some());
+		assert_eq!(Governance::voter_of(&DAVE).unwrap().seats.lower_district, 1);
+	});
+}
+
+// ─── 8b: round-2 escalation ────────────────────────────────────────────
+
+#[test]
+fn escalate_to_round_2_creates_followup_with_inherited_shape() {
+	ext().execute_with(|| {
+		// Single registered voter + quorum=5 forces quorum failure.
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(ALICE), US));
+		let parent_id = NextProposalId::<Test>::get();
+		assert_ok!(Governance::propose(
+			RuntimeOrigin::signed(ALICE),
+			b"Big question".to_vec(),
+			alloc::vec![cand(1, b"A"), cand(2, b"B"), cand(3, b"C")],
+			10,
+			5,
+			5,
+		));
+		assert_ok!(Governance::cast_vote(
+			RuntimeOrigin::signed(ALICE),
+			parent_id,
+			alloc::vec![1],
+		));
+		System::set_block_number(20);
+		assert_ok!(Governance::tally(RuntimeOrigin::signed(ALICE), parent_id));
+
+		// Now escalate.
+		assert_ok!(Governance::escalate_to_round_2(RuntimeOrigin::signed(ALICE), parent_id));
+		let parent = Governance::proposal_of(parent_id).unwrap();
+		let new_id = match parent.state {
+			ProposalState::Tallied(TallyOutcome::QuorumFailed { escalated_to, .. }) => {
+				escalated_to.expect("parent should now point at round 2")
+			},
+			_ => panic!("expected QuorumFailed with escalation pointer"),
+		};
+		let r2 = Governance::proposal_of(new_id).unwrap();
+		assert_eq!(r2.round, 2);
+		assert_eq!(r2.parent_proposal, Some(parent_id));
+		assert_eq!(r2.upper_quorum, parent.upper_quorum);
+		assert_eq!(r2.lower_quorum, parent.lower_quorum);
+		assert_eq!(r2.candidates.len(), parent.candidates.len());
+		assert!(matches!(r2.state, ProposalState::Active));
+		// Title carries the "[r2] " prefix.
+		assert!(r2.title.starts_with(b"[r2] "));
+	});
+}
+
+#[test]
+fn escalate_to_round_2_rejects_when_parent_passed() {
+	ext().execute_with(|| {
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(ALICE), US));
+		let pid = NextProposalId::<Test>::get();
+		assert_ok!(Governance::propose(
+			RuntimeOrigin::signed(ALICE),
+			b"x".to_vec(),
+			alloc::vec![cand(1, b"Y"), cand(2, b"N")],
+			10,
+			1,
+			1,
+		));
+		assert_ok!(Governance::cast_vote(
+			RuntimeOrigin::signed(ALICE),
+			pid,
+			alloc::vec![1],
+		));
+		System::set_block_number(20);
+		assert_ok!(Governance::tally(RuntimeOrigin::signed(ALICE), pid));
+		assert_noop!(
+			Governance::escalate_to_round_2(RuntimeOrigin::signed(ALICE), pid),
+			Error::<Test>::NotQuorumFailed,
+		);
+	});
+}
+
+#[test]
+fn escalate_to_round_2_rejects_double_escalation() {
+	ext().execute_with(|| {
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(ALICE), US));
+		let pid = NextProposalId::<Test>::get();
+		assert_ok!(Governance::propose(
+			RuntimeOrigin::signed(ALICE),
+			b"x".to_vec(),
+			alloc::vec![cand(1, b"Y"), cand(2, b"N")],
+			10,
+			5,
+			5,
+		));
+		assert_ok!(Governance::cast_vote(
+			RuntimeOrigin::signed(ALICE),
+			pid,
+			alloc::vec![1],
+		));
+		System::set_block_number(20);
+		assert_ok!(Governance::tally(RuntimeOrigin::signed(ALICE), pid));
+		assert_ok!(Governance::escalate_to_round_2(RuntimeOrigin::signed(ALICE), pid));
+		assert_noop!(
+			Governance::escalate_to_round_2(RuntimeOrigin::signed(ALICE), pid),
+			Error::<Test>::AlreadyEscalated,
+		);
+	});
+}
+
+#[test]
+fn escalate_to_round_2_rejects_round_2_proposal() {
+	ext().execute_with(|| {
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(ALICE), US));
+		let r1 = NextProposalId::<Test>::get();
+		assert_ok!(Governance::propose(
+			RuntimeOrigin::signed(ALICE),
+			b"x".to_vec(),
+			alloc::vec![cand(1, b"Y"), cand(2, b"N")],
+			10,
+			5,
+			5,
+		));
+		assert_ok!(Governance::cast_vote(
+			RuntimeOrigin::signed(ALICE),
+			r1,
+			alloc::vec![1],
+		));
+		System::set_block_number(20);
+		assert_ok!(Governance::tally(RuntimeOrigin::signed(ALICE), r1));
+		assert_ok!(Governance::escalate_to_round_2(RuntimeOrigin::signed(ALICE), r1));
+		// The new proposal is round 2. Even if it ALSO quorum-
+		// fails, it can't be escalated to round 3.
+		let r2 = NextProposalId::<Test>::get() - 1;
+		assert_ok!(Governance::cast_vote(
+			RuntimeOrigin::signed(ALICE),
+			r2,
+			alloc::vec![1],
+		));
+		System::set_block_number(System::block_number() + 250);
+		assert_ok!(Governance::tally(RuntimeOrigin::signed(ALICE), r2));
+		assert_noop!(
+			Governance::escalate_to_round_2(RuntimeOrigin::signed(ALICE), r2),
+			Error::<Test>::NotRound1,
+		);
+	});
+}
+
+#[test]
+fn escalate_to_round_2_rejects_active_proposal() {
+	ext().execute_with(|| {
+		assert_ok!(Governance::register_voter(RuntimeOrigin::signed(ALICE), US));
+		let pid = NextProposalId::<Test>::get();
+		assert_ok!(Governance::propose(
+			RuntimeOrigin::signed(ALICE),
+			b"x".to_vec(),
+			alloc::vec![cand(1, b"Y"), cand(2, b"N")],
+			10,
+			1,
+			1,
+		));
+		assert_noop!(
+			Governance::escalate_to_round_2(RuntimeOrigin::signed(ALICE), pid),
+			Error::<Test>::NotQuorumFailed,
+		);
+	});
 }

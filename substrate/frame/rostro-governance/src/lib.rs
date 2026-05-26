@@ -42,17 +42,43 @@
 //! chamber blocked it is recorded for off-chain auditing and for
 //! the future strike system.
 //!
-//! ## What's NOT in this pallet
+//! ## Phase 8b (this revision)
 //!
-//! - Strikes / quorum-failure escalation (8b)
-//! - Recall (8b)
+//! Adds the voter-level mechanics from the bicameral memo and the
+//! whitepaper round-escalation rule that don't require a
+//! representative layer:
+//!
+//! - **Addition-paced pruning**: voters who miss enough tallied
+//!   proposals are eligible-to-be-removed; removal only happens as
+//!   the swap-out leg of a new registration into their lower-house
+//!   district. Districts never shrink in spikes.
+//! - **Missed-vote counter** (`VoterRecord::missed_votes`): bumped
+//!   on tally for voters who didn't cast, reset on `cast_vote`. The
+//!   bicameral memo's strike marker — distinct from the
+//!   whitepaper's rep-level strike system (deferred).
+//! - **Eligibility tracking** (`VoterRecord::eligible_from_proposal_id`):
+//!   prevents new voters from being struck for proposals that
+//!   opened before they registered.
+//! - **Round-1 → Round-2 quorum-failure escalation**: when a
+//!   proposal's tally produces a `QuorumFailed` outcome, anyone can
+//!   call `escalate_to_round_2` to spawn a re-poll with a
+//!   72h-equivalent (43,200-block) window. Round-3 escalation to
+//!   constituents requires reps and is deferred.
+//!
+//! ## What's NOT in this pallet (still deferred)
+//!
+//! - Representative election (seats as holdable things, terms,
+//!   3-consecutive-term cap, staggered thirds) — required before
+//!   recall and round-3 escalation can land
+//! - Recall (60% of original electing voters → special election) —
+//!   needs reps
+//! - Whitepaper rep-strike system (3 strikes / 30 days rolling →
+//!   automatic removal + special election) — needs reps
 //! - Money-out-of-politics tx filter (8c)
 //! - ZK-anonymous voting / dual-nullifier (8d)
 //! - PoP-cert integration (8e)
-//! - Election of representatives (this scaffold handles
-//!   *referenda* — winner-takes-all on a proposal. Electing reps
-//!   to seats is a different shape that lands when chamber seats
-//!   are real things, not just registration buckets.)
+//! - Non-repeating round-robin distribution (sourced from
+//!   Sassafras ring-VRF)
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -118,6 +144,20 @@ pub struct ChamberSeats {
 pub struct VoterRecord<T: Config> {
 	pub seats: ChamberSeats,
 	pub registered_at: BlockNumberFor<T>,
+	/// First proposal id this voter is expected to participate in.
+	/// Set at registration to the value of `NextProposalId` so that
+	/// proposals opened before the voter registered don't count
+	/// against them at strike-sweep time.
+	pub eligible_from_proposal_id: ProposalId,
+	/// Running count of consecutive eligible proposals this voter
+	/// failed to cast on. Bumped on `tally`, reset on `cast_vote`.
+	/// At `>= T::StrikesBeforePruning` the voter is
+	/// eligible-to-be-removed at the next registration into their
+	/// lower-house district (per the bicameral memo's
+	/// addition-paced pruning rule). This is distinct from the
+	/// whitepaper's rep-level strike system, which lands with the
+	/// representative layer.
+	pub missed_votes: u32,
 	/// Number of consecutive terms in the upper chamber. Tracked
 	/// for the future 3-consecutive-term limit; not enforced in
 	/// v1.
@@ -142,6 +182,13 @@ pub struct Proposal<T: Config> {
 	pub upper_quorum: u32,
 	pub lower_quorum: u32,
 	pub state: ProposalState,
+	/// `1` for the initial vote, `2` for a re-poll spawned by
+	/// `escalate_to_round_2`. Round 3 (escalation to constituents)
+	/// requires the representative layer and is not implemented.
+	pub round: u8,
+	/// The round-1 proposal id this round-2 proposal re-polls.
+	/// `None` for round-1 proposals.
+	pub parent_proposal: Option<ProposalId>,
 }
 
 /// One candidate within a proposal. Candidates carry a numeric id
@@ -164,19 +211,40 @@ pub struct Candidate {
 pub enum ProposalState {
 	/// Voting window is open.
 	Active,
-	/// Tally complete. `winner` is `Some` only if both chambers
-	/// reached quorum AND elected the same candidate (concurrent
-	/// assent passed). `blocking_chamber` records which chamber
-	/// (or `None` if both reached quorum but disagreed) caused a
-	/// block, useful for off-chain auditing + the future strike
-	/// pipeline.
-	Tallied {
-		winner: Option<CandidateId>,
-		blocking_chamber: Option<Chamber>,
+	/// Tally complete. The outcome carries the concrete reason —
+	/// passed, disagreement (both chambers met quorum but elected
+	/// different winners), or quorum failure (one or both chambers
+	/// didn't reach quorum). Only `QuorumFailed` is eligible for
+	/// round-2 escalation.
+	Tallied(TallyOutcome),
+}
+
+/// Outcome of a concurrent-assent tally.
+#[derive(
+	Debug, Clone, PartialEq, Eq,
+	Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo,
+)]
+pub enum TallyOutcome {
+	/// Both chambers met quorum and elected the same candidate.
+	Passed { winner: CandidateId },
+	/// Both chambers met quorum but produced different IRV
+	/// winners. Terminal in v1 — there is no representative layer
+	/// to mediate the disagreement, and round-2 escalation only
+	/// applies to quorum failure (the failure mode the whitepaper
+	/// names "with strikes").
+	Disagreement,
+	/// At least one chamber missed quorum. Eligible for round-2
+	/// re-poll via `escalate_to_round_2`; the new proposal id
+	/// (when escalated) is recorded in `escalated_to`.
+	QuorumFailed {
+		upper_failed: bool,
+		lower_failed: bool,
+		escalated_to: Option<ProposalId>,
 	},
 }
 
-/// Which chamber a tally event refers to.
+/// Which chamber a tally event refers to. Retained as a public
+/// type for downstream consumers (events, off-chain indexers).
 #[derive(
 	Debug, Clone, Copy, PartialEq, Eq,
 	Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo,
@@ -230,6 +298,21 @@ pub mod pallet {
 		/// in the country's tally).
 		#[pallet::constant]
 		type MaxCountryDelegation: Get<u32>;
+
+		/// Threshold at which a voter's `missed_votes` counter
+		/// makes them eligible for addition-paced pruning from
+		/// their lower-house district roster. The bicameral memo
+		/// doesn't pin a specific value; the whitepaper's "3
+		/// strikes" rule is rep-level (separate system) but
+		/// suggests the same magnitude here.
+		#[pallet::constant]
+		type StrikesBeforePruning: Get<u32>;
+
+		/// Voting-period length for a round-2 re-poll spawned by
+		/// `escalate_to_round_2`. The whitepaper specifies "72h"
+		/// which is 43,200 blocks at 6s block time.
+		#[pallet::constant]
+		type Round2WindowBlocks: Get<BlockNumberFor<Self>>;
 	}
 
 	/// Per-voter governance record. AccountId → seats + term
@@ -299,6 +382,12 @@ pub mod pallet {
 			account: T::AccountId,
 			seats: ChamberSeats,
 		},
+		/// A voter was swapped out during a `register_voter` call
+		/// as the addition-paced pruning leg.
+		VoterPruned {
+			account: T::AccountId,
+			district: DistrictId,
+		},
 		ProposalCreated {
 			proposal_id: ProposalId,
 			voting_period_end: BlockNumberFor<T>,
@@ -309,8 +398,14 @@ pub mod pallet {
 		},
 		ProposalTallied {
 			proposal_id: ProposalId,
-			winner: Option<CandidateId>,
-			blocking_chamber: Option<Chamber>,
+			outcome: TallyOutcome,
+		},
+		/// A quorum-failed proposal was re-polled as round 2.
+		ProposalEscalatedToRound2 {
+			parent_proposal_id: ProposalId,
+			new_proposal_id: ProposalId,
+			upper_failed: bool,
+			lower_failed: bool,
 		},
 	}
 
@@ -337,6 +432,17 @@ pub mod pallet {
 		DuplicateRankingId,
 		UnknownCandidateInRanking,
 		ProposalAlreadyTallied,
+		/// `escalate_to_round_2` called on a proposal that didn't
+		/// produce a `QuorumFailed` outcome (passed, disagreement,
+		/// or still active).
+		NotQuorumFailed,
+		/// `escalate_to_round_2` called on a proposal that has
+		/// already been escalated.
+		AlreadyEscalated,
+		/// `escalate_to_round_2` called on a round-2 proposal.
+		/// Round-3 escalation requires the representative layer
+		/// and is not implemented.
+		NotRound1,
 	}
 
 	#[pallet::call]
@@ -347,6 +453,15 @@ pub mod pallet {
 		/// lands (8e), this extrinsic becomes a no-op for end users
 		/// — registration is automatic on cert activation, with
 		/// the country code derived from the ICAO doc.
+		///
+		/// Applies **addition-paced pruning** per the bicameral
+		/// memo: if the round-robin-assigned lower-house district
+		/// already contains a voter whose `missed_votes` exceeds
+		/// the strike threshold, that voter is atomically removed
+		/// (from `Voters`, lower-district roster, and upper-country
+		/// roster) and the new voter takes their slot — net
+		/// district size unchanged. If no eligible-to-prune voter
+		/// exists in that district, the new voter simply grows it.
 		#[pallet::call_index(0)]
 		#[pallet::weight(Weight::from_parts(20_000, 0))]
 		pub fn register_voter(
@@ -360,6 +475,38 @@ pub mod pallet {
 			let next = NextDistrictAssignment::<T>::get();
 			let district = if total_districts == 0 { 0 } else { next % total_districts };
 			NextDistrictAssignment::<T>::put(next.saturating_add(1));
+
+			// Look for a swap-out candidate in the target district
+			// — a voter with missed_votes >= threshold. First match
+			// wins (deterministic by iteration order = roster
+			// insertion order).
+			let prune_threshold = T::StrikesBeforePruning::get();
+			let pruned: Option<T::AccountId> =
+				LowerDistrictRoster::<T>::get(district).iter().find_map(|account| {
+					Voters::<T>::get(account)
+						.filter(|r| r.missed_votes >= prune_threshold)
+						.map(|_| account.clone())
+				});
+
+			if let Some(prune_target) = pruned.as_ref() {
+				// Remove from lower-district roster (swap-out).
+				LowerDistrictRoster::<T>::mutate(district, |roster| {
+					roster.retain(|a| a != prune_target);
+				});
+				// Remove from upper-country roster.
+				if let Some(prune_record) = Voters::<T>::get(prune_target) {
+					let prune_country = prune_record.seats.upper_country;
+					UpperCountryRoster::<T>::mutate(prune_country, |roster| {
+						roster.retain(|a| a != prune_target);
+					});
+				}
+				// Remove the voter record itself.
+				Voters::<T>::remove(prune_target);
+				Self::deposit_event(Event::VoterPruned {
+					account: prune_target.clone(),
+					district,
+				});
+			}
 
 			LowerDistrictRoster::<T>::try_mutate(district, |roster| -> DispatchResult {
 				roster.try_push(who.clone()).map_err(|_| Error::<T>::DistrictRosterFull)?;
@@ -375,6 +522,8 @@ pub mod pallet {
 			let record = VoterRecord::<T> {
 				seats: seats.clone(),
 				registered_at: <frame_system::Pallet<T>>::block_number(),
+				eligible_from_proposal_id: NextProposalId::<T>::get(),
+				missed_votes: 0,
 				consecutive_terms_upper: 0,
 				consecutive_terms_lower: 0,
 			};
@@ -424,6 +573,8 @@ pub mod pallet {
 				upper_quorum,
 				lower_quorum,
 				state: ProposalState::Active,
+				round: 1,
+				parent_proposal: None,
 			};
 			Proposals::<T>::insert(id, proposal);
 
@@ -464,6 +615,15 @@ pub mod pallet {
 			let ballot = Ballot::<T> { ranking: ranking_bv, cast_at: now };
 			Votes::<T>::insert(proposal_id, &who, ballot);
 
+			// Casting on any proposal resets the missed-vote
+			// streak. Pruning eligibility tracks *consecutive*
+			// misses; one participation breaks the streak.
+			Voters::<T>::mutate(&who, |maybe| {
+				if let Some(record) = maybe.as_mut() {
+					record.missed_votes = 0;
+				}
+			});
+
 			Self::deposit_event(Event::VoteCast { proposal_id, voter: who });
 			Ok(Pays::No.into())
 		}
@@ -473,6 +633,13 @@ pub mod pallet {
 		/// lower-chamber ballots, then applies concurrent assent:
 		/// proposal passes only if both chambers' IRV winners agree
 		/// AND both chambers met their respective quorum.
+		///
+		/// Also runs the **strike sweep**: every registered voter
+		/// who was eligible at this proposal's creation either has
+		/// their `missed_votes` reset to 0 (if they cast) or
+		/// incremented by 1 (if they didn't). This is O(V) in the
+		/// total voter count — a v1 limitation; v2 will move to
+		/// lazy accumulation.
 		#[pallet::call_index(3)]
 		#[pallet::weight(Weight::from_parts(50_000, 0))]
 		pub fn tally(origin: OriginFor<T>, proposal_id: ProposalId) -> DispatchResult {
@@ -487,14 +654,13 @@ pub mod pallet {
 			let mut upper_ballots: Vec<Vec<CandidateId>> = Vec::new();
 			let mut lower_ballots: Vec<Vec<CandidateId>> = Vec::new();
 			for (account, ballot) in Votes::<T>::iter_prefix(proposal_id) {
-				if let Some(record) = Voters::<T>::get(&account) {
+				if Voters::<T>::contains_key(&account) {
 					let ranking = ballot.ranking.into_inner();
 					// In v1 every voter has both an upper and a
 					// lower seat, so the same ballot counts in
 					// both tallies. ZK voting (8d) doesn't change
 					// this — same nullifier appears in both
 					// chamber-level tally inputs.
-					let _ = &record.seats;
 					upper_ballots.push(ranking.clone());
 					lower_ballots.push(ranking);
 				}
@@ -503,32 +669,151 @@ pub mod pallet {
 			let candidate_ids: Vec<CandidateId> =
 				proposal.candidates.iter().map(|c| c.id).collect();
 
-			let upper_winner = if (upper_ballots.len() as u32) >= proposal.upper_quorum {
+			let upper_met_quorum = (upper_ballots.len() as u32) >= proposal.upper_quorum;
+			let lower_met_quorum = (lower_ballots.len() as u32) >= proposal.lower_quorum;
+
+			let upper_winner = if upper_met_quorum {
 				irv_winner(&upper_ballots, &candidate_ids)
 			} else {
 				None
 			};
-			let lower_winner = if (lower_ballots.len() as u32) >= proposal.lower_quorum {
+			let lower_winner = if lower_met_quorum {
 				irv_winner(&lower_ballots, &candidate_ids)
 			} else {
 				None
 			};
 
-			let (winner, blocking_chamber) = match (upper_winner, lower_winner) {
-				(Some(u), Some(l)) if u == l => (Some(u), None),
-				(Some(_), Some(_)) => (None, None), // both quorum, disagreed — neither chamber alone "blocks"
-				(None, Some(_)) => (None, Some(Chamber::Upper)),
-				(Some(_), None) => (None, Some(Chamber::Lower)),
-				(None, None) => (None, Some(Chamber::Upper)), // arbitrary — both blocked
+			let outcome = if !upper_met_quorum || !lower_met_quorum {
+				TallyOutcome::QuorumFailed {
+					upper_failed: !upper_met_quorum,
+					lower_failed: !lower_met_quorum,
+					escalated_to: None,
+				}
+			} else {
+				// Both chambers met quorum. `irv_winner` can still
+				// return `None` on a perfect tie; treat that as
+				// disagreement (terminal, not escalation-eligible
+				// — escalation is for the "with strikes" failure
+				// mode the whitepaper names, i.e. people didn't
+				// show up).
+				match (upper_winner, lower_winner) {
+					(Some(u), Some(l)) if u == l => TallyOutcome::Passed { winner: u },
+					_ => TallyOutcome::Disagreement,
+				}
 			};
 
-			proposal.state = ProposalState::Tallied { winner, blocking_chamber };
+			// Strike sweep. Visit every voter; reset for casters,
+			// increment for eligible non-casters. Voters whose
+			// `eligible_from_proposal_id` is past this proposal
+			// (i.e. registered after it was created) are skipped.
+			Voters::<T>::translate(
+				|account, mut record: VoterRecord<T>| -> Option<VoterRecord<T>> {
+					if record.eligible_from_proposal_id > proposal_id {
+						return Some(record);
+					}
+					if Votes::<T>::contains_key(proposal_id, &account) {
+						record.missed_votes = 0;
+					} else {
+						record.missed_votes = record.missed_votes.saturating_add(1);
+					}
+					Some(record)
+				},
+			);
+
+			proposal.state = ProposalState::Tallied(outcome.clone());
 			Proposals::<T>::insert(proposal_id, proposal);
 
-			Self::deposit_event(Event::ProposalTallied {
-				proposal_id,
-				winner,
-				blocking_chamber,
+			Self::deposit_event(Event::ProposalTallied { proposal_id, outcome });
+			Ok(())
+		}
+
+		/// Escalate a quorum-failed round-1 proposal to round 2,
+		/// re-polling within the configured `Round2WindowBlocks`
+		/// window. Anyone can call; gas is the only rate limit.
+		///
+		/// The new proposal inherits the parent's candidates and
+		/// quorum thresholds; its title is the parent's title
+		/// prefixed with `"[r2] "` to distinguish in client UIs.
+		/// (If prefixing would exceed `MAX_PROPOSAL_TITLE_LEN`,
+		/// the parent's title is truncated from the end.)
+		///
+		/// Round 3 — escalation to "constituents who elected
+		/// absent reps" — requires the representative layer and
+		/// is not implemented in v1; round-2 proposals are
+		/// terminal regardless of their outcome.
+		#[pallet::call_index(4)]
+		#[pallet::weight(Weight::from_parts(40_000, 0))]
+		pub fn escalate_to_round_2(
+			origin: OriginFor<T>,
+			proposal_id: ProposalId,
+		) -> DispatchResult {
+			let _ = ensure_signed(origin)?;
+
+			let mut parent =
+				Proposals::<T>::get(proposal_id).ok_or(Error::<T>::ProposalNotFound)?;
+			ensure!(parent.round == 1, Error::<T>::NotRound1);
+
+			let (upper_failed, lower_failed) = match &parent.state {
+				ProposalState::Tallied(TallyOutcome::QuorumFailed {
+					upper_failed,
+					lower_failed,
+					escalated_to,
+				}) => {
+					ensure!(escalated_to.is_none(), Error::<T>::AlreadyEscalated);
+					(*upper_failed, *lower_failed)
+				},
+				_ => return Err(Error::<T>::NotQuorumFailed.into()),
+			};
+
+			let new_id = NextProposalId::<T>::get();
+			NextProposalId::<T>::put(new_id.saturating_add(1));
+
+			let now = <frame_system::Pallet<T>>::block_number();
+			let voting_period_end = now.saturating_add(T::Round2WindowBlocks::get());
+
+			// Build the round-2 title: "[r2] " + parent.title,
+			// truncating the parent's bytes if needed to fit.
+			let prefix: &[u8] = b"[r2] ";
+			let max_len = MAX_PROPOSAL_TITLE_LEN as usize;
+			let mut new_title_bytes: Vec<u8> = Vec::with_capacity(max_len);
+			new_title_bytes.extend_from_slice(prefix);
+			let parent_title = parent.title.as_slice();
+			let room = max_len.saturating_sub(prefix.len());
+			let take = parent_title.len().min(room);
+			new_title_bytes.extend_from_slice(&parent_title[..take]);
+			let new_title: BoundedVec<u8, ConstU32<MAX_PROPOSAL_TITLE_LEN>> =
+				BoundedVec::try_from(new_title_bytes)
+					.expect("title bounded by max_len construction; qed");
+
+			let new_proposal = Proposal::<T> {
+				title: new_title,
+				candidates: parent.candidates.clone(),
+				voting_period_end,
+				upper_quorum: parent.upper_quorum,
+				lower_quorum: parent.lower_quorum,
+				state: ProposalState::Active,
+				round: 2,
+				parent_proposal: Some(proposal_id),
+			};
+			Proposals::<T>::insert(new_id, new_proposal);
+
+			// Link the parent's escalation pointer in place.
+			parent.state = ProposalState::Tallied(TallyOutcome::QuorumFailed {
+				upper_failed,
+				lower_failed,
+				escalated_to: Some(new_id),
+			});
+			Proposals::<T>::insert(proposal_id, parent);
+
+			Self::deposit_event(Event::ProposalEscalatedToRound2 {
+				parent_proposal_id: proposal_id,
+				new_proposal_id: new_id,
+				upper_failed,
+				lower_failed,
+			});
+			Self::deposit_event(Event::ProposalCreated {
+				proposal_id: new_id,
+				voting_period_end,
 			});
 			Ok(())
 		}
