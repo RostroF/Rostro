@@ -5590,8 +5590,6 @@ dependencies = [
 [[package]]
 name = "hyper"
 version = "1.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc2b571658e38e0c01b1fdca3bbbe93c00d3d71693ff2770043f8c29bc7d6f80"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -13994,6 +13992,7 @@ dependencies = [
  "libc",
  "parking_lot 0.12.3",
  "rostro-chat-primitives",
+ "sp-crypto-hashing 0.1.0",
  "zeroize",
 ]
 
@@ -14475,11 +14474,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-shop-rng"
+version = "0.1.0"
+dependencies = [
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "rostro-chat-ephemeral-store",
+ "rostro-chat-primitives",
+ "sp-crypto-hashing 0.1.0",
+ "zeroize",
+]
+
+[[package]]
 name = "rostro-supervisor"
 version = "0.1.0"
 dependencies = [
  "clap",
  "env_logger 0.11.3",
+ "libc",
  "log",
  "rostro-node-sandbox",
 ]
@@ -15890,8 +15902,6 @@ dependencies = [
 [[package]]
 name = "soketto"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37468c595637c10857701c990f93a40ce0e357cedb0953d1c26c8d8027f9bb53"
 dependencies = [
  "base64 0.22.1",
  "bytes",

@@ -321,6 +321,7 @@ members = [
 	"substrate/utils/rostro-ratchet",
 	"substrate/utils/rostro-rpc-shield",
 	"substrate/utils/rostro-sassafras-redteam",
+	"substrate/utils/rostro-shop-rng",
 	"substrate/utils/rostro-trace",
 	"substrate/utils/rostro-vm-bench",
 	"substrate/utils/prometheus",
@@ -1104,3 +1105,27 @@ twox-hash = { opt-level = 3 }
 wasmi = { opt-level = 3 }
 x25519-dalek = { opt-level = 3 }
 zeroize = { opt-level = 3 }
+
+# ─── Rostro-fork patches over crates.io ──────────────────────────────────────
+#
+# Sovereign-chain principle ([[feedback_sovereign_chain_vendored_is_ours]]):
+# vulnerabilities in third-party crates we ship are our issues, not upstream's.
+# These vendored copies live under substrate/external/<crate>/ and carry
+# surgical RFC-compliance patches that upstream hasn't shipped.
+#
+#   * soketto 0.8.0 (jsonrpsee-server's WebSocket dependency) — server-side
+#     enforcement of RFC 6455 §5.1 client-frame masking. See connection.rs
+#     `Receiver::receive` + new `Error::UnmaskedClientFrame` variant.
+#     (F-LAB-RT-04 closure, 2026-05-26.)
+#
+#   * hyper 1.6.0 — request-parser rejection of RFC 7230 §3.3.3 rule 3
+#     (Transfer-Encoding + Content-Length both present) instead of upstream's
+#     silent "TE wins, drop CL" behavior, which leaves the request-smuggling
+#     primitive live whenever a fronting proxy uses CL. See proto/h1/role.rs
+#     header-parse loop. (F-LAB-RT-05 closure, 2026-05-26.)
+#
+# Re-apply both on every upstream merge. Each patched site carries a
+# `Rostro: F-LAB-RT-NN closure` comment so a future audit can locate them.
+[patch.crates-io]
+soketto = { path = "substrate/external/soketto" }
+hyper = { path = "substrate/external/hyper" }
