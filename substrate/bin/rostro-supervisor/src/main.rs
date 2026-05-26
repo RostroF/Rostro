@@ -530,6 +530,26 @@ fn validate_state_and_stdio_disjoint(
 /// log targets (`/var/log/rostro.log`, `/srv/rostro/log`, `/tmp/foo.log`,
 /// `<rw>/foo.log`) which are NOT inside the denylisted system trees.
 ///
+/// F-NEW-R4-01b closure (2026-05-25): extended after a follow-on
+/// /security-review found the original 9-entry list was ASYMMETRIC vs
+/// `SYSTEM_TOPLEVEL_DENYLIST` (which lists `/proc`, `/sys`, `/dev`,
+/// `/run`). The kernel-interface trees are a SHARPER edge than `/etc/*`:
+/// no daemon-parser indirection — the kernel itself executes bytes
+/// written to `/proc/sys/kernel/core_pattern` (next crash → root exec
+/// of `|/path/to/payload`), `/proc/sys/kernel/modprobe` (next autoload
+/// → root exec), `/proc/sys/kernel/hotplug` and `/sys/kernel/uevent_helper`
+/// (next device event → root exec), `/proc/sysrq-trigger` (single-byte
+/// reboot/kill/sync). `O_NOFOLLOW` does not block a real procfs file;
+/// `mode(0o600)` is a no-op on existing virtual-fs nodes; `O_APPEND` is
+/// irrelevant for sysctl-shaped files where every write goes to offset 0.
+/// `/run` hosts daemon runtime state (systemd unit drop-ins, sudo
+/// timestamps, cron spools) — same daemon-parser shape as `/etc`.
+///
+/// `/dev/null` is short-circuited at the top of `validate_stdio_log_placement`
+/// (line ~380) BEFORE this denylist check, so adding `/dev` here does not
+/// break the legitimate discard target. There is no other legitimate
+/// stdio-log destination under `/dev`, `/proc`, `/sys`, or `/run`.
+///
 /// Note: `/var` is NOT in this list because `/var/log/` is the standard
 /// log target. `/tmp` is NOT in this list because temp logs are
 /// legitimate for dev. Operators who want stricter placement can pass
@@ -544,6 +564,10 @@ const STDIO_LOG_SYSTEM_PREFIX_DENYLIST: &[&str] = &[
 	"/lib64",
 	"/libx32",
 	"/boot",  // kernel + initramfs; not parsed at runtime but writes here are a sign of misconfig
+	"/proc",  // /proc/sys/kernel/core_pattern, /proc/sys/kernel/modprobe, /proc/sys/kernel/hotplug, /proc/sysrq-trigger — kernel executes bytes written here
+	"/sys",   // /sys/kernel/uevent_helper, /sys/power/disk, /sys/kernel/security/* — same shape as /proc sysctls
+	"/dev",   // /dev/null short-circuits earlier; nothing else under /dev is a legitimate stdio target (and writes can poke device nodes)
+	"/run",   // /run/systemd/system/*.conf, /run/sudo/ts/*, /run/cron.*/, /run/initramfs — runtime daemon state, parsed-as-root
 ];
 
 /// Returns true if `normalized` is either equal to one of the prefix-denylist
@@ -2827,6 +2851,121 @@ mod tests {
 				"expected acceptance for {p}",
 			);
 		}
+	}
+
+	// ─── F-NEW-R4-01b: kernel-interface trees (/proc /sys /dev /run) ────
+	// Follow-on /security-review found the original R4-01 denylist was
+	// asymmetric with SYSTEM_TOPLEVEL_DENYLIST. /proc /sys /dev /run are
+	// sharper than /etc/* because the kernel itself executes bytes written
+	// to sysctls — no daemon-parser indirection. Tests assert refusal of
+	// the highest-impact known primitives.
+
+	#[test]
+	fn stdio_log_placement_rejects_proc_sys_kernel_core_pattern() {
+		// |/path executed-as-root by kernel on next crash.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/proc/sys/kernel/core_pattern");
+		let err = validate_stdio_log_placement(Some(&stdio), &rw).unwrap_err();
+		assert!(err.contains("F-NEW-R4-01"), "expected F-NEW-R4-01 error, got: {err}");
+		assert!(err.contains("/proc"), "expected /proc prefix mention, got: {err}");
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_proc_sys_kernel_modprobe() {
+		// /path executed-as-root by kernel on next module autoload.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/proc/sys/kernel/modprobe");
+		assert!(validate_stdio_log_placement(Some(&stdio), &rw).is_err());
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_proc_sysrq_trigger() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/proc/sysrq-trigger");
+		assert!(validate_stdio_log_placement(Some(&stdio), &rw).is_err());
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_sys_kernel_uevent_helper() {
+		// /path executed-as-root by kernel on next uevent.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		let stdio = PathBuf::from("/sys/kernel/uevent_helper");
+		let err = validate_stdio_log_placement(Some(&stdio), &rw).unwrap_err();
+		assert!(err.contains("F-NEW-R4-01"), "expected F-NEW-R4-01 error, got: {err}");
+		assert!(err.contains("/sys"), "expected /sys prefix mention, got: {err}");
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_proc_sys_subpaths() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		for p in [
+			"/proc/sys/vm/panic_on_oom",
+			"/proc/sys/kernel/hotplug",
+			"/proc/self/oom_score_adj",
+			"/sys/power/disk",
+			"/sys/kernel/security/foo",
+		] {
+			assert!(
+				validate_stdio_log_placement(Some(&PathBuf::from(p)), &rw).is_err(),
+				"expected refusal for {p}",
+			);
+		}
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_dev_non_null_targets() {
+		// /dev/null still works (short-circuit at line ~380); other /dev
+		// targets are refused.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		for p in [
+			"/dev/sda",
+			"/dev/mem",
+			"/dev/kmsg",
+			"/dev/random",
+		] {
+			assert!(
+				validate_stdio_log_placement(Some(&PathBuf::from(p)), &rw).is_err(),
+				"expected refusal for {p}",
+			);
+		}
+		// /dev/null sanity check — must remain accepted.
+		assert!(validate_stdio_log_placement(
+			Some(&PathBuf::from("/dev/null")), &rw
+		).is_ok(), "/dev/null must remain accepted (operator discard target)");
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_run_daemon_state() {
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		for p in [
+			"/run/systemd/system/rostro.service",
+			"/run/sudo/ts/coder",
+			"/run/cron.d/rostro",
+		] {
+			assert!(
+				validate_stdio_log_placement(Some(&PathBuf::from(p)), &rw).is_err(),
+				"expected refusal for {p}",
+			);
+		}
+	}
+
+	#[test]
+	fn stdio_log_placement_rejects_proc_sys_via_r3_03_bypass_shapes() {
+		// R3-03 normalization MUST also apply to the new /proc /sys /dev
+		// /run entries — same bypass-shape matrix as the /etc tests.
+		let rw = vec![PathBuf::from("/opt/rostro/data")];
+		assert!(validate_stdio_log_placement(
+			Some(&PathBuf::from("/proc//sys/kernel/core_pattern")), &rw
+		).is_err());
+		assert!(validate_stdio_log_placement(
+			Some(&PathBuf::from("/sys/./kernel/uevent_helper")), &rw
+		).is_err());
+		// `..` traversal into /proc from a non-denylisted parent is refused
+		// by normalize_path_for_denylist before the prefix check runs.
+		let err = validate_stdio_log_placement(
+			Some(&PathBuf::from("/var/log/../proc/sys/kernel/core_pattern")), &rw
+		).unwrap_err();
+		assert!(err.contains("F-NEW-R3-03"), "expected R3-03 refusal first, got: {err}");
 	}
 
 	#[test]
