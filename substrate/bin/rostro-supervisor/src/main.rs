@@ -46,6 +46,7 @@ use rostro_node_sandbox::{NodeSandboxConfig, SandboxHandle};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Exit code the child uses to request a swap-and-restart.
@@ -1260,6 +1261,73 @@ fn now_secs() -> u64 {
 		.unwrap_or(0)
 }
 
+/// Current child PID, read by the signal forwarder so it knows where
+/// to relay SIGTERM/SIGINT. `-1` means no live child (between spawns,
+/// or before the first spawn).
+static CHILD_PID: AtomicI32 = AtomicI32::new(-1);
+
+/// Set by the signal forwarder when SIGTERM/SIGINT arrives. The main
+/// Pattern A loop checks this at the top of each iteration: if true,
+/// the supervisor returns `ExitCode::SUCCESS` instead of respawning.
+/// This is what turns a `systemctl stop` (or operator `kill -INT`)
+/// into a clean shutdown rather than an orphaned child + supervisor
+/// respawn race.
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// SIGTERM/SIGINT handler: record shutdown intent and forward the
+/// signal to the current child. Async-signal-safe (only touches
+/// atomics + `libc::kill`).
+///
+/// **Why this exists.** systemd's `KillSignal=SIGINT` on this unit
+/// sends only the supervisor PID (in the unit's cgroup). The
+/// gemini-node child lives in a sibling cgroup at the cgroup root
+/// (Cannae's `rostro-node-uid-<uid>/child/`) and is therefore
+/// invisible to systemd's whole-cgroup kill. Without a forwarder,
+/// the supervisor — having no handler — terminates on the default
+/// disposition, leaving the child reparented to init (PPID=1) and
+/// still holding the RocksDB lock. The next `systemctl start` then
+/// hits `Resource temporarily unavailable` on the lock and crash-
+/// loops.
+///
+/// The handler also sets `SHUTDOWN_REQUESTED` so the Pattern A
+/// respawn loop sees the shutdown intent on its next iteration and
+/// exits cleanly instead of starting a new child. Without that
+/// flag, the forwarded signal would just be classified as a "child
+/// crashed via SIGTERM" and trigger a respawn — defeating the
+/// shutdown.
+#[cfg(target_os = "linux")]
+extern "C" fn forward_signal(sig: libc::c_int) {
+	SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+	let pid = CHILD_PID.load(Ordering::Relaxed);
+	if pid > 0 {
+		// SAFETY: libc::kill is async-signal-safe per POSIX. ESRCH on
+		// an already-reaped PID is benign and ignored — the signal
+		// arrives at no one and the loop's shutdown check still fires.
+		unsafe {
+			libc::kill(pid, sig);
+		}
+	}
+}
+
+/// Install [`forward_signal`] on SIGTERM + SIGINT. Called once at
+/// the top of `run()`, before any child spawn. The handler is safe
+/// to fire before any `CHILD_PID.store(...)` — it sees `-1` and
+/// only sets the shutdown flag.
+#[cfg(target_os = "linux")]
+fn install_signal_forwarder() {
+	let handler: extern "C" fn(libc::c_int) = forward_signal;
+	// SAFETY: `libc::signal` is the standard POSIX handler-registration
+	// API. Called exactly once per process, from a single-threaded
+	// context (before any spawn), so no race.
+	unsafe {
+		libc::signal(libc::SIGTERM, handler as libc::sighandler_t);
+		libc::signal(libc::SIGINT, handler as libc::sighandler_t);
+	}
+}
+
+#[cfg(not(target_os = "linux"))]
+fn install_signal_forwarder() {}
+
 /// Env var names mirrored from `rostro-watchdog`'s `supervisor` module.
 /// Duplicated here so the supervisor doesn't take a build dep on the
 /// watchdog crate just to read two strings.
@@ -1323,6 +1391,14 @@ fn kill_watchdog_monitor(monitor: Option<std::process::Child>) {
 }
 
 fn run(args: Args) -> ExitCode {
+	// Install SIGTERM/SIGINT forwarder before anything else. With no
+	// child spawned yet, the handler is a no-op for the kill leg
+	// (CHILD_PID stays -1) and only sets SHUTDOWN_REQUESTED — which
+	// the main loop check catches before the first spawn. See the
+	// docstring on [`forward_signal`] for the systemd-cgroup-orphan
+	// problem this fixes.
+	install_signal_forwarder();
+
 	// Compute the sandbox config before any consuming reads of `args`
 	// (the option fields below are moved out via match/unwrap_or_else).
 	let sandbox_config = build_sandbox_config(&args);
@@ -1640,6 +1716,16 @@ fn run(args: Args) -> ExitCode {
 	};
 
 	loop {
+		// Shutdown intent set by the signal forwarder: exit cleanly
+		// (do not respawn). Covers all the entry points the signal can
+		// arrive at — before any spawn, during a backoff sleep (sleep
+		// returns early on signal interrupt and we loop back here),
+		// after a child exit, or after a swap/rotate completes.
+		if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+			log::info!("shutdown signal received; supervisor exiting cleanly");
+			return ExitCode::SUCCESS;
+		}
+
 		if !child_path.exists() {
 			log::error!("child binary {} does not exist", child_path.display());
 			return ExitCode::FAILURE;
@@ -1931,6 +2017,15 @@ fn run(args: Args) -> ExitCode {
 			);
 		}
 
+		// Publish the child PID to the signal forwarder so SIGTERM/
+		// SIGINT delivered to the supervisor relay into a graceful
+		// shutdown of the child. Cleared after wait() returns; the
+		// brief gap from spawn-to-store is safe because the loop's
+		// SHUTDOWN_REQUESTED check at the next iteration catches a
+		// signal that arrived in that gap (child is already wait()'d
+		// by then if the kill leg missed it).
+		CHILD_PID.store(child.id() as i32, Ordering::Relaxed);
+
 		// Spawn the watchdog-monitor sidecar (no-op when env vars not
 		// set, i.e. supervisor running standalone). Reaped before any
 		// return / continue below so a stale monitor never outlives
@@ -1939,6 +2034,7 @@ fn run(args: Args) -> ExitCode {
 
 		let wait_result = child.wait();
 		kill_watchdog_monitor(monitor);
+		CHILD_PID.store(-1, Ordering::Relaxed);
 
 		let status = match wait_result {
 			Ok(s) => s,
@@ -2248,6 +2344,35 @@ mod tests {
 		let n = rotate_canonical_dir(&dir, &skip).unwrap();
 		assert_eq!(n, 1);
 		assert_eq!(std::fs::read(dir.join("runtime.pvm")).unwrap(), b"new");
+	}
+
+	// ─── signal forwarder ──────────────────────────────────────────────
+
+	#[cfg(target_os = "linux")]
+	#[test]
+	fn forward_signal_sets_shutdown_requested() {
+		// Verifies the flag-setting leg of forward_signal in isolation
+		// (no live child). The kill leg can't be safely unit-tested —
+		// it would need either a real child process (race-prone with
+		// other tests sharing the static CHILD_PID) or `kill(getpid(),
+		// sig)` which would kill the test runner. End-to-end signal
+		// delivery is covered by the manual smoke (supervisor +
+		// /bin/sleep + `kill -INT`) and on the lab nodes.
+		//
+		// Reset both atomics around the test so cargo's test
+		// parallelism doesn't leak state into subsequent tests.
+		SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
+		CHILD_PID.store(-1, Ordering::Relaxed);
+
+		forward_signal(libc::SIGTERM);
+
+		assert!(SHUTDOWN_REQUESTED.load(Ordering::Relaxed),
+			"forward_signal must set SHUTDOWN_REQUESTED");
+		assert_eq!(CHILD_PID.load(Ordering::Relaxed), -1,
+			"forward_signal must not write to CHILD_PID");
+
+		// Restore initial state.
+		SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
 	}
 
 	// ─── classify_exit_code ────────────────────────────────────────────
