@@ -309,6 +309,8 @@ members = [
 	"substrate/utils/rostro-executor",
 	"substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip",
 	"substrate/utils/rostro-node-sandbox",
+	"substrate/utils/rostro-watchdog",
+	"substrate/utils/rostro-watchdog-client",
 	"substrate/utils/rostro-poseidon-air",
 	"substrate/utils/rostro-poseidon-sponge-air",
 	"substrate/utils/rostro-hash-to-field-air",
