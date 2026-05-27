@@ -1,0 +1,36 @@
+[package]
+name = "rostro-watchdog"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Long-lived host-side trust process for Rostro nodes. Holds the node's libp2p identity key out-of-process; signs over a Unix-domain socket on a typed sign-kind whitelist; emits a heartbeat counter for node session liveness. Parents rostro-supervisor (which parents gemini-node) per the host-process-topology four-layer model. v0.1 = weak form: Linux only, ephemeral RAM key, no TPM seal, libp2p identity surface only."
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+name = "rostro_watchdog"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rostro-watchdog"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+ed25519-dalek = { workspace = true, features = ["std", "rand_core", "zeroize"] }
+env_logger = { workspace = true }
+log = { workspace = true, default-features = true }
+rand_core = { workspace = true, features = ["std"] }
+thiserror = { workspace = true }
+zeroize = { workspace = true, features = ["alloc"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }
+
+[features]
+default = []

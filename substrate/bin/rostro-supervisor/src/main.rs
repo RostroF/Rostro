@@ -1260,6 +1260,68 @@ fn now_secs() -> u64 {
 		.unwrap_or(0)
 }
 
+/// Env var names mirrored from `rostro-watchdog`'s `supervisor` module.
+/// Duplicated here so the supervisor doesn't take a build dep on the
+/// watchdog crate just to read two strings.
+const WATCHDOG_SOCKET_ENV: &str = "ROSTRO_WATCHDOG_SOCKET";
+const WATCHDOG_MONITOR_BINARY_ENV: &str = "ROSTRO_WATCHDOG_MONITOR_BINARY";
+
+/// When both env vars are present, spawn the `rostro-watchdog-monitor`
+/// sidecar with `--target-pid = child_pid`. The sidecar probes the
+/// watchdog and SIGTERMs `child_pid` on missed heartbeats — that's how
+/// kill-watchdog drops gemini-node from the network without any
+/// PR_SET_PDEATHSIG cascade or new GPL3 code in gemini-node itself.
+///
+/// Returns `None` when the env vars aren't both set (operator is running
+/// the supervisor standalone, not under a watchdog) or when the spawn
+/// fails (we log + skip rather than fail-fast — the child is still
+/// useful without a heartbeat probe).
+fn spawn_watchdog_monitor(child_pid: u32) -> Option<std::process::Child> {
+	let socket = std::env::var_os(WATCHDOG_SOCKET_ENV)?;
+	let monitor_bin = std::env::var_os(WATCHDOG_MONITOR_BINARY_ENV)?;
+	let bin_display = Path::new(&monitor_bin).display().to_string();
+	match Command::new(&monitor_bin)
+		.arg("--target-pid")
+		.arg(child_pid.to_string())
+		.arg("--socket")
+		.arg(&socket)
+		.spawn()
+	{
+		Ok(c) => {
+			log::info!(
+				"spawned watchdog monitor (pid={}, target_pid={}, bin={})",
+				c.id(),
+				child_pid,
+				bin_display,
+			);
+			Some(c)
+		},
+		Err(e) => {
+			log::warn!(
+				"failed to spawn watchdog monitor ({}): {}; child runs without heartbeat probe",
+				bin_display, e,
+			);
+			None
+		},
+	}
+}
+
+/// Reap the monitor cleanly before respawning the child (Pattern A) or
+/// returning. Without this, an old monitor could outlive its target and
+/// later SIGTERM whoever happens to inherit the same PID.
+fn kill_watchdog_monitor(monitor: Option<std::process::Child>) {
+	let Some(mut m) = monitor else { return };
+	let pid = m.id();
+	if let Err(e) = m.kill() {
+		// Already-dead is benign (the monitor exits on its own after
+		// firing on_dead); other errors we just log.
+		if e.kind() != std::io::ErrorKind::InvalidInput {
+			log::debug!("kill(watchdog-monitor pid={}) returned {}", pid, e);
+		}
+	}
+	let _ = m.wait();
+}
+
 fn run(args: Args) -> ExitCode {
 	// Compute the sandbox config before any consuming reads of `args`
 	// (the option fields below are moved out via match/unwrap_or_else).
@@ -1869,7 +1931,16 @@ fn run(args: Args) -> ExitCode {
 			);
 		}
 
-		let status = match child.wait() {
+		// Spawn the watchdog-monitor sidecar (no-op when env vars not
+		// set, i.e. supervisor running standalone). Reaped before any
+		// return / continue below so a stale monitor never outlives
+		// its target.
+		let monitor = spawn_watchdog_monitor(child.id());
+
+		let wait_result = child.wait();
+		kill_watchdog_monitor(monitor);
+
+		let status = match wait_result {
 			Ok(s) => s,
 			Err(e) => {
 				log::error!("failed to wait on child: {}", e);

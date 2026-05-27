@@ -14551,6 +14551,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-watchdog"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "ed25519-dalek",
+ "env_logger 0.11.3",
+ "libc",
+ "log",
+ "rand_core 0.6.4",
+ "thiserror 1.0.65",
+ "zeroize",
+]
+
+[[package]]
+name = "rostro-watchdog-client"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger 0.11.3",
+ "libc",
+ "log",
+ "rostro-watchdog",
+ "thiserror 1.0.65",
+]
+
+[[package]]
 name = "route-recognizer"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
