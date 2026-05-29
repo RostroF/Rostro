@@ -844,26 +844,7 @@ dependencies = [
  "rand_chacha 0.3.1",
  "rayon",
  "sha2 0.10.9",
- "w3f-ring-proof 0.0.2",
- "zeroize",
-]
-
-[[package]]
-name = "ark-vrf"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d815a2faa9e0fe6c342cc7f25f1f30016774cfbc966f56ea1967377a7ac2066"
-dependencies = [
- "ark-bls12-381 0.5.0",
- "ark-ec 0.5.0",
- "ark-ed-on-bls12-381-bandersnatch",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
- "ark-std 0.5.0",
- "digest 0.10.7",
- "rand_chacha 0.3.1",
- "sha2 0.10.9",
- "w3f-ring-proof 0.0.6",
+ "w3f-ring-proof",
  "zeroize",
 ]
 
@@ -1521,18 +1502,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blst"
-version = "0.3.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcdb4c7013139a150f9fc55d123186dbfaba0d912817466282c73ac49e71fb45"
-dependencies = [
- "cc",
- "glob",
- "threadpool",
- "zeroize",
-]
-
-[[package]]
 name = "bounded-collections"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1578,32 +1547,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "build-crate"
-version = "0.1.0"
-
-[[package]]
 name = "build-helper"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bdce191bf3fa4995ce948c8c83b4640a1745457a149e73c6db75b4ffe36aad5f"
 dependencies = [
  "semver 0.6.0",
-]
-
-[[package]]
-name = "build-javm"
-version = "0.1.0"
-dependencies = [
- "build-crate",
- "grey-transpiler",
-]
-
-[[package]]
-name = "build-pvm"
-version = "0.1.0"
-dependencies = [
- "build-crate",
- "polkavm-linker 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -4973,40 +4922,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "grey-crypto"
-version = "0.1.0"
-dependencies = [
- "ark-vrf 0.2.2",
- "blake2 0.10.6",
- "blst",
- "ed25519-dalek",
- "grey-types",
- "rand 0.8.5",
- "scale",
- "sha3",
-]
-
-[[package]]
-name = "grey-transpiler"
-version = "0.1.0"
-dependencies = [
- "javm",
- "scale",
- "thiserror 2.0.12",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "grey-types"
-version = "0.1.0"
-dependencies = [
- "hex",
- "scale",
- "serde",
-]
-
-[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6212,18 +6127,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "javm"
-version = "0.4.0"
-dependencies = [
- "grey-crypto",
- "libc",
- "memoffset",
- "scale",
- "thiserror 2.0.12",
- "tracing",
 ]
 
 [[package]]
@@ -11124,20 +11027,6 @@ dependencies = [
 
 [[package]]
 name = "polkavm"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34ddb26cbe473e21bf5c329723e72fdf9208b5f9674e54721bf436e2efdbb26f"
-dependencies = [
- "libc",
- "log",
- "picosimd",
- "polkavm-assembler 0.31.0",
- "polkavm-common 0.31.0",
- "polkavm-linux-raw 0.31.0",
-]
-
-[[package]]
-name = "polkavm"
 version = "0.32.0"
 dependencies = [
  "blake2 0.10.6",
@@ -11148,19 +11037,10 @@ dependencies = [
  "log",
  "p521",
  "picosimd",
- "polkavm-assembler 0.32.0",
+ "polkavm-assembler",
  "polkavm-common 0.32.0",
- "polkavm-linux-raw 0.32.0",
+ "polkavm-linux-raw",
  "sha3",
-]
-
-[[package]]
-name = "polkavm-assembler"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f9006f0a135c6d035487fa88fa75b97b32a53d1d914c757f131c8e10a2af295"
-dependencies = [
- "log",
 ]
 
 [[package]]
@@ -11174,22 +11054,11 @@ dependencies = [
 
 [[package]]
 name = "polkavm-common"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0a3e43fa1a54b955a2f9422b1690c3cc29252ac8828c02a99d2370b9f2a188e"
-dependencies = [
- "log",
- "picosimd",
- "polkavm-assembler 0.31.0",
-]
-
-[[package]]
-name = "polkavm-common"
 version = "0.32.0"
 dependencies = [
  "log",
  "picosimd",
- "polkavm-assembler 0.32.0",
+ "polkavm-assembler",
 ]
 
 [[package]]
@@ -11243,28 +11112,6 @@ dependencies = [
  "regalloc2 0.9.3",
  "rustc-demangle",
 ]
-
-[[package]]
-name = "polkavm-linker"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89d3ca240b3185eb121ceea2816d8cd9c68b09ff91f3cc2f865e6ad2f259c156"
-dependencies = [
- "dirs",
- "gimli 0.31.1",
- "hashbrown 0.14.5",
- "log",
- "object 0.36.7",
- "polkavm-common 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "regalloc2 0.9.3",
- "rustc-demangle",
-]
-
-[[package]]
-name = "polkavm-linux-raw"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbcd9ed5f77c60f3878289001d3e789da301746249b622bfb2876e2d0fe32c0b"
 
 [[package]]
 name = "polkavm-linux-raw"
@@ -12666,7 +12513,7 @@ dependencies = [
 name = "rc-executor-common"
 version = "0.44.0"
 dependencies = [
- "polkavm 0.32.0",
+ "polkavm",
  "rc-allocator",
  "sp-maybe-compressed-blob",
  "sp-wasm-interface",
@@ -14128,7 +13975,7 @@ version = "0.1.0"
 dependencies = [
  "log",
  "parity-scale-codec",
- "polkavm 0.32.0",
+ "polkavm",
  "rc-executor",
  "rostro-executor-fixture-storage-roundtrip",
  "rostro-runtime",
@@ -14225,7 +14072,7 @@ dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "ark-std 0.5.0",
- "ark-vrf 0.1.0",
+ "ark-vrf",
  "hex",
  "parity-scale-codec",
  "rand 0.8.5",
@@ -14531,23 +14378,6 @@ dependencies = [
  "sha2 0.10.9",
  "x25519-dalek",
  "zeroize",
-]
-
-[[package]]
-name = "rostro-vm-bench"
-version = "0.1.0"
-dependencies = [
- "blake2 0.10.6",
- "build-javm",
- "build-pvm",
- "criterion 0.5.1",
- "grey-transpiler",
- "javm",
- "polkavm 0.31.0",
- "polkavm 0.32.0",
- "polkavm-common 0.32.0",
- "wasmtime",
- "wat",
 ]
 
 [[package]]
@@ -14955,14 +14785,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "scale"
-version = "0.1.0"
-dependencies = [
- "scale-derive",
- "thiserror 2.0.12",
-]
-
-[[package]]
 name = "scale-bits"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14996,15 +14818,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f4b54a1211260718b92832b661025d1f1a4b6930fbadd6908e00edd265fa5f7"
 dependencies = [
  "darling 0.20.10",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "scale-derive"
-version = "0.1.0"
-dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -16212,7 +16025,7 @@ dependencies = [
 name = "sp-core"
 version = "40.0.0"
 dependencies = [
- "ark-vrf 0.1.0",
+ "ark-vrf",
  "array-bytes 6.2.2",
  "bip39",
  "bitflags 1.3.2",
@@ -17332,7 +17145,7 @@ dependencies = [
  "merkleized-metadata",
  "parity-scale-codec",
  "parity-wasm",
- "polkavm-linker 0.32.0",
+ "polkavm-linker",
  "rc-executor",
  "shlex",
  "sp-core",
@@ -18418,27 +18231,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-test"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19a4c448db514d4f24c5ddb9f73f2ee71bfb24c526cf0c570ba142d1119e0051"
-dependencies = [
- "tracing-core",
- "tracing-subscriber 0.3.19",
- "tracing-test-macro",
-]
-
-[[package]]
-name = "tracing-test-macro"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad06847b7afb65c7866a36664b75c40b895e318cea4f71299f013fb22965329d"
-dependencies = [
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "transpose"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -18771,7 +18563,7 @@ checksum = "225eaa083192400abfe78838e3089c539a361e0dd9b6884f61b5c6237676ec01"
 dependencies = [
  "ark-scale",
  "ark-serialize 0.5.0",
- "ark-vrf 0.1.0",
+ "ark-vrf",
  "bounded-collections 0.1.9",
  "derive-where",
  "parity-scale-codec",
@@ -18903,20 +18695,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "w3f-pcs"
-version = "0.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ea1046a1deb6d26c34ba2d1f1bab4222d695d126502ee765f80b021753cb674"
-dependencies = [
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-poly 0.5.0",
- "ark-serialize 0.5.0",
- "ark-std 0.5.0",
- "merlin",
-]
-
-[[package]]
 name = "w3f-plonk-common"
 version = "0.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -18930,23 +18708,7 @@ dependencies = [
  "getrandom_or_panic",
  "rand_core 0.6.4",
  "rayon",
- "w3f-pcs 0.0.2",
-]
-
-[[package]]
-name = "w3f-plonk-common"
-version = "0.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "077db25196f87773d7f0784c0ea5b11f18f38d336fa25c24bc67d7936af05d7a"
-dependencies = [
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-poly 0.5.0",
- "ark-serialize 0.5.0",
- "ark-std 0.5.0",
- "getrandom_or_panic",
- "rand_core 0.6.4",
- "w3f-pcs 0.0.5",
+ "w3f-pcs",
 ]
 
 [[package]]
@@ -18962,24 +18724,8 @@ dependencies = [
  "ark-std 0.5.0",
  "ark-transcript",
  "rayon",
- "w3f-pcs 0.0.2",
- "w3f-plonk-common 0.0.2",
-]
-
-[[package]]
-name = "w3f-ring-proof"
-version = "0.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3afac5d485a6eed7c1762be4b7b70a6f9b346bd6eebe485f48b7d909a6773f5"
-dependencies = [
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-poly 0.5.0",
- "ark-serialize 0.5.0",
- "ark-std 0.5.0",
- "ark-transcript",
- "w3f-pcs 0.0.5",
- "w3f-plonk-common 0.0.6",
+ "w3f-pcs",
+ "w3f-plonk-common",
 ]
 
 [[package]]

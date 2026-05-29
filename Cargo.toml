@@ -325,7 +325,6 @@ members = [
 	"substrate/utils/rostro-sassafras-redteam",
 	"substrate/utils/rostro-shop-rng",
 	"substrate/utils/rostro-trace",
-	"substrate/utils/rostro-vm-bench",
 	"substrate/utils/prometheus",
 	"substrate/utils/substrate-bip39",
 	"substrate/utils/zkpki-client",
