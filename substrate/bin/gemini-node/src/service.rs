@@ -138,14 +138,23 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 /// `canonical_files_dir` (Phase 7b): when `Some(dir)`, the boot-time
 /// file verifier uses a `LocalDirectoryFetchTransport` rooted at
 /// `dir` as its heal source. On hash mismatch, the verifier fetches
-/// canonical bytes from there, stages them at `<exe>.new`, and
-/// exits code 90 for `rostro-supervisor` to swap and restart. When
-/// `None`, hash mismatch is fail-stop (Phase 7a behavior).
+/// canonical bytes from there, stages them (see `canonical_staging_dir`
+/// below), and exits code 90 for the heal pipeline to finalize. When
+/// `None`, hash mismatch is fail-stop.
+///
+/// `canonical_staging_dir`: directory the heal pipeline writes
+/// `<basename>.new` + `<basename>.new.expected_hash` into. The watchdog
+/// (outside Cannae) inotifies this directory; on a closed-write of a
+/// `*.new` file it re-hashes the staged bytes, compares against the
+/// sidecar hash, and renames the bytes into the canonical dir on match.
+/// When `None`, the verifier stages adjacent to the canonical file (dev
+/// fallback; fails under Cannae because the canonical dir is sandbox-ro).
 pub fn new_full<
 	N: rc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
 	config: Configuration,
 	canonical_files_dir: Option<std::path::PathBuf>,
+	canonical_staging_dir: Option<std::path::PathBuf>,
 ) -> Result<TaskManager, ServiceError> {
 	let rc_service::PartialComponents {
 		client,
@@ -594,7 +603,7 @@ pub fn new_full<
 	// here it's adapted into the verifier's HealFetcher trait. When
 	// unset, mismatch is fail-stop.
 	let heal_fetcher = heal_source.clone().map(heal_fetcher_from_source);
-	crate::file_check::verify_at_boot(client.clone(), heal_fetcher)
+	crate::file_check::verify_at_boot(client.clone(), heal_fetcher, canonical_staging_dir.clone())
 		.map_err(ServiceError::Other)?;
 
 	// Phase 6 Layer 3: chain-state self-check. Reconciles the local

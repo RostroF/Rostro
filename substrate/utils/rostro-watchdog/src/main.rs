@@ -69,6 +69,23 @@ struct Args {
     #[arg(long)]
     monitor_binary: Option<PathBuf>,
 
+    /// Directory the heal pipeline stages new canonical bytes into.
+    /// Watchdog inotifies this dir (Linux only); on a closed-write of
+    /// `<name>.new` it reads the sidecar `<name>.new.expected_hash`,
+    /// re-hashes the staged bytes, and renames into
+    /// `--canonical-dir` on hash match. Required together with
+    /// `--canonical-dir`. When unset, the staging watcher is disabled.
+    #[arg(long)]
+    canonical_staging_dir: Option<PathBuf>,
+
+    /// Directory holding the canonical foundation files (typically
+    /// `--sandbox-ro-path` from the supervisor's perspective). The
+    /// staging watcher rotates validated `<name>.new` files from
+    /// `--canonical-staging-dir` into this directory. Required when
+    /// `--canonical-staging-dir` is set.
+    #[arg(long)]
+    canonical_dir: Option<PathBuf>,
+
     /// Arguments passed through to the supervisor. Use `--` to separate:
     /// `rostro-watchdog --supervisor /path/to/sup -- --child /path/to/node`.
     #[arg(last = true, allow_hyphen_values = true)]
@@ -115,6 +132,56 @@ fn main() -> ExitCode {
         if let Err(e) = server.run() {
             log::error!("watchdog server thread exited: {e}");
         }
+    });
+
+    // Staging watcher: validates + rotates staged canonical files (the
+    // piece-A heal-pipeline responsibility migrated from supervisor).
+    // Requires both --canonical-staging-dir and --canonical-dir; either
+    // missing → watcher disabled (dev mode where heal stages adjacent
+    // to canonical and the watcher would be redundant).
+    let staging_watch = match (
+        args.canonical_staging_dir.as_ref(),
+        args.canonical_dir.as_ref(),
+    ) {
+        (Some(staging), Some(canonical)) => {
+            if let Err(e) = std::fs::create_dir_all(staging) {
+                log::warn!(
+                    "could not create --canonical-staging-dir {}: {e}; watcher disabled",
+                    staging.display(),
+                );
+                None
+            } else {
+                Some((staging.clone(), canonical.clone()))
+            }
+        },
+        (None, None) => None,
+        (Some(_), None) => {
+            log::warn!(
+                "--canonical-staging-dir set without --canonical-dir; staging watcher disabled"
+            );
+            None
+        },
+        (None, Some(_)) => {
+            log::warn!(
+                "--canonical-dir set without --canonical-staging-dir; staging watcher disabled"
+            );
+            None
+        },
+    };
+    let _staging_thread = staging_watch.map(|(staging, canonical)| {
+        thread::spawn(move || {
+            #[cfg(target_os = "linux")]
+            {
+                if let Err(e) = rostro_watchdog::run_inotify_loop(&staging, &canonical) {
+                    log::error!("staging watcher exited: {e}");
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (&staging, &canonical);
+                log::warn!("staging watcher: only implemented on Linux");
+            }
+        })
     });
 
     install_signal_forwarder();

@@ -16,11 +16,23 @@ pub struct Cli {
 	/// When set, the Phase 7b heal flow consults this directory on
 	/// boot-time hash mismatch: if the directory contains bytes
 	/// matching the canonical hash from the on-chain registry, the
-	/// node stages those bytes at `<exe>.new` and exits with code 90
-	/// for `rostro-supervisor` to swap and restart. When unset, a
-	/// hash mismatch is fail-stop (Phase 7a behavior).
+	/// node stages those bytes (see `--canonical-staging-dir`) and
+	/// exits with code 90 for the heal pipeline to finalize. When
+	/// unset, a hash mismatch is fail-stop.
 	#[arg(long)]
 	pub canonical_files_dir: Option<std::path::PathBuf>,
+
+	/// Directory the heal pipeline stages new bytes into. Must be
+	/// writable from inside Cannae (typically a `--sandbox-rw-path`
+	/// subdirectory). When set, staged bytes land at
+	/// `<canonical-staging-dir>/<basename>.new` with a sidecar
+	/// `<basename>.new.expected_hash` file carrying the on-chain
+	/// canonical hash for the watchdog to validate against. When
+	/// unset, the verifier falls back to staging at `<exe>.new` next
+	/// to the canonical file (works for non-sandboxed dev iteration;
+	/// fails under Cannae because the canonical dir is sandbox-ro).
+	#[arg(long)]
+	pub canonical_staging_dir: Option<std::path::PathBuf>,
 
 	#[clap(flatten)]
 	pub run: RunCmd,

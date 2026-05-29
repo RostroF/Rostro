@@ -2068,28 +2068,17 @@ fn run(args: Args) -> ExitCode {
 					);
 					return ExitCode::FAILURE;
 				}
-				if let Err(e) = rotate_staged(&staged_path, &child_path) {
-					log::error!("staged-binary rotate failed: {}", e);
-					return ExitCode::FAILURE;
-				}
-				if let Some(dir) = canonical_dir.as_deref() {
-					match rotate_canonical_dir(dir, &child_path) {
-						Ok(0) => {},
-						Ok(n) => log::info!(
-							"rotated {} additional canonical files in {}",
-							n,
-							dir.display(),
-						),
-						Err(e) => {
-							log::error!(
-								"canonical-file rotate in {} failed: {}",
-								dir.display(),
-								e,
-							);
-							return ExitCode::FAILURE;
-						},
-					}
-				}
+				// Rotation moved to rostro-watchdog (outside Cannae) in
+				// piece A of watchdog v0.2 (2026-05-29). The child stages
+				// bytes into `--canonical-staging-dir` with a sidecar
+				// `.expected_hash`; the watchdog inotifies that dir, re-
+				// hashes the staged file, and renames it into the
+				// canonical dir on hash match. The supervisor's job here
+				// is just to drive the Pattern A respawn; the watchdog
+				// asynchronously puts the new bytes in place, so the
+				// next `verify_at_boot` finds a match (or, if the
+				// watchdog hasn't caught up yet, the child re-stages and
+				// this arm fires again — bounded by `max_restarts`).
 				continue;
 			},
 			ChildOutcome::Crashed { detail } => {
