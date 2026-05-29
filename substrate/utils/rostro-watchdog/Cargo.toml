@@ -21,6 +21,7 @@ name = "rostro-watchdog"
 path = "src/main.rs"
 
 [dependencies]
+blake2 = { workspace = true, default-features = true }
 clap = { workspace = true, features = ["derive"] }
 ed25519-dalek = { workspace = true, features = ["std", "rand_core", "zeroize"] }
 env_logger = { workspace = true }

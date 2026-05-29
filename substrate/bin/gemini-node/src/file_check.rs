@@ -108,6 +108,7 @@ struct FileMismatch {
 pub fn verify_at_boot<Client, Block>(
 	client: Arc<Client>,
 	heal_fetcher: Option<Box<dyn HealFetcher>>,
+	canonical_staging_dir: Option<std::path::PathBuf>,
 ) -> Result<(), String>
 where
 	Block: BlockT,
@@ -148,7 +149,7 @@ where
 	);
 
 	match heal_fetcher {
-		Some(fetcher) => attempt_multi_heal(&mismatches, fetcher),
+		Some(fetcher) => attempt_multi_heal(&mismatches, fetcher, canonical_staging_dir.as_deref()),
 		None => Err(multi_mismatch_message(&mismatches)),
 	}
 }
@@ -250,11 +251,15 @@ fn resolve_local_path(canonical_name: &[u8]) -> Result<PathBuf, String> {
 fn attempt_multi_heal(
 	mismatches: &[FileMismatch],
 	mut fetcher: Box<dyn HealFetcher>,
+	canonical_staging_dir: Option<&std::path::Path>,
 ) -> Result<(), String> {
 	log::warn!(
 		target: "rostro-file-check",
-		"attempting heal for {} files from configured source",
+		"attempting heal for {} files from configured source (staging_dir={})",
 		mismatches.len(),
+		canonical_staging_dir
+			.map(|p| p.display().to_string())
+			.unwrap_or_else(|| "(adjacent to canonical)".to_string()),
 	);
 
 	for m in mismatches {
@@ -279,22 +284,50 @@ fn attempt_multi_heal(
 			)
 		})?;
 
-		let staged = staged_path_for(&local_path);
-		std::fs::write(&staged, &bytes).map_err(|e| {
-			format!("staging write to {} failed: {e}", staged.display())
-		})?;
+		let staged = staged_path_in(canonical_staging_dir, &local_path);
+		if let Some(parent) = staged.parent() {
+			std::fs::create_dir_all(parent).map_err(|e| {
+				format!("creating staging dir {} failed: {e}", parent.display())
+			})?;
+		}
 
-		#[cfg(unix)]
-		mark_executable_unix(&staged).map_err(|e| {
-			format!("staging chmod {} failed: {e}", staged.display())
-		})?;
+		// Write the sidecar `<staged>.expected_hash` FIRST, then the
+		// staged bytes. The watchdog's inotify watcher trigger is
+		// `IN_CLOSE_WRITE` on the `<basename>.new` file; reading the
+		// sidecar is the first thing it does. Writing the sidecar
+		// before the bytes guarantees the sidecar exists by the time
+		// the watchdog wakes on the bytes-close event. Reverse order
+		// would race: bytes close → watchdog wakes → sidecar absent →
+		// returns SidecarMissing → no rotation (since the sidecar
+		// close-write event itself is filtered out as `NotDotNew`).
+		let sidecar = sidecar_path_for(&staged);
+		let hash_hex = hex_lower(&m.canonical_hash);
+		open_truncate_with_mode_unix(&sidecar, 0o644)
+			.and_then(|mut f| std::io::Write::write_all(&mut f, hash_hex.as_bytes()))
+			.map_err(|e| {
+				format!("sidecar hash write to {} failed: {e}", sidecar.display())
+			})?;
+
+		// Open + truncate + chmod-at-create via `OpenOptionsExt::mode`
+		// instead of `std::fs::write` + `set_permissions`. Cannae's
+		// seccomp filter KILL_PROCESSes a raw `chmod(path, mode)`
+		// syscall (only the fchmod-family is silent-shadowed); the
+		// path-form was the SIGSYS source observed in the 2026-05-29
+		// lab-demo failure. `OpenOptionsExt::mode` sets the mode in
+		// the `open(2)` syscall itself, which is allowed.
+		open_truncate_with_mode_unix(&staged, 0o755)
+			.and_then(|mut f| std::io::Write::write_all(&mut f, &bytes))
+			.map_err(|e| {
+				format!("staging write to {} failed: {e}", staged.display())
+			})?;
 
 		log::warn!(
 			target: "rostro-file-check",
-			"heal staged {} bytes at {} ({})",
+			"heal staged {} bytes at {} ({}); sidecar hash at {}",
 			bytes.len(),
 			staged.display(),
 			String::from_utf8_lossy(&m.path),
+			sidecar.display(),
 		);
 	}
 
@@ -307,27 +340,71 @@ fn attempt_multi_heal(
 	std::process::exit(EXIT_SWAP_AND_RESTART);
 }
 
-/// Build the `<file>.new` staging path for the supervisor.
-fn staged_path_for(file: &std::path::Path) -> PathBuf {
-	let mut staged = file.to_path_buf();
-	let stem = file.file_name().map(|n| n.to_owned()).unwrap_or_default();
-	let mut name = stem;
-	name.push(".new");
-	staged.set_file_name(name);
-	staged
+/// Build the staged-file path. When `canonical_staging_dir` is set, the
+/// staged file lives at `<staging_dir>/<basename>.new` (the writable
+/// location the watchdog inotifies on). When unset, falls back to the
+/// pre-piece-A behavior of `<original>.new` next to the canonical file
+/// — useful for non-sandboxed dev iteration; under Cannae the canonical
+/// dir is RO and this path is denied.
+fn staged_path_in(
+	canonical_staging_dir: Option<&std::path::Path>,
+	original: &std::path::Path,
+) -> PathBuf {
+	let basename = original
+		.file_name()
+		.map(|n| n.to_owned())
+		.unwrap_or_default();
+	let mut staged_name = basename;
+	staged_name.push(".new");
+	match canonical_staging_dir {
+		Some(dir) => dir.join(staged_name),
+		None => {
+			let mut staged = original.to_path_buf();
+			staged.set_file_name(staged_name);
+			staged
+		},
+	}
 }
 
+/// Sidecar hash file: `<staged>.expected_hash`. Watchdog reads this to
+/// know what hash the staged bytes are claimed to match.
+fn sidecar_path_for(staged: &std::path::Path) -> PathBuf {
+	let mut name = staged
+		.file_name()
+		.map(|n| n.to_owned())
+		.unwrap_or_default();
+	name.push(".expected_hash");
+	let mut sidecar = staged.to_path_buf();
+	sidecar.set_file_name(name);
+	sidecar
+}
+
+/// Open `path` for write (truncating any existing file), creating it with
+/// the requested unix mode in the `open(2)` syscall itself.
+///
+/// Cannae's seccomp filter KILL_PROCESSes a raw `chmod(path, mode)`
+/// syscall; the path-form chmod is NOT in the allowlist (only the
+/// fchmod-family is silent-shadowed). Setting the mode at open time
+/// avoids any chmod call, which is the only seccomp-clean way to
+/// produce a `0o755` file from inside the sandbox.
 #[cfg(unix)]
-fn mark_executable_unix(path: &std::path::Path) -> std::io::Result<()> {
-	use std::os::unix::fs::PermissionsExt;
-	let mut perms = std::fs::metadata(path)?.permissions();
-	// Match a typical release-binary mode (0o755): owner rwx,
-	// group/other rx. Non-executable canonical files (e.g., chain
-	// spec JSON) get the executable bit too, which is harmless —
-	// they just gain `x` they wouldn't have on a fresh install.
-	// Keeping a single chmod path avoids per-file metadata.
-	perms.set_mode(0o755);
-	std::fs::set_permissions(path, perms)
+fn open_truncate_with_mode_unix(path: &std::path::Path, mode: u32) -> std::io::Result<std::fs::File> {
+	use std::os::unix::fs::OpenOptionsExt;
+	std::fs::OpenOptions::new()
+		.write(true)
+		.create(true)
+		.truncate(true)
+		.mode(mode)
+		.open(path)
+}
+
+#[cfg(not(unix))]
+fn open_truncate_with_mode_unix(path: &std::path::Path, _mode: u32) -> std::io::Result<std::fs::File> {
+	std::fs::OpenOptions::new()
+		.write(true)
+		.create(true)
+		.truncate(true)
+		.open(path)
 }
 
 /// Format a per-file fail-stop message describing every mismatch and
@@ -391,32 +468,60 @@ mod tests {
 	use std::path::Path;
 
 	#[test]
-	fn staged_path_appends_dot_new() {
+	fn staged_path_no_staging_dir_appends_dot_new_adjacent() {
 		assert_eq!(
-			staged_path_for(Path::new("/opt/rostro/bin/gemini-node")),
+			staged_path_in(None, Path::new("/opt/rostro/bin/gemini-node")),
 			PathBuf::from("/opt/rostro/bin/gemini-node.new"),
 		);
 	}
 
 	#[test]
-	fn staged_path_preserves_extension_in_dot_new_form() {
-		// Windows-style `.exe` should still get `.new` appended
-		// (yielding `gemini-node.exe.new`), matching the supervisor's
-		// expectation.
+	fn staged_path_no_staging_dir_preserves_windows_extension() {
+		// Windows-style `.exe` still gets `.new` appended.
 		assert_eq!(
-			staged_path_for(Path::new(r"C:\Rostro\gemini-node.exe")),
+			staged_path_in(None, Path::new(r"C:\Rostro\gemini-node.exe")),
 			PathBuf::from(r"C:\Rostro\gemini-node.exe.new"),
 		);
 	}
 
 	#[test]
-	fn staged_path_works_for_non_binary_canonical_file() {
-		// Canonical fileset isn't just binaries — chain spec JSON,
-		// release manifests, etc. Staging path logic must work for
-		// any file shape.
+	fn staged_path_no_staging_dir_works_for_non_binary() {
 		assert_eq!(
-			staged_path_for(Path::new("/opt/rostro/share/chain-spec.json")),
+			staged_path_in(None, Path::new("/opt/rostro/share/chain-spec.json")),
 			PathBuf::from("/opt/rostro/share/chain-spec.json.new"),
+		);
+	}
+
+	#[test]
+	fn staged_path_with_staging_dir_flattens_into_dir() {
+		// When --canonical-staging-dir is set, the staged file lives in
+		// <staging_dir>/<basename>.new regardless of where the canonical
+		// file ultimately sits.
+		assert_eq!(
+			staged_path_in(
+				Some(Path::new("/opt/rostro/data/staging")),
+				Path::new("/opt/rostro/bin/gemini-node"),
+			),
+			PathBuf::from("/opt/rostro/data/staging/gemini-node.new"),
+		);
+	}
+
+	#[test]
+	fn staged_path_with_staging_dir_keeps_basename_with_extension() {
+		assert_eq!(
+			staged_path_in(
+				Some(Path::new("/opt/rostro/data/staging")),
+				Path::new("/opt/rostro/share/chain-spec.json"),
+			),
+			PathBuf::from("/opt/rostro/data/staging/chain-spec.json.new"),
+		);
+	}
+
+	#[test]
+	fn sidecar_path_appends_expected_hash() {
+		assert_eq!(
+			sidecar_path_for(Path::new("/opt/rostro/data/staging/gemini-node.new")),
+			PathBuf::from("/opt/rostro/data/staging/gemini-node.new.expected_hash"),
 		);
 	}
 

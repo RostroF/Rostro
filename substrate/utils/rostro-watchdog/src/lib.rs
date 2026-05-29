@@ -30,6 +30,7 @@ pub mod proto;
 pub mod server;
 pub mod sign_kind;
 pub mod signer;
+pub mod staging_watcher;
 pub mod supervisor;
 
 pub use frame::{Frame, FrameError, Op, FRAME_VERSION, MAX_FRAME_BODY_LEN};
@@ -39,4 +40,10 @@ pub use proto::{dispatch, ErrorCode};
 pub use server::{default_socket_path, Server, ServerConfig};
 pub use sign_kind::{SignKind, SignKindError, DOMAIN_PREFIX};
 pub use signer::{SignerError, WatchdogSigner, PUBKEY_LEN, SIGNATURE_LEN};
+pub use staging_watcher::{
+	blake2_256, hex_encode as hex_encode_hash, process_staged_file, read_sidecar_hash,
+	RotateOutcome,
+};
+#[cfg(target_os = "linux")]
+pub use staging_watcher::run_inotify_loop;
 pub use supervisor::spawn_supervisor;
