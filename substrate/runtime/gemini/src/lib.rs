@@ -1212,6 +1212,10 @@ impl_runtime_apis! {
 		fn canonical_root() -> [u8; 32] {
 			pallet_rostro_canonical_files::Pallet::<Runtime>::canonical_root()
 		}
+
+		fn release_pubkey() -> Option<[u8; 32]> {
+			pallet_rostro_canonical_files::Pallet::<Runtime>::release_pubkey()
+		}
 	}
 
 	// RNS storage API surface — used by the snorkel and any

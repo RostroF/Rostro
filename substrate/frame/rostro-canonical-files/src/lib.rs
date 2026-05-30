@@ -109,6 +109,23 @@ pub mod pallet {
 		OptionQuery,
 	>;
 
+	/// The current `rostro_release` ed25519 pubkey — the SRT-controlled
+	/// signing identity for Foundation release manifests. Watchdog
+	/// recovery (piece B.1) verifies the SRT-signed manifest on the
+	/// canonical-cache against a compile-time-baked copy of this
+	/// pubkey; the on-chain value is the **verification reference**
+	/// the watchdog reconciles its baked copy against periodically
+	/// (piece B.1-bis). Divergence between baked and on-chain is a
+	/// real signal — see [[feedback_trust_but_verify_baked_plus_onchain]].
+	///
+	/// `None` = pubkey not yet set (genesis without
+	/// `initial_release_pubkey`). Once set, rotation goes through
+	/// `set_release_pubkey` (SRT-gated). Stored bytes are the raw
+	/// 32-byte ed25519 public key, NOT an SSH-format-wrapped
+	/// representation.
+	#[pallet::storage]
+	pub type ReleasePubkey<T: Config> = StorageValue<_, [u8; 32], OptionQuery>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -118,6 +135,10 @@ pub mod pallet {
 		/// of that file is now operator-responsibility, not foundation-
 		/// verified).
 		FileRemoved { path: Vec<u8> },
+		/// The `rostro_release` ed25519 pubkey was set or rotated.
+		/// Watchdog reconciliation threads pick this up on their next
+		/// poll and compare against their compile-time-baked copy.
+		ReleasePubkeyUpdated { pubkey: [u8; 32] },
 	}
 
 	#[pallet::error]
@@ -149,6 +170,15 @@ pub mod pallet {
 		/// publishes signed releases. A non-empty seed is for testing
 		/// or for forks that bake their own canonical set in.
 		pub initial_files: Vec<(Vec<u8>, [u8; 32])>,
+		/// Initial `rostro_release` ed25519 pubkey to seed at genesis.
+		/// `None` = pubkey will be set post-genesis via SRT extrinsic.
+		/// `Some(pubkey)` = bakes the lab/release pubkey into genesis
+		/// state so the chain-side reconciliation reference is present
+		/// from block 0. The zero-pubkey `[0u8; 32]` is rejected at
+		/// build (same threat-model rationale as `register_file`'s
+		/// `ZeroHash` rejection — the all-zero ed25519 point isn't a
+		/// legitimate pubkey).
+		pub initial_release_pubkey: Option<[u8; 32]>,
 		#[serde(skip)]
 		pub _config: core::marker::PhantomData<T>,
 	}
@@ -189,6 +219,14 @@ pub mod pallet {
 					BoundedVec::try_from(path.clone())
 						.expect("path length already checked; qed");
 				CanonicalFiles::<T>::insert(&key, hash);
+			}
+
+			if let Some(pubkey) = self.initial_release_pubkey {
+				assert!(
+					pubkey != [0u8; 32],
+					"initial_release_pubkey must not be the all-zero sentinel"
+				);
+				ReleasePubkey::<T>::put(pubkey);
 			}
 		}
 	}
@@ -241,6 +279,33 @@ pub mod pallet {
 			Self::deposit_event(Event::FileRemoved { path });
 			Ok(())
 		}
+
+		/// Set or rotate the `rostro_release` ed25519 pubkey. SRT-gated.
+		///
+		/// Use case: Foundation rotates its release-signing key (routine
+		/// schedule, compromise response, or quorum change in the SRT
+		/// itself). Watchdog reconciliation threads pick up the new
+		/// value on their next poll and compare against their compile-
+		/// time-baked copy; divergence is a real signal — either the
+		/// node's binary is stale or the chain saw a key rotation the
+		/// node hasn't caught up to yet.
+		///
+		/// Rejects the all-zero sentinel for the same threat-model reason
+		/// `register_file` rejects all-zero hashes: an attacker-controlled
+		/// "set pubkey to zero" would brick recovery against any genuine
+		/// signed manifest going forward.
+		#[pallet::call_index(2)]
+		#[pallet::weight(Weight::from_parts(10_000, 0))]
+		pub fn set_release_pubkey(
+			origin: OriginFor<T>,
+			pubkey: [u8; 32],
+		) -> DispatchResult {
+			T::SecurityResponseTeamOrigin::ensure_origin(origin)?;
+			ensure!(pubkey != [0u8; 32], Error::<T>::ZeroHash);
+			ReleasePubkey::<T>::put(pubkey);
+			Self::deposit_event(Event::ReleasePubkeyUpdated { pubkey });
+			Ok(())
+		}
 	}
 
 	impl<T: Config> Pallet<T> {
@@ -260,6 +325,13 @@ pub mod pallet {
 			CanonicalFiles::<T>::iter()
 				.map(|(k, v)| (k.into_inner(), v))
 				.collect()
+		}
+
+		/// Read the current `rostro_release` ed25519 pubkey, or `None`
+		/// if not yet set. The watchdog's reconciliation thread polls
+		/// this and compares to its compile-time-baked copy.
+		pub fn release_pubkey() -> Option<[u8; 32]> {
+			ReleasePubkey::<T>::get()
 		}
 
 		/// Compute the canonical Merkle root over all registered
@@ -382,6 +454,15 @@ sp_api::decl_runtime_apis! {
 		/// against canonical root in O(1) before walking the
 		/// per-file diff.
 		fn canonical_root() -> [u8; 32];
+
+		/// The current `rostro_release` ed25519 pubkey, or `None` if
+		/// not yet set. Watchdog reconciliation (piece B.1-bis) calls
+		/// this via RPC to localhost gemini-node periodically and
+		/// compares the result against its compile-time-baked pubkey.
+		/// Divergence is the signal that the node's binary is stale,
+		/// the release pipeline was compromised, or a routine key
+		/// rotation happened.
+		fn release_pubkey() -> Option<[u8; 32]>;
 	}
 }
 
@@ -590,6 +671,7 @@ mod tests {
 		];
 		let genesis = crate::pallet::GenesisConfig::<Test> {
 			initial_files: initial.clone(),
+			initial_release_pubkey: None,
 			_config: core::marker::PhantomData,
 		};
 		let mut t = frame_system::GenesisConfig::<Test>::default()
@@ -612,6 +694,7 @@ mod tests {
 	fn genesis_panics_on_too_short_path() {
 		let genesis = crate::pallet::GenesisConfig::<Test> {
 			initial_files: alloc::vec![(b"ab".to_vec(), [0x01; 32])],
+			initial_release_pubkey: None,
 			_config: core::marker::PhantomData,
 		};
 		let mut t = frame_system::GenesisConfig::<Test>::default()
@@ -626,6 +709,7 @@ mod tests {
 	fn genesis_panics_on_zero_hash() {
 		let genesis = crate::pallet::GenesisConfig::<Test> {
 			initial_files: alloc::vec![(b"gemini-node".to_vec(), [0u8; 32])],
+			initial_release_pubkey: None,
 			_config: core::marker::PhantomData,
 		};
 		let mut t = frame_system::GenesisConfig::<Test>::default()
@@ -876,5 +960,124 @@ mod tests {
 		);
 		let node = crate::node_hash(&[0u8; 32], &bytes32);
 		assert_ne!(leaf_with_payload_that_looks_like_node, node);
+	}
+
+	// ─── ReleasePubkey (piece B.1-bis) ────────────────────────────────
+
+	#[test]
+	fn release_pubkey_defaults_to_none() {
+		new_test_ext().execute_with(|| {
+			assert_eq!(crate::pallet::Pallet::<Test>::release_pubkey(), None);
+		});
+	}
+
+	#[test]
+	fn set_release_pubkey_round_trips() {
+		new_test_ext().execute_with(|| {
+			let pubkey = [0x42u8; 32];
+			assert_ok!(CanonicalFiles::set_release_pubkey(
+				frame_system::RawOrigin::Root.into(),
+				pubkey,
+			));
+			assert_eq!(crate::pallet::Pallet::<Test>::release_pubkey(), Some(pubkey));
+		});
+	}
+
+	#[test]
+	fn set_release_pubkey_overwrites() {
+		new_test_ext().execute_with(|| {
+			assert_ok!(CanonicalFiles::set_release_pubkey(
+				frame_system::RawOrigin::Root.into(),
+				[0x01u8; 32],
+			));
+			assert_ok!(CanonicalFiles::set_release_pubkey(
+				frame_system::RawOrigin::Root.into(),
+				[0x02u8; 32],
+			));
+			assert_eq!(crate::pallet::Pallet::<Test>::release_pubkey(), Some([0x02u8; 32]));
+		});
+	}
+
+	#[test]
+	fn set_release_pubkey_rejects_zero() {
+		new_test_ext().execute_with(|| {
+			assert_noop!(
+				CanonicalFiles::set_release_pubkey(
+					frame_system::RawOrigin::Root.into(),
+					[0u8; 32],
+				),
+				Error::<Test>::ZeroHash,
+			);
+		});
+	}
+
+	#[test]
+	fn set_release_pubkey_requires_srt_origin() {
+		new_test_ext().execute_with(|| {
+			assert_noop!(
+				CanonicalFiles::set_release_pubkey(
+					frame_system::RawOrigin::Signed(1).into(),
+					[0xAB; 32],
+				),
+				sp_runtime::DispatchError::BadOrigin,
+			);
+		});
+	}
+
+	#[test]
+	fn genesis_seeds_release_pubkey_when_set() {
+		// The Test impl's `new_test_ext` doesn't yet wire
+		// initial_release_pubkey, so we exercise the build path
+		// directly: assemble a GenesisConfig with Some(pubkey) and
+		// invoke `BuildGenesisConfig::build`.
+		use crate::pallet::GenesisConfig;
+		use frame_support::traits::BuildGenesisConfig;
+		let mut ext = sp_io::TestExternalities::default();
+		ext.execute_with(|| {
+			let pubkey = [0xCD; 32];
+			let gc: GenesisConfig<Test> = GenesisConfig {
+				initial_files: alloc::vec![],
+				initial_release_pubkey: Some(pubkey),
+				_config: core::marker::PhantomData,
+			};
+			gc.build();
+			assert_eq!(crate::pallet::Pallet::<Test>::release_pubkey(), Some(pubkey));
+		});
+	}
+
+	#[test]
+	#[should_panic(expected = "initial_release_pubkey must not be the all-zero sentinel")]
+	fn genesis_rejects_zero_release_pubkey() {
+		use crate::pallet::GenesisConfig;
+		use frame_support::traits::BuildGenesisConfig;
+		let mut ext = sp_io::TestExternalities::default();
+		ext.execute_with(|| {
+			let gc: GenesisConfig<Test> = GenesisConfig {
+				initial_files: alloc::vec![],
+				initial_release_pubkey: Some([0u8; 32]),
+				_config: core::marker::PhantomData,
+			};
+			gc.build();
+		});
+	}
+
+	#[test]
+	fn release_pubkey_event_emitted_on_set() {
+		new_test_ext().execute_with(|| {
+			frame_system::Pallet::<Test>::set_block_number(1);
+			let pubkey = [0x99; 32];
+			assert_ok!(CanonicalFiles::set_release_pubkey(
+				frame_system::RawOrigin::Root.into(),
+				pubkey,
+			));
+			let events: alloc::vec::Vec<_> = frame_system::Pallet::<Test>::events()
+				.into_iter()
+				.filter_map(|r| match r.event {
+					RuntimeEvent::CanonicalFiles(e) => Some(e),
+					_ => None,
+				})
+				.collect();
+			assert!(events.iter().any(|e| matches!(e, Event::ReleasePubkeyUpdated { pubkey: p } if *p == pubkey)));
+		});
 	}
 }

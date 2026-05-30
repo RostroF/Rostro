@@ -179,6 +179,39 @@ fn read_initial_canonical_files() -> Vec<(Vec<u8>, [u8; 32])> {
 	vec![(b"gemini-node".to_vec(), bytes)]
 }
 
+/// Read the initial `rostro_release` ed25519 pubkey from the
+/// `ROSTRO_RELEASE_PUBKEY` env var (32-byte hex, 64 chars). Returns
+/// `None` if absent or malformed — genesis then ships with no
+/// release pubkey set and the SRT must call `set_release_pubkey`
+/// post-genesis. Set this var to the lab pubkey when freezing the
+/// chain spec via `gemini-node build-spec` so the chain-side
+/// reconciliation reference (piece B.1-bis) is present from block 0.
+///
+/// Same lab pattern as `ROSTRO_CANONICAL_GEMINI_NODE_HASH`: the deploy
+/// script computes the value from `~/rostro-testnet-lab/keys/rostro_release.pub`,
+/// exports it, and runs `build-spec --raw`. Production chain specs
+/// bake the mainnet pubkey here at release time.
+fn read_initial_release_pubkey() -> Option<[u8; 32]> {
+	let hex = std::env::var("ROSTRO_RELEASE_PUBKEY").ok()?;
+	let trimmed = hex.trim_start_matches("0x");
+	if trimmed.len() != 64 {
+		return None;
+	}
+	let mut bytes = [0u8; 32];
+	for (i, chunk) in trimmed.as_bytes().chunks(2).enumerate() {
+		let s = std::str::from_utf8(chunk).ok()?;
+		let b = u8::from_str_radix(s, 16).ok()?;
+		bytes[i] = b;
+	}
+	if bytes == [0u8; 32] {
+		// Reject the all-zero sentinel here too — the pallet's genesis
+		// builder will panic on it, and emitting it in chain-spec JSON
+		// would just make the panic land later.
+		return None;
+	}
+	Some(bytes)
+}
+
 /// Genesis storage patch.
 ///
 /// `pallet_sassafras::GenesisConfig` only carries authorities +
@@ -228,6 +261,7 @@ fn testnet_genesis(
 		// chain specs leave this unset; SRT publishes post-genesis.
 		"canonicalFiles": {
 			"initialFiles": read_initial_canonical_files(),
+			"initialReleasePubkey": read_initial_release_pubkey(),
 		},
 		// RNS reserved-list seed. SEED_RESERVED is the curated list
 		// from `pallet-rns-registrar/src/genesis_reserved.rs` —
