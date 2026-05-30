@@ -23,11 +23,31 @@
 //! `std::os::unix::net::UnixListener` accept loop with `SO_PEERCRED`-gated
 //! per-connection serving.
 
+/// Compile-time-baked `rostro_release` ed25519 pubkey (32 bytes).
+///
+/// Layer 0 of the trust model in [[feedback_trust_but_verify_baked_plus_onchain]] —
+/// the recovery path (piece B.1) uses this to verify the SRT-signed
+/// release manifest on the local canonical-cache. The on-chain
+/// `ReleasePubkey` (piece B.1-bis) is the verification reference
+/// the watchdog reconciles this baked copy against periodically.
+///
+/// Sourced at build time from `$ROSTRO_RELEASE_KEY_PATH` (defaults to
+/// the lab pubkey at `~/rostro-testnet-lab/keys/rostro_release.pub`).
+/// See `build.rs` for the SSH-pubkey-format → raw-32-bytes conversion.
+pub const ROSTRO_RELEASE_PUBKEY: &[u8; 32] = include_bytes!(concat!(
+	env!("OUT_DIR"),
+	"/rostro_release_pubkey.bin"
+));
+
 pub mod frame;
 pub mod heartbeat;
 pub mod proto;
 #[cfg(target_os = "linux")]
 pub mod server;
+pub mod reconciliation;
+pub mod recovery;
+pub mod recovery_state;
+pub mod signed_manifest;
 pub mod sign_kind;
 pub mod signer;
 pub mod staging_watcher;
