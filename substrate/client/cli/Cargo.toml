@@ -58,5 +58,4 @@ sp-tracing = { default-features = true, workspace = true }
 tempfile = { workspace = true }
 
 [features]
-default = ["rocksdb"]
-rocksdb = ["rc-client-db/rocksdb"]
+default = []

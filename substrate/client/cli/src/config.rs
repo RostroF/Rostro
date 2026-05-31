@@ -219,19 +219,20 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		Ok(self.database_params().and_then(|x| x.database()))
 	}
 
-	/// Get the database configuration object for the parameters provided
+	/// Get the database configuration object for the parameters provided.
+	///
+	/// `cache_size` is accepted for CLI/source-compat but is currently
+	/// unused: it was a RocksDB block-cache tunable; ParityDb sizes its
+	/// caches internally.
 	fn database_config(
 		&self,
 		base_path: &PathBuf,
-		cache_size: usize,
+		_cache_size: usize,
 		database: Database,
 	) -> Result<DatabaseSource> {
 		let role_dir = "full";
-		let rocksdb_path = base_path.join("db").join(role_dir);
 		let paritydb_path = base_path.join("paritydb").join(role_dir);
 		Ok(match database {
-			#[cfg(feature = "rocksdb")]
-			Database::RocksDb => DatabaseSource::RocksDb { path: rocksdb_path, cache_size },
 			Database::ParityDb => DatabaseSource::ParityDb { path: paritydb_path },
 			Database::ParityDbDeprecated => {
 				eprintln!(
@@ -240,7 +241,6 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 				);
 				DatabaseSource::ParityDb { path: paritydb_path }
 			},
-			Database::Auto => DatabaseSource::Auto { paritydb_path, rocksdb_path, cache_size },
 		})
 	}
 
@@ -497,13 +497,11 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		let net_config_dir = build_net_config_dir(&config_dir);
 		let client_id = C::client_id();
 		let database_cache_size = self.database_cache_size()?.unwrap_or(1024);
-		// Default to ParityDb regardless of whether the rocksdb feature is
-		// compiled in. Decided after the paritydb-vs-rocksdb torture-test
-		// evaluation (see docs/PARITYDB-EVALUATION.md): ParityDb survives
-		// post-fault file corruption at 86% vs RocksDb's 8%, drops the
-		// librocksdb-sys C++ submodule, and matches RocksDb on every other
-		// failure mode tested. RocksDb remains selectable via `--database
-		// rocksdb` when the feature is built in.
+		// ParityDb is the only on-disk backend; RocksDB and the `Auto`
+		// detect-existing variant were stripped after the torture-test
+		// evaluation (docs/PARITYDB-EVALUATION.md). Unwrap is fine for
+		// CLI default; explicit --database=paritydb-experimental still
+		// works as a deprecated alias.
 		let database = self.database()?.unwrap_or(Database::ParityDb);
 		let node_key = self.node_key(&net_config_dir)?;
 		let role = self.role(is_dev)?;

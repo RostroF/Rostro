@@ -67,7 +67,7 @@ impl<C: SubstrateCli> Runner<C> {
 	/// 2020-06-03 16:14:21 📋 Chain specification: Flaming Fir
 	/// 2020-06-03 16:14:21 🏷  Node name: jolly-rod-7462
 	/// 2020-06-03 16:14:21 👤 Role: FULL
-	/// 2020-06-03 16:14:21 💾 Database: RocksDb at /tmp/c/chains/flamingfir7/db
+	/// 2020-06-03 16:14:21 💾 Database: ParityDb at /tmp/c/chains/flamingfir7/paritydb
 	/// 2020-06-03 16:14:21 ⛓  Native runtime: node-251 (substrate-node-1.tx1.au10)
 	/// ```
 	fn print_node_infos(&self) {
