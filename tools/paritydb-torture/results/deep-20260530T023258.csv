@@ -1,0 +1,5 @@
+mode,backend,iter,fault_param,pre_fault_height,verify_result,recovery_s,best_after,mismatches
+deep-pl,paritydb,1,4500,24633,PASS,15,24681,0
+deep-pl,rocksdb,2,4500,25271,PASS,15,25302,0
+deep-oom,paritydb,3,4500,25569,PASS,12,25608,0
+deep-oom,rocksdb,4,4500,25040,PASS,13,25079,0

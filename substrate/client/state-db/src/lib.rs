@@ -543,25 +543,43 @@ impl<BlockHash: Hash, Key: Hash, D: MetaDb> StateDb<BlockHash, Key, D> {
 	) -> Result<(CommitSet<Key>, StateDb<BlockHash, Key, D>), Error<D::Error>> {
 		let stored_mode = fetch_stored_pruning_mode(&db)?;
 
-		let selected_mode = match (should_init, stored_mode, requested_mode) {
-			(true, stored_mode, requested_mode) => {
-				assert!(stored_mode.is_none(), "The storage has just been initialized. No meta-data is expected to be found in it.");
-				requested_mode.unwrap_or_default()
-			},
+		// Post-crash half-init recovery: should_init=false means the backend
+		// already had files on disk (so the caller picked "open existing"),
+		// but PRUNING_MODE is missing. That happens when the very first
+		// init commit — which writes PRUNING_MODE — didn't fsync before a
+		// crash, even though the backend's directory-creation side-effects
+		// did. PRUNING_MODE is always in the FIRST substrate commit, so
+		// its absence means no other substrate data committed either: the
+		// DB is empty and re-initialising it is safe. Without this branch,
+		// every fresh-DB-then-crash flow produces an unrecoverable node
+		// requiring manual wipe-and-resync.
+		let effective_init = should_init || stored_mode.is_none();
 
-			(false, None, _) => {
-				return Err(StateDbError::Metadata(
-					"An existing StateDb does not have PRUNING_MODE stored in its meta-data".into(),
-				)
-				.into())
+		let selected_mode = match (effective_init, stored_mode, requested_mode) {
+			(true, stored_mode, requested_mode) => {
+				if !should_init && stored_mode.is_none() {
+					log::warn!(
+						target: "state-db",
+						"StateDb meta is empty (no PRUNING_MODE) on a DB whose \
+						 directory exists — recovering as fresh init (post-crash \
+						 half-initialised state). requested={:?}",
+						requested_mode
+					);
+				} else {
+					assert!(stored_mode.is_none(), "The storage has just been initialized. No meta-data is expected to be found in it.");
+				}
+				requested_mode.unwrap_or_default()
 			},
 
 			(false, Some(stored), None) => stored,
 
 			(false, Some(stored), Some(requested)) => choose_pruning_mode(stored, requested)?,
+
+			// Unreachable: effective_init=false implies stored_mode.is_some().
+			(false, None, _) => unreachable!("effective_init covers the None case"),
 		};
 
-		let db_init_commit_set = if should_init {
+		let db_init_commit_set = if effective_init {
 			let mut cs: CommitSet<Key> = Default::default();
 
 			let key = to_meta_key(PRUNING_MODE, &());
@@ -952,5 +970,56 @@ mod tests {
 		] {
 			check_stored_and_requested_mode_compatibility(created, reopened, expected);
 		}
+	}
+
+	// Post-crash half-init recovery: when a backend's create-time side-effects
+	// (directory + empty files) reached disk but the substrate-level init
+	// commit that writes PRUNING_MODE did not, the caller's next open will
+	// pass should_init=false (because the DB dir exists) but stored_mode will
+	// be None. Without recovery this panics the node with "Invalid metadata"
+	// and requires manual wipe + resync — the failure mode observed in the
+	// paritydb-torture sweep (see docs/PARITYDB-EVALUATION.md). With recovery
+	// the open succeeds, the returned init commit set re-writes PRUNING_MODE,
+	// and the next open is a normal stored-mode read.
+	#[test]
+	fn half_init_recovery_succeeds_with_requested_mode() {
+		let mut db = make_db(&[]);
+		assert_eq!(db.meta_len(), 0);
+
+		let requested = PruningMode::blocks_pruning(256);
+		let (init_commit, state_db) =
+			StateDb::<H256, H256, _>::open(db.clone(), Some(requested.clone()), false, false)
+				.expect("recovery should succeed");
+
+		assert_eq!(state_db.pruning_mode(), requested, "recovered mode must match request");
+		assert!(
+			!init_commit.meta.inserted.is_empty(),
+			"recovery must write PRUNING_MODE in init commit set"
+		);
+
+		db.commit(&init_commit);
+		let (_, reopened) =
+			StateDb::<H256, H256, _>::open(db.clone(), Some(requested.clone()), false, false)
+				.expect("second open hits the normal stored-mode path");
+		assert_eq!(reopened.pruning_mode(), requested);
+	}
+
+	#[test]
+	fn half_init_recovery_defaults_when_no_mode_requested() {
+		let db = make_db(&[]);
+		let (init_commit, state_db) =
+			StateDb::<H256, H256, _>::open(db, None, false, false).expect("recovery succeeds");
+		assert_eq!(state_db.pruning_mode(), PruningMode::default());
+		assert!(!init_commit.meta.inserted.is_empty());
+	}
+
+	#[test]
+	fn fresh_init_still_writes_pruning_mode() {
+		// Sanity: the recovery branch must not regress the normal first-init flow.
+		let db = make_db(&[]);
+		let (init_commit, _) =
+			StateDb::<H256, H256, _>::open(db, Some(PruningMode::ArchiveAll), false, true)
+				.expect("fresh init succeeds");
+		assert!(!init_commit.meta.inserted.is_empty());
 	}
 }
