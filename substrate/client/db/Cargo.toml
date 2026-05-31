@@ -6,7 +6,7 @@ edition.workspace = true
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 homepage.workspace = true
 repository.workspace = true
-description = "Client backend that uses RocksDB database as storage."
+description = "Client backend that uses ParityDB as storage."
 readme = "README.md"
 
 [lints]
@@ -23,7 +23,6 @@ codec = { features = ["derive"], workspace = true, default-features = true }
 hash-db = { workspace = true, default-features = true }
 kvdb = { workspace = true }
 kvdb-memorydb = { workspace = true }
-kvdb-rocksdb = { optional = true, workspace = true }
 linked-hash-map = { workspace = true }
 log = { workspace = true, default-features = true }
 parity-db = { workspace = true }
@@ -44,9 +43,7 @@ sysinfo = { workspace = true }
 [dev-dependencies]
 array-bytes = { workspace = true, default-features = true }
 criterion = { workspace = true, default-features = true }
-kvdb-rocksdb = { workspace = true }
 rand = { workspace = true, default-features = true }
-sp-database = { default-features = true, features = ["rocksdb"], workspace = true }
 sp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 tempfile = { workspace = true }
@@ -57,5 +54,3 @@ test-helpers = []
 runtime-benchmarks = [
 	"sp-runtime/runtime-benchmarks",
 ]
-rocksdb = ["kvdb-rocksdb", "sp-database/rocksdb"]
-jemalloc-allocator = ["kvdb-rocksdb?/jemalloc"]

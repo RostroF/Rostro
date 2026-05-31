@@ -122,34 +122,3 @@ impl<D: KeyValueDB, H: Clone + AsRef<[u8]>> Database<H> for DbAdapter<D> {
 	}
 }
 
-/// RocksDB-specific adapter that implements `optimize_db` via `force_compact`.
-#[cfg(feature = "rocksdb")]
-pub struct RocksDbAdapter(kvdb_rocksdb::Database);
-
-#[cfg(feature = "rocksdb")]
-impl<H: Clone + AsRef<[u8]>> Database<H> for RocksDbAdapter {
-	fn commit(&self, transaction: Transaction<H>) -> error::Result<()> {
-		commit_impl(&self.0, transaction)
-	}
-
-	fn get(&self, col: ColumnId, key: &[u8]) -> Option<Vec<u8>> {
-		handle_err(self.0.get(col, key))
-	}
-
-	fn contains(&self, col: ColumnId, key: &[u8]) -> bool {
-		handle_err(self.0.has_key(col, key))
-	}
-
-	fn optimize_db_col(&self, col: ColumnId) -> error::Result<()> {
-		self.0.force_compact(col).map_err(|e| error::DatabaseError(Box::new(e)))
-	}
-}
-
-/// Wrap RocksDB database into a trait object with `optimize_db` support.
-#[cfg(feature = "rocksdb")]
-pub fn as_rocksdb_database<H>(db: kvdb_rocksdb::Database) -> std::sync::Arc<dyn Database<H>>
-where
-	H: Clone + AsRef<[u8]>,
-{
-	std::sync::Arc::new(RocksDbAdapter(db))
-}

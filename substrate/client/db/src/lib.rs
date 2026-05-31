@@ -37,8 +37,6 @@ mod parity_db;
 mod pinned_blocks_cache;
 mod record_stats_state;
 mod stats;
-#[cfg(any(feature = "rocksdb", test))]
-mod upgrade;
 mod utils;
 
 use linked_hash_map::LinkedHashMap;
@@ -364,28 +362,14 @@ impl BlocksPruning {
 	}
 }
 
-/// Where to find the database..
+/// Where to find the database.
+///
+/// RocksDB and the `Auto` discriminator were stripped after the
+/// paritydb-torture evaluation (see `docs/PARITYDB-EVALUATION.md`).
+/// ParityDb is the only on-disk backend; `Custom` remains for embedded
+/// / in-memory database use.
 #[derive(Debug, Clone)]
 pub enum DatabaseSource {
-	/// Check given path, and see if there is an existing database there. If it's either `RocksDb`
-	/// or `ParityDb`, use it. If there is none, create a new instance of `ParityDb`.
-	Auto {
-		/// Path to the paritydb database.
-		paritydb_path: PathBuf,
-		/// Path to the rocksdb database.
-		rocksdb_path: PathBuf,
-		/// Cache size in MiB. Used only by `RocksDb` variant of `DatabaseSource`.
-		cache_size: usize,
-	},
-	/// Load a RocksDB database from a given path. Recommended for most uses.
-	#[cfg(feature = "rocksdb")]
-	RocksDb {
-		/// Path to the database.
-		path: PathBuf,
-		/// Cache size in MiB.
-		cache_size: usize,
-	},
-
 	/// Load a ParityDb database from a given path.
 	ParityDb {
 		/// Path to the database.
@@ -406,13 +390,6 @@ impl DatabaseSource {
 	/// Return path for databases that are stored on disk.
 	pub fn path(&self) -> Option<&Path> {
 		match self {
-			// as per https://github.com/paritytech/substrate/pull/9500#discussion_r684312550
-			//
-			// IIUC this is needed for polkadot to create its own dbs, so until it can use parity db
-			// I would think rocksdb, but later parity-db.
-			DatabaseSource::Auto { paritydb_path, .. } => Some(paritydb_path),
-			#[cfg(feature = "rocksdb")]
-			DatabaseSource::RocksDb { path, .. } => Some(path),
 			DatabaseSource::ParityDb { path } => Some(path),
 			DatabaseSource::Custom { .. } => None,
 		}
@@ -421,15 +398,6 @@ impl DatabaseSource {
 	/// Set path for databases that are stored on disk.
 	pub fn set_path(&mut self, p: &Path) -> bool {
 		match self {
-			DatabaseSource::Auto { ref mut paritydb_path, .. } => {
-				*paritydb_path = p.into();
-				true
-			},
-			#[cfg(feature = "rocksdb")]
-			DatabaseSource::RocksDb { ref mut path, .. } => {
-				*path = p.into();
-				true
-			},
 			DatabaseSource::ParityDb { ref mut path } => {
 				*path = p.into();
 				true
@@ -442,9 +410,6 @@ impl DatabaseSource {
 impl std::fmt::Display for DatabaseSource {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let name = match self {
-			DatabaseSource::Auto { .. } => "Auto",
-			#[cfg(feature = "rocksdb")]
-			DatabaseSource::RocksDb { .. } => "RocksDb",
 			DatabaseSource::ParityDb { .. } => "ParityDb",
 			DatabaseSource::Custom { .. } => "Custom",
 		};
