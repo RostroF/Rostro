@@ -3719,6 +3719,15 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
 name = "fdlimit"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c4c9e43643f5a3be4ca5b67d26b98031ff9db6806c3440ae32e02e3ceac3f1b"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "fdlimit"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e182f7dbc2ef73d9ef67351c5fbbea084729c48362d3ce9dd44c28e32e277fe5"
@@ -4670,6 +4679,19 @@ dependencies = [
  "num-format",
  "pallet-staking",
  "sp-staking",
+]
+
+[[package]]
+name = "generator"
+version = "0.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cc16584ff22b460a382b7feec54b23d2908d858152e5739a120b949293bd74e"
+dependencies = [
+ "cc",
+ "libc",
+ "log",
+ "rustversion",
+ "windows 0.48.0",
 ]
 
 [[package]]
@@ -7264,12 +7286,25 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "loom"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff50ecb28bb86013e935fb6683ab1f6d3a20016f123c76fd4c27470076ac30f5"
+dependencies = [
+ "cfg-if",
+ "generator 0.7.5",
+ "scoped-tls",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+]
+
+[[package]]
+name = "loom"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "419e0dc8046cb947daa77eb95ae174acfbddb7673b4151f56d1eed8e93fbfaca"
 dependencies = [
  "cfg-if",
- "generator",
+ "generator 0.8.4",
  "scoped-tls",
  "tracing",
  "tracing-subscriber 0.3.19",
@@ -7645,7 +7680,7 @@ dependencies = [
  "crossbeam-channel",
  "crossbeam-epoch",
  "crossbeam-utils",
- "loom",
+ "loom 0.7.2",
  "parking_lot 0.12.3",
  "portable-atomic",
  "rustc_version 0.4.0",
@@ -10633,21 +10668,23 @@ dependencies = [
 [[package]]
 name = "parity-db"
 version = "0.4.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59e9ab494af9e6e813c72170f0d3c1de1500990d62c97cc05cc7576f91aa402f"
 dependencies = [
  "blake2 0.10.6",
  "crc32fast",
+ "env_logger 0.10.1",
+ "fdlimit 0.2.1",
  "fs2",
  "hex",
  "libc",
  "log",
+ "loom 0.5.6",
  "lz4",
  "memmap2 0.5.10",
  "parking_lot 0.12.3",
  "rand 0.8.5",
  "siphasher 0.3.11",
  "snap",
+ "tempfile",
 ]
 
 [[package]]
@@ -11927,7 +11964,7 @@ dependencies = [
  "bip39",
  "chrono",
  "clap",
- "fdlimit",
+ "fdlimit 0.3.0",
  "futures",
  "futures-timer",
  "itertools 0.11.0",
@@ -13046,7 +13083,7 @@ version = "2.0.0"
 dependencies = [
  "array-bytes 6.2.2",
  "async-channel 1.9.0",
- "fdlimit",
+ "fdlimit 0.3.0",
  "futures",
  "log",
  "parity-scale-codec",

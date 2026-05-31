@@ -730,7 +730,7 @@ pallet-uniques = { path = "substrate/frame/uniques", default-features = false }
 pallet-utility = { path = "substrate/frame/utility", default-features = false }
 pallet-verify-signature = { path = "substrate/frame/verify-signature", default-features = false }
 pallet-vesting = { path = "substrate/frame/vesting", default-features = false }
-parity-db = { version = "0.4.12" }
+parity-db = { path = "substrate/external/parity-db" }
 parity-wasm = { version = "0.45.0" }
 parking_lot = { version = "0.12.1", default-features = false }
 partial_sort = { version = "0.2.0" }
