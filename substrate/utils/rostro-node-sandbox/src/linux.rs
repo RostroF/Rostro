@@ -261,14 +261,11 @@ const BASELINE_RO_PATHS: &[&str] = &[
 	"/proc/uptime",
 	"/proc/stat",
 	"/sys/devices/system/cpu",
-	// Phase 5 second-pass (2026-05-23): RocksDB probes the underlying
-	// disk's logical block size to optimize I/O, reading
-	// /sys/devices/virtual/block/<dev>/queue/logical_block_size or
-	// /sys/block/<dev>/queue/logical_block_size. We allow both parent
-	// trees so the per-device subpath is reachable regardless of
-	// whether the data dir lives on a physical, virtual, or DM device.
-	"/sys/devices/virtual/block",
-	"/sys/block",
+	// Note: `/sys/devices/virtual/block` + `/sys/block` were previously
+	// allowed so RocksDB could probe disk logical-block-size for I/O
+	// alignment. ParityDB (now the only backend post-rocksdb-strip,
+	// af6cb7498c) does no such probe — grep -rn "/sys/block" against
+	// substrate/external/parity-db/src/ returns zero. Surface shrunk.
 	// DNS resolution for libp2p bootnodes + telemetry endpoints.
 	"/etc/resolv.conf",
 	"/etc/hosts",
@@ -962,26 +959,30 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	// actual path policy so seccomp-allowing these is safe.
 	libc::SYS_access,
 	libc::SYS_readlink,
-	// Sync / flush — RocksDB needs these for durability.
+	// Sync / flush — ParityDB sync_data/sync_all on WAL log<N> files
+	// (substrate/external/parity-db/src/log.rs:809, 847) and mmap'd
+	// index/table files via msync. fdatasync vs fsync depending on
+	// whether metadata also needs flushing.
 	libc::SYS_fdatasync,
 	libc::SYS_fsync,
-	libc::SYS_sync_file_range,
-	// F08 fix (2026-05-24): RocksDB calls posix_fadvise() for compaction
-	// and WAL I/O hints. Without this on the allowlist the node was in a
-	// continuous SIGSYS crash-restart loop on debian-01 the first time
-	// compaction fired (red-team observation Phase 5 second-pass). Benign
-	// advisory syscall — no security implications.
+	// ParityDB calls posix_fadvise(_, _, _, POSIX_FADV_RANDOM) on every
+	// table-file open (substrate/external/parity-db/src/file.rs:16) to
+	// disable kernel read-ahead on the value-store mmap regions.
+	// Benign advisory syscall.
+	//
+	// History: previously F08-attributed to RocksDB compaction/WAL
+	// hints; ParityDB's usage is narrower (per-file once at open) but
+	// the syscall stays for the same fundamental reason — advisory hint
+	// to the kernel page cache, no security implications.
 	libc::SYS_fadvise64,
-	// Lab-bring-up gap (2026-05-24): RocksDB calls readahead() for
-	// sequential-read prefetching on the WAL replay + sequential SST
-	// scan paths. ubuntu-01 (kernel 6.8) hit it 10x in 18min of
-	// sustained operation under --chain=local (debian 6.12 + fedora
-	// 6.19 didn't). Cross-distro variance: glibc 2.39's readahead
-	// wrapper triggers the syscall directly where 2.41's may take a
-	// different path. Benign advisory like fadvise64. Cross-distro
-	// memory note `[[codebase_inventory]]` ("identical 63-syscall set")
-	// was init+idle only and overstated cross-distro consistency.
-	libc::SYS_readahead,
+	// SYS_sync_file_range + SYS_readahead removed alongside the rocksdb
+	// strip (af6cb7498c). Both were RocksDB-C++-only:
+	//   - sync_file_range: io_posix.cc:185, 1562, 1565 (background sync
+	//     of WAL ranges during write batches)
+	//   - readahead: io_posix.cc:833 (sequential SST scan + WAL replay
+	//     prefetch)
+	// ParityDB has zero callers of either. Surface shrinks with the
+	// backend swap — defense-in-depth.
 	// F-MEMFD closure (2026-05-25): SYS_memfd_create is DENIED by
 	// absence. It was previously allowed (commit 03d68cf919, Pending #7
 	// cascade) because polkavm's JIT generic-sandbox path used
@@ -1056,6 +1057,14 @@ const PLAIN_ALLOWED_SYSCALLS: &[i64] = &[
 	libc::SYS_fchown,
 	libc::SYS_fchownat,
 	libc::SYS_fcntl,
+	// ParityDB locks its <base>/paritydb/full/lock file via
+	// fs2::FileExt::try_lock_exclusive (substrate/external/parity-db/
+	// src/db.rs:194-200), which on Linux invokes flock(LOCK_EX|LOCK_NB).
+	// Without this, DbInner::open returns Locked → the node SIGKILLs
+	// on first DB open under KILL-mode seccomp (default). RocksDB used
+	// fcntl(F_SETLK, F_WRLCK) on its LOCK file instead, which is why
+	// SYS_fcntl above covered the gap pre-strip.
+	libc::SYS_flock,
 	// Pipes.
 	libc::SYS_pipe2,
 	// Splice/tee/copy — niche but used by some tokio paths.
@@ -2546,6 +2555,38 @@ mod tests {
 			assert!(
 				!PLAIN_ALLOWED_SYSCALLS.contains(sys),
 				"dangerous syscall {sys} must not be on the allowlist",
+			);
+		}
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn flock_present_in_plain_allowlist_for_paritydb_lock() {
+		// ParityDB locks <base>/paritydb/full/lock via fs2::FileExt::try_lock_exclusive
+		// (substrate/external/parity-db/src/db.rs:194-200), which on Linux invokes
+		// flock(LOCK_EX|LOCK_NB). Without this, gemini-node SIGKILLs on first DB
+		// open under the default KILL-mode seccomp. RocksDB used fcntl(F_SETLK,
+		// F_WRLCK) instead — that's why this gap didn't surface pre-strip.
+		assert!(
+			PLAIN_ALLOWED_SYSCALLS.contains(&libc::SYS_flock),
+			"SYS_flock must be on the allowlist — ParityDB lock file needs it",
+		);
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	#[test]
+	fn rocksdb_only_syscalls_not_in_plain_allowlist() {
+		// Post-rocksdb-strip (af6cb7498c) these were dead permission. RocksDB's
+		// C++ env_posix layer called them; ParityDB doesn't. Surface shrinks
+		// with the backend swap.
+		let rocksdb_only = &[
+			libc::SYS_sync_file_range, // io_posix.cc:185, 1562, 1565
+			libc::SYS_readahead,       // io_posix.cc:833
+		];
+		for sys in rocksdb_only {
+			assert!(
+				!PLAIN_ALLOWED_SYSCALLS.contains(sys),
+				"RocksDB-only syscall {sys} must not be on the allowlist post-strip",
 			);
 		}
 	}
