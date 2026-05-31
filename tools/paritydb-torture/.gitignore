@@ -1,0 +1,19 @@
+# Binary block corpora — regenerate with extract-canonical-hashes*.sh + the
+# snapshot+export ceremony documented in the README. Too large for the repo.
+fixtures/corpus-*.scale
+
+# Per-iteration logs from the sweep runs — useful while debugging but the
+# canonical results live in the per-sweep CSVs which we DO commit.
+results/logs/
+
+# Forensic data-dir.tar.gz + gdb/strace captures from FAIL_REOPEN cases.
+# 30 MB each per hang, accumulates fast. Regenerable from a re-run if needed.
+results/hangs/
+
+# Per-sweep stdout logs (driver narration). Same info is in the CSV.
+results/*-stdout.log
+results/sweep-stdout.log
+results/chain-followups-stdout*.log
+
+# PID files written by run-sweep / chain-followups.
+results/*.pid

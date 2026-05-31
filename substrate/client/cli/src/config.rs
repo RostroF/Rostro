@@ -497,16 +497,14 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		let net_config_dir = build_net_config_dir(&config_dir);
 		let client_id = C::client_id();
 		let database_cache_size = self.database_cache_size()?.unwrap_or(1024);
-		let database = self.database()?.unwrap_or(
-			#[cfg(feature = "rocksdb")]
-			{
-				Database::RocksDb
-			},
-			#[cfg(not(feature = "rocksdb"))]
-			{
-				Database::ParityDb
-			},
-		);
+		// Default to ParityDb regardless of whether the rocksdb feature is
+		// compiled in. Decided after the paritydb-vs-rocksdb torture-test
+		// evaluation (see docs/PARITYDB-EVALUATION.md): ParityDb survives
+		// post-fault file corruption at 86% vs RocksDb's 8%, drops the
+		// librocksdb-sys C++ submodule, and matches RocksDb on every other
+		// failure mode tested. RocksDb remains selectable via `--database
+		// rocksdb` when the feature is built in.
+		let database = self.database()?.unwrap_or(Database::ParityDb);
 		let node_key = self.node_key(&net_config_dir)?;
 		let role = self.role(is_dev)?;
 		let max_runtime_instances = self.max_runtime_instances()?.unwrap_or(8);
