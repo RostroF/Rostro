@@ -95,10 +95,12 @@ pub use sp_runtime::{Perbill, Permill};
 // ─── Type aliases ───────────────────────────────────────────────────────────
 
 // Multi-scheme signature primitive — see `rostro-multi-key` crate docs.
-// Sr25519 + Ed25519 + Ecdsa with Option-C AccountId derivation:
-// Ed25519 source-matches Solana/Aptos/Sui/Cosmos (raw pubkey),
-// Ecdsa source-matches Ethereum (last-20 of keccak256(uncompressed)),
-// Sr25519 uses tagged blake2_256(0x01 || pubkey) for namespace separation.
+// Sr25519 + Ed25519 + Ecdsa, all raw-pubkey-as-address (variant order +
+// wire format mirror substrate's MultiSignature):
+// Sr25519 raw-pubkey — byte-identical to Polkadot, so a DOT holder's
+//   account is unchanged on Rostro (modulo SS58 prefix),
+// Ed25519 source-matches Solana/Aptos/Sui/Cosmos/Ledger (raw pubkey),
+// Ecdsa source-matches Ethereum (last-20 of keccak256(uncompressed)).
 pub type Signature = RostroSignature;
 pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 pub type Nonce = u32;
