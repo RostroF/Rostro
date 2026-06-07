@@ -461,7 +461,7 @@ chacha20poly1305 = { version = "0.10.1", default-features = false }
 chain-spec-builder = { path = "substrate/bin/utils/chain-spec-builder", default-features = false, package = "staging-chain-spec-builder" }
 chrono = { version = "0.4.31" }
 cid = { version = "0.11.1" }
-clap = { version = "4.5.13" }
+clap = { version = "4.5.60" }
 clap_complete = { version = "4.5.13" }
 cmd_lib = { version = "1.9.5" }
 coarsetime = { version = "0.1.22" }
@@ -591,7 +591,7 @@ linked_hash_set = { version = "0.1.4" }
 linregress = { version = "0.5.1" }
 lite-json = { version = "0.2.0", default-features = false }
 litep2p = { version = "0.13.3", features = ["rsa", "websocket"] }
-log = { version = "0.4.22", default-features = false }
+log = { version = "0.4.32", default-features = false }
 macro_magic = { version = "0.5.1" }
 maplit = { version = "1.0.2" }
 memmap2 = { version = "0.9.3" }
@@ -794,7 +794,7 @@ pyroscope = { version = "0.5.8" }
 pyroscope_pprofrs = { version = "0.2.8" }
 quick_cache = { version = "0.3" }
 quickcheck = { version = "1.0.3", default-features = false }
-quote = { version = "1.0.37" }
+quote = { version = "1.0.45" }
 rand = { version = "0.8.5", default-features = false }
 rand_chacha = { version = "0.3.1", default-features = false }
 rand_core = { version = "0.6.2" }
@@ -890,8 +890,8 @@ secp256k1 = { version = "0.28.0", default-features = false }
 secrecy = { version = "0.8.0", default-features = false }
 serde = { version = "1.0.214", default-features = false }
 serde_derive = { version = "1.0.117" }
-serde_json = { version = "1.0.132", default-features = false }
-serde_with = { version = "3.12.0", default-features = false, features = [
+serde_json = { version = "1.0.150", default-features = false }
+serde_with = { version = "3.21.0", default-features = false, features = [
 	"hex",
 	"macros",
 ] }
