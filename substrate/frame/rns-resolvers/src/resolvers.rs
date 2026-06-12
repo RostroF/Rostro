@@ -132,7 +132,7 @@ pub mod pallet {
         /// for top-level names.
         InvalidName,
         /// The record type is not in the set of user-settable types.
-        /// Only declared PNS attribute types are accepted.
+        /// Only declared RNS attribute types are accepted.
         InvalidRecordType,
     }
 

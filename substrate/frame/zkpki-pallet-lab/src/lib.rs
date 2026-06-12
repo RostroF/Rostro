@@ -43,7 +43,7 @@ pub use pallet::*;
 // x86_64-unknown-linux-gnu, so linking the test binary fails with
 // `undefined symbol: __rust_probestack`. The Substrate runtime build
 // path (wasm32-unknown-unknown) doesn't see wasmer at all, so this
-// workaround has zero effect on the eventual pns-node deployment.
+// workaround has zero effect on the eventual Rostro deployment.
 //
 // Stub is empty — safe because `__rust_probestack` is only called when
 // a Rust stack frame exceeds PAGE_SIZE (4KB), and our test paths stay

@@ -510,8 +510,8 @@ impl pallet_rns_registrar::traits::IsRegistrarOpen for PnsIsOpen {
 /// updates. The registrar/marketplace mint or transfer a name; we
 /// echo the new owner into the resolvers' SS58 record so DNS-style
 /// lookups always reflect the current owner.
-pub struct PnsSs58Updater;
-impl pallet_rns_registrar::traits::Ss58Updater for PnsSs58Updater {
+pub struct RnsSs58Updater;
+impl pallet_rns_registrar::traits::Ss58Updater for RnsSs58Updater {
 	type AccountId = AccountId;
 	fn update_ss58(
 		node: rns_types::DomainHash,
@@ -591,7 +591,7 @@ impl pallet_rns_registrar::registry::Config for Runtime {
 	type WeightInfo = ();
 	type Registrar = pallet_rns_registrar::registrar::Pallet<Runtime>;
 	type ManagerOrigin = EnsureRootAsAccountId;
-	type Ss58Updater = PnsSs58Updater;
+	type Ss58Updater = RnsSs58Updater;
 	type RecordCleaner = PnsRecordCleaner;
 	type OriginRecorder = PnsOriginRecorder;
 }
@@ -619,7 +619,7 @@ impl pallet_rns_registrar::registrar::Config for Runtime {
 	type BlockAuthor = PnsBlockAuthor;
 	type IsOpen = PnsIsOpen;
 	type Official = pallet_rns_registrar::registry::Pallet<Runtime>;
-	type Ss58Updater = PnsSs58Updater;
+	type Ss58Updater = RnsSs58Updater;
 	type OriginRecorder = PnsOriginRecorder;
 	type RecordCleaner = PnsRecordCleaner;
 }
@@ -640,7 +640,7 @@ impl pallet_rns_marketplace::Config for Runtime {
 	type Moment = u64;
 	type NowProvider = Timestamp;
 	type NameRegistry = pallet_rns_registrar::registrar::Pallet<Runtime>;
-	type Ss58Updater = PnsSs58Updater;
+	type Ss58Updater = RnsSs58Updater;
 	type RecordCleaner = PnsRecordCleaner;
 	type OriginRecorder = PnsOriginRecorder;
 	type BaseNode = RnsBaseNode;

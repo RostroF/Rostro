@@ -7,7 +7,7 @@
 //! ## Introduction
 //!
 //! Most of the methods of this module are abstracted to higher-level
-//! domain name distribution calls (pns-registrar).
+//! domain name distribution calls (rns-registrar).
 //! But there are still some methods for domain authority management.
 //!
 //! ### Module functions
@@ -97,6 +97,13 @@ pub mod pallet {
     pub struct GenesisConfig<T: Config> {
         pub origin: Vec<(DomainHash, DomainTracing)>,
         pub official: Option<T::AccountId>,
+        /// When set together with `official`, genesis fully initializes the
+        /// registry: sets the official, creates the root NFT class, and mints
+        /// the base-node (TLD root) to the official — i.e. runs
+        /// [`crate::migration::Initialize::initial_registry`] at genesis.
+        /// Without it the registry has a reserved list but no minted root, so
+        /// `register` fails with `NotExist` for the base node.
+        pub base_node: Option<DomainHash>,
     }
 
     impl<T: Config> Default for GenesisConfig<T> {
@@ -104,6 +111,7 @@ pub mod pallet {
             GenesisConfig {
                 origin: Vec::with_capacity(0),
                 official: None,
+                base_node: None,
             }
         }
     }
@@ -114,8 +122,19 @@ pub mod pallet {
             for (node, origin) in self.origin.iter() {
                 RuntimeOrigin::<T>::insert(node, origin);
             }
-            if let Some(official) = &self.official {
-                Official::<T>::put(official);
+            match (&self.official, self.base_node) {
+                // Full registry init: official + root NFT class + base-node mint.
+                (Some(official), Some(base_node)) => {
+                    crate::migration::Initialize::<T>::initial_registry(
+                        official.clone(),
+                        base_node,
+                    );
+                },
+                // Back-compat: official only (root minted elsewhere/post-genesis).
+                (Some(official), None) => {
+                    Official::<T>::put(official);
+                },
+                _ => {},
             }
         }
     }
@@ -159,7 +178,7 @@ pub mod pallet {
         SubnodeNotClear,
         /// You may be burning a root node or an unknown node?
         BanBurnBaseNode,
-        /// Pns official account is not initialized, please feedback to the official.
+        /// The RNS official account is not initialized.
         OfficialNotInitiated,
         /// The name string you provided is invalid (illegal characters or wrong length).
         /// Use "sub.domain" for subdomains or "domain" for top-level names.
@@ -681,7 +700,7 @@ impl<T: pallet::Config> crate::traits::Registry for pallet::Pallet<T> {
         capacity: u32,
     ) -> DispatchResult {
         use sp_runtime::traits::Zero;
-        // Depth check: parent must be a root domain (.dot name), not a subname.
+        // Depth check: parent must be a root domain (.rst name), not a subname.
         match pallet::RuntimeOrigin::<T>::get(parent) {
             Some(rns_types::DomainTracing::Root) => {}
             _ => return Err(pallet::Error::<T>::SubnameDepthExceeded.into()),
@@ -746,7 +765,7 @@ impl<T: pallet::Config> crate::traits::Registry for pallet::Pallet<T> {
         // `nft::Pallet::tokens(0, node)`) requires an NFT entry; without this
         // the acceptor holds a subname record but cannot call `set_record` /
         // `set_text` etc. — the feature was unreachable before this fix. NFTs
-        // remain the canonical ownership token everywhere in PNS.
+        // remain the canonical ownership token everywhere in RNS.
         use sp_runtime::traits::Zero;
         let class_id = T::ClassId::zero();
         crate::nft::Pallet::<T>::mint(
@@ -881,7 +900,7 @@ mod benchmarks {
         let new_official: T::AccountId = whitelisted_caller();
         let basenode = <T as pallet::Config>::Registrar::basenode();
         // Precondition sanity: if genesis hasn't seeded Official (e.g. a
-        // runtime without PNS dev genesis), install the current owner
+        // runtime without RNS dev genesis), install the current owner
         // from NFT state so the transfer branch still executes.
         if pallet::Official::<T>::get().is_none() {
             use sp_runtime::traits::Zero;

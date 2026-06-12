@@ -247,7 +247,7 @@ fn testnet_genesis(
 				.collect::<Vec<_>>(),
 		},
 		"sudo": {
-			"key": Some(root_key),
+			"key": Some(root_key.clone()),
 		},
 		// Phase 7a smoke / dev convenience: empty initial canonical-files
 		// set BY DEFAULT. The verifier finds no entry for "gemini-node",
@@ -275,6 +275,17 @@ fn testnet_genesis(
 				.iter()
 				.map(|l| l.to_vec())
 				.collect::<Vec<Vec<u8>>>(),
+		},
+		// RNS registry initialization. Without this the registry has a
+		// reserved list but no `Official` and no minted TLD root, so
+		// `register` fails (OfficialNotInitiated → NotExist for the base
+		// node). Providing `official` + `baseNode` runs `initial_registry`
+		// at genesis: sets the official, creates the root NFT class, and
+		// mints the base node to the official. The official is the chain
+		// root/SRT key.
+		"rnsRegistry": {
+			"official": Some(root_key),
+			"baseNode": Some(rns_types::RST_BASENODE),
 		},
 	})
 }

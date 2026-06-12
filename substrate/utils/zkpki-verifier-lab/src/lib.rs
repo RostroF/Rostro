@@ -1,7 +1,7 @@
 //! zkpki-verifier-lab — Stage 3 research for the on-chain Groth16
 //! verifier of the mime_wrap circuit.
 //!
-//! Standalone crate, not yet integrated into pns-node or pki. Goal:
+//! Standalone crate, not yet integrated into the Rostro node or pki. Goal:
 //! measure Groth16 verification cost on reference hardware for the
 //! 94k-constraint / 600-public-input mime_wrap circuit, extrapolate
 //! to a Substrate weight budget, and validate the API shape before

@@ -53,6 +53,11 @@ rustc-ice-*
 # Per-node base-paths populated by scripts/run-chat-trio.sh and
 # scripts/chat-scenarios/02-cross-node-distribution.sh.
 /.chat-trio/
+# Per-node base-paths populated by scripts/run-chat-local.sh,
+# scripts/run-chat-lan.sh, and the R1/R2 mixed-topology runs.
+/.chat-local/
+/.chat-r1/
+/.r2/
 
 # Whitepaper + handoff docs + working notes live in the repo for editing
 # convenience but are not part of the chain source. Root-anchored so the

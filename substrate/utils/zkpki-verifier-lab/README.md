@@ -3,7 +3,7 @@
 Stage 3 research environment for the on-chain Groth16 verifier of the
 mime-wrap circuit.
 
-Standalone crate, not integrated into `pns-node` or `pki`. Built from
+Standalone crate, not integrated into the Rostro node or `pki`. Built from
 the same artifacts produced by `zkpki-circuits/` (the Stage 1 circuit
 lab). The symlinks in `fixtures/` point to that sibling directory —
 if its build dir moves, update the symlinks.

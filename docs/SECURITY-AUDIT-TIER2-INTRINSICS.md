@@ -391,3 +391,5 @@ In the **vm-research tree** (this repo):
 
 In the **main Rostro tree** (separate audit pass, not vm-research's scope):
 - A12 pallet layer — small-order Ed25519 pubkey rejection at `rostro-multi-key` (Ed25519 signer construction), `pallet-rostro-personhood` (`bound_account` ingest), and `~/Polkadot/pns-pallets/` (RNS owner-key registration). VM-layer ZIP-215 verify is deterministic but accepts small-order pks by design; identity-binding pallets are where rejection must live.
+
+Linked: [[rostrovm_h1_tier2_outcome]], [[rostrovm_phase1_outcome_hashing_intrinsics_2026_05_15]], [[rostrovm_phase2_outcome_stark_intrinsics_2026_05_15]], [[rostrovm_phase3_outcome_precompiles_2026_05_15]], [[crypto_stack_v1]], [[audit_a8_timing_followup]], [[feedback_adversarial_validation_over_tests]], [[feedback_htc_uses_poseidon_not_sha]], [[btow_chain_side_progress]], [[pop_architecture_stack]].
