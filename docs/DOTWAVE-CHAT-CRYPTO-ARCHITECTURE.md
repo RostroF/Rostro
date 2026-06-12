@@ -210,11 +210,40 @@ panic-wipe.
 - **GATE:** entry relay can't identify sender; LAN observer can't link A↔B; seized
   device discloses nothing; residual traffic-analysis risk stated in-app.
 
-### PHASE 5 — Forward secrecy (Double Ratchet)
-**Build:** DR over the transport (reorder buffer + bounded skipped-keys for
-TTL-gaps, X3DH bootstrap); DR session state encrypted-at-rest under the hardware key.
-- **GATE:** 1:1 forward-secret + post-compromise-secure; survives out-of-order,
-  TTL-gap, and app restart.
+### PHASE 5 — Forward secrecy (Double Ratchet)  ◀ **✅ GATE MET (2026-06-12, dev-box)**
+**Built (out of order vs Phase 4 — its decisions were locked and it's pure
+software; Phase 4's onion-vs-cert-admission design thread is still open):**
+- `rostro-chat-dr` upgraded to FULL Signal semantics: `prev_chain_len` (PN) in
+  the header, bounded skipped-message keys (MAX_SKIP 64 / store 512,
+  oldest-evict), replay rejection, **commit-on-success decrypt** (a garbled
+  message cannot poison the ratchet), session persistence
+  (`to_state_bytes`/`from_state_bytes` — caller stores ENCRYPTED; on hardware
+  under the silicon content key). 36 crate tests.
+- **Full X3DH** (DECISION 2 as locked): `x3dh_initiate`/`x3dh_respond`
+  (IK/SPK/EK/OPK, Signal KDF layout), identity-signed SPK + OPKs.
+- **Prekey supply (the "mine to default" sub-decision, settled):** SPK lives
+  in the RNS chat-identity record (`spk_x25519` + `spk_signature` fields,
+  REQUIRED at publish — publish now takes the identity SEED); OPK batches ride
+  the EXISTING relay store as `Plain` payloads sealed to a publicly-derivable
+  mailbox keypair (`blake2(identity_pub ‖ "rostro/chat/otpk-address/v1")`) —
+  zero node changes. One-time semantics are BEST-EFFORT (no consume-on-fetch);
+  collision/exhaustion degrades to SPK-only X3DH, documented in-crate.
+- **Layering (as recorded in Phase 3):** `ContentSealed(WireMessage(payload))`
+  — ratchet first, silicon-seal second. The sealed payload is now an enum:
+  `Ratcheted{x3dh?, wire}` for ALL user 1:1 (no plaintext-inner path), `Plain`
+  for one-way payloads (prekey bundles now; System messages later). Reorder +
+  DR-feed happen at read time, post-biometric — the bounded skip handles it.
+- dotwave: `chat_send` takes/returns DR session state (+ optional X3dhInit on
+  first message); `chat_read_content` bootstraps the responder from the carried
+  init + stored OPK secrets; `chat_dr.rs` owns prekey gen/publish/fetch +
+  initiation. Session state strings are the persistence unit — the app stores
+  them encrypted.
+- **GATE (met on the live fabric + crate):** forward-secret from message one
+  (OPK-bound X3DH e2e); post-compromise-secure (DH ratchet across a 4-leg
+  thread); survives out-of-order, TTL-gap, replay (crate tests incl.
+  old-chain stragglers); survives app restart (every fabric leg ran from
+  persisted state strings only). Hardware at-rest binding of session state
+  rides the Phase-3 silicon items.
 
 ### PHASE 6 — Groups (MLS)
 **Build:** persistent MLS storage (replace `MemoryStorage`); admin-committer
