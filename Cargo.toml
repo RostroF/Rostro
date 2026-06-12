@@ -297,6 +297,7 @@ members = [
 	"substrate/utils/merkle-mountain-range",
 	"substrate/utils/rns-ddns",
 	"substrate/utils/rostro-canonical-fetch",
+	"substrate/utils/rostro-chat-content-seal",
 	"substrate/utils/rostro-chat-dr",
 	"substrate/utils/rostro-chat-ephemeral-store",
 	"substrate/utils/rostro-chat-mls",

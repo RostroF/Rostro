@@ -173,13 +173,32 @@ hardware, same digest + wire format).
 in the vault's node-spinup doc; the dev-box quirks (one node per harness-tracked
 background task, `dangerouslyDisableSandbox` for the RISC-V JIT) are session-local.
 
-### PHASE 3 — Hardware-bound content  ◀ **v1.0 ships here**
-**Build:** inner content sealed to the recipient's silicon key (StrongBox P-256 /
-TPM P-384); encrypted-at-rest; biometric-gated in-silicon decrypt; key
-non-extractable. Content key published in the RNS record.
-- **GATE:** reassembled inner content encrypted at rest; decrypt only via
-  biometric→silicon; key proven non-extractable; cross-platform (P-256 ↔ P-384)
-  message decrypts.
+### PHASE 3 — Hardware-bound content  ◀ **v1.0 ships here. CRYPTO + PIPELINE ✅ (2026-06-11); silicon items await lab hardware**
+**Built (dev-box, software content keys behind the silicon seam):**
+- New crate `substrate/utils/rostro-chat-content-seal` (Apache, sister to
+  sealed-sender): per-message ephemeral ECDH **on the recipient's curve**
+  (P-256/P-384) + HKDF-SHA256 + ChaCha20-Poly1305; SCALE `ContentSealed` IS the
+  `inner_ciphertext` (the layering the envelope crate always reserved). **The
+  silicon seam = `ContentEcdh` trait**: decrypt needs exactly ONE private-key op
+  (ECDH vs the ephemeral); StrongBox/TPM perform it in-chip later,
+  `SoftwareContentKey` is the dev stand-in + reference implementation.
+- RNS record: `inner_content_key` now REQUIRED at publish — hex of SCALE
+  curve-tagged `ContentPublicKey`. The curve tag lives on the KEY (rotation
+  without a record-scheme bump); `scheme` stays the record-layout version.
+- dotwave: `chat_send` takes the recipient content key (record-resolved) and
+  seals the payload — no plaintext-inner path; `chat_fetch` returns
+  `AtRestMessage{sealed_content_hex}` (outer-unwrapped, sender-verified,
+  content STILL sealed); `chat_read_content` is the explicit biometric/silicon
+  read step. Sender-name verify moves to read time by construction.
+- **Zero node/chain changes** — the node never looks inside.
+- **GATE (dev-box items, met on the live fabric):** ✅ reassembled content
+  encrypted at rest (fetch yields sealed blob only; no-leak asserted);
+  ✅ cross-platform P-256 ↔ P-384 decrypts (live-fabric P-384 recipient +
+  both-direction unit tests). 8 crate tests + full 8-test chat suite green.
+- **GATE (silicon items, DEFERRED to lab hardware):** decrypt only via
+  biometric→silicon; key proven non-extractable. The seam is built; the lab
+  fills `ContentEcdh` with StrongBox/TPM and proves both. **v1.0 ships when
+  these pass on the phones.**
 
 *— Phases 1→3 are strictly sequential and land **v1.0** (named, cert-gated,
 hardware-bound content). After P3 the tracks fork.*

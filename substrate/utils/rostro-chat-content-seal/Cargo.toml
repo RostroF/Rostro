@@ -1,0 +1,38 @@
+[package]
+name = "rostro-chat-content-seal"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Inner content-layer encryption for the Rostro chat layer (Phase 3, hardware-bound content). Seals the message content to the RECIPIENT's static silicon content key — P-256 (StrongBox) or P-384 (TPM) — via per-message ephemeral ECDH on the recipient's curve + HKDF-SHA256 + ChaCha20-Poly1305. Decryption requires one ECDH with the recipient's private scalar, exposed behind the ContentEcdh seam so secure silicon performs it in-chip and the private key never leaves the element; the software provider is the dev-box/test stand-in. Pure crypto; no transport, no async."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+p256 = { workspace = true, features = ["ecdh", "arithmetic", "alloc"] }
+p384 = { workspace = true, features = ["ecdh", "arithmetic", "alloc"] }
+chacha20poly1305 = { workspace = true, features = ["alloc"] }
+hkdf = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+rand_core = { workspace = true, features = ["getrandom"] }
+
+[dev-dependencies]
+rand_chacha = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"p256/std",
+	"p384/std",
+	"chacha20poly1305/std",
+	"hkdf/std",
+	"sha2/std",
+	"zeroize/std",
+]
