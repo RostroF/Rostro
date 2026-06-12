@@ -261,13 +261,10 @@ pub trait ChatRpcApi {
 	/// rate-limiting / abuse-tracking. Any auth failure rejects
 	/// the request.
 	///
-	/// To accommodate the existing demo / CLI testing path that
-	/// doesn't yet carry HW-attested certs, the three auth-*
-	/// parameters are `Option<String>`. When all three are absent
-	/// the node logs a warning and accepts the request unauthenticated.
-	/// **Production deployments MUST require them** — set a config
-	/// flag at the RPC layer (or reject in nginx / rpc-shield) to
-	/// drop unauthenticated `chat_send_envelope` calls.
+	/// The three auth-* parameters remain `Option<String>` for wire
+	/// compatibility, but absence is REJECTED (Phase 2 cert-gated
+	/// send): there is no unauthenticated path. Every drop must carry
+	/// a valid signature under an Active zkpki cert.
 	#[method(name = "chat_send_envelope")]
 	async fn send_envelope(
 		&self,
@@ -498,11 +495,9 @@ where
 			invalid_param("envelope_hex", &format!("SCALE-decode failed: {e}"))
 		})?;
 
-		// Chat-auth verification. All three auth-* parameters
-		// required together; absence of all three is the v0.1
-		// "demo / CLI testing" path (logged warning, no enforcement).
-		// Production deployments MUST reject the unauthenticated
-		// path upstream.
+		// Chat-auth verification (Phase 2: cert-gated send). All
+		// three auth-* parameters are required; there is no
+		// unauthenticated path.
 		match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
 			(Some(tp), Some(ts), Some(sig)) => {
 				let authed = self.verify_chat_auth(&envelope_bytes, &tp, ts, &sig)?;
@@ -512,20 +507,13 @@ where
 					authed,
 				);
 			}
-			(None, None, None) => {
-				log::warn!(
-					target: "rostro-chat-rpc",
-					"chat_send_envelope accepted WITHOUT chat-auth — \
-					 production deployments must reject this path",
-				);
-			}
 			_ => {
 				return Err(invalid_param(
 					"auth_*",
-					"all three of auth_cert_thumbprint_hex, \
-					 auth_timestamp_secs, auth_sig_hex must be present \
-					 together (or all absent for the unauthenticated \
-					 dev path)",
+					"chat_send_envelope requires cert auth: all three of \
+					 auth_cert_thumbprint_hex, auth_timestamp_secs, \
+					 auth_sig_hex must be present, signed by an Active \
+					 zkpki cert's device key",
 				));
 			}
 		}
