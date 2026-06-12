@@ -204,11 +204,20 @@ background task, `dangerouslyDisableSandbox` for the RISC-V JIT) are session-loc
 hardware-bound content). After P3 the tracks fork.*
 
 ### PHASE 4 — Metadata anonymity + device hardening  *(secure-messenger core)*
-**Build:** sender anonymity to the entry relay (onion); traffic-analysis resistance
-(cover traffic/padding); amnesiac app (consume-on-read), disappearing messages,
-panic-wipe.
-- **GATE:** entry relay can't identify sender; LAN observer can't link A↔B; seized
-  device discloses nothing; residual traffic-analysis risk stated in-app.
+**◀ DESIGN LOCKED 2026-06-12 — full detail in
+[DOTWAVE-CHAT-METADATA-ANONYMITY.md](DOTWAVE-CHAT-METADATA-ANONYMITY.md);
+building on `chat-onion-v0`.** Two axes settled: **identity** anonymity via
+throwaway rotation (fresh seed/SS58/name/non-PoP cert — the chat cert is the
+anti-abuse gate, NOT the PoP-uniqueness gate, so rotation is legal; anti-abuse
+shifts to minting cost); **network-origin** anonymity via a **one-hop onion**
+(sender→guard→relay-2→stripe layer; cert-auth sits at the guard, path
+onion-wrapped beyond it; nested seal on the sealed-sender primitive, NOT
+Sphinx). Burner-grade opsec is an explicit assumption → timing/volume is a
+disclosed residual, not a v1 software target. Device-seizure (disappearing
+messages, panic-wipe) is app-side 4b.
+- **GATE:** a single relay (guard XOR relay-2) can't link sender→bucket;
+  cert-auth still enforced at the guard; basic chat unaffected; padded blobs
+  uniform; seized device discloses nothing; residual timing risk stated in-app.
 
 ### PHASE 5 — Forward secrecy (Double Ratchet)  ◀ **✅ GATE MET (2026-06-12, dev-box)**
 **Built (out of order vs Phase 4 — its decisions were locked and it's pure
