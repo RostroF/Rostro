@@ -4,9 +4,9 @@
 mime_wrap Groth16 proofs and tracks consumed (bucket, nonce) pairs for
 replay prevention.
 
-Not integrated into `pns-node` yet. Once the mock-runtime integration
+Not integrated into the Rostro runtime yet. Once the mock-runtime integration
 tests pass cleanly, the pallet source can be copy-pasted into a new
-`pns-node/pallets/zkpki-mime-wrap/` directory without semantic change.
+`substrate/frame/zkpki-mime-wrap/` pallet without semantic change.
 
 ## What this lab validates
 
@@ -62,7 +62,7 @@ fresh Groth16 proof during setup).
 
 ## Next stages
 
-- **4b**: graft the pallet into pns-node's runtime; add
+- **4b**: graft the pallet into the Rostro runtime; add
   frame-benchmarking weights.
 - **4c**: dotwave computes commitment at ceremony, submits; sign flow
   produces proof, submits to running node; real-hardware replay test.

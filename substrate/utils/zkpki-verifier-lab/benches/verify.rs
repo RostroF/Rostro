@@ -4,7 +4,7 @@
 //! to verify one mime_wrap proof on reference hardware?**
 //!
 //! That number multiplied by the Substrate weight-per-ms conversion
-//! (typically ~1_000_000 WU / ms for pns-node) gives us the weight
+//! (typically ~1_000_000 WU / ms for the Rostro node) gives us the weight
 //! cost of a single sign extrinsic. If it fits in a reasonable
 //! fraction of a block's weight budget, we ship. If not, we either
 //! optimise (swap to BLS12-381 with host-function pairing, batch

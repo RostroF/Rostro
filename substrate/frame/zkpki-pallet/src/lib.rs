@@ -2082,7 +2082,7 @@ pub mod pallet {
         /// original cert holder's reserve; by default it goes back to
         /// the holder's free balance. The caller may redirect the
         /// deposit to any account by passing `deposit_recipient` —
-        /// useful when Dotwave resolves a PNS name to an SS58 address
+        /// useful when Dotwave resolves an RNS name to an SS58 address
         /// client-side and passes that through.
         ///
         /// Reapable conditions (any of):

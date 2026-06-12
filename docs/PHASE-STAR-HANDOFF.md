@@ -234,3 +234,5 @@ In order:
 - `feedback_dont_overcommit` — per-stage commits are aligned with the explicit user preference for clean rollback boundaries on this branch.
 - `rostrovm_design_locked` — what RVM is + isn't (chain-side, not shop-side optimisation).
 - `crypto_stack_v1` — substrate's `ed25519-zebra` is what `sp_io::crypto::ed25519_verify` runs through today; relevant for the Tier 2 routing follow-up.
+
+Linked: [[phase_star]], [[phase_naming_progression]], [[phase_gemini]], [[validator_channel_v0_1_0]], [[gossip_channels_split]], [[host_process_topology]], [[operator_profile_gamer_windows]], [[canonical_files_gate_load_bearing]], [[watchdog_workstream_worktree]], [[sandbox_v0_state]], [[vm_choice_riscv_vs_wasm]], [[network_vs_binary_lineage]], [[rostrovm_design_locked]], [[crypto_stack_v1]], [[lab/build-invocation]].

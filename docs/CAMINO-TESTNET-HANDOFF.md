@@ -207,3 +207,5 @@ The `/home/coder/.claude/projects/-home-coder-Rostro/memory/MEMORY.md` index has
 - `audit_a8_timing_followup` — A8 reframing pending
 - `working_primitives` — what real working code exists out-of-repo (paseo-node, pns-pallets, dotwave)
 - `secret_sauce` — rostro-trace's actual role (tensor-DA-as-PCS); internal only
+
+Linked: [[phase_gemini]], [[phase_star]], [[network_vs_binary_lineage]], [[rostrovm_design_locked]], [[rostrovm_h1_tier2_outcome]], [[audit_a8_timing_followup]], [[btow_chain_side_progress]], [[crypto_stack_v1]], [[wei_tang_collaboration]], [[grey_jar_local]], [[feedback_client_dir_gpl3]], [[feedback_workspace_vs_runtime]], [[dev_machine_ram_upgrade]], [[testnet_scope]], [[low_barrier_north_star]], [[secret_sauce]], [[lab/build-invocation]], [[lab/phase-h-outcome-20260525]].

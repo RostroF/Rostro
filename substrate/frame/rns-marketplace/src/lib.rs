@@ -69,7 +69,7 @@ pub mod pallet {
         /// Writes the ORIGIN record (block hash) when a name is purchased.
         type OriginRecorder: OriginRecorder;
 
-        /// The base namehash for the TLD (e.g. the namehash of "dot").
+        /// The base namehash for the TLD (e.g. the namehash of "rst").
         #[pallet::constant]
         type BaseNode: Get<DomainHash>;
 
