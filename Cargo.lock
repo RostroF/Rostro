@@ -13799,6 +13799,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-chat-onion"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "rostro-chat-sealed-sender",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "rostro-chat-primitives"
 version = "0.1.0"
 dependencies = [
