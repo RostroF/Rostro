@@ -310,6 +310,7 @@ members = [
 	"substrate/utils/rostro-curve25519",
 	"substrate/utils/rostro-executor",
 	"substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip",
+	"substrate/utils/rostro-node-identity",
 	"substrate/utils/rostro-node-sandbox",
 	"substrate/utils/rostro-watchdog",
 	"substrate/utils/rostro-watchdog-client",

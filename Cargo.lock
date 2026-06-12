@@ -14099,6 +14099,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-node-identity"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "ed25519-zebra",
+ "rand_chacha 0.3.1",
+ "rostro-chat-primitives",
+ "rostro-chat-sealed-sender",
+ "sha2 0.10.9",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "rostro-node-sandbox"
 version = "0.1.0"
 dependencies = [
