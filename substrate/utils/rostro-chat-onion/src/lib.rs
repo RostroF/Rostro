@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
-//! # rostro-chat-onion — one-hop onion wrapping
+//! # rostro-chat-onion — onion wrapping addressed to node identities
 //!
 //! Phase 4 of the dotwave-chat plan (network-origin anonymity). Splits
-//! **who** from **where** across two relays so that no single relay
-//! sees both the sender and the destination:
+//! **who** from **where** across relays so that no single relay sees
+//! both the sender and the destination:
 //!
 //! ```text
 //! sender → GUARD → RELAY-2 → (existing stripe fan-out → bucket)
@@ -14,50 +14,51 @@
 //! - **GUARD** sees the sender (its cert + IP) and the next hop, but
 //!   NOT the destination — the inner layer is sealed to relay-2.
 //! - **RELAY-2** sees the destination (the drop it injects into the
-//!   stripe layer) but NOT the sender — it only ever saw the guard
-//!   hand over an opaque blob.
+//!   stripe layer) but NOT the sender — it only ever saw the guard hand
+//!   over an opaque blob.
 //!
-//! Relinking sender→destination requires the *specific* guard and
-//! relay-2 to collude.
+//! Relinking sender→destination requires the *specific* relays on the
+//! path to collude.
 //!
-//! ## Construction (nested seal, not Sphinx)
+//! ## Addressed to node identities (design choice A)
 //!
-//! For a single hop with both relays under Rostro's canonical-gated
-//! trust model, full Sphinx (fixed packets, per-hop MACs, reply
-//! blocks, replay caches) is overkill. We nest two
-//! [`rostro_chat_sealed_sender`] layers — per-message ephemeral X25519
-//! ECDH + HKDF-SHA256 + ChaCha20-Poly1305 — each relay holding an
-//! X25519 *onion key*:
+//! Each layer is sealed to a relay's [`NodeIdentity`] (its ed25519 node
+//! key, per `docs/NODE-IDENTITY.md`) via the XEdDSA-derived X25519 seal
+//! key. The sender learns relay identities + keys by reading canonical
+//! state (the validator-attribute registration), so a malicious guard
+//! cannot substitute a key it controls.
+//!
+//! ## One uniform hop operation
+//!
+//! Every layer, when peeled, yields an [`OnionHop`]:
+//!
+//! - [`OnionHop::Forward`] — "I'm an intermediate hop; forward `inner`
+//!   to `next_hop`." (The guard, for the one-hop case.)
+//! - [`OnionHop::Deliver`] — "I'm the last hop; inject `drop` into the
+//!   existing recipient path." (Relay-2.)
+//!
+//! So a node doesn't need to know whether it's acting as guard or
+//! relay-2: it [`process_hop`]s with its own [`NodeSecret`] and acts on
+//! the returned variant. This generalises to N hops for free — each
+//! [`OnionHop::Forward`] wraps another until a [`OnionHop::Deliver`].
+//!
+//! ## Construction
 //!
 //! ```text
-//! INNER   = seal(relay2_onion_pub, pad(drop, FIXED_DROP_SIZE))
-//! FORWARD = SCALE{ next_hop, inner: INNER }
-//! OUTER   = seal(guard_onion_pub, FORWARD)
+//! INNER = seal(relay2,  Deliver{ pad(drop) })
+//! OUTER = seal(guard,   Forward{ next_hop: relay2, inner: INNER })
 //! ```
 //!
-//! - Sender authenticates its (throwaway) cert to the guard, sends
-//!   `OUTER`.
-//! - Guard [`peel_guard`]: `unseal(OUTER)` → `(next_hop, INNER)`;
-//!   forwards `INNER` to `next_hop`. The guard cannot read `INNER`
-//!   (sealed to relay-2's key).
-//! - Relay-2 [`peel_relay2`]: `unseal(INNER)` → `unpad` → `drop`;
-//!   injects into the existing stripe path.
-//!
 //! Per-message ephemeral keys at every layer ⇒ no cross-message
-//! linkage. Fixed [`FIXED_DROP_SIZE`] ⇒ guard and relay-2 both see
-//! constant-size blobs (size-correlation defense). Sphinx is the
-//! upgrade path if more hops are ever added.
+//! linkage. The drop is padded to [`FIXED_DROP_SIZE`] at the `Deliver`
+//! layer ⇒ every message nests to the same size regardless of length.
 //!
 //! ## What this crate does NOT do
 //!
-//! - **No transport.** The guard→relay-2 hand-off and the cert
-//!   admission are the node's job; this crate is the wrap/peel math.
-//! - **No sender authentication.** The guard runs `verify_chat_auth`
-//!   on the cert presented alongside `OUTER`; this layer is unkeyed by
-//!   sender identity by design (that is the point).
-//! - **No timing-analysis resistance.** Cover traffic / mixnet
-//!   transport is a documented residual, deferred under the
-//!   burner-grade-opsec assumption.
+//! - **No transport.** The hand-off between relays and the cert
+//!   admission are the node's job; this is the wrap/peel math.
+//! - **No timing-analysis resistance.** Cover traffic is a documented
+//!   residual, deferred under the burner-grade-opsec assumption.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -66,51 +67,49 @@ extern crate alloc;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use rostro_chat_sealed_sender::{seal, unseal, SealedOutput, UnsealError};
+use rostro_node_identity::{NodeIdentity, NodeSecret};
 use zeroize::Zeroize;
 
-/// Fixed plaintext size every drop is padded to before the inner
-/// seal, so the guard and relay-2 see constant-size blobs regardless
-/// of message length. Must exceed the largest realistic
-/// `SealedEnvelope + routing` drop; over-padding only costs bytes on
-/// the wire. (Tunable — open decision #3 in the Phase-4 doc.)
+/// Fixed plaintext size every drop is padded to at the `Deliver`
+/// layer, so all messages nest to a constant size regardless of length.
+/// Must exceed the largest realistic `SealedEnvelope + routing` drop;
+/// over-padding only costs bytes. (Open decision #3 in the Phase-4 doc.)
 pub const FIXED_DROP_SIZE: usize = 4096;
 
-/// A relay's onion identity: the X25519 public key the sender seals a
-/// layer to. Distinct from the relay's libp2p/gossip key; published
-/// alongside it. `id` is the opaque routing handle the guard uses to
-/// reach this relay (e.g. its peer id), carried in the clear inside
-/// the guard's layer.
+/// An opaque onion packet: a [`SealedOutput`] (random ephemeral pubkey
+/// + AEAD ciphertext), indistinguishable on the wire from any other
+/// sealed blob. This is what the sender hands the guard, and what each
+/// relay forwards to the next.
+pub type OnionPacket = SealedOutput;
+
+/// The result of peeling one layer — what a relay does next.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct OnionRelay {
-	/// Opaque next-hop routing handle (the node maps it to a peer).
-	pub id: Vec<u8>,
-	/// The relay's X25519 onion public key.
-	pub onion_pub: [u8; 32],
+pub enum OnionHop {
+	/// Intermediate hop: forward `inner` to the node whose ed25519
+	/// identity is `next_hop` (a raw ed25519 pubkey; the node layer
+	/// maps it to a peer to reach).
+	Forward { next_hop: [u8; 32], inner: OnionPacket },
+	/// Last hop: inject `drop` (the depadded SealedEnvelope + routing)
+	/// into the existing recipient/stripe path.
+	Deliver { drop: Vec<u8> },
 }
 
-/// What the guard learns after peeling the outer layer: where to
-/// forward, and the still-sealed inner blob. The guard never learns
-/// the destination bucket (that is inside `inner`, sealed to relay-2).
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct GuardForward {
-	/// Relay-2's routing handle (`OnionRelay::id`).
-	pub next_hop: Vec<u8>,
-	/// The inner onion layer, sealed to relay-2.
-	pub inner: SealedOutput,
-}
-
-/// Errors from onion peeling.
+/// Errors from building or processing an onion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OnionError {
-	/// AEAD auth failed unsealing a layer: tampering, wrong relay key,
-	/// or a layer presented to the wrong hop.
+	/// A relay's node identity has an ed25519 pubkey that is not a valid
+	/// Edwards point, so no seal key can be derived for it.
+	UnaddressableRelay,
+	/// AEAD auth failed peeling a layer: tampering, wrong relay key, or
+	/// a layer presented to the wrong hop.
 	Seal(UnsealError),
-	/// A layer decrypted but did not decode as the expected structure.
+	/// A layer decrypted but did not decode as an [`OnionHop`].
 	BadEncoding,
-	/// The padded drop's length prefix is impossible (corrupt /
-	/// wrong-key plaintext that happened to authenticate — should not
-	/// occur with AEAD, defensive).
+	/// The `Deliver` drop is larger than [`FIXED_DROP_SIZE`] permits, or
+	/// the padding length prefix is impossible.
 	BadPadding,
+	/// `wrap_onion` was called with an empty relay path.
+	EmptyPath,
 }
 
 impl From<UnsealError> for OnionError {
@@ -119,65 +118,73 @@ impl From<UnsealError> for OnionError {
 	}
 }
 
-/// The outer onion packet handed to the guard. Just a [`SealedOutput`]
-/// — a random ephemeral pubkey + opaque ciphertext, indistinguishable
-/// on the wire from any other sealed blob.
-pub type OnionPacket = SealedOutput;
-
-/// Wrap `drop_bytes` into a two-layer onion: inner sealed to `relay2`,
-/// outer sealed to `guard`. The returned packet is what the sender
-/// presents to the guard (alongside its cert).
+/// Wrap `drop_bytes` into a nested onion for `path` (the ordered relay
+/// identities, e.g. `[guard, relay2]`). The returned packet is sealed
+/// to `path[0]` — what the sender presents to the first relay.
 ///
-/// `drop_bytes` is the SCALE-encoded drop relay-2 will inject into the
-/// stripe layer (the `SealedEnvelope` + routing). It is padded to
-/// [`FIXED_DROP_SIZE`] before sealing; a drop larger than that is a
-/// caller error ([`OnionError::BadPadding`]).
+/// The innermost layer is a [`OnionHop::Deliver`] sealed to the last
+/// relay; each preceding relay gets a [`OnionHop::Forward`] pointing at
+/// the relay whose layer it wraps.
 pub fn wrap_onion<R>(
-	guard: &OnionRelay,
-	relay2: &OnionRelay,
+	path: &[NodeIdentity],
 	drop_bytes: &[u8],
 	rng: &mut R,
 ) -> Result<OnionPacket, OnionError>
 where
 	R: rand_core::RngCore + rand_core::CryptoRng,
 {
+	let (&last, prefix) = path.split_last().ok_or(OnionError::EmptyPath)?;
+
+	// Innermost: Deliver{ padded drop } sealed to the last relay.
 	let mut padded = pad_drop(drop_bytes)?;
-	let inner = seal(&relay2.onion_pub, &padded, rng);
+	let mut packet = seal_to(&last, &OnionHop::Deliver { drop: padded.clone() }.encode(), rng)?;
 	padded.zeroize();
 
-	let forward = GuardForward { next_hop: relay2.id.clone(), inner };
-	let forward_bytes = forward.encode();
-	let outer = seal(&guard.onion_pub, &forward_bytes, rng);
-	Ok(outer)
+	// Wrap outward: each preceding relay forwards to the one inside it.
+	let mut next_hop = last.ed25519_pubkey();
+	for relay in prefix.iter().rev() {
+		let hop = OnionHop::Forward { next_hop, inner: packet };
+		packet = seal_to(relay, &hop.encode(), rng)?;
+		next_hop = relay.ed25519_pubkey();
+	}
+	Ok(packet)
 }
 
-/// Guard side: peel the outer layer with the guard's onion secret.
-/// Returns where to forward and the still-sealed inner blob. The guard
-/// cannot read the inner blob — it is sealed to relay-2.
-pub fn peel_guard(
-	guard_onion_secret: &[u8; 32],
+/// Process one hop: peel the layer sealed to this node and return what
+/// to do next. The node acts on the variant — [`OnionHop::Forward`]:
+/// send `inner` to `next_hop`; [`OnionHop::Deliver`]: inject `drop`.
+///
+/// State-free and uniform: the same call works whether this node is the
+/// guard, an intermediate, or the last relay.
+pub fn process_hop(
+	node_secret: &NodeSecret,
 	packet: &OnionPacket,
-) -> Result<GuardForward, OnionError> {
-	let forward_bytes = unseal(guard_onion_secret, packet)?;
-	GuardForward::decode(&mut &forward_bytes[..]).map_err(|_| OnionError::BadEncoding)
+) -> Result<OnionHop, OnionError> {
+	let plaintext = unseal(&node_secret.seal_secret(), packet)?;
+	let mut hop = OnionHop::decode(&mut &plaintext[..]).map_err(|_| OnionError::BadEncoding)?;
+	// Depad a Deliver's drop before handing it back.
+	if let OnionHop::Deliver { drop } = &mut hop {
+		*drop = unpad_drop(drop)?;
+	}
+	Ok(hop)
 }
 
-/// Relay-2 side: peel the inner layer with relay-2's onion secret and
-/// recover the original drop bytes (depadded). What relay-2 injects
-/// into the existing stripe path.
-pub fn peel_relay2(
-	relay2_onion_secret: &[u8; 32],
-	inner: &SealedOutput,
-) -> Result<Vec<u8>, OnionError> {
-	let mut padded = unseal(relay2_onion_secret, inner)?;
-	let drop = unpad_drop(&padded)?;
-	padded.zeroize();
-	Ok(drop)
+/// Seal `bytes` to a relay's node identity (its XEdDSA-derived X25519
+/// seal key).
+fn seal_to<R>(
+	relay: &NodeIdentity,
+	bytes: &[u8],
+	rng: &mut R,
+) -> Result<OnionPacket, OnionError>
+where
+	R: rand_core::RngCore + rand_core::CryptoRng,
+{
+	let seal_pub = relay.seal_pubkey().ok_or(OnionError::UnaddressableRelay)?;
+	Ok(seal(&seal_pub, bytes, rng))
 }
 
 /// Pad to `FIXED_DROP_SIZE`: `[len: u32 LE][drop][zeros]`.
 fn pad_drop(drop: &[u8]) -> Result<Vec<u8>, OnionError> {
-	// 4-byte length prefix + payload must fit the fixed frame.
 	if drop.len() + 4 > FIXED_DROP_SIZE {
 		return Err(OnionError::BadPadding);
 	}
@@ -206,120 +213,147 @@ fn unpad_drop(padded: &[u8]) -> Result<Vec<u8>, OnionError> {
 mod tests {
 	use super::*;
 	use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
-	use rostro_chat_sealed_sender::SealedOutput;
-	use x25519_dalek::{PublicKey, StaticSecret};
 
 	fn rng() -> ChaCha20Rng {
 		ChaCha20Rng::seed_from_u64(0x04)
 	}
 
-	/// A relay's onion keypair: (secret bytes, OnionRelay).
-	fn relay(id: &[u8], seed: u64) -> ([u8; 32], OnionRelay) {
-		let mut r = ChaCha20Rng::seed_from_u64(seed);
-		let secret = StaticSecret::random_from_rng(&mut r);
-		let pubk = PublicKey::from(&secret);
-		(secret.to_bytes(), OnionRelay { id: id.to_vec(), onion_pub: *pubk.as_bytes() })
+	fn node(seed_byte: u8) -> NodeSecret {
+		NodeSecret::from_seed([seed_byte; 32])
 	}
 
 	#[test]
-	fn full_onion_roundtrip() {
-		let (guard_sk, guard) = relay(b"guard", 1);
-		let (relay2_sk, relay2) = relay(b"relay-2", 2);
+	fn two_hop_path_forwards_then_delivers() {
+		let guard = node(1);
+		let relay2 = node(2);
+		let path = [guard.identity(), relay2.identity()];
 		let drop = b"the SealedEnvelope + bucket routing relay-2 injects";
 
-		let packet = wrap_onion(&guard, &relay2, drop, &mut rng()).unwrap();
+		let packet = wrap_onion(&path, drop, &mut rng()).unwrap();
 
-		let fwd = peel_guard(&guard_sk, &packet).unwrap();
-		assert_eq!(fwd.next_hop, relay2.id, "guard forwards to relay-2");
-
-		let recovered = peel_relay2(&relay2_sk, &fwd.inner).unwrap();
-		assert_eq!(recovered, drop, "relay-2 recovers the original drop");
+		// Guard peels → Forward to relay-2.
+		match process_hop(&guard, &packet).unwrap() {
+			OnionHop::Forward { next_hop, inner } => {
+				assert_eq!(next_hop, relay2.identity().ed25519_pubkey(), "forwards to relay-2");
+				// Relay-2 peels the inner → Deliver the drop.
+				match process_hop(&relay2, &inner).unwrap() {
+					OnionHop::Deliver { drop: recovered } => assert_eq!(recovered, drop),
+					OnionHop::Forward { .. } => panic!("relay-2 should deliver, not forward"),
+				}
+			}
+			OnionHop::Deliver { .. } => panic!("guard should forward, not deliver"),
+		}
 	}
 
 	#[test]
-	fn guard_cannot_read_inner() {
-		// The guard learns the next hop but the inner is sealed to
-		// relay-2 — the guard's own key cannot open it.
-		let (guard_sk, guard) = relay(b"guard", 1);
-		let (_relay2_sk, relay2) = relay(b"relay-2", 2);
-		let packet = wrap_onion(&guard, &relay2, b"destination secret", &mut rng()).unwrap();
-		let fwd = peel_guard(&guard_sk, &packet).unwrap();
-		// Guard tries its own key on the inner layer → fails.
-		assert!(peel_relay2(&guard_sk, &fwd.inner).is_err(), "guard must not read the inner");
+	fn guard_cannot_read_the_delivered_drop() {
+		// The guard only ever obtains the Forward layer; the inner is
+		// sealed to relay-2, so the guard's own key cannot open it.
+		let guard = node(1);
+		let relay2 = node(2);
+		let path = [guard.identity(), relay2.identity()];
+		let packet = wrap_onion(&path, b"destination secret", &mut rng()).unwrap();
+		let inner = match process_hop(&guard, &packet).unwrap() {
+			OnionHop::Forward { inner, .. } => inner,
+			_ => panic!(),
+		};
+		// Guard tries its own secret on the inner → fails.
+		assert!(matches!(process_hop(&guard, &inner), Err(OnionError::Seal(_))));
 	}
 
 	#[test]
-	fn relay2_sees_no_sender_material() {
-		// Structural: relay-2 only ever receives `inner`, which is a
-		// SealedOutput with a per-message random ephemeral. The outer
-		// layer (carrying the sender's ephemeral) never reaches it,
-		// and nothing in `inner` is keyed to the sender.
-		let (guard_sk, guard) = relay(b"guard", 1);
-		let (relay2_sk, relay2) = relay(b"relay-2", 2);
-		let packet = wrap_onion(&guard, &relay2, b"hello", &mut rng()).unwrap();
-		let fwd = peel_guard(&guard_sk, &packet).unwrap();
-		// relay-2 succeeds with ONLY the inner — no part of the outer
-		// packet / sender material is needed.
-		assert_eq!(peel_relay2(&relay2_sk, &fwd.inner).unwrap(), b"hello");
+	fn single_hop_path_delivers_directly() {
+		let only = node(5);
+		let packet = wrap_onion(&[only.identity()], b"direct", &mut rng()).unwrap();
+		match process_hop(&only, &packet).unwrap() {
+			OnionHop::Deliver { drop } => assert_eq!(drop, b"direct"),
+			_ => panic!("single-relay path delivers"),
+		}
 	}
 
 	#[test]
-	fn wrong_guard_key_rejected() {
-		let (_guard_sk, guard) = relay(b"guard", 1);
-		let (_relay2_sk, relay2) = relay(b"relay-2", 2);
-		let (wrong_sk, _) = relay(b"impostor", 9);
-		let packet = wrap_onion(&guard, &relay2, b"x", &mut rng()).unwrap();
-		assert!(matches!(peel_guard(&wrong_sk, &packet), Err(OnionError::Seal(_))));
+	fn three_hop_path_chains() {
+		let a = node(10);
+		let b = node(11);
+		let c = node(12);
+		let path = [a.identity(), b.identity(), c.identity()];
+		let packet = wrap_onion(&path, b"deep", &mut rng()).unwrap();
+
+		let p2 = match process_hop(&a, &packet).unwrap() {
+			OnionHop::Forward { next_hop, inner } => {
+				assert_eq!(next_hop, b.identity().ed25519_pubkey());
+				inner
+			}
+			_ => panic!(),
+		};
+		let p3 = match process_hop(&b, &p2).unwrap() {
+			OnionHop::Forward { next_hop, inner } => {
+				assert_eq!(next_hop, c.identity().ed25519_pubkey());
+				inner
+			}
+			_ => panic!(),
+		};
+		match process_hop(&c, &p3).unwrap() {
+			OnionHop::Deliver { drop } => assert_eq!(drop, b"deep"),
+			_ => panic!(),
+		}
+	}
+
+	#[test]
+	fn wrong_node_rejected() {
+		let guard = node(1);
+		let relay2 = node(2);
+		let impostor = node(9);
+		let packet =
+			wrap_onion(&[guard.identity(), relay2.identity()], b"x", &mut rng()).unwrap();
+		assert!(matches!(process_hop(&impostor, &packet), Err(OnionError::Seal(_))));
 	}
 
 	#[test]
 	fn tampered_packet_rejected() {
-		let (guard_sk, guard) = relay(b"guard", 1);
-		let (_relay2_sk, relay2) = relay(b"relay-2", 2);
-		let mut packet = wrap_onion(&guard, &relay2, b"x", &mut rng()).unwrap();
+		let guard = node(1);
+		let relay2 = node(2);
+		let mut packet =
+			wrap_onion(&[guard.identity(), relay2.identity()], b"x", &mut rng()).unwrap();
 		packet.ciphertext[0] ^= 1;
-		assert!(matches!(peel_guard(&guard_sk, &packet), Err(OnionError::Seal(_))));
+		assert!(matches!(process_hop(&guard, &packet), Err(OnionError::Seal(_))));
 	}
 
 	#[test]
-	fn padding_makes_layers_fixed_size() {
-		let (_guard_sk, guard) = relay(b"guard", 1);
-		let (_relay2_sk, relay2) = relay(b"relay-2", 2);
-		let short = wrap_onion(&guard, &relay2, b"hi", &mut rng()).unwrap();
-		let long = wrap_onion(&guard, &relay2, &[0xAB; 1500], &mut rng()).unwrap();
-		// Different plaintext lengths → identical on-wire ciphertext
-		// length (the inner is padded to FIXED_DROP_SIZE, and the
-		// outer wraps a fixed-size GuardForward).
+	fn padding_makes_packets_fixed_size() {
+		let path = [node(1).identity(), node(2).identity()];
+		let short = wrap_onion(&path, b"hi", &mut rng()).unwrap();
+		let long = wrap_onion(&path, &[0xAB; 1500], &mut rng()).unwrap();
+		// Different drop lengths → identical on-wire ciphertext length
+		// (padded at the Deliver layer; nesting overhead is fixed).
 		assert_eq!(short.ciphertext.len(), long.ciphertext.len());
 	}
 
 	#[test]
 	fn oversize_drop_rejected() {
-		let (_g, guard) = relay(b"guard", 1);
-		let (_r, relay2) = relay(b"relay-2", 2);
-		let too_big = vec![0u8; FIXED_DROP_SIZE]; // + 4-byte prefix overflows
-		assert_eq!(
-			wrap_onion(&guard, &relay2, &too_big, &mut rng()),
-			Err(OnionError::BadPadding)
-		);
+		let path = [node(1).identity(), node(2).identity()];
+		let too_big = alloc::vec![0u8; FIXED_DROP_SIZE]; // + 4-byte prefix overflows
+		assert_eq!(wrap_onion(&path, &too_big, &mut rng()), Err(OnionError::BadPadding));
+	}
+
+	#[test]
+	fn empty_path_rejected() {
+		assert_eq!(wrap_onion(&[], b"x", &mut rng()), Err(OnionError::EmptyPath));
 	}
 
 	#[test]
 	fn empty_drop_roundtrips() {
-		let (guard_sk, guard) = relay(b"guard", 1);
-		let (relay2_sk, relay2) = relay(b"relay-2", 2);
-		let packet = wrap_onion(&guard, &relay2, b"", &mut rng()).unwrap();
-		let fwd = peel_guard(&guard_sk, &packet).unwrap();
-		assert_eq!(peel_relay2(&relay2_sk, &fwd.inner).unwrap(), b"");
-	}
-
-	#[test]
-	fn forward_and_inner_scale_roundtrip() {
-		let (_g, guard) = relay(b"guard", 1);
-		let (_r, relay2) = relay(b"relay-2", 2);
-		let packet = wrap_onion(&guard, &relay2, b"persist me", &mut rng()).unwrap();
-		// OnionPacket (SealedOutput) and GuardForward both SCALE-cycle.
-		let p2 = SealedOutput::decode(&mut &packet.encode()[..]).unwrap();
-		assert_eq!(p2, packet);
+		let guard = node(1);
+		let relay2 = node(2);
+		let packet =
+			wrap_onion(&[guard.identity(), relay2.identity()], b"", &mut rng()).unwrap();
+		let inner = match process_hop(&guard, &packet).unwrap() {
+			OnionHop::Forward { inner, .. } => inner,
+			_ => panic!(),
+		};
+		match process_hop(&relay2, &inner).unwrap() {
+			OnionHop::Deliver { drop } => assert_eq!(drop, b""),
+			_ => panic!(),
+		}
 	}
 }
