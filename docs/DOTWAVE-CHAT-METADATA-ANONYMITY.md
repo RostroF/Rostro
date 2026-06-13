@@ -298,12 +298,14 @@ the `chat-onion-v0` worktree (rostro) plus the dotwave `rust_core`:
   helper (`405e4dbca6`). `Deliver` path complete; `Forward` stubbed for slice 2.
   The proven `send_envelope` left UNTOUCHED (zero-risk); the two converge on the
   helper once the onion path is fabric-proven.
-- **Slice 1c ◀ next** — dotwave wraps a **1-hop** onion (`path = [guard]`) and
-  calls `chat_send_onion`; fabric proof: phone → guard peels → delivers →
-  recipient fetches + decrypts. First time the onion moves a message on real
-  nodes.
-- **Slice 2** — relay-2 recognise-and-handoff (the `Forward` path) for the full
-  **2-hop** split.
+- **Slice 1c ✅ (2026-06-12)** — dotwave wraps a **1-hop** onion (`path =
+  [guard]`, guard discovered via `chat_nodeInfo`) and calls `chat_send_onion`;
+  **fabric-proven**: phone → guard peels (cert-auth + `process_hop` + `chat
+  distribute` confirmed in the guard log) → delivers → recipient reads
+  cross-node. The onion moves a message on real nodes. (dotwave commit
+  `c2bacac`; test `chat_onion_e2e::onion_1hop_delivers`.)
+- **Slice 2 ◀ next** — relay-2 recognise-and-handoff (the `Forward` path) for
+  the full **2-hop** split (a single relay can't link sender→bucket).
 
 ### 4b — Device-seizure + disclosures · M
 - **dotwave:** disappearing messages, duress/panic-wipe, the disclosure UX.
