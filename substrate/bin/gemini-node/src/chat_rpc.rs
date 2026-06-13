@@ -81,6 +81,7 @@ use rostro_chat_primitives::{
 	stripe::{split_xor, MAX_SHARES},
 	verify::mac_share,
 };
+use rostro_node_identity::NodeSecret;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_core::blake2_256;
@@ -305,6 +306,13 @@ pub trait ChatRpcApi {
 /// secret — those live on user devices.
 pub struct ChatRpc<C> {
 	node_pubkey_ed25519: [u8; 32],
+	/// This node's OWN node-key identity, present iff a persistent
+	/// libp2p key is configured. Held ONLY for the isolated onion
+	/// peeler (`chat_send_onion`) — peels layers addressed to this
+	/// node. Not a user secret; never touches gossipsub. Read by the
+	/// peeler method, landing next.
+	#[allow(dead_code)]
+	node_secret: Option<NodeSecret>,
 	share_store: Arc<EphemeralShareStore>,
 	network: Arc<dyn NetworkService>,
 	client: Arc<C>,
@@ -325,6 +333,7 @@ where
 {
 	pub fn new(
 		node_pubkey_ed25519: [u8; 32],
+		node_seed: Option<[u8; 32]>,
 		share_store: Arc<EphemeralShareStore>,
 		network: Arc<dyn NetworkService>,
 		client: Arc<C>,
@@ -335,6 +344,7 @@ where
 	) -> Self {
 		Self {
 			node_pubkey_ed25519,
+			node_secret: node_seed.map(NodeSecret::from_seed),
 			share_store,
 			network,
 			client,

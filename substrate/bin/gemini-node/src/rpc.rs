@@ -47,6 +47,11 @@ pub struct ChatRpcDeps {
 	/// descriptors the node mints when accepting `chat_send_envelope`
 	/// calls. Distinct from any user chat-identity.
 	pub node_pubkey_ed25519: [u8; 32],
+	/// This node's OWN ed25519 node-key seed, if it has a persistent
+	/// libp2p identity. Used ONLY by the isolated onion peeler to peel
+	/// layers addressed to this node (Phase 4). `None` disables onion
+	/// relaying. Never a user secret; never enters gossipsub.
+	pub node_seed: Option<[u8; 32]>,
 	/// Shared chat-share store. Lives inside the service for the
 	/// lifetime of the node; cloned into the RPC layer.
 	pub share_store: Arc<rostro_chat_ephemeral_store::EphemeralShareStore>,
@@ -93,6 +98,7 @@ where
 	module.merge(
 		ChatRpc::new(
 			chat.node_pubkey_ed25519,
+			chat.node_seed,
 			chat.share_store,
 			chat.network,
 			client,

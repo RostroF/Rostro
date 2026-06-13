@@ -82,6 +82,25 @@ pub const FIXED_DROP_SIZE: usize = 4096;
 /// relay forwards to the next.
 pub type OnionPacket = SealedOutput;
 
+/// The chat application's `Deliver` drop: what the last relay needs to
+/// inject the message into the normal stripe-and-distribute path. The
+/// onion treats the drop as opaque bytes; this is the agreed encoding
+/// the sender writes and the last relay reads.
+///
+/// It carries the recipient's chat pubkey (so the relay can derive the
+/// pickup/bucket to route to — the relay is *meant* to learn the
+/// destination; that is its role) alongside the recipient-sealed
+/// `SealedEnvelope` bytes (opaque to the relay).
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct OnionDeliverPayload {
+	/// Recipient chat-identity Ed25519 pubkey — the relay derives the
+	/// pickup key from this to distribute.
+	pub recipient_chat_pubkey: [u8; 32],
+	/// The recipient-sealed `SealedEnvelope`, SCALE-encoded. Opaque to
+	/// the relay — only the recipient can open it.
+	pub envelope_bytes: Vec<u8>,
+}
+
 /// The result of peeling one layer — what a relay does next.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub enum OnionHop {

@@ -675,9 +675,13 @@ pub fn new_full<
 	// the NODE's identity (not a user's chat identity) — used as
 	// the `relay_pubkey` field on share descriptors and exposed
 	// via `chat_nodeInfo` so demo scripts know where to route.
-	// The node does NOT hold any user chat-identity secret —
-	// those live on end-user devices.
-	let chat_node_pubkey_ed25519: [u8; 32] =
+	// The node does NOT hold any USER chat-identity secret — those live
+	// on end-user devices. It does hold its OWN node-key seed, used
+	// only by the isolated onion peeler (Phase 4) to peel layers
+	// addressed to this node's identity and to sign relay replies. The
+	// seed never enters the secret-free gossipsub routing/sharding
+	// layer; see docs/NODE-IDENTITY.md + docs/DOTWAVE-CHAT-METADATA-ANONYMITY.md.
+	let (chat_node_pubkey_ed25519, chat_node_seed): ([u8; 32], Option<[u8; 32]>) =
 		match crate::canonical_fetch_protocol::load_node_identity_seed_bytes(
 			&config.network.node_key,
 		) {
@@ -685,16 +689,16 @@ pub fn new_full<
 				let sk = ed25519_zebra::SigningKey::from(seed);
 				let vk: ed25519_zebra::VerificationKey =
 					ed25519_zebra::VerificationKey::from(&sk);
-				vk.into()
+				(vk.into(), Some(seed))
 			},
 			Err(e) => {
 				log::warn!(
 					target: "rostro-chat",
 					"chat RPC: node identity unavailable ({e}); chat_nodeInfo \
-					 will return zeros. Set --node-key or --node-key-file for \
-					 a persistent libp2p identity.",
+					 will return zeros and onion relaying is disabled. Set \
+					 --node-key or --node-key-file for a persistent libp2p identity.",
 				);
-				[0u8; 32]
+				([0u8; 32], None)
 			},
 		};
 
@@ -712,6 +716,7 @@ pub fn new_full<
 				pool: pool.clone(),
 				chat: crate::rpc::ChatRpcDeps {
 					node_pubkey_ed25519: chat_node_pubkey_ed25519,
+					node_seed: chat_node_seed,
 					share_store: chat_share_store.clone(),
 					network: network_arc.clone(),
 					bucket_cache: chat_bucket_cache.clone(),

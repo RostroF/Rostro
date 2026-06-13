@@ -4587,6 +4587,7 @@ dependencies = [
  "rostro-chat-sealed-sender",
  "rostro-consensus-sassafras",
  "rostro-executor",
+ "rostro-node-identity",
  "rostro-rpc-shield",
  "rostro-validator-channel",
  "serde",
