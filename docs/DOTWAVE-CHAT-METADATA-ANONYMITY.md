@@ -281,7 +281,7 @@ Per the mission's third frontier — *the endpoint must survive seizure*:
 
 ## Phased plan with gates
 
-### 4a — One-hop onion · L  ◀ **in progress**
+### 4a — The onion: 1-hop + 2-hop · L  ◀ **✅ DONE & GATE MET (2026-06-12), fabric-proven**
 - **Crate** `rostro-chat-onion`: nested-seal wrap + uniform per-hop `process_hop`
   (`Forward`/`Deliver`), sealed to relay `NodeIdentity`s, fixed-size padding.
   Pure crypto. ✅ 10/10 tests.
@@ -316,12 +316,27 @@ the `chat-onion-v0` worktree (rostro) plus the dotwave `rust_core`:
   distribute` confirmed in the guard log) → delivers → recipient reads
   cross-node. The onion moves a message on real nodes. (dotwave commit
   `c2bacac`; test `chat_onion_e2e::onion_1hop_delivers`.)
-- **Slice 2 ◀ next** — the `Forward` path: guard sends the inner blob **directly**
-  to relay-2 over a dedicated node-to-node onion-forward protocol (NOT stripe/
-  bucket); relay-2 receives it straight into its peeler → `Deliver` → injects the
-  recipient message. This yields the full **2-hop** split (a single relay can't
-  link sender→bucket). **Invariant:** `stripe_and_distribute` stays reachable from
-  `Deliver` only — the onion is never sharded to forward it.
+- **Slice 2 ✅ (2026-06-12) — fabric-proven** — the `Forward` path via a new
+  `/rostro/chat-onion-forward/1` request/response. **2a** extracted the peeler
+  (`OnionPeelCtx`) off the generic `ChatRpc<C>` so it runs in a network task
+  (one peeler, two callers); **2b** wired the protocol. The guard's `Forward`
+  arm derives relay-2's PeerId (`PeerId::from_ed25519`) and sends the inner
+  packet **directly** (never stripe/bucket); relay-2's handler gates on
+  `is_passed` (canonical-gated peer) + `is_chat_admitted` (not a validator),
+  never re-auths the sender, peels with `allow_forward=false` (hard **2-hop
+  cap**), and on `Deliver` injects the recipient message. Result relayed back
+  synchronously so the guard returns a real `ChatSendResult`.
+  - **GATE MET on a 4-node dev fabric (validator + 3 relays, release binary):**
+    phone → guard(alice) **FORWARDS** → relay-2(bob) **gate-admits + peels +
+    distributes** (`chat distribute` `message_id` matches the send; alice never
+    distributes) → recipient reads cross-node. A single relay sees sender *or*
+    bucket, never both.
+  - **Invariant held:** `stripe_and_distribute` reachable from `Deliver` only —
+    the onion is never sharded to forward it.
+  - Node: commit `e131d6e999`, merged to `rostro-main` as `8877d7241f`.
+    dotwave: `chat_send_onion_2hop` + test `chat_onion_e2e::onion_2hop_delivers`
+    (on `rostro-port-v0`).
+- **Slice 3 (future)** — N-hop (Sphinx) lifts the 2-hop cap; cover traffic.
 
 ### 4b — Device-seizure + disclosures · M
 - **dotwave:** disappearing messages, duress/panic-wipe, the disclosure UX.
