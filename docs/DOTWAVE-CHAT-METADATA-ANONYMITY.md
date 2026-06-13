@@ -137,6 +137,58 @@ canonical-gated peer relays, so the trust chain is
 `client →(cert auth)→ guard →(canonical-gated peer)→ relay-2`. This composes with
 the existing relay trust model; no new trust root.
 
+### Resolved structure — the peeler *outside* gossipsub (2026-06-12)
+
+The peel (the **one** key-using step) lives in a mechanism **beside**, not
+inside, the secret-free gossipsub routing/sharding layer. Gossipsub gains only a
+**public** "is this blob addressed to my own pickup? → hand it out" check; the
+peeler holds the node's own key (choice A, `rostro-node-identity`), peels one
+layer, and hands the result **back** to gossipsub. So the chat/gossipsub layer
+holds **no secrets** (preserved); the node uses its own node-key only in that one
+quarantined box. The onion thus coexists with the secret-free routing layer
+instead of contaminating it.
+
+```
+THE MESSAGE  (nested seals, all built by the sender on-device)
+   OUTER  ─ sealed to GUARD ──►  Forward{ next_hop: relay-2, inner: INNER }
+              INNER  ─ sealed to RELAY-2 ──►  Deliver{ drop }
+                         drop  ─ sealed to RECIPIENT ──►  the real message
+
+THE FLOW
+ PHONE              ┌── GUARD node ──────────┐    ┌── RELAY-2 node ────────┐   bucket    PHONE
+ (sender)           │  GOSSIPSUB  (no key)    │    │  GOSSIPSUB  (no key)    │   peers  (recipient)
+ wrap onion         │  ┌───────────────────┐  │    │  ┌───────────────────┐  │
+ cert-auth          │  │ blob to MY pickup? │  │    │  │ blob to MY pickup? │  │
+   │ OUTER          │  │  → hand out        │  │    │  │  → hand out        │  │
+   └──────────────► │  └─────────┬─────────┘  │    │  └─────────┬─────────┘  │
+                    │            ▼             │    │            ▼             │
+                    │  ┌───────────────────┐  │    │  ┌───────────────────┐  │
+                    │  │ ONION PEELER  🔑  │  │    │  │ ONION PEELER  🔑  │  │
+                    │  │ (the ONLY secret) │  │    │  │ (the ONLY secret) │  │
+                    │  │ peel → Forward    │  │    │  │ peel → Deliver    │  │
+                    │  └─────────┬─────────┘  │    │  └─────────┬─────────┘  │
+                    │            ▼             │INR │            ▼             │ shards
+                    │  ┌───────────────────┐  │    │  ┌───────────────────┐  │ ┌──────┐
+                    │  │ GOSSIPSUB: route  │  │    │  │ GOSSIPSUB: insert │  │ │fetch │
+                    │  │ INNER to relay-2 ─┼──┼────┼─►│ envelope → stripe─┼──┼─►│  +   │
+                    │  └───────────────────┘  │    │  │ + push to bucket  │  │ │decryp│
+                    └─────────────────────────┘    │  └───────────────────┘  │ └──────┘
+                                                    └─────────────────────────┘ (recipient
+                                                                                  key only)
+
+WHO LEARNS WHAT
+   GUARD     : sender (cert+IP) + next hop = relay-2     ✗ NOT the recipient
+   RELAY-2   : recipient bucket + the drop to inject     ✗ NOT the sender
+   gossipsub : only the pickup keys it routes/shards by  ✗ holds no key, peels nothing
+   → relinking sender→recipient needs the SPECIFIC guard AND relay-2 to collude.
+```
+
+**Build shape:** the peeler is its own component (holds `NodeSecret`, runs
+`rostro_chat_onion::process_hop`); the stripe receive handler gains only the
+public recognize-and-handoff; on `Deliver` the peeler calls the existing
+stripe-and-distribute path (relay-2 becomes the apparent submitter — sender
+gone); on `Forward` it emits the inner toward the next hop's bucket.
+
 ### Axis 3 — Timing / volume → cover traffic (disclosed residual, not v1)
 
 Even with onion + burner, a global passive adversary can correlate *timing and
