@@ -474,6 +474,18 @@ where
 	/// peeled envelope into the normal distribution; the sender is
 	/// already gone). `send_envelope` inlines the same logic today; the
 	/// two converge on this helper once the onion path is fabric-proven.
+	///
+	/// INVARIANT — MESSAGE-ONLY, never an onion. Callers must pass a
+	/// fully-peeled **recipient message** (the `SealedEnvelope` carried by
+	/// an `OnionHop::Deliver` drop, or a direct `send_envelope`). An onion
+	/// in flight (an `OnionPacket`, e.g. an `OnionHop::Forward { inner }`)
+	/// must **never** reach this path: onions are forwarded directly
+	/// node-to-node, never sharded/bucketed. Sharding an onion to move it
+	/// between hops — peel → shard → forward → peel → shard again — is the
+	/// exact failure this separation prevents. The `OnionPacket` vs
+	/// `SealedEnvelope` type split enforces it; this note guards against a
+	/// future caller decoding an onion into an envelope to slip it through.
+	/// See docs/DOTWAVE-CHAT-METADATA-ANONYMITY.md, "Resolved structure".
 	async fn stripe_and_distribute(
 		&self,
 		envelope: SealedEnvelope,
@@ -977,10 +989,18 @@ where
 					})?;
 				self.stripe_and_distribute(envelope, recipient_pickup, total_shares).await
 			}
-			OnionHop::Forward { .. } => {
-				// Forwarding the inner blob to the next hop (and relay-2
-				// recognising it) is slice 2. Only the 1-hop
-				// guard-delivers path is enabled for now.
+			OnionHop::Forward { next_hop, inner } => {
+				// Slice 2 wires this arm. INVARIANT: an onion is transport,
+				// not a message. `inner` is an `OnionPacket` and MUST be sent
+				// DIRECTLY to `next_hop` over the dedicated node-to-node
+				// onion-forward protocol (/rostro/chat-onion-forward/1) and
+				// handed straight to that node's peeler. It must NEVER be
+				// decoded into a `SealedEnvelope`, addressed to a bucket, or
+				// passed to `stripe_and_distribute` / any stripe path —
+				// sharding an onion to forward it is the precise failure the
+				// peeler/messaging split exists to prevent. See
+				// docs/DOTWAVE-CHAT-METADATA-ANONYMITY.md, "Resolved structure".
+				let _ = (next_hop, inner); // the slice-2 seam: forward, don't shard
 				Err(ErrorObject::owned::<()>(
 					-32000,
 					"multi-hop onion forwarding is not yet enabled (slice 2)",
