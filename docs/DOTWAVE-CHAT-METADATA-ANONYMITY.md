@@ -137,16 +137,24 @@ canonical-gated peer relays, so the trust chain is
 `client →(cert auth)→ guard →(canonical-gated peer)→ relay-2`. This composes with
 the existing relay trust model; no new trust root.
 
-### Resolved structure — the peeler *outside* gossipsub (2026-06-12)
+### Resolved structure — the onion is its own transport, beside the messaging layer (2026-06-12)
 
-The peel (the **one** key-using step) lives in a mechanism **beside**, not
-inside, the secret-free gossipsub routing/sharding layer. Gossipsub gains only a
-**public** "is this blob addressed to my own pickup? → hand it out" check; the
-peeler holds the node's own key (choice A, `rostro-node-identity`), peels one
-layer, and hands the result **back** to gossipsub. So the chat/gossipsub layer
-holds **no secrets** (preserved); the node uses its own node-key only in that one
-quarantined box. The onion thus coexists with the secret-free routing layer
-instead of contaminating it.
+The onion is a **direct node-to-node transport**, kept **entirely separate** from
+the bucket/stripe **messaging** layer. An onion packet is handed straight to the
+next hop, peeled **once** (the single key-using step, in the `rostro-node-identity`
+peeler — choice A), and then either forwarded **directly** to the next node or, at
+the final hop, handed to the messaging layer as an ordinary recipient message. The
+onion **never** enters gossipsub / bucket routing / XOR-stripe — **sharding is for
+stored messages, not onions.** This keeps the secret-free messaging layer
+secret-free (it only ever sees the final message's pickup key + shards) and keeps
+the node's node-key use quarantined in the peeler.
+
+**Invariant (load-bearing):** the sharding path (`stripe_and_distribute` and the
+bucket/stripe transport) is reachable from the **`Deliver`** hop **only**. The
+**`Forward`** hop sends the inner blob **directly** to the next node over a
+dedicated onion-forward protocol and must **never** call the stripe/bucket
+machinery. Sharding an onion to move it between hops — *peel → shard → forward →
+peel → shard again* — is the precise failure this separation exists to prevent.
 
 ```
 THE MESSAGE  (nested seals, all built by the sender on-device)
@@ -154,40 +162,43 @@ THE MESSAGE  (nested seals, all built by the sender on-device)
               INNER  ─ sealed to RELAY-2 ──►  Deliver{ drop }
                          drop  ─ sealed to RECIPIENT ──►  the real message
 
-THE FLOW
- PHONE              ┌── GUARD node ──────────┐    ┌── RELAY-2 node ────────┐   bucket    PHONE
- (sender)           │  GOSSIPSUB  (no key)    │    │  GOSSIPSUB  (no key)    │   peers  (recipient)
- wrap onion         │  ┌───────────────────┐  │    │  ┌───────────────────┐  │
- cert-auth          │  │ blob to MY pickup? │  │    │  │ blob to MY pickup? │  │
-   │ OUTER          │  │  → hand out        │  │    │  │  → hand out        │  │
-   └──────────────► │  └─────────┬─────────┘  │    │  └─────────┬─────────┘  │
-                    │            ▼             │    │            ▼             │
-                    │  ┌───────────────────┐  │    │  ┌───────────────────┐  │
-                    │  │ ONION PEELER  🔑  │  │    │  │ ONION PEELER  🔑  │  │
-                    │  │ (the ONLY secret) │  │    │  │ (the ONLY secret) │  │
-                    │  │ peel → Forward    │  │    │  │ peel → Deliver    │  │
-                    │  └─────────┬─────────┘  │    │  └─────────┬─────────┘  │
-                    │            ▼             │INR │            ▼             │ shards
-                    │  ┌───────────────────┐  │    │  ┌───────────────────┐  │ ┌──────┐
-                    │  │ GOSSIPSUB: route  │  │    │  │ GOSSIPSUB: insert │  │ │fetch │
-                    │  │ INNER to relay-2 ─┼──┼────┼─►│ envelope → stripe─┼──┼─►│  +   │
-                    │  └───────────────────┘  │    │  │ + push to bucket  │  │ │decryp│
-                    └─────────────────────────┘    │  └───────────────────┘  │ └──────┘
-                                                    └─────────────────────────┘ (recipient
-                                                                                  key only)
+THE FLOW   the onion is DIRECT node-to-node transport — it NEVER enters the
+           bucket/stripe messaging layer; only the final peeled message does.
+
+  PHONE ──OUTER, chat_send_onion RPC──►  GUARD node
+  (sender)                                 │  ONION PEELER 🔑  (the node's ONLY secret)
+                                           │  cert-auth → peel → Forward{ next_hop: relay-2 }
+                                           ▼
+                INNER ──direct onion-forward (/rostro/chat-onion-forward/1)──►  RELAY-2 node
+                                                                                  │  ONION PEELER 🔑
+                                                                                  │  peel → Deliver
+                                                                                  ▼
+                                        ┌──────────── messaging layer ────────────┐
+                                        │  inject the RECIPIENT MESSAGE →          │
+                                        │  XOR-stripe → push shares to the bucket  │
+                                        └─────────────────────┬────────────────────┘
+                                                              ▼
+                                    bucket peers ──►  PHONE (recipient): fetch + decrypt
+
+  ✗ the onion packet is never sharded, never bucketed, never gossiped.
+  ✓ XOR-stripe touches exactly one thing — the recipient message — at the final Deliver.
 
 WHO LEARNS WHAT
    GUARD     : sender (cert+IP) + next hop = relay-2     ✗ NOT the recipient
-   RELAY-2   : recipient bucket + the drop to inject     ✗ NOT the sender
-   gossipsub : only the pickup keys it routes/shards by  ✗ holds no key, peels nothing
+   RELAY-2   : recipient bucket + the message to inject  ✗ NOT the sender
+   messaging : only the final message's pickup + shards  ✗ never sees an onion
    → relinking sender→recipient needs the SPECIFIC guard AND relay-2 to collude.
 ```
 
 **Build shape:** the peeler is its own component (holds `NodeSecret`, runs
-`rostro_chat_onion::process_hop`); the stripe receive handler gains only the
-public recognize-and-handoff; on `Deliver` the peeler calls the existing
-stripe-and-distribute path (relay-2 becomes the apparent submitter — sender
-gone); on `Forward` it emits the inner toward the next hop's bucket.
+`rostro_chat_onion::process_hop`). A **dedicated direct onion-forward protocol**
+(e.g. `/rostro/chat-onion-forward/1`, request/response) carries the opaque inner
+blob node-to-node and hands it **straight to the next node's peeler** — the
+stripe/bucket receive path is **not** involved. On `Deliver` the peeler calls the
+existing stripe-and-distribute path on the **recipient message** (relay-2 becomes
+the apparent submitter — sender gone). On `Forward` the peeler sends the inner
+blob **directly** to `next_hop` via the onion-forward protocol; it **never**
+touches stripe/bucket.
 
 ### Axis 3 — Timing / volume → cover traffic (disclosed residual, not v1)
 
@@ -277,11 +288,12 @@ Per the mission's third frontier — *the endpoint must survive seizure*:
 - **Crate** `rostro-node-identity` (choice A — a node's identity IS its ed25519
   key; sign/verify + XEdDSA seal key). ✅ 6/6 tests.
 - **Node:** the peel lives in an isolated mechanism *outside* the secret-free
-  gossipsub layer (see the diagram above). `chat_send_onion` (guard entry):
-  cert-auth → peel with the node's own `NodeSecret` → `Deliver` injects the
-  recipient envelope into the shared `stripe_and_distribute`; `Forward` is the
-  relay-2 hand-off (slice 2). The node holds only its OWN key, only in the
-  peeler.
+  messaging (bucket/stripe) layer (see the diagram above). `chat_send_onion`
+  (guard entry): cert-auth → peel with the node's own `NodeSecret` → `Deliver`
+  injects the recipient **message** into the shared `stripe_and_distribute`;
+  `Forward` sends the inner blob **directly** to relay-2 over the dedicated
+  onion-forward protocol — never through stripe/bucket (slice 2). The node holds
+  only its OWN key, only in the peeler.
 - **dotwave:** wrap the drop as an onion (`OnionDeliverPayload` →
   `wrap_onion`); call `chat_send_onion`; client-side discovery; throwaway
   send-identity rotation (fresh seed/SS58/name/non-PoP cert).
@@ -304,8 +316,12 @@ the `chat-onion-v0` worktree (rostro) plus the dotwave `rust_core`:
   distribute` confirmed in the guard log) → delivers → recipient reads
   cross-node. The onion moves a message on real nodes. (dotwave commit
   `c2bacac`; test `chat_onion_e2e::onion_1hop_delivers`.)
-- **Slice 2 ◀ next** — relay-2 recognise-and-handoff (the `Forward` path) for
-  the full **2-hop** split (a single relay can't link sender→bucket).
+- **Slice 2 ◀ next** — the `Forward` path: guard sends the inner blob **directly**
+  to relay-2 over a dedicated node-to-node onion-forward protocol (NOT stripe/
+  bucket); relay-2 receives it straight into its peeler → `Deliver` → injects the
+  recipient message. This yields the full **2-hop** split (a single relay can't
+  link sender→bucket). **Invariant:** `stripe_and_distribute` stays reachable from
+  `Deliver` only — the onion is never sharded to forward it.
 
 ### 4b — Device-seizure + disclosures · M
 - **dotwave:** disappearing messages, duress/panic-wipe, the disclosure UX.
