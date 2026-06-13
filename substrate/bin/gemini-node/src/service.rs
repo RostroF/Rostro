@@ -418,6 +418,14 @@ pub fn new_full<
 		chat_ae_handler,
 	);
 
+	// Phase 4 slice 2: register the onion-forward protocol config now
+	// (before build_network). Its handler is spawned later — unlike the
+	// other chat handlers it makes OUTBOUND stripe requests on Deliver,
+	// so it needs the post-build_network NetworkService handle.
+	let (chat_onion_forward_config, chat_onion_forward_rx) =
+		crate::chat_onion_forward_protocol::build_chat_onion_forward_config::<N, _>();
+	net_config.add_request_response_protocol(chat_onion_forward_config);
+
 	log::info!(
 		target: "rostro-chat",
 		"chat-stripe + chat-fetch protocols registered on `{}` / `{}`",
@@ -466,6 +474,9 @@ pub fn new_full<
 	let drift_ledger: crate::attest_asker::SharedDriftLedger = Arc::new(
 		parking_lot::Mutex::new(crate::connect_gate::DriftLedger::new()),
 	);
+	// Phase 4 slice 2: the onion-forward handler consults the same drift
+	// ledger to admit forwards only from canonical-gated peer relays.
+	let drift_ledger_for_onion = drift_ledger.clone();
 	let attest_presence_rx = presence_tx.subscribe();
 	task_manager.spawn_handle().spawn(
 		"rostro-attest-asker",
@@ -704,6 +715,30 @@ pub fn new_full<
 
 	let network_arc: Arc<dyn rc_network::service::traits::NetworkService> =
 		Arc::new(network.clone());
+
+	// Phase 4 slice 2: spawn the onion-forward handler (relay-2 side). It
+	// owns its own OnionPeelCtx built from this node's key — peels a
+	// forwarded onion and, on Deliver, injects the recipient message into
+	// the stripe path. Only spawned when this node has a persistent
+	// identity (onion relaying requires the node key).
+	if let Some(onion_seed) = chat_node_seed {
+		let onion_peel_ctx = Arc::new(crate::chat_rpc::OnionPeelCtx::new(
+			onion_seed,
+			chat_node_pubkey_ed25519,
+			chat_bucket_cache.clone(),
+			network_arc.clone(),
+		));
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-onion-forward-server",
+			Some("rostro"),
+			crate::chat_onion_forward_protocol::run_onion_forward_handler(
+				onion_peel_ctx,
+				validator_channel_sessions.clone(),
+				drift_ledger_for_onion,
+				chat_onion_forward_rx,
+			),
+		);
+	}
 
 	let rpc_builder = {
 		let client = client.clone();
