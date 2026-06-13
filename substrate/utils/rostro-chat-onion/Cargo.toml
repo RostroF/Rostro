@@ -1,0 +1,32 @@
+[package]
+name = "rostro-chat-onion"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Onion wrapping for the Rostro chat layer (Phase 4, network-origin anonymity). Nested sealed-sender layers addressed to NODE IDENTITIES (rostro-node-identity) split who-from-where across relays: the guard learns the sender + next hop but not the destination; the last relay learns the destination but not the sender. A node processes any hop with one uniform operation — peel, then Forward-to-next-hop or Deliver-the-drop. Fixed-size padding defeats size correlation. Pure crypto over rostro-chat-sealed-sender; no transport, no async. Sphinx is the documented upgrade path."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+rostro-chat-sealed-sender = { path = "../rostro-chat-sealed-sender" }
+rostro-node-identity = { path = "../rostro-node-identity" }
+zeroize = { workspace = true }
+rand_core = { workspace = true, features = ["getrandom"] }
+
+[dev-dependencies]
+rand_chacha = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"rostro-chat-sealed-sender/std",
+	"rostro-node-identity/std",
+	"zeroize/std",
+]

@@ -4583,10 +4583,12 @@ dependencies = [
  "rns-types",
  "rostro-canonical-fetch",
  "rostro-chat-ephemeral-store",
+ "rostro-chat-onion",
  "rostro-chat-primitives",
  "rostro-chat-sealed-sender",
  "rostro-consensus-sassafras",
  "rostro-executor",
+ "rostro-node-identity",
  "rostro-rpc-shield",
  "rostro-validator-channel",
  "serde",
@@ -13799,6 +13801,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-chat-onion"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "rostro-chat-sealed-sender",
+ "rostro-node-identity",
+ "zeroize",
+]
+
+[[package]]
 name = "rostro-chat-primitives"
 version = "0.1.0"
 dependencies = [
@@ -14084,6 +14098,20 @@ dependencies = [
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "tracing",
+]
+
+[[package]]
+name = "rostro-node-identity"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "ed25519-zebra",
+ "rand_chacha 0.3.1",
+ "rostro-chat-primitives",
+ "rostro-chat-sealed-sender",
+ "sha2 0.10.9",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

@@ -81,12 +81,17 @@ use rostro_chat_primitives::{
 	stripe::{split_xor, MAX_SHARES},
 	verify::mac_share,
 };
+use rostro_chat_onion::{process_hop, OnionDeliverPayload, OnionHop, OnionPacket};
+use rostro_node_identity::NodeSecret;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_core::blake2_256;
 use zk_pki_primitives::runtime_api::{CertState as RpcCertState, ZkPkiApi};
 
 use crate::chat_bucket_cache::BucketCache;
+use crate::chat_onion_forward_protocol::{
+	OnionForwardRequest, OnionForwardResponse, CHAT_ONION_FORWARD_PROTOCOL_NAME,
+};
 use crate::chat_stripe_protocol::CHAT_STRIPE_PROTOCOL_NAME;
 
 /// Local-clock helper. Returns the host's current Unix timestamp in
@@ -276,6 +281,32 @@ pub trait ChatRpcApi {
 		auth_sig_hex: Option<String>,
 	) -> RpcResult<ChatSendResult>;
 
+	/// Submit an **onion-wrapped** send (Phase 4, network-origin
+	/// anonymity). The node peels the one layer addressed to it — using
+	/// its own node key in the isolated peeler, never in the secret-free
+	/// routing layer — and then either:
+	///   * `Deliver` → injects the recipient-sealed envelope into the
+	///     normal stripe-and-distribute path (this node is the last hop;
+	///     the sender is already gone), or
+	///   * `Forward` → hands the inner blob to the next hop (slice 2).
+	///
+	/// Cert-auth (Phase 2) is verified over the onion packet bytes — the
+	/// sender signs the packet it presents to this guard.
+	///
+	/// Parameters:
+	///   * `onion_packet_hex` — the SCALE-encoded `OnionPacket` sealed to
+	///     this node's identity (hex).
+	///   * `total_shares` — stripe count for the eventual distribution.
+	#[method(name = "chat_send_onion")]
+	async fn send_onion(
+		&self,
+		onion_packet_hex: String,
+		total_shares: u8,
+		auth_cert_thumbprint_hex: Option<String>,
+		auth_timestamp_secs: Option<u64>,
+		auth_sig_hex: Option<String>,
+	) -> RpcResult<ChatSendResult>;
+
 	/// Return raw share descriptors + ciphertext bytes for shares
 	/// stored under the given pickup key. The client reconstructs
 	/// + decrypts on-device.
@@ -305,6 +336,12 @@ pub trait ChatRpcApi {
 /// secret — those live on user devices.
 pub struct ChatRpc<C> {
 	node_pubkey_ed25519: [u8; 32],
+	/// This node's OWN onion peel context, present iff a persistent
+	/// libp2p key is configured. Holds the node-key identity (for the
+	/// isolated peeler) plus the routing handles the `Deliver` path
+	/// needs. Not a user secret; never touches gossipsub. Same shape the
+	/// (slice-2) `/rostro/chat-onion-forward/1` handler uses on relay-2.
+	onion_ctx: Option<OnionPeelCtx>,
 	share_store: Arc<EphemeralShareStore>,
 	network: Arc<dyn NetworkService>,
 	client: Arc<C>,
@@ -325,6 +362,7 @@ where
 {
 	pub fn new(
 		node_pubkey_ed25519: [u8; 32],
+		node_seed: Option<[u8; 32]>,
 		share_store: Arc<EphemeralShareStore>,
 		network: Arc<dyn NetworkService>,
 		client: Arc<C>,
@@ -333,8 +371,17 @@ where
 			crate::chat_gossip_protocol::LocalSubscriptionState,
 		>,
 	) -> Self {
+		let onion_ctx = node_seed.map(|seed| {
+			OnionPeelCtx::new(
+				seed,
+				node_pubkey_ed25519,
+				bucket_cache.clone(),
+				network.clone(),
+			)
+		});
 		Self {
 			node_pubkey_ed25519,
+			onion_ctx,
 			share_store,
 			network,
 			client,
@@ -429,6 +476,309 @@ where
 		}
 
 		Ok(info.bound_account)
+	}
+}
+
+/// Onion peel-and-dispatch context — this node's OWN node key plus the
+/// routing handles the `Deliver` path needs. Deliberately NON-generic and
+/// free of any user secret: it holds only `node_secret` (this node's own
+/// key, for the single peel step), `node_pubkey_ed25519`, the `bucket_cache`
+/// and the `network` handle. Shared by the guard's `chat_send_onion` RPC
+/// entry and (slice 2) the `/rostro/chat-onion-forward/1` handler, so the
+/// peeler is byte-identical on every hop. Auth is the CALLER's concern.
+pub(crate) struct OnionPeelCtx {
+	node_secret: NodeSecret,
+	node_pubkey_ed25519: [u8; 32],
+	bucket_cache: BucketCache,
+	network: Arc<dyn NetworkService>,
+}
+
+impl OnionPeelCtx {
+	pub(crate) fn new(
+		seed: [u8; 32],
+		node_pubkey_ed25519: [u8; 32],
+		bucket_cache: BucketCache,
+		network: Arc<dyn NetworkService>,
+	) -> Self {
+		Self {
+			node_secret: NodeSecret::from_seed(seed),
+			node_pubkey_ed25519,
+			bucket_cache,
+			network,
+		}
+	}
+
+	/// Peel this node's layer — the ONE key-using step — and act on the
+	/// result. `Deliver` → inject the recipient MESSAGE into the stripe
+	/// path; `Forward` → (slice 2) send the inner onion DIRECTLY to
+	/// `next_hop`, never through stripe. Caller-agnostic: the guard RPC
+	/// does cert-auth before calling this; the relay-2 forward handler
+	/// gates on canonical-peer status. Holds no user secret.
+	pub(crate) async fn peel_and_dispatch(
+		&self,
+		packet: &OnionPacket,
+		total_shares: u8,
+		allow_forward: bool,
+	) -> RpcResult<ChatSendResult> {
+		let hop = process_hop(&self.node_secret, packet).map_err(|e| {
+			ErrorObject::owned::<()>(-32000, format!("onion peel failed: {e:?}"), None)
+		})?;
+
+		match hop {
+			OnionHop::Deliver { drop } => {
+				// Last hop: inject the recipient-sealed envelope into the
+				// normal stripe-and-distribute path (the sender is gone).
+				let payload = OnionDeliverPayload::decode(&mut &drop[..]).map_err(|e| {
+					ErrorObject::owned::<()>(
+						-32000,
+						format!("onion deliver payload decode: {e}"),
+						None,
+					)
+				})?;
+				let recipient_x25519 =
+					ed25519_to_x25519_pubkey(&payload.recipient_chat_pubkey).ok_or_else(|| {
+						ErrorObject::owned::<()>(
+							-32000,
+							"onion deliver recipient pubkey is not a valid Edwards point",
+							None,
+						)
+					})?;
+				let recipient_pickup = PickupKey::for_pairwise(&recipient_x25519);
+				let envelope =
+					SealedEnvelope::decode(&mut &payload.envelope_bytes[..]).map_err(|e| {
+						ErrorObject::owned::<()>(
+							-32000,
+							format!("onion deliver envelope decode: {e}"),
+							None,
+						)
+					})?;
+				self.stripe_and_distribute(envelope, recipient_pickup, total_shares).await
+			}
+			OnionHop::Forward { next_hop, inner } => {
+				// Direct node-to-node hop. INVARIANT: the onion is
+				// transport, never a message — `inner` (an `OnionPacket`)
+				// is forwarded DIRECTLY to `next_hop` over
+				// /rostro/chat-onion-forward/1 and must NEVER be decoded
+				// into a `SealedEnvelope`, addressed to a bucket, or passed
+				// to `stripe_and_distribute`. Sharding an onion to forward
+				// it is the precise failure the peeler/messaging split
+				// prevents. See docs/DOTWAVE-CHAT-METADATA-ANONYMITY.md.
+				if !allow_forward {
+					// A forwarded onion that peels to a further Forward
+					// would be hop ≥3 — refused (2-hop cap; loop defense).
+					return Err(ErrorObject::owned::<()>(
+						-32000,
+						"onion exceeds the 2-hop limit: a forwarded onion must \
+						 deliver, not forward again",
+						None,
+					));
+				}
+				let peer = PeerId::from_ed25519(&next_hop).ok_or_else(|| {
+					ErrorObject::owned::<()>(
+						-32000,
+						"onion forward next_hop is not a valid ed25519 public key",
+						None,
+					)
+				})?;
+				let request =
+					OnionForwardRequest { total_shares, packet_bytes: inner.encode() };
+				let (resp_bytes, _) = self
+					.network
+					.request(
+						peer,
+						ProtocolName::from(CHAT_ONION_FORWARD_PROTOCOL_NAME),
+						request.encode(),
+						None,
+						IfDisconnected::TryConnect,
+					)
+					.await
+					.map_err(|e| {
+						ErrorObject::owned::<()>(
+							-32000,
+							format!("onion forward to relay-2 ({peer}) failed: {e:?}"),
+							None,
+						)
+					})?;
+				match OnionForwardResponse::decode(&mut &resp_bytes[..]) {
+					Ok(OnionForwardResponse::Delivered {
+						message_id_hex,
+						share_count,
+						recipient_pickup_key_hex,
+					}) => Ok(ChatSendResult {
+						message_id_hex,
+						share_count,
+						recipient_pickup_key_hex,
+					}),
+					Ok(OnionForwardResponse::Rejected { code, message }) => {
+						Err(ErrorObject::owned::<()>(code, message, None))
+					}
+					Err(e) => Err(ErrorObject::owned::<()>(
+						-32000,
+						format!("onion forward response decode failed: {e}"),
+						None,
+					)),
+				}
+			}
+		}
+	}
+
+	/// Shared distribution core: stripe-split a recipient-sealed
+	/// envelope and push the shards to the recipient bucket's peers over
+	/// `/rostro/chat-stripe/1`. Pure routing — holds no secret.
+	///
+	/// Used by the onion peeler's `Deliver` path (relay-2 re-inserts a
+	/// peeled envelope into the normal distribution; the sender is
+	/// already gone). `send_envelope` inlines the same logic today; the
+	/// two converge on this helper once the onion path is fabric-proven.
+	///
+	/// INVARIANT — MESSAGE-ONLY, never an onion. Callers must pass a
+	/// fully-peeled **recipient message** (the `SealedEnvelope` carried by
+	/// an `OnionHop::Deliver` drop, or a direct `send_envelope`). An onion
+	/// in flight (an `OnionPacket`, e.g. an `OnionHop::Forward { inner }`)
+	/// must **never** reach this path: onions are forwarded directly
+	/// node-to-node, never sharded/bucketed. Sharding an onion to move it
+	/// between hops — peel → shard → forward → peel → shard again — is the
+	/// exact failure this separation prevents. The `OnionPacket` vs
+	/// `SealedEnvelope` type split enforces it; this note guards against a
+	/// future caller decoding an onion into an envelope to slip it through.
+	/// See docs/DOTWAVE-CHAT-METADATA-ANONYMITY.md, "Resolved structure".
+	async fn stripe_and_distribute(
+		&self,
+		envelope: SealedEnvelope,
+		recipient_pickup: PickupKey,
+		total_shares: u8,
+	) -> RpcResult<ChatSendResult> {
+		if !matches!(envelope.kind, EnvelopeKind::Pairwise) {
+			return Err(invalid_param(
+				"envelope",
+				"only Pairwise envelopes are supported in v0.1",
+			));
+		}
+
+		let n_shares = if total_shares == 0 {
+			DEFAULT_TOTAL_SHARES
+		} else {
+			let n = total_shares as usize;
+			if n < 2 || n > MAX_SHARES {
+				return Err(invalid_param(
+					"total_shares",
+					&format!("must be 0 (default) or in [2, {MAX_SHARES}]"),
+				));
+			}
+			n
+		};
+
+		let encoded = envelope.encode();
+		let message_id = envelope.message_id;
+		let mut rng = OsRng;
+		let shares = split_xor(&encoded, n_shares, &mut rng).map_err(|e| {
+			ErrorObject::owned::<()>(-32000, format!("split_xor failed: {e:?}"), None)
+		})?;
+
+		let bucket = bucket_for_pickup_key(&recipient_pickup);
+		let mut bucket_peers = self.bucket_cache.peers_for_bucket(bucket);
+		if bucket_peers.is_empty() {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				format!(
+					"no bucket peers available for bucket {bucket} — try a \
+					 different RPC node, or wait for peers to advertise their \
+					 bucket subscriptions on /rostro/chat-gossip/1",
+				),
+				None,
+			));
+		}
+
+		// Shuffle so each shard goes to up to REPLICATION_FACTOR random
+		// bucket peers (non-deterministic — predictable selection would
+		// let an observer game which peers receive which shards).
+		use rand_core::RngCore;
+		let peer_n = bucket_peers.len();
+		for i in (1..peer_n).rev() {
+			let j = (rng.next_u64() as usize) % (i + 1);
+			bucket_peers.swap(i, j);
+		}
+		let n_replicas = REPLICATION_FACTOR.min(bucket_peers.len());
+		let selected_peers: Vec<rc_network::PeerId> =
+			bucket_peers.into_iter().take(n_replicas).collect();
+
+		let mac_key = [0u8; 32];
+		let total_u8 = n_shares as u8;
+		let expires_at = now_unix_seconds().saturating_add(CHAT_TTL_SECONDS);
+
+		let mut stored_total: usize = 0;
+		let mut rejected_total: usize = 0;
+		let mut transport_failed_total: usize = 0;
+
+		for (i, share_bytes) in shares.into_iter().enumerate() {
+			let share_index = i as ShareIndex;
+			let mac_tag = mac_share(&mac_key, &share_bytes, share_index);
+			let descriptor = ShareDescriptor {
+				relay_pubkey: RelayPubkey(self.node_pubkey_ed25519),
+				message_id,
+				share_index,
+				total_shares: total_u8,
+				pickup_key: recipient_pickup,
+				expires_at_unix_ts: expires_at,
+			};
+			let store_req =
+				StoreRequest { descriptor, share_bytes: share_bytes.clone(), mac_tag };
+			let request_bytes = store_req.encode();
+
+			for peer in &selected_peers {
+				match self
+					.network
+					.request(
+						*peer,
+						ProtocolName::from(CHAT_STRIPE_PROTOCOL_NAME),
+						request_bytes.clone(),
+						None,
+						IfDisconnected::TryConnect,
+					)
+					.await
+				{
+					Ok((resp_bytes, _)) => match StoreResponse::decode(&mut &resp_bytes[..]) {
+						Ok(StoreResponse::Stored) => stored_total += 1,
+						Ok(StoreResponse::Rejected(reason)) => {
+							rejected_total += 1;
+							// DuplicateShare on a retry is fine — count as Stored.
+							if matches!(reason, StoreRejection::DuplicateShare) {
+								stored_total += 1;
+								rejected_total -= 1;
+							}
+						}
+						Err(_) => transport_failed_total += 1,
+					},
+					Err(_) => transport_failed_total += 1,
+				}
+			}
+		}
+
+		log::info!(
+			target: "rostro-chat-rpc",
+			"chat distribute: shards={n_shares} stored={stored_total} \
+			 rejected={rejected_total} transport_failed={transport_failed_total} \
+			 message_id={}",
+			hex::encode(message_id.0),
+		);
+
+		if stored_total < n_shares {
+			return Err(ErrorObject::owned::<()>(
+				-32000,
+				format!(
+					"only {stored_total} of {n_shares} shards landed (need {n_shares} \
+					 for recipient assembly); {rejected_total} rejected, \
+					 {transport_failed_total} transport-failed",
+				),
+				None,
+			));
+		}
+
+		Ok(ChatSendResult {
+			message_id_hex: hex::encode(message_id.0),
+			share_count: n_shares as u32,
+			recipient_pickup_key_hex: hex::encode(recipient_pickup.0),
+		})
 	}
 }
 
@@ -712,6 +1062,61 @@ where
 			share_count: n_shares as u32,
 			recipient_pickup_key_hex: hex::encode(recipient_pickup.0),
 		})
+	}
+
+	async fn send_onion(
+		&self,
+		onion_packet_hex: String,
+		total_shares: u8,
+		auth_cert_thumbprint_hex: Option<String>,
+		auth_timestamp_secs: Option<u64>,
+		auth_sig_hex: Option<String>,
+	) -> RpcResult<ChatSendResult> {
+		// The peeler needs this node's own key (isolated in OnionPeelCtx,
+		// outside the secret-free routing layer).
+		let ctx = self.onion_ctx.as_ref().ok_or_else(|| {
+			ErrorObject::owned::<()>(
+				-32000,
+				"this node has no persistent identity; onion relaying is disabled \
+				 (set --node-key / --node-key-file)",
+				None,
+			)
+		})?;
+
+		let packet_bytes = hex::decode(onion_packet_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("onion_packet_hex", &format!("invalid hex: {e}")))?;
+		let packet = OnionPacket::decode(&mut &packet_bytes[..]).map_err(|e| {
+			invalid_param("onion_packet_hex", &format!("SCALE-decode failed: {e}"))
+		})?;
+
+		// Cert-auth (Phase 2) over the onion packet bytes — the guard
+		// authenticates the sender at the RPC entry. The peel + dispatch
+		// below is auth-agnostic: the slice-2 relay-2 forward handler gates
+		// on canonical-peer status instead, never re-authing the sender.
+		match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
+			(Some(tp), Some(ts), Some(sig)) => {
+				let authed = self.verify_chat_auth(&packet_bytes, &tp, ts, &sig)?;
+				log::debug!(
+					target: "rostro-chat-rpc",
+					"chat_send_onion authenticated as account {:?}",
+					authed,
+				);
+			}
+			_ => {
+				return Err(invalid_param(
+					"auth_*",
+					"chat_send_onion requires cert auth: all three of \
+					 auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex \
+					 must be present, signed by an Active zkpki cert's device key",
+				));
+			}
+		}
+
+		// Peel + dispatch via the shared context — the SAME code path the
+		// slice-2 /rostro/chat-onion-forward/1 handler runs on relay-2.
+		// allow_forward = true: the guard legitimately forwards to relay-2
+		// (a 1-hop onion delivers here directly).
+		ctx.peel_and_dispatch(&packet, total_shares, true).await
 	}
 
 	async fn fetch_shares(

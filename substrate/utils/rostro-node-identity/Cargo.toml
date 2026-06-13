@@ -1,0 +1,38 @@
+[package]
+name = "rostro-node-identity"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Node identity primitive (design choice A): a node's identity IS its libp2p ed25519 key. One key serves the quarantine gate, proof-of-possession (free from the Noise handshake), non-repudiation (sign/verify), and onion addressability (XEdDSA convert-once: ed25519→X25519 for ECDH sealing). The crate operates on raw ed25519 pubkey bytes; peer-id encode/decode stays at the node boundary where libp2p lives. See docs/NODE-IDENTITY.md."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+ed25519-zebra = { workspace = true }
+curve25519-dalek = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+rand_chacha = { workspace = true, default-features = true }
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
+# Cross-check that this crate's ed25519→X25519 conversion is
+# byte-identical to the chat layer's, and that a node can actually
+# receive an onion layer sealed to its identity. Dev-only — no runtime
+# dependency on the chat crates (node identity is foundational).
+rostro-chat-primitives = { path = "../rostro-chat-primitives" }
+rostro-chat-sealed-sender = { path = "../rostro-chat-sealed-sender" }
+
+[features]
+default = ["std"]
+std = [
+	"ed25519-zebra/std",
+	"curve25519-dalek/alloc",
+	"sha2/std",
+	"zeroize/std",
+]
