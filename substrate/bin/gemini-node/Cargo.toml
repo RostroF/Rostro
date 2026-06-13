@@ -100,6 +100,7 @@ rostro-canonical-fetch = { path = "../../utils/rostro-canonical-fetch" }
 rostro-chat-primitives = { path = "../../utils/rostro-chat-primitives" }
 rostro-chat-ephemeral-store = { path = "../../utils/rostro-chat-ephemeral-store" }
 rostro-chat-sealed-sender = { path = "../../utils/rostro-chat-sealed-sender" }
+rostro-chat-onion = { path = "../../utils/rostro-chat-onion" }
 rostro-node-identity = { path = "../../utils/rostro-node-identity" }
 serde = { workspace = true, default-features = true, features = ["derive"] }
 
