@@ -270,18 +270,40 @@ Per the mission's third frontier — *the endpoint must survive seizure*:
 
 ## Phased plan with gates
 
-### 4a — One-hop onion · L  ◀ **building now**
-- **Crate** `rostro-chat-onion`: nested-seal wrap + per-hop peel + fixed-size
-  padding (pure crypto, no transport; unit-testable in microseconds).
-- **Node:** relay X25519 onion key; guard op `chat_onion_forward(outer, auth_*)`
-  — verify cert, peel outer, forward inner to relay-2; relay-2 inbound op —
-  accept forwarded inner from a canonical-gated peer, peel, inject into the
-  existing stripe path.
-- **dotwave:** wrap the drop as an onion; guard/relay-2 selection; throwaway
+### 4a — One-hop onion · L  ◀ **in progress**
+- **Crate** `rostro-chat-onion`: nested-seal wrap + uniform per-hop `process_hop`
+  (`Forward`/`Deliver`), sealed to relay `NodeIdentity`s, fixed-size padding.
+  Pure crypto. ✅ 10/10 tests.
+- **Crate** `rostro-node-identity` (choice A — a node's identity IS its ed25519
+  key; sign/verify + XEdDSA seal key). ✅ 6/6 tests.
+- **Node:** the peel lives in an isolated mechanism *outside* the secret-free
+  gossipsub layer (see the diagram above). `chat_send_onion` (guard entry):
+  cert-auth → peel with the node's own `NodeSecret` → `Deliver` injects the
+  recipient envelope into the shared `stripe_and_distribute`; `Forward` is the
+  relay-2 hand-off (slice 2). The node holds only its OWN key, only in the
+  peeler.
+- **dotwave:** wrap the drop as an onion (`OnionDeliverPayload` →
+  `wrap_onion`); call `chat_send_onion`; client-side discovery; throwaway
   send-identity rotation (fresh seed/SS58/name/non-PoP cert).
 - **GATE:** an observer on a single relay (guard *or* relay-2, not both) cannot
   link sender→bucket; cert-auth still enforced at the guard; basic chat
   unaffected; padded blobs uniform on the wire.
+
+**Build status (2026-06-12) — node + client move in lockstep.** Implemented on
+the `chat-onion-v0` worktree (rostro) plus the dotwave `rust_core`:
+- **Slice 1a ✅** — node's own `NodeSecret` plumbed into the chat layer for the
+  isolated peeler (`8cc137bf5e`). Comment corrected: chat holds no *user*
+  secret; the node holds its own key only in the peeler.
+- **Slice 1b ✅** — `chat_send_onion` peeler + the shared `stripe_and_distribute`
+  helper (`405e4dbca6`). `Deliver` path complete; `Forward` stubbed for slice 2.
+  The proven `send_envelope` left UNTOUCHED (zero-risk); the two converge on the
+  helper once the onion path is fabric-proven.
+- **Slice 1c ◀ next** — dotwave wraps a **1-hop** onion (`path = [guard]`) and
+  calls `chat_send_onion`; fabric proof: phone → guard peels → delivers →
+  recipient fetches + decrypts. First time the onion moves a message on real
+  nodes.
+- **Slice 2** — relay-2 recognise-and-handoff (the `Forward` path) for the full
+  **2-hop** split.
 
 ### 4b — Device-seizure + disclosures · M
 - **dotwave:** disappearing messages, duress/panic-wipe, the disclosure UX.

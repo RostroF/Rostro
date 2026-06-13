@@ -204,7 +204,8 @@ background task, `dangerouslyDisableSandbox` for the RISC-V JIT) are session-loc
 hardware-bound content). After P3 the tracks fork.*
 
 ### PHASE 4 — Metadata anonymity + device hardening  *(secure-messenger core)*
-**◀ DESIGN LOCKED 2026-06-12 — full detail in
+**◀ IN PROGRESS 2026-06-12 (slices 1a/1b landed on `chat-onion-v0`; node peeler
+compiles; dotwave 1-hop wrap + fabric proof = slice 1c next). Full detail in
 [DOTWAVE-CHAT-METADATA-ANONYMITY.md](DOTWAVE-CHAT-METADATA-ANONYMITY.md);
 building on `chat-onion-v0`.** Two axes settled: **identity** anonymity via
 throwaway rotation (fresh seed/SS58/name/non-PoP cert — the chat cert is the
