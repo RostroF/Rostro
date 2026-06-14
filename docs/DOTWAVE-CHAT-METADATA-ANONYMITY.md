@@ -67,40 +67,44 @@ never hid it.
 Phase 4 splits cleanly into two independent anonymity problems plus one
 disclosed residual:
 
-### Axis 1 — Identity anonymity → throwaway rotation (no new crypto)
+### Axis 1 — Identity anonymity → throwaway NAMES (no new crypto)
 
-A sender (or recipient) uses a **fresh seed → fresh SS58 → fresh RNS name →
-fresh HW-attested cert** as a disposable identity. This is *legal by
-construction* and is the cleanest solution to the identity leak:
+> **CORRECTED 2026-06-13 (supersedes the throwaway-*cert* framing below):** the
+> disposable unit is the **seed phrase / RNS name**, NOT the cert. Minting a cert
+> is a token-costed extrinsic; a user keeps **one** standing HW-attested cert per
+> phone and never mints one per message. Throwaway-ness lives at the name layer —
+> seed phrases are free, a user makes as many as they want, registers a `CHAT`
+> record under each, and "logs in" with whichever. The message's from-identity
+> (a throwaway name's Ed25519) rides **inside** the sealed envelope, so the guard
+> never learns it. Anti-abuse is **per-cert** (the guard authenticates the one
+> cert); throwaway names don't evade it — they buy recipient/social-graph
+> unlinkability, not spam evasion.
+
+A sender (or recipient) uses a **fresh seed → fresh SS58 → fresh RNS name → fresh
+`CHAT` record** as a disposable identity, all under their **one** standing
+HW-attested cert. This is *legal by construction*:
 
 - The chat-admission cert attests *"a genuine secure element / real human is
-  behind this drop"* — it is the **anti-abuse** gate, **not** the
-  proof-of-personhood uniqueness gate. `verify_chat_auth` only checks the cert
-  is `Active` and the signature matches `device_pubkey`; it never checks "is
-  this the only cert this human holds." `self_discard_cert` exists; minting
-  another is allowed.
-- The certs carry **no real-world identifier** by design; ZK-PKI's whole purpose
-  is to prove "I hold a valid HW-attested cert" without revealing *which*.
-- PoP **uniqueness** (ICAO-doc/biometric stack, EK-dedup on the personhood
-  capability) bites only for high-stakes roles (validating, governance), **not**
-  for sending a chat message.
+  behind this drop"* — the **anti-abuse** gate, **not** the personhood-uniqueness
+  gate. `verify_chat_auth` only checks the cert is `Active` and the signature
+  matches `device_pubkey`; it never ties the cert to the throwaway from-name,
+  which is sealed inside the envelope.
+- The cert carries **no real-world identifier**; ZK-PKI proves "I hold a valid
+  HW-attested cert" without revealing *which*.
+- PoP **uniqueness** bites only for high-stakes roles (validating, governance),
+  **not** for sending a chat message — so holding one cert while rotating names
+  is fine.
 
-**Anti-abuse shifts to minting economics.** Because per-cert rate-limiting is
-evadable by rotation, the real bound on abuse is the **cost of minting a cert**
-(deposit + needing a genuine secure element). This is a tuning knob: cheap
-enough that a journalist rotates freely, costly enough that a spammer can't mint
-10,000 throwaways. **Decision to lock:** target mint cost / rate.
+**Anti-abuse is per-cert.** The bound is the standing cert plus a (future)
+per-cert rate-limit / mute mechanism — see [DOTWAVE-CHAT-PHASE4-REMAINDER] Step 3.
+The cert is the one stable identity the guard sees; rotating names doesn't move
+it. (The old "anti-abuse shifts to minting economics" framing retired with the
+throwaway-cert model.)
 
-**Rotation granularity** (product decision, default mine): per-message is
-maximal anonymity but maximal cost (an on-chain mint each time) and a tiny
-anonymity set; **per-correspondent or per-session** is the sweet spot. Default:
-per-correspondent throwaway, rotated on a cadence.
-
-**Plumbing to confirm (not a blocker):** throwaway chat certs must be minted
-**non-PoP** so they do **not** write the on-chain EK registry, and the minting
-path must not leak a stable device identifier in a public extrinsic — else all
-of one person's throwaways become correlatable as "same device," defeating the
-rotation. Lean on the ZK-PKI proof for device unlinkability.
+**Rotation granularity** (product decision): a per-correspondent or per-session
+throwaway **name** is the sweet spot — a fresh seed/SS58/name (free), not a fresh
+cert. A fresh per-name hardware `MESSAGE` key keeps the content layer unlinkable
+too.
 
 ### Axis 2 — Network-origin anonymity → the one-hop onion (the hard part)
 

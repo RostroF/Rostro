@@ -134,6 +134,9 @@ pub mod pallet {
         /// The record type is not in the set of user-settable types.
         /// Only declared RNS attribute types are accepted.
         InvalidRecordType,
+        /// A `CHAT` record must be exactly 32 bytes — a published Ed25519 mail
+        /// address. Anything else is rejected (the typed record stays well-formed).
+        InvalidChatKey,
     }
 
     impl<T: Config> Pallet<T> {
@@ -214,11 +217,20 @@ pub mod pallet {
                 RecordType::PUBKEY1, RecordType::PUBKEY2, RecordType::PUBKEY3,
                 RecordType::AVATAR, RecordType::CONTRACT,
                 RecordType::IPFS, RecordType::CONTENT,
+                RecordType::CHAT, RecordType::MESSAGE,
             ];
             ensure!(
                 USER_SETTABLE.contains(&record_type),
                 Error::<T>::InvalidRecordType
             );
+            // `CHAT` is a published Ed25519 mail address — exactly 32 bytes. A
+            // malformed key only breaks the publisher's own reachability, but the
+            // length check keeps the typed record well-formed and is cheap.
+            // `MESSAGE` stays opaque here: the app parses the curve-tagged
+            // `ContentPublicKey` (its curve tag self-describes StrongBox vs TPM).
+            if record_type == RecordType::CHAT {
+                ensure!(content.len() == 32, Error::<T>::InvalidChatKey);
+            }
             let node = Self::name_to_node(&name)?;
             ensure!(
                 T::RegistryChecker::check_node_useable(node, &who),

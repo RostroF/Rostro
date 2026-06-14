@@ -2,3 +2,8 @@
 
 pub mod resolvers;
 pub mod resolvers_weights;
+
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+mod tests;

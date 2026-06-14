@@ -55,10 +55,13 @@ is assumed to be **nation-state grade**. That bar reorders the work:
    identity is *inherently* held by a verified human; there is no "open signup"
    decision to make. The cert/PoP sits upstream of messaging by construction.
 
-1. **Chat identity is a separate Ed25519 key**, NOT the chain SS58. Linked to the
-   user via an **RNS chat-identity record**, never by reinterpreting the SS58.
-   (Ed25519 is required for the X25519/XEdDSA conversion sealed-sender needs; the
-   SS58 may be any BTOW scheme.)
+1. **Chat identity is a separate Ed25519 key**, NOT the chain SS58. Published in
+   the typed **`CHAT`** RNS record (with the hardware content key in the typed
+   **`MESSAGE`** record), never by reinterpreting the SS58. (Reaffirmed +
+   implemented 2026-06-13: Ed25519 is required for the X25519/XEdDSA conversion
+   sealed-sender needs, and the SS58 may be any scheme — so the Ed25519 must be
+   published explicitly, not derived from the account. See
+   [DOTWAVE-CHAT-PHASE4-REMAINDER] Step 2.)
 2. **The chain is oblivious to groups.** MLS membership lives entirely in tree
    state, never on-chain. Relays see only `(group_id, ciphertext)`. group_id is
    random 256-bit. Group *size* leak at the relay is accepted; identities are not.

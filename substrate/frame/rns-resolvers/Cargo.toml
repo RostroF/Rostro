@@ -32,6 +32,9 @@ sp-weights = { workspace = true }
 rns-types = { workspace = true }
 pallet-rns-registrar = { workspace = true, optional = true }
 
+[dev-dependencies]
+sp-io = { workspace = true, features = ["std"] }
+
 [features]
 default = ["std"]
 std = [
