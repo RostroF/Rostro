@@ -62,18 +62,35 @@ biometric-gated key.
   (P-384): she resolves `bob.rst`, sees `{content-key: P-384}`, software-ECDHs to it;
   Bob's TPM decrypts in-chip. The **RNS record's scheme tag** advertises the curve.
 
-## RNS record = the common thread (and the non-inhibition rule)
+## RNS records = the common thread (and the non-inhibition rule)
 
-Both the basic chat **and** secret-squirrel dead-drop bootstrap from **a public key
-published in an RNS record**. So the record is built **general**, not chat-specific:
-- **Curve-agnostic + scheme-tagged** — holds Ed25519 (outer), P-256/P-384 (inner),
-  secp521r1 (dead-drop), PQ (v1.1). The tag drives version negotiation.
-- **Any name, including throwaways** — register is name-agnostic (proven).
-- **Multi-identity per user** — the device manages a *set* of `(name, key)`
-  identities; throwaways are minted per-correspondent.
-- **The relay tag stays opaque** — so client-side derivation can be `H(pubkey)`
-  (convenient) *or* `H(shared_secret ‖ counter)` (dead-drop). The transport already
-  doesn't preclude either.
+> **Settled + BUILT 2026-06-13 (supersedes the generic-slot description that
+> followed):** the chat identity is **two typed RNS records**, not opaque bytes
+> in a generic `PUBKEY` slot — the record *type* is the unambiguous semantic, so
+> no client guesses which slot holds what:
+> - **`CHAT`** — the published **Ed25519 mail address** (software; outer /
+>   sealed-sender layer). *Required* to be reachable, and the key the chain
+>   resolves to deliver **system messages**. Published explicitly because an
+>   SS58 is scheme-agnostic and may not be Ed25519 (only Ed25519 converts to
+>   X25519 for sealing).
+> - **`MESSAGE`** — the **hardware content key** (curve-tagged `ContentPublicKey`,
+>   P-256 = StrongBox / P-384 = TPM; inner / content-at-rest layer). **On by
+>   default**; omit it to go dead-drop (content key out-of-band). The curve tag
+>   self-describes the silicon — no `type=` tag.
+>
+> Both land on chain via the existing `set_record` extrinsic and resolve via
+> `lookup`. Implemented in `rns-types`/`rns-resolvers`; see
+> [DOTWAVE-CHAT-PHASE4-REMAINDER] Step 2.
+
+Both the basic chat **and** secret-squirrel dead-drop bootstrap from **keys
+published in RNS records** (the `CHAT` / `MESSAGE` pair above):
+- **Any name, including throwaways** — register is name-agnostic (proven); the
+  disposable unit is the **name/seed**, not the cert.
+- **Multi-identity per user** — the device manages a *set* of `(name, CHAT,
+  MESSAGE)` identities; a fresh per-name hardware `MESSAGE` key keeps throwaways
+  unlinkable.
+- **`MESSAGE` may be omitted** — dead-drop derives the content target from a
+  shared secret out-of-band rather than a published key.
 
 **Two products, one foundation.** Basic Rostro chat (named, convenient) and
 secure-messenger (dead-drop, throwaway, deniable, on-chain self-destructing slots)
@@ -97,8 +114,11 @@ genesis init — Official + base node), **R2** (mixed validator/relay topology),
 
 ### PHASE 1 — Named identity  ◀ **logic COMPLETE; UI deferred**
 **Built + verified (4 green tests on the live mixed topology):**
-- Curve-agnostic, scheme-tagged chat-identity record in RNS `PUBKEY1` (zero chain
-  change) — `chat_publish_identity` / `chat_resolve_identity`.
+- Chat-identity record in RNS. **UPDATED 2026-06-13: this is now the typed
+  `CHAT` (Ed25519 mail address) + `MESSAGE` (content key) records, NOT opaque
+  bytes in `PUBKEY1`.** The original "zero chain change / `PUBKEY1` convention"
+  was an app-side convention; the chain now owns the schema (`rns-types` /
+  `rns-resolvers`, set via `set_record`, resolved via `lookup`).
 - **Item 1** — message *by name* (`name_addressed_message_lands`).
 - **Item 2** — receive shows the *verified* sender name via **forward-resolve-and-
   verify** (claim in the signed inner; recipient resolves it + checks the published
@@ -182,9 +202,11 @@ background task, `dangerouslyDisableSandbox` for the RISC-V JIT) are session-loc
   silicon seam = `ContentEcdh` trait**: decrypt needs exactly ONE private-key op
   (ECDH vs the ephemeral); StrongBox/TPM perform it in-chip later,
   `SoftwareContentKey` is the dev stand-in + reference implementation.
-- RNS record: `inner_content_key` now REQUIRED at publish — hex of SCALE
-  curve-tagged `ContentPublicKey`. The curve tag lives on the KEY (rotation
-  without a record-scheme bump); `scheme` stays the record-layout version.
+- RNS record: the content key is the typed **`MESSAGE`** record (UPDATED
+  2026-06-13) — opaque on-chain bytes that are a SCALE curve-tagged
+  `ContentPublicKey`. The curve tag lives on the KEY (P-256 = StrongBox, P-384
+  = TPM; rotation without a scheme bump). On by default; omit `MESSAGE` for
+  dead-drop.
 - dotwave: `chat_send` takes the recipient content key (record-resolved) and
   seals the payload — no plaintext-inner path; `chat_fetch` returns
   `AtRestMessage{sealed_content_hex}` (outer-unwrapped, sender-verified,
