@@ -208,9 +208,23 @@ touches stripe/bucket.
 
 Even with onion + burner, a global passive adversary can correlate *timing and
 volume*. Defeating that needs cover traffic / mixnet-grade transport — out of v1
-scope per the burner assumption. **v1 ships fixed-size padding** (cheap, we
-control the wire format) and **discloses the residual in-app**. Full cover
+scope per the burner assumption. v1 **discloses the residual in-app**; full cover
 traffic is a later hardening.
+
+> **CORRECTED 2026-06-13 — fixed-size padding dropped as a v1 traffic-analysis
+> goal.** Earlier text said "v1 ships fixed-size padding." On review that's a
+> half-measure that doesn't survive the roadmap: (1) a single `FIXED_DROP_SIZE`
+> can't pad future **media** (JPEG/attachments span KB→MB; `pad_drop` errors
+> above 4 KiB), and (2) size is part of *volume*, which this same Axis already
+> concedes as a v1 residual — so paying bandwidth to harden one dimension while
+> conceding the rest is inconsistent. (Encryption hides content, not size, so
+> size *is* a real leak — but not one worth a partial fix here.) `FIXED_DROP_SIZE
+> = 4096` stays only as the **small-message onion lane cap** (onion carries small
+> messages; bulk/media is a separate lane), NOT as a traffic-analysis feature.
+> If/when traffic analysis is actually pursued (post-v1, with media), the right
+> tool is **size buckets** — pad to one of a few discrete sizes (e.g. 4 KiB /
+> 64 KiB / 1 MiB) so text and media coarsen to a handful of indistinguishable
+> classes. Single-fixed-size is just the degenerate text-only case of that.
 
 ---
 
@@ -361,12 +375,20 @@ transport-layer wrapper in front of the existing stripe machinery; the throwaway
 model is exactly the secure-messenger identity story. Two products, one
 foundation.
 
-## Open decisions to lock during 4a
+## Open decisions — RESOLVED 2026-06-13
 
-1. Mint cost / rate for throwaway chat certs (anti-abuse vs. free rotation).
-2. Stable-guard-set size vs. random-per-message guard.
-3. `FIXED_DROP_SIZE` (cover the realistic envelope range without over-padding).
-4. Confirm the non-PoP mint path leaks no stable device id in a public extrinsic.
+1. ~~Mint cost / rate for throwaway chat certs~~ — **VOID.** There are no
+   throwaway certs (one cert per phone; throwaway *names*). Anti-spam is the cert
+   layer itself (personhood/cost blocks botnets) + reactive SRT-mute (the guard's
+   existing `Active`-check enforces a cert deactivation network-wide). Per-message
+   rate-limiting was dropped: a per-node limiter is defeated by node-hopping on a
+   thousands-of-node mesh.
+2. **Stable-guard-set size vs. random-per-message** — still open; an app/client
+   policy (the node doesn't pick the guard). Default leaning stable small set.
+3. ~~`FIXED_DROP_SIZE` tuning~~ — **VOID** as a traffic-analysis decision (see
+   Axis 3 correction). 4096 stays as the small-message lane cap; size-bucketing
+   is the real tool if traffic analysis is pursued post-v1.
+4. ~~Non-PoP throwaway-cert device-id leak~~ — **VOID** (no throwaway certs).
 
 ---
 
