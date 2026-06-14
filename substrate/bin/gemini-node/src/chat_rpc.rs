@@ -90,7 +90,8 @@ use zk_pki_primitives::runtime_api::{CertState as RpcCertState, ZkPkiApi};
 
 use crate::chat_bucket_cache::BucketCache;
 use crate::chat_onion_forward_protocol::{
-	OnionForwardRequest, OnionForwardResponse, CHAT_ONION_FORWARD_PROTOCOL_NAME,
+	onion_forward_digest, OnionForwardRequest, OnionForwardResponse,
+	CHAT_ONION_FORWARD_PROTOCOL_NAME, RELAY_UNAVAILABLE_CODE,
 };
 use crate::chat_stripe_protocol::CHAT_STRIPE_PROTOCOL_NAME;
 
@@ -479,6 +480,24 @@ where
 	}
 }
 
+/// Which hop is peeling, and therefore which `OnionHop` outcome is legal.
+/// The peel logic is byte-identical on every hop; only the *legal result*
+/// differs, so this is the one knob that distinguishes guard from relay-2.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PeelMode {
+	/// The guard's `chat_send_onion` RPC entry. The onion MUST peel to
+	/// `Forward`: a `Deliver` here would make the cert-authed entry node the
+	/// FINAL hop, so it would see the sender (cert + IP) AND the recipient
+	/// bucket at once — collapsing the very sender↔recipient split the onion
+	/// exists to enforce. A `Deliver` at the guard is therefore rejected; the
+	/// path must be ≥2 hops (guard forwards, relay-2 delivers).
+	GuardEntry,
+	/// The final relay (relay-2), reached via `/rostro/chat-onion-forward/2`.
+	/// The onion MUST peel to `Deliver`: a further `Forward` would be hop ≥3,
+	/// rejected as the 2-hop cap (loop / amplification defense).
+	FinalRelay,
+}
+
 /// Onion peel-and-dispatch context — this node's OWN node key plus the
 /// routing handles the `Deliver` path needs. Deliberately NON-generic and
 /// free of any user secret: it holds only `node_secret` (this node's own
@@ -518,7 +537,7 @@ impl OnionPeelCtx {
 		&self,
 		packet: &OnionPacket,
 		total_shares: u8,
-		allow_forward: bool,
+		mode: PeelMode,
 	) -> RpcResult<ChatSendResult> {
 		let hop = process_hop(&self.node_secret, packet).map_err(|e| {
 			ErrorObject::owned::<()>(-32000, format!("onion peel failed: {e:?}"), None)
@@ -526,6 +545,19 @@ impl OnionPeelCtx {
 
 		match hop {
 			OnionHop::Deliver { drop } => {
+				// 1c: a guard must never be the final hop. A `Deliver` peeled at
+				// the cert-authed RPC entry means a 1-hop onion — the entry node
+				// would learn the sender (cert + IP) AND the recipient bucket,
+				// collapsing the sender↔recipient split. Reject; require ≥2 hops.
+				if mode == PeelMode::GuardEntry {
+					return Err(ErrorObject::owned::<()>(
+						-32000,
+						"onion delivered at the guard entry: a 1-hop onion exposes \
+						 sender and recipient to one node; the path must be at least \
+						 two hops (guard forwards, relay-2 delivers)",
+						None,
+					));
+				}
 				// Last hop: inject the recipient-sealed envelope into the
 				// normal stripe-and-distribute path (the sender is gone).
 				let payload = OnionDeliverPayload::decode(&mut &drop[..]).map_err(|e| {
@@ -563,7 +595,7 @@ impl OnionPeelCtx {
 				// to `stripe_and_distribute`. Sharding an onion to forward
 				// it is the precise failure the peeler/messaging split
 				// prevents. See docs/DOTWAVE-CHAT-METADATA-ANONYMITY.md.
-				if !allow_forward {
+				if mode == PeelMode::FinalRelay {
 					// A forwarded onion that peels to a further Forward
 					// would be hop ≥3 — refused (2-hop cap; loop defense).
 					return Err(ErrorObject::owned::<()>(
@@ -580,8 +612,31 @@ impl OnionPeelCtx {
 						None,
 					)
 				})?;
-				let request =
-					OnionForwardRequest { total_shares, packet_bytes: inner.encode() };
+				// 1b: liveness. Only forward to a relay that is a LIVE chat-fabric
+				// member — present in our chat-gossip bucket cache (added on
+				// stream-open, dropped on disconnect). If the app picked a stale or
+				// offline relay-2, fail FAST with a distinct code so the app
+				// re-rolls, rather than hanging out the 120s forward timeout.
+				if self.bucket_cache.get(&peer).is_none() {
+					return Err(ErrorObject::owned::<()>(
+						RELAY_UNAVAILABLE_CODE,
+						format!(
+							"relay unavailable: chosen relay-2 ({peer}) is not a live \
+							 chat relay; pick another relay-2 and retry"
+						),
+						None,
+					));
+				}
+				// 1a: forward-leg accountability. Sign (total_shares ‖ inner) with
+				// THIS guard's node key. relay-2 recovers our identity from the
+				// authenticated connection and verifies this before peeling; a
+				// bad/absent signature is a reputation-docked rejection there. The
+				// signature is the guard's OWN node key — never sender material.
+				let packet_bytes = inner.encode();
+				let guard_sig = self
+					.node_secret
+					.sign(&onion_forward_digest(total_shares, &packet_bytes));
+				let request = OnionForwardRequest { total_shares, packet_bytes, guard_sig };
 				let (resp_bytes, _) = self
 					.network
 					.request(
@@ -1113,10 +1168,11 @@ where
 		}
 
 		// Peel + dispatch via the shared context — the SAME code path the
-		// slice-2 /rostro/chat-onion-forward/1 handler runs on relay-2.
-		// allow_forward = true: the guard legitimately forwards to relay-2
-		// (a 1-hop onion delivers here directly).
-		ctx.peel_and_dispatch(&packet, total_shares, true).await
+		// /rostro/chat-onion-forward/2 handler runs on relay-2.
+		// `PeelMode::GuardEntry`: the guard MUST forward to relay-2; a `Deliver`
+		// peeled here (a 1-hop onion) is rejected, since the guard must never be
+		// the final hop and see sender+recipient together (1c).
+		ctx.peel_and_dispatch(&packet, total_shares, PeelMode::GuardEntry).await
 	}
 
 	async fn fetch_shares(
