@@ -1381,6 +1381,12 @@ impl_runtime_apis! {
 		) -> Option<zk_pki_primitives::runtime_api::CertAuthInfo<AccountId>> {
 			zk_pki_pallet::Pallet::<Runtime>::query_cert_authentication(thumbprint)
 		}
+
+		fn cert_hip_genesis(
+			thumbprint: [u8; 32],
+		) -> Option<zk_pki_primitives::hip::GenesisHardwareFingerprint> {
+			zk_pki_pallet::Pallet::<Runtime>::query_cert_hip_genesis(thumbprint)
+		}
 	}
 }
 

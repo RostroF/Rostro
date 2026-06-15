@@ -3462,6 +3462,17 @@ pub mod pallet {
             })
         }
 
+        /// The cert's enrolled HIP genesis fingerprint, or `None` if the
+        /// cert carries no HIP (non-PoP / dev-stub cert) or the thumbprint
+        /// is unknown. Backing read for the `cert_hip_genesis` runtime API
+        /// — the chat-auth session handshake verifies a fresh
+        /// `CanonicalHipProof` against this baseline (device-state drift).
+        pub fn query_cert_hip_genesis(
+            thumbprint: [u8; 32],
+        ) -> Option<zk_pki_primitives::hip::GenesisHardwareFingerprint> {
+            CertLookupCold::<T>::get(thumbprint)?.genesis_fingerprint
+        }
+
         /// Prefix-iterate the `CertsByIssuer` double map for this
         /// issuer. Trie prefix iteration scales with the number of
         /// matching entries, not the full cert table.
