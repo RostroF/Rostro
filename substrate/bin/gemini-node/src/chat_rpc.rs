@@ -66,6 +66,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use codec::{Decode, Encode};
+use ed25519_zebra::{Signature as Ed25519Signature, VerificationKey as Ed25519VerificationKey};
 use gemini_runtime::{opaque::Block, AccountId};
 use rand_core::{OsRng, RngCore};
 use rc_network::{service::traits::NetworkService, types::ProtocolName, IfDisconnected, PeerId};
@@ -142,6 +143,13 @@ pub const CHAT_AUTH_TIMESTAMP_WINDOW_SECS: u64 = 600;
 /// from one context can never be replayed in the other.
 pub const CHAT_SESSION_NONCE_DOMAIN: &[u8] = b"rostro/chat/session-nonce/v1";
 
+/// Domain tag for a per-drop session-key signature. Within a live session
+/// the client's software session key signs `blake2_256(this ‖ drop_bytes)`;
+/// the node verifies against the session's stored `session_pubkey`. Cheap —
+/// no secure-element crossing, no HIP (the handshake already proved those).
+/// Distinct domain from the handshake nonce and the cert-auth digest.
+pub const CHAT_SESSION_DROP_DOMAIN: &[u8] = b"rostro/chat/session-drop/v1";
+
 /// Maximum age, in blocks, of the handshake's anchor block. The HIP
 /// proof's nonce is derived from a recent block hash; an anchor older
 /// than this is rejected so a captured proof can't be replayed
@@ -182,9 +190,6 @@ fn derive_session_nonce(
 /// A node-local authenticated chat session. Admits drops from
 /// `bound_account` signed by `session_pubkey` until `expires_at`
 /// (monotonic). Hard cap — not extended by activity.
-// bound_account + session_pubkey are written at handshake and read by the
-// Tier-4 per-drop admission path (`get_live`), not yet wired.
-#[allow(dead_code)]
 #[derive(Clone)]
 struct ChatSession {
 	bound_account: AccountId,
@@ -218,8 +223,7 @@ impl SessionStore {
 	}
 
 	/// Fetch a live (non-expired) session for `thumbprint`, or `None`.
-	/// Used by the Tier-4 per-drop admission path.
-	#[allow(dead_code)] // wired by Tier 4
+	/// The Tier-4 per-drop admission path (`verify_session_drop`).
 	fn get_live(&self, thumbprint: &[u8; 32], now: Instant) -> Option<ChatSession> {
 		self.by_thumbprint
 			.get(thumbprint)
@@ -414,6 +418,14 @@ pub trait ChatRpcApi {
 	///   * `onion_packet_hex` — the SCALE-encoded `OnionPacket` sealed to
 	///     this node's identity (hex).
 	///   * `total_shares` — stripe count for the eventual distribution.
+	///   * `auth_*` — full per-drop cert auth (the renewal/fallback path).
+	///   * `session_cert_thumbprint_hex` + `session_sig_hex` — the cheap
+	///     session path: within a live session (established via
+	///     `chat_authenticate`), the drop is admitted by an Ed25519
+	///     session-key signature over the onion packet, with no
+	///     secure-element crossing. Preferred when present; the node falls
+	///     back to full cert auth otherwise. (Trailing `Option`s keep this
+	///     wire-compatible with pre-session callers.)
 	#[method(name = "chat_send_onion")]
 	async fn send_onion(
 		&self,
@@ -422,6 +434,8 @@ pub trait ChatRpcApi {
 		auth_cert_thumbprint_hex: Option<String>,
 		auth_timestamp_secs: Option<u64>,
 		auth_sig_hex: Option<String>,
+		session_cert_thumbprint_hex: Option<String>,
+		session_sig_hex: Option<String>,
 	) -> RpcResult<ChatSendResult>;
 
 	/// Return raw share descriptors + ciphertext bytes for shares
@@ -739,6 +753,53 @@ where
 			expiry_unix_secs: now_unix_seconds().saturating_add(CHAT_SESSION_TTL_SECS),
 			session_ttl_secs: CHAT_SESSION_TTL_SECS,
 		})
+	}
+
+	/// Admit a drop via a LIVE session's cheap session-key signature instead
+	/// of full per-drop cert auth. Looks up the session by cert thumbprint,
+	/// verifies the Ed25519 session-key signature over
+	/// `blake2_256(CHAT_SESSION_DROP_DOMAIN ‖ drop_bytes)` against the
+	/// session's authorized `session_pubkey`, and returns the bound account.
+	/// No secure-element crossing, no HIP — the handshake already proved
+	/// device health + human presence for the session's lifetime. Errors if
+	/// there is no live session (client must re-handshake) or the signature
+	/// fails.
+	fn verify_session_drop(
+		&self,
+		drop_bytes: &[u8],
+		thumbprint_hex: &str,
+		session_sig_hex: &str,
+	) -> Result<AccountId, ErrorObject<'static>> {
+		let thumbprint = decode_hex32(thumbprint_hex)
+			.map_err(|e| invalid_param("session_cert_thumbprint_hex", &e))?;
+		let sig_bytes = hex::decode(session_sig_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("session_sig_hex", &format!("invalid hex: {e}")))?;
+		let sig_arr: [u8; 64] = sig_bytes.as_slice().try_into().map_err(|_| {
+			invalid_param("session_sig_hex", "expected a 64-byte Ed25519 signature")
+		})?;
+
+		let session = self
+			.sessions
+			.lock()
+			.map_err(|_| auth_err("session store lock poisoned"))?
+			.get_live(&thumbprint, Instant::now())
+			.ok_or_else(|| {
+				auth_err("no live session for this cert — re-handshake (chat_authenticate)")
+			})?;
+
+		let mut to_sign =
+			Vec::with_capacity(CHAT_SESSION_DROP_DOMAIN.len() + drop_bytes.len());
+		to_sign.extend_from_slice(CHAT_SESSION_DROP_DOMAIN);
+		to_sign.extend_from_slice(drop_bytes);
+		let digest = blake2_256(&to_sign);
+
+		let vk = Ed25519VerificationKey::try_from(session.session_pubkey)
+			.map_err(|_| auth_err("stored session pubkey is not a valid Ed25519 key"))?;
+		let sig = Ed25519Signature::from(sig_arr);
+		vk.verify(&sig, &digest)
+			.map_err(|_| auth_err("session-key signature verification failed"))?;
+
+		Ok(session.bound_account)
 	}
 }
 
@@ -1388,6 +1449,8 @@ where
 		auth_cert_thumbprint_hex: Option<String>,
 		auth_timestamp_secs: Option<u64>,
 		auth_sig_hex: Option<String>,
+		session_cert_thumbprint_hex: Option<String>,
+		session_sig_hex: Option<String>,
 	) -> RpcResult<ChatSendResult> {
 		// The peeler needs this node's own key (isolated in OnionPeelCtx,
 		// outside the secret-free routing layer).
@@ -1406,27 +1469,40 @@ where
 			invalid_param("onion_packet_hex", &format!("SCALE-decode failed: {e}"))
 		})?;
 
-		// Cert-auth (Phase 2) over the onion packet bytes — the guard
-		// authenticates the sender at the RPC entry. The peel + dispatch
-		// below is auth-agnostic: the slice-2 relay-2 forward handler gates
-		// on canonical-peer status instead, never re-authing the sender.
-		match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
-			(Some(tp), Some(ts), Some(sig)) => {
-				let authed = self.verify_chat_auth(&packet_bytes, &tp, ts, &sig)?;
+		// Auth over the onion packet bytes — the guard authenticates the
+		// sender at the RPC entry. Prefer a LIVE session (cheap session-key
+		// signature, no secure-element crossing); fall back to full per-drop
+		// cert auth (the handshake/renewal path). The peel + dispatch below is
+		// auth-agnostic: the slice-2 relay-2 forward handler gates on
+		// canonical-peer status instead, never re-authing the sender.
+		match (session_cert_thumbprint_hex, session_sig_hex) {
+			(Some(tp), Some(sig)) => {
+				let authed = self.verify_session_drop(&packet_bytes, &tp, &sig)?;
 				log::debug!(
 					target: "rostro-chat-rpc",
-					"chat_send_onion authenticated as account {:?}",
+					"chat_send_onion authenticated via session as account {:?}",
 					authed,
 				);
 			}
-			_ => {
-				return Err(invalid_param(
-					"auth_*",
-					"chat_send_onion requires cert auth: all three of \
-					 auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex \
-					 must be present, signed by an Active zkpki cert's device key",
-				));
-			}
+			_ => match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
+				(Some(tp), Some(ts), Some(sig)) => {
+					let authed = self.verify_chat_auth(&packet_bytes, &tp, ts, &sig)?;
+					log::debug!(
+						target: "rostro-chat-rpc",
+						"chat_send_onion authenticated via cert auth as account {:?}",
+						authed,
+					);
+				}
+				_ => {
+					return Err(invalid_param(
+						"auth",
+						"chat_send_onion requires either a live session \
+						 (session_cert_thumbprint_hex + session_sig_hex) or full cert \
+						 auth (auth_cert_thumbprint_hex + auth_timestamp_secs + \
+						 auth_sig_hex, signed by an Active zkpki cert's device key)",
+					));
+				}
+			},
 		}
 
 		// Peel + dispatch via the shared context — the SAME code path the
