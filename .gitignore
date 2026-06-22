@@ -53,6 +53,9 @@ rustc-ice-*
 # Per-node base-paths populated by scripts/run-chat-trio.sh and
 # scripts/chat-scenarios/02-cross-node-distribution.sh.
 /.chat-trio/
+# Per-node base-paths populated by scripts/run-chat-rig.sh
+# (2 validators + 2 non-validator chat relays, one network).
+/.chat-rig/
 # Per-node base-paths populated by scripts/run-chat-local.sh,
 # scripts/run-chat-lan.sh, and the R1/R2 mixed-topology runs.
 /.chat-local/
