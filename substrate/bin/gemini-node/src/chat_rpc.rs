@@ -60,10 +60,13 @@ use jsonrpsee::{
 	proc_macros::rpc,
 	types::error::ErrorObject,
 };
+use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use codec::{Decode, Encode};
+use ed25519_zebra::{Signature as Ed25519Signature, VerificationKey as Ed25519VerificationKey};
 use gemini_runtime::{opaque::Block, AccountId};
 use rand_core::{OsRng, RngCore};
 use rc_network::{service::traits::NetworkService, types::ProtocolName, IfDisconnected, PeerId};
@@ -86,6 +89,9 @@ use rostro_node_identity::NodeSecret;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_core::blake2_256;
+use sp_runtime::SaturatedConversion;
+use zk_pki_hip::{verify_hip_proof_against_genesis, verify_hip_proof_internal};
+use zk_pki_primitives::hip::CanonicalHipProof;
 use zk_pki_primitives::runtime_api::{CertState as RpcCertState, ZkPkiApi};
 
 use crate::chat_bucket_cache::BucketCache;
@@ -125,6 +131,106 @@ pub const CHAT_AUTH_DOMAIN: &[u8] = b"rostro/chat/auth/v1";
 /// NTP drift + transport latency without leaving room for stale
 /// replays.
 pub const CHAT_AUTH_TIMESTAMP_WINDOW_SECS: u64 = 600;
+
+// ── Chat-auth session handshake (node-local HIP session) ────────────
+//
+// One biometric+HIP handshake establishes a node-local, time-bounded
+// session; drops within it ride a cheap software session key (Tier 4).
+// See docs/DOTWAVE-CHAT-AUTH-CEREMONY.md.
+
+/// Domain tag for the session-handshake nonce. Distinct from
+/// `CHAT_AUTH_DOMAIN` (the per-drop signature domain) so a signature
+/// from one context can never be replayed in the other.
+pub const CHAT_SESSION_NONCE_DOMAIN: &[u8] = b"rostro/chat/session-nonce/v1";
+
+/// Domain tag for a per-drop session-key signature. Within a live session
+/// the client's software session key signs `blake2_256(this ‖ drop_bytes)`;
+/// the node verifies against the session's stored `session_pubkey`. Cheap —
+/// no secure-element crossing, no HIP (the handshake already proved those).
+/// Distinct domain from the handshake nonce and the cert-auth digest.
+pub const CHAT_SESSION_DROP_DOMAIN: &[u8] = b"rostro/chat/session-drop/v1";
+
+/// Maximum age, in blocks, of the handshake's anchor block. The HIP
+/// proof's nonce is derived from a recent block hash; an anchor older
+/// than this is rejected so a captured proof can't be replayed
+/// indefinitely. ~10 blocks ≈ 60 s at 6 s/block.
+pub const CHAT_SESSION_ANCHOR_WINDOW_BLOCKS: u32 = 10;
+
+/// Session lifetime W — the device-health half-life. 4 days. Enforced on
+/// the node's MONOTONIC clock as a HARD cap: activity does NOT extend it;
+/// at expiry the client must re-handshake (a fresh biometric+HIP).
+pub const CHAT_SESSION_TTL_SECS: u64 = 4 * 24 * 60 * 60; // 345_600
+
+/// Backstop cap on concurrent in-RAM sessions (eviction = soonest-to-expire).
+const MAX_SESSIONS: usize = 100_000;
+
+/// Derive the block-anchored handshake nonce the client bakes into its
+/// HIP attestation challenge. Binds the proof to a recent block
+/// (freshness), the cert (`cert_thumbprint`), THIS guard node
+/// (`guard_node_id` — no cross-node replay), and the client's
+/// `session_pubkey` (authorizing exactly that session key — an attacker
+/// can't swap in their own key without invalidating the nonce, and can't
+/// regenerate the proof without the biometric-gated HW key). Node and
+/// client compute it identically from public inputs; it is never stored.
+fn derive_session_nonce(
+	anchor_block_hash: &[u8; 32],
+	cert_thumbprint: &[u8; 32],
+	guard_node_id: &[u8; 32],
+	session_pubkey: &[u8; 32],
+) -> [u8; 32] {
+	let mut buf = Vec::with_capacity(CHAT_SESSION_NONCE_DOMAIN.len() + 32 * 4);
+	buf.extend_from_slice(CHAT_SESSION_NONCE_DOMAIN);
+	buf.extend_from_slice(anchor_block_hash);
+	buf.extend_from_slice(cert_thumbprint);
+	buf.extend_from_slice(guard_node_id);
+	buf.extend_from_slice(session_pubkey);
+	blake2_256(&buf)
+}
+
+/// A node-local authenticated chat session. Admits drops from
+/// `bound_account` signed by `session_pubkey` until `expires_at`
+/// (monotonic). Hard cap — not extended by activity.
+#[derive(Clone)]
+struct ChatSession {
+	bound_account: AccountId,
+	session_pubkey: [u8; 32],
+	expires_at: Instant,
+}
+
+/// In-RAM session store keyed by cert thumbprint. Ephemeral — a node
+/// restart drops all sessions (clients re-handshake). Bounded by
+/// [`MAX_SESSIONS`] with soonest-to-expire eviction.
+#[derive(Default)]
+struct SessionStore {
+	by_thumbprint: HashMap<[u8; 32], ChatSession>,
+}
+
+impl SessionStore {
+	/// Record (or refresh) a session, sweeping expired entries first and
+	/// evicting the soonest-to-expire if at capacity.
+	fn insert(&mut self, thumbprint: [u8; 32], session: ChatSession, now: Instant) {
+		self.by_thumbprint.retain(|_, s| s.expires_at > now);
+		if self.by_thumbprint.len() >= MAX_SESSIONS
+			&& !self.by_thumbprint.contains_key(&thumbprint)
+		{
+			if let Some((&victim, _)) =
+				self.by_thumbprint.iter().min_by_key(|(_, s)| s.expires_at)
+			{
+				self.by_thumbprint.remove(&victim);
+			}
+		}
+		self.by_thumbprint.insert(thumbprint, session);
+	}
+
+	/// Fetch a live (non-expired) session for `thumbprint`, or `None`.
+	/// The Tier-4 per-drop admission path (`verify_session_drop`).
+	fn get_live(&self, thumbprint: &[u8; 32], now: Instant) -> Option<ChatSession> {
+		self.by_thumbprint
+			.get(thumbprint)
+			.filter(|s| s.expires_at > now)
+			.cloned()
+	}
+}
 
 use crate::chat_fetch_protocol::CHAT_FETCH_PROTOCOL_NAME;
 
@@ -214,6 +320,20 @@ pub struct ChatFetchedShareRaw {
 	pub mac_tag_hex: String,
 }
 
+/// JSON-RPC response for `chat_authenticate` — the session handshake.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChatAuthenticateResult {
+	/// Hex of the 32-byte account the cert is bound to (the authenticated
+	/// identity). The client compares it against its own account's raw bytes.
+	pub bound_account_hex: String,
+	/// Wall-clock Unix seconds at which the session expires, for the client
+	/// to schedule a proactive re-handshake. The node ENFORCES on its own
+	/// monotonic clock; this is the client-facing estimate.
+	pub expiry_unix_secs: u64,
+	/// Session lifetime W in seconds (device-health half-life).
+	pub session_ttl_secs: u64,
+}
+
 /// JSON-RPC trait for the chat surface.
 #[rpc(client, server)]
 pub trait ChatRpcApi {
@@ -298,6 +418,14 @@ pub trait ChatRpcApi {
 	///   * `onion_packet_hex` — the SCALE-encoded `OnionPacket` sealed to
 	///     this node's identity (hex).
 	///   * `total_shares` — stripe count for the eventual distribution.
+	///   * `auth_*` — full per-drop cert auth (the renewal/fallback path).
+	///   * `session_cert_thumbprint_hex` + `session_sig_hex` — the cheap
+	///     session path: within a live session (established via
+	///     `chat_authenticate`), the drop is admitted by an Ed25519
+	///     session-key signature over the onion packet, with no
+	///     secure-element crossing. Preferred when present; the node falls
+	///     back to full cert auth otherwise. (Trailing `Option`s keep this
+	///     wire-compatible with pre-session callers.)
 	#[method(name = "chat_send_onion")]
 	async fn send_onion(
 		&self,
@@ -306,6 +434,8 @@ pub trait ChatRpcApi {
 		auth_cert_thumbprint_hex: Option<String>,
 		auth_timestamp_secs: Option<u64>,
 		auth_sig_hex: Option<String>,
+		session_cert_thumbprint_hex: Option<String>,
+		session_sig_hex: Option<String>,
 	) -> RpcResult<ChatSendResult>;
 
 	/// Return raw share descriptors + ciphertext bytes for shares
@@ -326,6 +456,37 @@ pub trait ChatRpcApi {
 		pickup_key_hex: String,
 		relay_peer_id_hex: Option<String>,
 	) -> RpcResult<Vec<ChatFetchedShareRaw>>;
+
+	/// Establish a node-local authenticated session (the chat-auth
+	/// ceremony). The client proves, in one biometric-gated crossing, that
+	/// it holds an Active HW-attested cert on a healthy device, and
+	/// authorizes a cheap software session key for subsequent drops — so the
+	/// secure element is NOT touched per message.
+	///
+	/// Parameters:
+	///   * `cert_thumbprint_hex` — the caller's zkpki cert (32 bytes, hex).
+	///   * `hip_proof_hex` — SCALE-encoded `CanonicalHipProof` (StrongBox /
+	///     TPM2), with the session nonce baked into its attestation
+	///     challenge.
+	///   * `anchor_block_number` — the recent block the nonce is anchored to.
+	///   * `session_pubkey_hex` — the client's software session Ed25519
+	///     pubkey (32 bytes, hex) to authorize for this session.
+	///
+	/// The node derives the expected nonce
+	/// (`H(domain ‖ anchor_block_hash ‖ thumbprint ‖ guard_node_id ‖
+	/// session_pubkey)`), checks the anchor block is recent, requires the
+	/// cert `Active`, verifies the HIP against the cert's enrolled
+	/// `genesis_fingerprint` (drift detection; internal-consistency-only
+	/// fallback for dev-stub certs with no genesis), and on success records
+	/// the session for W = [`CHAT_SESSION_TTL_SECS`] on its monotonic clock.
+	#[method(name = "chat_authenticate")]
+	async fn authenticate(
+		&self,
+		cert_thumbprint_hex: String,
+		hip_proof_hex: String,
+		anchor_block_number: u64,
+		session_pubkey_hex: String,
+	) -> RpcResult<ChatAuthenticateResult>;
 }
 
 /// Concrete implementation. Holds only the node's PUBLIC libp2p
@@ -353,6 +514,10 @@ pub struct ChatRpc<C> {
 	/// snapshot when None.
 	local_subscription:
 		Option<crate::chat_gossip_protocol::LocalSubscriptionState>,
+	/// Node-local authenticated chat sessions (the chat-auth ceremony).
+	/// In-RAM, ephemeral; keyed by cert thumbprint. A node restart drops
+	/// all sessions and clients re-handshake.
+	sessions: Arc<Mutex<SessionStore>>,
 	_block: PhantomData<Block>,
 }
 
@@ -388,6 +553,7 @@ where
 			client,
 			bucket_cache,
 			local_subscription,
+			sessions: Arc::new(Mutex::new(SessionStore::default())),
 			_block: PhantomData,
 		}
 	}
@@ -477,6 +643,163 @@ where
 		}
 
 		Ok(info.bound_account)
+	}
+
+	/// The chat-auth session handshake (the ceremony). Verifies a fresh
+	/// HW-attested HIP proof bound to a block-anchored, guard- and
+	/// session-key-bound nonce, requires the cert Active, and records a
+	/// node-local session valid for W. Sync (all runtime-API calls are
+	/// blocking); the async trait method just wraps it.
+	fn do_authenticate(
+		&self,
+		cert_thumbprint_hex: &str,
+		hip_proof_hex: &str,
+		anchor_block_number: u64,
+		session_pubkey_hex: &str,
+	) -> Result<ChatAuthenticateResult, ErrorObject<'static>> {
+		// 1. Decode inputs.
+		let thumbprint = decode_hex32(cert_thumbprint_hex)
+			.map_err(|e| invalid_param("cert_thumbprint_hex", &e))?;
+		let session_pubkey = decode_hex32(session_pubkey_hex)
+			.map_err(|e| invalid_param("session_pubkey_hex", &e))?;
+		let hip_bytes = hex::decode(hip_proof_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("hip_proof_hex", &format!("invalid hex: {e}")))?;
+		let proof = CanonicalHipProof::decode(&mut &hip_bytes[..]).map_err(|e| {
+			invalid_param("hip_proof_hex", &format!("decode CanonicalHipProof: {e}"))
+		})?;
+
+		// 2. Anchor block must be recent in OUR own chain view.
+		let info = self.client.info();
+		let best_number: u32 = info.best_number.saturated_into::<u32>();
+		let anchor: u32 = u32::try_from(anchor_block_number)
+			.map_err(|_| invalid_param("anchor_block_number", "exceeds u32 block range"))?;
+		if anchor > best_number {
+			return Err(auth_err("anchor block is in the future"));
+		}
+		if best_number - anchor > CHAT_SESSION_ANCHOR_WINDOW_BLOCKS {
+			return Err(auth_err(&format!(
+				"anchor block too old: {} behind best > window {}",
+				best_number - anchor,
+				CHAT_SESSION_ANCHOR_WINDOW_BLOCKS,
+			)));
+		}
+		let anchor_hash = self
+			.client
+			.hash(anchor)
+			.map_err(|e| auth_err(&format!("anchor block hash lookup failed: {e}")))?
+			.ok_or_else(|| auth_err("anchor block not found"))?;
+		let anchor_hash32: [u8; 32] = anchor_hash
+			.as_ref()
+			.try_into()
+			.map_err(|_| auth_err("anchor block hash is not 32 bytes"))?;
+
+		// 3. The nonce the HIP proof must be bound to (block + cert + this
+		//    guard + the session key being authorized).
+		let expected_nonce = derive_session_nonce(
+			&anchor_hash32,
+			&thumbprint,
+			&self.node_pubkey_ed25519,
+			&session_pubkey,
+		);
+
+		// 4. Cert must exist + be Active.
+		let best = info.best_hash;
+		let cert = self
+			.client
+			.runtime_api()
+			.cert_authentication(best, thumbprint)
+			.map_err(|e| auth_err(&format!("zkpki runtime API failed: {e:?}")))?
+			.ok_or_else(|| auth_err("cert not found (purged or never existed)"))?;
+		if !matches!(cert.cert_state, RpcCertState::Active) {
+			return Err(auth_err(&format!(
+				"cert is not Active (state: {:?})",
+				cert.cert_state
+			)));
+		}
+
+		// 5. HIP: drift detection vs the cert's enrolled genesis if present
+		//    (production mime-wrap / TPM2 cert); internal-consistency-only
+		//    fallback for a dev-stub cert with no genesis (the nonce is NOT
+		//    bound in that path — dev degradation, never production).
+		let genesis = self
+			.client
+			.runtime_api()
+			.cert_hip_genesis(best, thumbprint)
+			.map_err(|e| auth_err(&format!("zkpki runtime API failed: {e:?}")))?;
+		let report = match &genesis {
+			Some(g) => verify_hip_proof_against_genesis(&proof, g, &expected_nonce)
+				.map_err(|e| auth_err(&format!("HIP drift verification failed: {e:?}")))?,
+			None => verify_hip_proof_internal(&proof)
+				.map_err(|e| auth_err(&format!("HIP internal verification failed: {e:?}")))?,
+		};
+		if !report.secure_boot_intact {
+			return Err(auth_err("device secure-boot state not intact"));
+		}
+
+		// 6. Record the session — monotonic-clock hard cap (W).
+		let now = Instant::now();
+		let session = ChatSession {
+			bound_account: cert.bound_account.clone(),
+			session_pubkey,
+			expires_at: now + Duration::from_secs(CHAT_SESSION_TTL_SECS),
+		};
+		self.sessions
+			.lock()
+			.map_err(|_| auth_err("session store lock poisoned"))?
+			.insert(thumbprint, session, now);
+
+		Ok(ChatAuthenticateResult {
+			bound_account_hex: hex::encode(cert.bound_account),
+			expiry_unix_secs: now_unix_seconds().saturating_add(CHAT_SESSION_TTL_SECS),
+			session_ttl_secs: CHAT_SESSION_TTL_SECS,
+		})
+	}
+
+	/// Admit a drop via a LIVE session's cheap session-key signature instead
+	/// of full per-drop cert auth. Looks up the session by cert thumbprint,
+	/// verifies the Ed25519 session-key signature over
+	/// `blake2_256(CHAT_SESSION_DROP_DOMAIN ‖ drop_bytes)` against the
+	/// session's authorized `session_pubkey`, and returns the bound account.
+	/// No secure-element crossing, no HIP — the handshake already proved
+	/// device health + human presence for the session's lifetime. Errors if
+	/// there is no live session (client must re-handshake) or the signature
+	/// fails.
+	fn verify_session_drop(
+		&self,
+		drop_bytes: &[u8],
+		thumbprint_hex: &str,
+		session_sig_hex: &str,
+	) -> Result<AccountId, ErrorObject<'static>> {
+		let thumbprint = decode_hex32(thumbprint_hex)
+			.map_err(|e| invalid_param("session_cert_thumbprint_hex", &e))?;
+		let sig_bytes = hex::decode(session_sig_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("session_sig_hex", &format!("invalid hex: {e}")))?;
+		let sig_arr: [u8; 64] = sig_bytes.as_slice().try_into().map_err(|_| {
+			invalid_param("session_sig_hex", "expected a 64-byte Ed25519 signature")
+		})?;
+
+		let session = self
+			.sessions
+			.lock()
+			.map_err(|_| auth_err("session store lock poisoned"))?
+			.get_live(&thumbprint, Instant::now())
+			.ok_or_else(|| {
+				auth_err("no live session for this cert — re-handshake (chat_authenticate)")
+			})?;
+
+		let mut to_sign =
+			Vec::with_capacity(CHAT_SESSION_DROP_DOMAIN.len() + drop_bytes.len());
+		to_sign.extend_from_slice(CHAT_SESSION_DROP_DOMAIN);
+		to_sign.extend_from_slice(drop_bytes);
+		let digest = blake2_256(&to_sign);
+
+		let vk = Ed25519VerificationKey::try_from(session.session_pubkey)
+			.map_err(|_| auth_err("stored session pubkey is not a valid Ed25519 key"))?;
+		let sig = Ed25519Signature::from(sig_arr);
+		vk.verify(&sig, &digest)
+			.map_err(|_| auth_err("session-key signature verification failed"))?;
+
+		Ok(session.bound_account)
 	}
 }
 
@@ -1126,6 +1449,8 @@ where
 		auth_cert_thumbprint_hex: Option<String>,
 		auth_timestamp_secs: Option<u64>,
 		auth_sig_hex: Option<String>,
+		session_cert_thumbprint_hex: Option<String>,
+		session_sig_hex: Option<String>,
 	) -> RpcResult<ChatSendResult> {
 		// The peeler needs this node's own key (isolated in OnionPeelCtx,
 		// outside the secret-free routing layer).
@@ -1144,27 +1469,40 @@ where
 			invalid_param("onion_packet_hex", &format!("SCALE-decode failed: {e}"))
 		})?;
 
-		// Cert-auth (Phase 2) over the onion packet bytes — the guard
-		// authenticates the sender at the RPC entry. The peel + dispatch
-		// below is auth-agnostic: the slice-2 relay-2 forward handler gates
-		// on canonical-peer status instead, never re-authing the sender.
-		match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
-			(Some(tp), Some(ts), Some(sig)) => {
-				let authed = self.verify_chat_auth(&packet_bytes, &tp, ts, &sig)?;
+		// Auth over the onion packet bytes — the guard authenticates the
+		// sender at the RPC entry. Prefer a LIVE session (cheap session-key
+		// signature, no secure-element crossing); fall back to full per-drop
+		// cert auth (the handshake/renewal path). The peel + dispatch below is
+		// auth-agnostic: the slice-2 relay-2 forward handler gates on
+		// canonical-peer status instead, never re-authing the sender.
+		match (session_cert_thumbprint_hex, session_sig_hex) {
+			(Some(tp), Some(sig)) => {
+				let authed = self.verify_session_drop(&packet_bytes, &tp, &sig)?;
 				log::debug!(
 					target: "rostro-chat-rpc",
-					"chat_send_onion authenticated as account {:?}",
+					"chat_send_onion authenticated via session as account {:?}",
 					authed,
 				);
 			}
-			_ => {
-				return Err(invalid_param(
-					"auth_*",
-					"chat_send_onion requires cert auth: all three of \
-					 auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex \
-					 must be present, signed by an Active zkpki cert's device key",
-				));
-			}
+			_ => match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
+				(Some(tp), Some(ts), Some(sig)) => {
+					let authed = self.verify_chat_auth(&packet_bytes, &tp, ts, &sig)?;
+					log::debug!(
+						target: "rostro-chat-rpc",
+						"chat_send_onion authenticated via cert auth as account {:?}",
+						authed,
+					);
+				}
+				_ => {
+					return Err(invalid_param(
+						"auth",
+						"chat_send_onion requires either a live session \
+						 (session_cert_thumbprint_hex + session_sig_hex) or full cert \
+						 auth (auth_cert_thumbprint_hex + auth_timestamp_secs + \
+						 auth_sig_hex, signed by an Active zkpki cert's device key)",
+					));
+				}
+			},
 		}
 
 		// Peel + dispatch via the shared context — the SAME code path the
@@ -1360,6 +1698,22 @@ where
 		});
 		Ok(out)
 	}
+
+	async fn authenticate(
+		&self,
+		cert_thumbprint_hex: String,
+		hip_proof_hex: String,
+		anchor_block_number: u64,
+		session_pubkey_hex: String,
+	) -> RpcResult<ChatAuthenticateResult> {
+		self.do_authenticate(
+			&cert_thumbprint_hex,
+			&hip_proof_hex,
+			anchor_block_number,
+			&session_pubkey_hex,
+		)
+		.map_err(Into::into)
+	}
 }
 
 /// Decode a 64-character hex string (optionally `0x`-prefixed) into
@@ -1384,6 +1738,11 @@ fn parse_peer_id(s: &str) -> Result<PeerId, String> {
 
 fn invalid_param(name: &str, why: &str) -> ErrorObject<'static> {
 	ErrorObject::owned::<()>(-32602, format!("{name}: {why}"), None)
+}
+
+/// Application-level auth/handshake rejection (cert/HIP/nonce/session).
+fn auth_err(why: &str) -> ErrorObject<'static> {
+	ErrorObject::owned::<()>(-32000, why.to_string(), None)
 }
 
 // Suppress unused warning on RngCore when total_shares branch

@@ -26,6 +26,7 @@ use sp_std::vec::Vec;
 
 use crate::crypto::DevicePublicKey;
 use crate::eku::Eku;
+use crate::hip::GenesisHardwareFingerprint;
 use crate::template::{PopRequirement, MAX_TEMPLATE_EKUS, MAX_TEMPLATE_NAME_LEN};
 use crate::tpm::AttestationType;
 
@@ -282,5 +283,20 @@ sp_api::decl_runtime_apis! {
         fn cert_authentication(
             thumbprint: [u8; 32],
         ) -> Option<CertAuthInfo<AccountId>>;
+
+        /// The cert's enrolled hardware fingerprint (HIP genesis), or
+        /// `None` if the cert carries no HIP (a non-PoP / dev-stub cert
+        /// minted without a `hip_proof_at_genesis`).
+        ///
+        /// Use case: the chat-auth session handshake. The node verifies a
+        /// fresh `CanonicalHipProof` from the client against this enrolled
+        /// baseline via `verify_hip_proof_against_genesis` — device-state
+        /// drift detection ("is this still the enrolled-good device?").
+        /// Pure storage read of `CertLookupCold(thumbprint).genesis_fingerprint`;
+        /// the cold record is already fetched by `cert_authentication`, so
+        /// this adds no extra read for callers that need both.
+        fn cert_hip_genesis(
+            thumbprint: [u8; 32],
+        ) -> Option<GenesisHardwareFingerprint>;
     }
 }

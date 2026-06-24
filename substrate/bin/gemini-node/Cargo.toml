@@ -141,6 +141,11 @@ gemini-runtime = { workspace = true, default-features = true }
 # zkpki cert's HW-attested device key.
 zk-pki-primitives = { workspace = true, default-features = true }
 
+# zkpki HIP verification — chat-auth session handshake verifies a fresh
+# CanonicalHipProof against the cert's enrolled genesis fingerprint
+# (verify_hip_proof_against_genesis) off-chain in the RPC handler.
+zk-pki-hip = { workspace = true, default-features = true }
+
 [build-dependencies]
 substrate-build-script-utils = { workspace = true, default-features = true }
 

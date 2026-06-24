@@ -367,6 +367,79 @@ the `chat-onion-v0` worktree (rostro) plus the dotwave `rust_core`:
 
 ---
 
+## In-order delivery — the in-seal self-hash chain (v1, 2026-06-22)
+
+**Status:** designed + built on dotwave branch `chat-ordering-v0` (Rust core +
+Dart store + UI + unit tests green; on-device/rig proof pending). The dead drop
+delivers messages in arbitrary order (onion timing, XOR re-fetch, per-message
+relay choice), and the recipient must render a coherent thread without the node
+helping — the node is **dumb ephemeral transport** that must learn nothing of
+order, recipient, or thread shape.
+
+**Why not a ratchet.** A Double Ratchet would carry ordering (`prev_chain_len`),
+but a ratchet is a *session* — establishing/advancing it forces recipient-naming
+and shared evolving state that break who-talks-to-whom unlinkability. Ordering
+must instead be **self-describing data the sender stamps into each message**, and
+it must live **inside the content seal** (not the outer/sealed-sender layer) so a
+seized, locked device — and every relay — learns nothing. (DR stays as dormant
+code for possible future non-chat reuse; it is not on the send path.)
+
+**The two fields (inside `InnerPayload`, inside the content seal):**
+- `prev_self_hash: Option<[u8;32]>` — `blake2_256` of the sender's **previous**
+  message's `InnerPayload` encoding (git-style chain; each link covers the prior
+  link). `None` = the **first** message **or a reset** (no recoverable
+  predecessor). This is the authoritative intra-sender order + gap/dedupe handle.
+- `composed_at: u64` — sender wall-clock at compose. **Never** overrides a chain
+  link; used only to order **disjoint segments** after a reset/gap ("the first
+  message after a time gap") and to **interleave the two directional streams**.
+
+**Conversation scope is implicit** — the `(sender → recipient)` identity pair
+(the recipient already buckets inbound by verified sender). No `conversation_id`
+field. Name rotation forks a fresh thread, which for a dead-drop messenger is the
+correct default.
+
+**Read-time algorithm (recipient, post-decrypt — content is sealed at rest, so
+ordering is known only after a read).** Per sender: follow `prev_self_hash` into
+maximal **segments**; the **tip** is the message no other references. Order
+segments by head `composed_at`; within a segment, the chain. A
+referenced-but-absent predecessor = a **gap** ("a message didn't arrive"); a
+`None` head where earlier messages exist = a **resumption** (reset). Merge the
+inbound chain with the locally-authored outbound stream by `composed_at`,
+preserving each stream's internal order. Markers are **recomputed every order**,
+so a late-arriving message fills its gap.
+
+**72h TTL-aware reset.** The sender stores its chain tip with a timestamp; past
+the ~72h relay message TTL the predecessor has aged out of every relay, so
+chaining to it would render a **perpetual** gap on the recipient. The sender
+detects the stale tip and starts a **fresh chain** (a `None` = resumption)
+instead — a hard reset, not a grace window.
+
+**Batch-on-open.** Opening a thread decrypts every still-sealed message in one
+read pass (on hardware, one biometric→silicon gate), then orders — fitting the
+amnesiac/transient-plaintext model.
+
+**100% app-side; the node stays dumb.** Every ordering field rides inside
+`ContentSealed`; **zero node/chain/runtime changes**. It is an app↔app SCALE bump
+on `InnerPayload` (hard cutover — old in-flight messages self-clear within the
+72h TTL), not an infra change.
+
+**Groups (later) generalize this.** The per-author self-hash chain is the
+degenerate single-parent case of a **parent-ref DAG** (MLS/Matrix/Scuttlebutt
+event-graph shape). When ≥3 genuinely-interacting senders land, the single
+`prev_self_hash` becomes a set of parent refs for cross-author causal order.
+v1 carries nothing extra; it is forward-compatible by construction.
+
+**Where it lives.** Rust: `InnerPayload{prev_self_hash,composed_at}` +
+`self_hash()` and the `chat_send_onion_2hop` chaining params in dotwave
+`rust_core/src/chat.rs`. Dart: the chain fields + pure `orderThread()` +
+batch-on-open `readThread()` in `lib/services/chat_store.dart`; gap/resumption
+dividers in `lib/screens/chat_thread_screen.dart`. Tests:
+`rust_core/src/chat.rs` (`ordering_tests`, 4) + `test/chat_ordering_test.dart`
+(7). **GATE (pending):** out-of-order sends on the rig render in send-order on a
+second phone; a dropped message shows a gap; a >72h reset shows a resumption.
+
+---
+
 ## Non-inhibition (the standing rule)
 
 This phase must **not** break basic chat (named, convenient) and must **not**
