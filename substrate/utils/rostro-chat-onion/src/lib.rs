@@ -87,15 +87,20 @@ pub type OnionPacket = SealedOutput;
 /// onion treats the drop as opaque bytes; this is the agreed encoding
 /// the sender writes and the last relay reads.
 ///
-/// It carries the recipient's chat pubkey (so the relay can derive the
-/// pickup/bucket to route to — the relay is *meant* to learn the
-/// destination; that is its role) alongside the recipient-sealed
-/// `SealedEnvelope` bytes (opaque to the relay).
+/// It carries the **pickup key** (the 32-byte bucket the relay shards to)
+/// alongside the recipient-sealed `SealedEnvelope` bytes (opaque to the
+/// relay). The sender derives the pickup key for *all* traffic — pairwise
+/// (`PickupKey::for_pairwise`) for normal DMs, `PickupKey::for_deaddrop`
+/// for dead drops — so the relay only ever sees an opaque 32-byte key and
+/// cannot distinguish the two. The relay does no key validation,
+/// conversion, or hashing; it just shards by these bytes. See
+/// `docs/DOTWAVE-CHAT-DEAD-DROPS.md`.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct OnionDeliverPayload {
-	/// Recipient chat-identity Ed25519 pubkey — the relay derives the
-	/// pickup key from this to distribute.
-	pub recipient_chat_pubkey: [u8; 32],
+	/// Sender-derived 32-byte pickup key (the stripe-and-distribute
+	/// bucket). Opaque to the relay — pairwise, group, and dead-drop keys
+	/// are all uniform blake2 outputs and indistinguishable here.
+	pub pickup_key: [u8; 32],
 	/// The recipient-sealed `SealedEnvelope`, SCALE-encoded. Opaque to
 	/// the relay — only the recipient can open it.
 	pub envelope_bytes: Vec<u8>,

@@ -106,6 +106,13 @@ pub const PICKUP_KEY_PAIRWISE_DOMAIN: &[u8] = b"rostro/chat/pickup-key/pair/v1";
 /// Domain-separation tag for group-message pickup-key derivation.
 pub const PICKUP_KEY_GROUP_DOMAIN: &[u8] = b"rostro/chat/pickup-key/group/v1";
 
+/// Domain-separation tag for dead-drop pickup-key derivation. A dead drop
+/// is routed by an opaque ≤32-byte label (a callsign) instead of by
+/// recipient identity; hashing the label yields a uniform 32-byte pickup
+/// key indistinguishable in the store from a pairwise/group key. See
+/// `docs/DOTWAVE-CHAT-DEAD-DROPS.md`.
+pub const PICKUP_KEY_DEADDROP_DOMAIN: &[u8] = b"rostro/chat/pickup-key/deaddrop/v1";
+
 /// Random per-message identifier. Sender-generated, opaque to relays.
 /// 256-bit space → collision is cosmologically improbable, no
 /// uniqueness check needed.
@@ -167,6 +174,19 @@ impl PickupKey {
 		let mut input = Vec::with_capacity(PICKUP_KEY_GROUP_DOMAIN.len() + 32);
 		input.extend_from_slice(PICKUP_KEY_GROUP_DOMAIN);
 		input.extend_from_slice(&group_id.0);
+		Self(blake2_256(&input))
+	}
+
+	/// Pickup key for a dead drop addressed to an opaque `label` (a
+	/// callsign, ≤32 bytes). The sender derives this and the recipient
+	/// derives the same key from the same label to poll for it — the label
+	/// itself is exchanged out-of-band, never on-chain. Unlike
+	/// [`Self::for_pairwise`], no key material is involved: the label is a
+	/// pure routing selector decoupled from the message's encryption.
+	pub fn for_deaddrop(label: &[u8]) -> Self {
+		let mut input = Vec::with_capacity(PICKUP_KEY_DEADDROP_DOMAIN.len() + label.len());
+		input.extend_from_slice(PICKUP_KEY_DEADDROP_DOMAIN);
+		input.extend_from_slice(label);
 		Self(blake2_256(&input))
 	}
 }

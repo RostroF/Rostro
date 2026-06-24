@@ -890,15 +890,11 @@ impl OnionPeelCtx {
 						None,
 					)
 				})?;
-				let recipient_x25519 =
-					ed25519_to_x25519_pubkey(&payload.recipient_chat_pubkey).ok_or_else(|| {
-						ErrorObject::owned::<()>(
-							-32000,
-							"onion deliver recipient pubkey is not a valid Edwards point",
-							None,
-						)
-					})?;
-				let recipient_pickup = PickupKey::for_pairwise(&recipient_x25519);
+				// The sender pre-derived the pickup key (for_pairwise for a
+				// normal DM, for_deaddrop for a dead drop). The relay is dumb
+				// infra: it shards by these opaque bytes and cannot tell the
+				// two apart. No key validation, conversion, or hashing here.
+				let recipient_pickup = PickupKey(payload.pickup_key);
 				let envelope =
 					SealedEnvelope::decode(&mut &payload.envelope_bytes[..]).map_err(|e| {
 						ErrorObject::owned::<()>(
