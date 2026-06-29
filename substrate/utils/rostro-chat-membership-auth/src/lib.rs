@@ -18,8 +18,12 @@
 //!
 //! See DOTWAVE-CHAT-ANON-MEMBERSHIP-AUTH section 4.4 / Phase 2.
 
-use ark_bn254::{Bn254, Fr};
-use ark_groth16::VerifyingKey;
+// Re-exported so the node can name the verifying-key type without depending
+// on ark-groth16 / ark-bn254 directly.
+pub use ark_bn254::Bn254;
+pub use ark_groth16::VerifyingKey;
+
+use ark_bn254::Fr;
 use rostro_membership_circuit::groth16;
 use rostro_poseidon_bn254::{fr_from_canonical_bytes_le, hash_to_field_bn254};
 use std::collections::{HashMap, HashSet};

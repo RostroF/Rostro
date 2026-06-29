@@ -71,6 +71,9 @@ use gemini_runtime::{opaque::Block, AccountId};
 use rand_core::{OsRng, RngCore};
 use rc_network::{service::traits::NetworkService, types::ProtocolName, IfDisconnected, PeerId};
 use rostro_chat_ephemeral_store::EphemeralShareStore;
+use rostro_chat_membership_auth::{
+	Bn254, ChainView, HandshakeRequest, HandshakeSessions, VerifyingKey,
+};
 use rostro_chat_primitives::{
 	bucket::bucket_for_pickup_key,
 	descriptor::{
@@ -89,6 +92,7 @@ use rostro_node_identity::NodeSecret;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_core::blake2_256;
+use sp_runtime::traits::Block as BlockT;
 use sp_runtime::SaturatedConversion;
 use zk_pki_hip::{verify_hip_proof_against_genesis, verify_hip_proof_internal};
 use zk_pki_primitives::hip::CanonicalHipProof;
@@ -334,6 +338,67 @@ pub struct ChatAuthenticateResult {
 	pub session_ttl_secs: u64,
 }
 
+/// JSON-RPC response for `chat_authenticateMembership` — the anonymous
+/// membership handshake. The guard learns only the session key, the rate tag,
+/// and the epoch; never the cert.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChatMembershipAuthResult {
+	/// Echo of the session public key the session is keyed by (hex).
+	pub session_pubkey_hex: String,
+	/// Epoch the session is valid through.
+	pub expires_epoch: u64,
+	/// The node's current epoch at acceptance.
+	pub current_epoch: u64,
+}
+
+/// A proof's `anchor_block` must be within this many blocks of the node's best
+/// block to count as recent (~1 day at the chat epoch length).
+const MEMBERSHIP_ANCHOR_WINDOW_BLOCKS: u64 = 14_400;
+
+/// [`ChainView`] over the zkpki runtime API at a fixed best block, so the
+/// membership-auth verifier can validate a proof's public inputs.
+struct RuntimeChainView<'a, C> {
+	client: &'a C,
+	best: <Block as BlockT>::Hash,
+	best_number: u64,
+}
+
+impl<'a, C> ChainView for RuntimeChainView<'a, C>
+where
+	C: ProvideRuntimeApi<Block> + HeaderBackend<Block>,
+	C::Api: ZkPkiApi<Block, AccountId>,
+{
+	fn membership_root_recent(&self, root: &[u8; 32]) -> bool {
+		self.client
+			.runtime_api()
+			.membership_root_recent(self.best, *root)
+			.unwrap_or(false)
+	}
+	fn freshness_root_recent(&self, root: &[u8; 32]) -> bool {
+		self.client
+			.runtime_api()
+			.freshness_root_recent(self.best, *root)
+			.unwrap_or(false)
+	}
+	fn current_epoch(&self) -> u64 {
+		self.client
+			.runtime_api()
+			.membership_epoch(self.best)
+			.unwrap_or(0) as u64
+	}
+	fn anchor_recent(&self, anchor_block: u64) -> bool {
+		anchor_block <= self.best_number
+			&& self.best_number.saturating_sub(anchor_block)
+				<= MEMBERSHIP_ANCHOR_WINDOW_BLOCKS
+	}
+	fn scope(&self) -> u64 {
+		self.client
+			.runtime_api()
+			.membership_scope(self.best)
+			.unwrap_or(0)
+	}
+}
+
 /// JSON-RPC trait for the chat surface.
 #[rpc(client, server)]
 pub trait ChatRpcApi {
@@ -487,6 +552,25 @@ pub trait ChatRpcApi {
 		anchor_block_number: u64,
 		session_pubkey_hex: String,
 	) -> RpcResult<ChatAuthenticateResult>;
+
+	/// The anonymous-membership handshake (Phase 2). The caller proves, in
+	/// zero knowledge, possession of a valid, non-expired, HIP-fresh cert in
+	/// the membership set, without revealing which one. The node verifies the
+	/// Groth16 proof against the pinned verifying key and recent chain roots,
+	/// spends the per-epoch nullifier, and records a session keyed by
+	/// `session_pubkey`. Returns an error if membership auth is not activated
+	/// on this node.
+	#[method(name = "chat_authenticateMembership")]
+	async fn authenticate_membership(
+		&self,
+		proof_hex: String,
+		membership_root_hex: String,
+		freshness_root_hex: String,
+		nullifier_hex: String,
+		current_epoch: u64,
+		anchor_block: u64,
+		session_pubkey_hex: String,
+	) -> RpcResult<ChatMembershipAuthResult>;
 }
 
 /// Concrete implementation. Holds only the node's PUBLIC libp2p
@@ -518,6 +602,14 @@ pub struct ChatRpc<C> {
 	/// In-RAM, ephemeral; keyed by cert thumbprint. A node restart drops
 	/// all sessions and clients re-handshake.
 	sessions: Arc<Mutex<SessionStore>>,
+	/// Pinned Groth16 verifying key for the anonymous-membership handshake.
+	/// `None` is the activation gate: until the trusted-setup ceremony's vk is
+	/// configured (a mainnet posture), the membership endpoint returns "not
+	/// activated". Testnet runs with `None`.
+	membership_vk: Option<VerifyingKey<Bn254>>,
+	/// Node-local anonymous-membership sessions (keyed by session pubkey) plus
+	/// the per-epoch spent-nullifier set. The cert is never stored.
+	membership_sessions: Arc<Mutex<HandshakeSessions>>,
 	_block: PhantomData<Block>,
 }
 
@@ -554,6 +646,8 @@ where
 			bucket_cache,
 			local_subscription,
 			sessions: Arc::new(Mutex::new(SessionStore::default())),
+			membership_vk: None,
+			membership_sessions: Arc::new(Mutex::new(HandshakeSessions::new())),
 			_block: PhantomData,
 		}
 	}
@@ -650,6 +744,81 @@ where
 	/// session-key-bound nonce, requires the cert Active, and records a
 	/// node-local session valid for W. Sync (all runtime-API calls are
 	/// blocking); the async trait method just wraps it.
+	/// Anonymous-membership handshake (Phase 2). Verifies a Groth16 proof
+	/// against the pinned vk and recent chain roots, spends the nullifier, and
+	/// records a session. Sync; the async trait method wraps it.
+	fn do_authenticate_membership(
+		&self,
+		proof_hex: &str,
+		membership_root_hex: &str,
+		freshness_root_hex: &str,
+		nullifier_hex: &str,
+		current_epoch: u64,
+		anchor_block: u64,
+		session_pubkey_hex: &str,
+	) -> Result<ChatMembershipAuthResult, ErrorObject<'static>> {
+		// Activation gate: inactive until a production verifying key is pinned.
+		let vk = self.membership_vk.as_ref().ok_or_else(|| {
+			ErrorObject::owned::<()>(
+				-32001,
+				"chat membership auth not activated on this node",
+				None,
+			)
+		})?;
+
+		// Decode inputs.
+		let proof = hex::decode(proof_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("proof_hex", &format!("invalid hex: {e}")))?;
+		let membership_root = decode_hex32(membership_root_hex)
+			.map_err(|e| invalid_param("membership_root_hex", &e))?;
+		let freshness_root = decode_hex32(freshness_root_hex)
+			.map_err(|e| invalid_param("freshness_root_hex", &e))?;
+		let nullifier = decode_hex32(nullifier_hex)
+			.map_err(|e| invalid_param("nullifier_hex", &e))?;
+		let session_pubkey = hex::decode(session_pubkey_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("session_pubkey_hex", &format!("invalid hex: {e}")))?;
+
+		let req = HandshakeRequest {
+			proof,
+			membership_root,
+			freshness_root,
+			nullifier,
+			current_epoch,
+			anchor_block,
+			session_pubkey,
+		};
+
+		// ChainView over the best block.
+		let info = self.client.info();
+		let chain = RuntimeChainView {
+			client: self.client.as_ref(),
+			best: info.best_hash,
+			best_number: info.best_number.saturated_into::<u64>(),
+		};
+
+		// Verify the proof, spend the nullifier, and issue the session.
+		let session = {
+			let mut sessions = self.membership_sessions.lock().map_err(|_| {
+				ErrorObject::owned::<()>(-32000, "membership session lock poisoned", None)
+			})?;
+			sessions
+				.admit(vk, &req, &self.node_pubkey_ed25519, &chain)
+				.map_err(|e| {
+					ErrorObject::owned::<()>(
+						-32000,
+						format!("membership handshake rejected: {e:?}"),
+						None,
+					)
+				})?
+		};
+
+		Ok(ChatMembershipAuthResult {
+			session_pubkey_hex: format!("0x{}", hex::encode(&session.session_pubkey)),
+			expires_epoch: session.expires_epoch,
+			current_epoch,
+		})
+	}
+
 	fn do_authenticate(
 		&self,
 		cert_thumbprint_hex: &str,
@@ -1706,6 +1875,28 @@ where
 			&cert_thumbprint_hex,
 			&hip_proof_hex,
 			anchor_block_number,
+			&session_pubkey_hex,
+		)
+		.map_err(Into::into)
+	}
+
+	async fn authenticate_membership(
+		&self,
+		proof_hex: String,
+		membership_root_hex: String,
+		freshness_root_hex: String,
+		nullifier_hex: String,
+		current_epoch: u64,
+		anchor_block: u64,
+		session_pubkey_hex: String,
+	) -> RpcResult<ChatMembershipAuthResult> {
+		self.do_authenticate_membership(
+			&proof_hex,
+			&membership_root_hex,
+			&freshness_root_hex,
+			&nullifier_hex,
+			current_epoch,
+			anchor_block,
 			&session_pubkey_hex,
 		)
 		.map_err(Into::into)

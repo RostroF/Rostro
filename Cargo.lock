@@ -4585,6 +4585,7 @@ dependencies = [
  "rns-types",
  "rostro-canonical-fetch",
  "rostro-chat-ephemeral-store",
+ "rostro-chat-membership-auth",
  "rostro-chat-onion",
  "rostro-chat-primitives",
  "rostro-chat-sealed-sender",
