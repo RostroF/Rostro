@@ -475,6 +475,11 @@ pub mod pallet {
             MembershipRootHistory::<T>::get().iter().any(|r| r == root)
         }
 
+        /// The anonymity-set scope constant committed in every membership leaf.
+        pub fn membership_scope() -> u64 {
+            MEMBERSHIP_SCOPE
+        }
+
         /// Reserve a leaf index, reusing a freed slot before advancing the
         /// high-water mark.
         fn membership_alloc_slot() -> Option<u64> {

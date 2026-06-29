@@ -22,6 +22,7 @@ use ark_bn254::{Bn254, Fr};
 use ark_groth16::VerifyingKey;
 use rostro_membership_circuit::groth16;
 use rostro_poseidon_bn254::{fr_from_canonical_bytes_le, hash_to_field_bn254};
+use std::collections::{HashMap, HashSet};
 
 /// Domain tag for the handshake challenge field element. The phone and the
 /// guard must derive it identically.
@@ -184,6 +185,73 @@ pub fn verify_handshake(
         nullifier: req.nullifier,
         expires_epoch: req.current_epoch,
     })
+}
+
+impl NullifierStore for HashSet<[u8; 32]> {
+    fn is_spent(&self, n: &[u8; 32]) -> bool {
+        self.contains(n)
+    }
+    fn mark_spent(&mut self, n: [u8; 32]) {
+        self.insert(n);
+    }
+}
+
+/// Node-local handshake state: live sessions keyed by session public key, plus
+/// the spent nullifiers for the current epoch. Since the nullifier is
+/// per-epoch (`N = Poseidon(s, epoch)`), the spent set is cleared on epoch
+/// rollover, and a session is dropped once its epoch has passed. This is the
+/// only state the node has to hold for the anonymous path; the cert is never
+/// stored or learned.
+#[derive(Default)]
+pub struct HandshakeSessions {
+    sessions: HashMap<Vec<u8>, AcceptedSession>,
+    spent: HashSet<[u8; 32]>,
+    epoch: u64,
+}
+
+impl HandshakeSessions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Verify a handshake and, on success, record the session keyed by its
+    /// session public key. Prunes epoch-stale state first.
+    pub fn admit(
+        &mut self,
+        vk: &VerifyingKey<Bn254>,
+        req: &HandshakeRequest,
+        guard_node_id: &[u8],
+        chain: &impl ChainView,
+    ) -> Result<AcceptedSession, HandshakeError> {
+        self.roll_to(chain.current_epoch());
+        let session = verify_handshake(vk, req, guard_node_id, chain, &mut self.spent)?;
+        self.sessions
+            .insert(session.session_pubkey.clone(), session.clone());
+        Ok(session)
+    }
+
+    /// A live session for `session_pubkey` at `current_epoch`, if any. The
+    /// per-drop admission path looks sessions up here (then checks the drop's
+    /// Ed25519 signature against the key, outside this crate).
+    pub fn live(&self, session_pubkey: &[u8], current_epoch: u64) -> Option<&AcceptedSession> {
+        self.sessions
+            .get(session_pubkey)
+            .filter(|s| s.expires_epoch >= current_epoch)
+    }
+
+    pub fn session_count(&self) -> usize {
+        self.sessions.len()
+    }
+
+    /// On epoch advance, clear the epoch-scoped nullifier set and drop expired
+    /// sessions.
+    fn roll_to(&mut self, current_epoch: u64) {
+        if current_epoch != self.epoch {
+            self.spent.clear();
+            self.sessions.retain(|_, s| s.expires_epoch >= current_epoch);
+            self.epoch = current_epoch;
+        }
+    }
 }
 
 #[cfg(test)]

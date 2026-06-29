@@ -298,5 +298,23 @@ sp_api::decl_runtime_apis! {
         fn cert_hip_genesis(
             thumbprint: [u8; 32],
         ) -> Option<GenesisHardwareFingerprint>;
+
+        // ── Chat anonymous-membership handshake ──────────────────────────
+        // The chat guard verifies a Groth16 membership proof off-chain; it
+        // needs the current/recent commitment roots, the epoch, and the scope
+        // to validate the proof's public inputs (see rostro-chat-membership-auth).
+
+        /// Current membership-tree root (canonical field-element bytes).
+        fn membership_root() -> [u8; 32];
+        /// Is `root` the current membership root or within the recent-root ring?
+        fn membership_root_recent(root: [u8; 32]) -> bool;
+        /// Current freshness-tree root.
+        fn freshness_root() -> [u8; 32];
+        /// Is `root` the current freshness root or within its recent-root ring?
+        fn freshness_root_recent(root: [u8; 32]) -> bool;
+        /// Current epoch (block number / epoch length).
+        fn membership_epoch() -> u32;
+        /// The anonymity-set scope constant committed in every membership leaf.
+        fn membership_scope() -> u64;
     }
 }

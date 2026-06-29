@@ -173,4 +173,28 @@ fn handshake_end_to_end() {
         verify_handshake(&vk, &other_key, GUARD_ID, &chain, &mut Nulls::default()),
         Err(HandshakeError::ProofInvalid),
     );
+
+    // Stateful manager: admit records a session, replay is rejected, and an
+    // epoch rollover prunes both the spent set and the expired session.
+    let mut mgr = HandshakeSessions::new();
+    let issued = mgr.admit(&vk, &req, GUARD_ID, &chain).expect("admit");
+    assert_eq!(mgr.session_count(), 1);
+    assert_eq!(
+        mgr.live(&session_pk, EPOCH).map(|s| s.nullifier),
+        Some(issued.nullifier),
+    );
+    assert_eq!(
+        mgr.admit(&vk, &req, GUARD_ID, &chain),
+        Err(HandshakeError::NullifierSpent),
+    );
+    // The session is not live in a later epoch.
+    assert!(mgr.live(&session_pk, EPOCH + 1).is_none());
+    // Rolling the manager into the next epoch (this admit fails EpochMismatch
+    // on the old proof, but prunes first) drops the stale session.
+    let next = MockChain { m_root, f_root, epoch: EPOCH + 1, anchor_ok: true };
+    assert_eq!(
+        mgr.admit(&vk, &req, GUARD_ID, &next),
+        Err(HandshakeError::EpochMismatch),
+    );
+    assert_eq!(mgr.session_count(), 0);
 }
