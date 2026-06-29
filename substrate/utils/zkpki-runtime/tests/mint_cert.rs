@@ -442,6 +442,7 @@ fn mint_cert_with_chat_enrollment_inserts_leaf() {
         let enrollment = valid_enrollment(&nonce);
 
         let empty_root = ZkPki::membership_root();
+        let empty_freshness = ZkPki::freshness_root();
         assert_ok!(ZkPki::mint_cert(
             RuntimeOrigin::signed(account(USER_ACCOUNT)),
             nonce,
@@ -461,6 +462,13 @@ fn mint_cert_with_chat_enrollment_inserts_leaf() {
             .expect("cert minted");
         let cold = zk_pki_pallet::CertLookupCold::<Runtime>::get(thumb).expect("cold record");
         assert_eq!(cold.leaf_position, Some(0));
+
+        // The parallel freshness leaf was set at the same index on enrollment.
+        assert_ne!(
+            ZkPki::freshness_root(),
+            empty_freshness,
+            "freshness leaf set on enrollment",
+        );
     });
 }
 

@@ -78,3 +78,53 @@ fn remove_only_leaf_restores_empty_root() {
         assert_eq!(ZkPki::membership_root(), fr_to_bytes_le(&empty_root(&p)));
     });
 }
+
+#[test]
+fn freshness_set_bump_remove_track_root() {
+    ext().execute_with(|| {
+        let p = params();
+        let empty = fr_to_bytes_le(&empty_root(&p));
+        assert_eq!(ZkPki::freshness_root(), empty);
+
+        ZkPki::freshness_set(0, 10);
+        let r10 = ZkPki::freshness_root();
+        assert_ne!(r10, empty);
+
+        // Bump the same index to a later epoch: root changes, old stays recent.
+        ZkPki::freshness_set(0, 20);
+        assert_ne!(ZkPki::freshness_root(), r10);
+        assert!(ZkPki::freshness_root_recent(&r10));
+
+        // Remove clears it back to the empty root.
+        ZkPki::freshness_remove(0);
+        assert_eq!(ZkPki::freshness_root(), empty);
+    });
+}
+
+#[test]
+fn freshness_leaf_is_the_epoch_value() {
+    ext().execute_with(|| {
+        let p = params();
+        let empties = empty_roots(&p);
+        ZkPki::freshness_set(3, 42);
+        // The freshness leaf at index 3 is Fr::from(42): the circuit reads it
+        // and checks `>= current_epoch` directly, no Poseidon over the value.
+        let mut reference = MemoryStore::new();
+        let ref_root = update(&mut reference, &p, &empties, 3, Fr::from(42u64));
+        assert_eq!(ZkPki::freshness_root(), fr_to_bytes_le(&ref_root));
+    });
+}
+
+#[test]
+fn epoch_advances_with_blocks() {
+    ext().execute_with(|| {
+        // EPOCH_LENGTH_BLOCKS = 14_400.
+        assert_eq!(ZkPki::current_epoch(), 0);
+        frame_system::Pallet::<Runtime>::set_block_number(14_400);
+        assert_eq!(ZkPki::current_epoch(), 1);
+        frame_system::Pallet::<Runtime>::set_block_number(14_400 * 7 + 5);
+        assert_eq!(ZkPki::current_epoch(), 7);
+        // Initial freshness window is current + FRESHNESS_INITIAL_EPOCHS (7).
+        assert_eq!(ZkPki::initial_fresh_until_epoch(), 14);
+    });
+}

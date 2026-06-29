@@ -517,6 +517,120 @@ pub mod pallet {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // HIP-freshness tree (parallel to the membership tree, decisions D6).
+    // A second depth-32 sparse Poseidon SMT over the SAME leaf indices: the
+    // freshness leaf at index i commits the cert's `fresh_until_epoch` as a
+    // bare field element, decoupled from the static membership leaf so
+    // freshness churn never perturbs the (privacy-anchor) membership root.
+    // Phase 0 sets the initial value at enrollment; Phase 1 HIP continuity
+    // bumps it via `freshness_set`. The circuit checks, for the same index i,
+    // membership-leaf in R_m AND freshness-leaf (= fresh_until_epoch) in R_f
+    // with `fresh_until_epoch >= current_epoch`.
+    // -----------------------------------------------------------------------
+
+    /// ~24h epoch length in blocks (decisions D7). Tunable: the membership
+    /// root is stable under any cadence; only the freshness root churns.
+    const EPOCH_LENGTH_BLOCKS: u32 = 14_400;
+
+    /// Initial freshness window (in epochs) granted at enrollment, before the
+    /// first HIP continuity bump.
+    const FRESHNESS_INITIAL_EPOCHS: u32 = 7;
+
+    /// Sparse occupied freshness-tree nodes: `(level, index)` → field bytes.
+    #[pallet::storage]
+    pub type FreshnessNodes<T: Config> =
+        StorageMap<_, Blake2_128Concat, (u8, u64), [u8; 32], OptionQuery>;
+
+    /// Current freshness root. `None` before any leaf → empty-tree root.
+    #[pallet::storage]
+    pub type FreshnessRoot<T: Config> = StorageValue<_, [u8; 32], OptionQuery>;
+
+    /// Recent freshness roots (newest last), bounded at the same depth as the
+    /// membership history.
+    #[pallet::storage]
+    pub type FreshnessRootHistory<T: Config> =
+        StorageValue<_, BoundedVec<[u8; 32], ConstU32<MEMBERSHIP_ROOT_HISTORY>>, ValueQuery>;
+
+    /// NodeStore adapter binding the freshness tree to storage.
+    pub struct FreshnessNodeStore<T>(core::marker::PhantomData<T>);
+
+    impl<T: Config> NodeStore for FreshnessNodeStore<T> {
+        fn get(&self, level: u8, index: u64) -> Option<MembershipFr> {
+            FreshnessNodes::<T>::get((level, index)).and_then(|b| fr_from_canonical_bytes_le(&b))
+        }
+        fn set(&mut self, level: u8, index: u64, value: MembershipFr) {
+            FreshnessNodes::<T>::insert((level, index), fr_to_bytes_le(&value));
+        }
+        fn clear(&mut self, level: u8, index: u64) {
+            FreshnessNodes::<T>::remove((level, index));
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// Current epoch derived from the block number.
+        pub fn current_epoch() -> u32 {
+            let now: u64 = <frame_system::Pallet<T>>::block_number().unique_saturated_into();
+            (now / EPOCH_LENGTH_BLOCKS as u64) as u32
+        }
+
+        /// The freshness deadline granted to a cert at enrollment (Phase 0).
+        pub fn initial_fresh_until_epoch() -> u32 {
+            Self::current_epoch().saturating_add(FRESHNESS_INITIAL_EPOCHS)
+        }
+
+        /// Set (or bump) the freshness leaf at `index` to `fresh_until_epoch`.
+        /// The leaf value is the epoch itself, so the circuit checks
+        /// `leaf >= current_epoch` directly. Used at enrollment and by Phase 1
+        /// HIP continuity.
+        pub fn freshness_set(index: u64, fresh_until_epoch: u32) {
+            let params = poseidon_params();
+            let empties = empty_roots(&params);
+            let mut store = FreshnessNodeStore::<T>(core::marker::PhantomData);
+            let leaf = MembershipFr::from(fresh_until_epoch as u64);
+            let root = smt_update(&mut store, &params, &empties, index, leaf);
+            Self::freshness_commit_root(fr_to_bytes_le(&root));
+        }
+
+        /// Clear the freshness leaf at `index` (cert removed).
+        pub fn freshness_remove(index: u64) {
+            let params = poseidon_params();
+            let empties = empty_roots(&params);
+            let mut store = FreshnessNodeStore::<T>(core::marker::PhantomData);
+            let root = smt_update(&mut store, &params, &empties, index, empty_leaf());
+            Self::freshness_commit_root(fr_to_bytes_le(&root));
+        }
+
+        /// Current freshness root, or the empty-tree root before any leaf.
+        pub fn freshness_root() -> [u8; 32] {
+            FreshnessRoot::<T>::get().unwrap_or_else(|| {
+                let params = poseidon_params();
+                fr_to_bytes_le(&empty_root(&params))
+            })
+        }
+
+        /// Whether `root` is the current freshness root or within its ring.
+        pub fn freshness_root_recent(root: &[u8; 32]) -> bool {
+            if Self::freshness_root() == *root {
+                return true;
+            }
+            FreshnessRootHistory::<T>::get().iter().any(|r| r == root)
+        }
+
+        fn freshness_commit_root(root: [u8; 32]) {
+            FreshnessRoot::<T>::put(root);
+            FreshnessRootHistory::<T>::mutate(|h| {
+                if h.last() == Some(&root) {
+                    return;
+                }
+                if h.len() as u32 >= MEMBERSHIP_ROOT_HISTORY {
+                    let _ = h.remove(0);
+                }
+                let _ = h.try_push(root);
+            });
+        }
+    }
+
     /// Registered roots: AccountId → RootRecord.
     #[pallet::storage]
     #[pallet::getter(fn root_record)]
@@ -1973,7 +2087,13 @@ pub mod pallet {
             // position. Transactional with the rest of the mint.
             let leaf_position = match membership_leaf {
                 Some(leaf) => {
-                    Some(Self::membership_insert(leaf).ok_or(Error::<T>::MembershipTreeFull)?)
+                    let index =
+                        Self::membership_insert(leaf).ok_or(Error::<T>::MembershipTreeFull)?;
+                    // Phase 0: set the cert's initial HIP-freshness deadline at
+                    // the same index in the parallel freshness tree. Phase 1
+                    // continuity bumps it; the membership leaf stays static (D6).
+                    Self::freshness_set(index, Self::initial_fresh_until_epoch());
+                    Some(index)
                 }
                 None => None,
             };
@@ -3385,6 +3505,7 @@ pub mod pallet {
             if let Some(cold) = CertLookupCold::<T>::get(thumbprint) {
                 if let Some(pos) = cold.leaf_position {
                     Self::membership_remove(pos);
+                    Self::freshness_remove(pos);
                 }
             }
             CertLookupCold::<T>::remove(thumbprint);
