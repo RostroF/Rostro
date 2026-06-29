@@ -16,6 +16,13 @@ ark-r1cs-std          = { workspace = true }
 rostro-poseidon-bn254 = { workspace = true, features = ["gadget"] }
 rostro-membership-tree = { workspace = true }
 
+# Groth16 proving machinery (feature "groth16"). Optional: the constraint
+# system itself does not need the pairing curve.
+ark-groth16   = { workspace = true, optional = true }
+ark-snark     = { workspace = true, optional = true }
+ark-serialize = { workspace = true, optional = true }
+ark-std       = { workspace = true, optional = true }
+
 [dev-dependencies]
 ark-relations          = { workspace = true, default-features = true }
 ark-r1cs-std           = { workspace = true, default-features = true }
@@ -31,4 +38,15 @@ std = [
     "ark-r1cs-std/std",
     "rostro-poseidon-bn254/std",
     "rostro-membership-tree/std",
+]
+# Groth16 setup / prove / verify + (de)serialization. Implies std.
+groth16 = [
+    "std",
+    "dep:ark-groth16",
+    "dep:ark-snark",
+    "dep:ark-serialize",
+    "dep:ark-std",
+    "ark-groth16/std",
+    "ark-serialize/std",
+    "ark-std/std",
 ]

@@ -172,3 +172,60 @@ fn wrong_index_fails() {
     c.index_bits = Some(index_to_bits(6));
     assert!(!satisfied(c));
 }
+
+#[cfg(feature = "groth16")]
+#[test]
+fn groth16_roundtrip_and_measure() {
+    use crate::groth16;
+    use ark_relations::r1cs::ConstraintSystem;
+    use ark_std::rand::{rngs::StdRng, SeedableRng};
+    use std::time::Instant;
+
+    // Constraint count (proving cost driver).
+    let cs = ConstraintSystem::<F>::new_ref();
+    valid_circuit().generate_constraints(cs.clone()).unwrap();
+    let n_constraints = cs.num_constraints();
+
+    let mut rng = StdRng::seed_from_u64(42);
+
+    let t = Instant::now();
+    let (pk, vk) = groth16::setup(&mut rng);
+    let setup_ms = t.elapsed().as_millis();
+
+    // Prove (single-threaded; a per-session phone-cost proxy). Average a few.
+    let runs = 5u32;
+    let t = Instant::now();
+    let mut last = None;
+    for _ in 0..runs {
+        last = groth16::prove(&pk, valid_circuit(), &mut rng);
+    }
+    let prove_ms = t.elapsed().as_millis() as f64 / runs as f64;
+    let proof = last.expect("proof");
+
+    let inputs = groth16::public_inputs(&valid_circuit()).unwrap();
+    let t = Instant::now();
+    let ok = groth16::verify(&vk, &inputs, &proof);
+    let verify_us = t.elapsed().as_micros();
+    assert!(ok, "valid proof must verify");
+
+    // A tampered public input (wrong nullifier) must fail.
+    let mut bad = inputs;
+    bad[2] += F::from(1u64);
+    assert!(!groth16::verify(&vk, &bad, &proof), "tampered input must fail");
+
+    // Serialization roundtrips (wire proof + pinned vk).
+    let proof_bytes = groth16::serialize_proof(&proof);
+    let vk_bytes = groth16::serialize_vk(&vk);
+    let proof2 = groth16::deserialize_proof(&proof_bytes).expect("proof roundtrip");
+    let vk2 = groth16::deserialize_vk(&vk_bytes).expect("vk roundtrip");
+    assert!(groth16::verify(&vk2, &inputs, &proof2), "roundtripped proof verifies");
+
+    println!("\n=== MEMBERSHIP CIRCUIT — Groth16 / BN254 (single-threaded) ===");
+    println!("  constraints : {n_constraints}");
+    println!("  setup       : {setup_ms} ms");
+    println!("  prove       : {prove_ms:.1} ms  (avg of {runs})");
+    println!("  verify      : {verify_us} us");
+    println!("  proof size  : {} bytes", proof_bytes.len());
+    println!("  vk size     : {} bytes", vk_bytes.len());
+    println!("==============================================================\n");
+}

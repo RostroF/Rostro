@@ -59,6 +59,9 @@ use rostro_poseidon_bn254::{
     params, PoseidonConfig,
 };
 
+#[cfg(feature = "groth16")]
+pub mod groth16;
+
 /// Bit width for the `fresh_until_epoch >= current_epoch` range check.
 /// Epochs are `u32`, so 33 bits is comfortable headroom.
 const EPOCH_BITS: usize = 33;
