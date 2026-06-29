@@ -519,3 +519,31 @@ fn mint_cert_enrollment_from_non_strongbox_rejected() {
         );
     });
 }
+
+#[test]
+fn mint_cert_enrollment_with_imported_key_rejected() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer();
+        // StrongBox-grade device (passes the device-integrity gate) but the
+        // binding key was imported (origin != GENERATED). The §5.5
+        // non-exportability gate must refuse it.
+        let payload = payload_with_verdict(MockVerdict::TpmImported {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        assert_noop!(
+            ZkPki::mint_cert(
+                RuntimeOrigin::signed(account(USER_ACCOUNT)),
+                nonce,
+                payload,
+                created_at,
+                None,
+                None, // commitment_c
+                None, // ec_key_pub_claimed
+                Some(enrollment),
+            ),
+            zk_pki_pallet::Error::<Runtime>::ChatEnrollmentKeyNotHardwareGenerated,
+        );
+    });
+}

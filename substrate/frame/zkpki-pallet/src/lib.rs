@@ -917,6 +917,12 @@ pub mod pallet {
         /// boot). Only intact hardware may bind a membership commitment
         /// (§5.5 device-integrity gate).
         ChatEnrollmentInsecureDevice,
+        /// Chat enrollment was attempted with a binding key whose
+        /// attestation does not declare `origin == GENERATED`: the key was
+        /// imported (or origin unproven), so it may be exportable. Only a
+        /// hardware-generated, non-exportable key may bind a membership
+        /// commitment (§5.5 non-exportability gate).
+        ChatEnrollmentKeyNotHardwareGenerated,
         InvalidPublicKey,
         UserAlreadyHasCertFromIssuer,
         AlreadySuspended,
@@ -1679,6 +1685,14 @@ pub mod pallet {
                     ensure!(
                         att_type == AttestationType::Tpm,
                         Error::<T>::ChatEnrollmentInsecureDevice,
+                    );
+                    // §5.5 non-exportability: the binding key (attest_ec) must
+                    // be hardware-generated (origin == GENERATED), so its
+                    // private material was never imported and cannot have
+                    // existed outside the secure element.
+                    ensure!(
+                        verified.attest_ec_origin_generated,
+                        Error::<T>::ChatEnrollmentKeyNotHardwareGenerated,
                     );
                     verify_chat_enrollment(
                         enrollment,

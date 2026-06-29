@@ -95,6 +95,20 @@ const KEY_DESCRIPTION_OID: ObjectIdentifier =
 /// attestation schema.
 const ROOT_OF_TRUST_TAG: u32 = 704;
 
+/// Context-specific tag for `origin` inside the hardwareEnforced
+/// AuthorizationList. Standard Android KeyMint schema: `origin [702]
+/// EXPLICIT INTEGER` (KeyOrigin GENERATED=0, DERIVED=1, IMPORTED=2,
+/// UNKNOWN=3).
+///
+/// NOTE: the two-column tag list in [`find_context_tag_body`]'s doc
+/// mislabels 702 as `osVersion` and 504 as `origin`. The schema, anchored
+/// by `rootOfTrust` correctly at 704, puts `userAuthType` at 504, `origin`
+/// at 702, and `osVersion` at 705. This constant follows the schema.
+const ORIGIN_TAG: u32 = 702;
+
+/// KeyOrigin value meaning the key was generated inside secure hardware.
+const KEY_ORIGIN_GENERATED: u8 = 0;
+
 /// Context-specific tag number for the `attestationApplicationId` field
 /// inside the hardwareEnforced AuthorizationList. Matches AOSP
 /// `KM_TAG_ATTESTATION_APPLICATION_ID = 709` (BYTES type).
@@ -214,6 +228,9 @@ pub struct ParsedAttestation {
     /// daemon. Cross-checked against the integrity blob's
     /// `signing_cert_hash`. `None` if absent from the chain.
     pub signing_cert_hash: Option<[u8; 32]>,
+    /// True iff the attested key's `origin == GENERATED` (created in secure
+    /// hardware, never imported). The §5.5 non-exportability signal.
+    pub key_origin_generated: bool,
 }
 
 /// Parse a SCALE-encoded cert chain (`Vec<Vec<u8>>`) and extract the
@@ -293,6 +310,7 @@ pub fn parse_chain_without_verify(chain: &[Vec<u8>]) -> Option<ParsedAttestation
         is_pop_eligible,
         package_name: key_desc.package_name,
         signing_cert_hash: key_desc.signing_cert_hash,
+        key_origin_generated: key_desc.key_origin_generated,
     })
 }
 
@@ -310,6 +328,9 @@ struct KeyDescription {
     /// set, or `None` if the digest set is missing / a different hash
     /// length is observed.
     signing_cert_hash: Option<[u8; 32]>,
+    /// True iff `origin [702] == GENERATED`: the attested key was created in
+    /// secure hardware and never imported (so non-exportable).
+    key_origin_generated: bool,
 }
 
 /// Walk the KeyDescription SEQUENCE by position. ASN.1 layout:
@@ -382,6 +403,8 @@ fn parse_key_description(extn_value: &[u8]) -> Option<KeyDescription> {
     let hw_body = r.read_slice(hw_header.length).ok()?;
     let rot_body = find_context_tag_body(hw_body, ROOT_OF_TRUST_TAG)?;
     let (device_locked, verified_boot_state) = parse_root_of_trust(rot_body)?;
+    // origin [702] lives in this same hardwareEnforced list, before [704].
+    let key_origin_generated = origin_is_generated(hw_body);
 
     Some(KeyDescription {
         attestation_security_level: SecurityLevel::from_u8(attestation_security_level)?,
@@ -391,6 +414,7 @@ fn parse_key_description(extn_value: &[u8]) -> Option<KeyDescription> {
         verified_boot_state,
         package_name,
         signing_cert_hash,
+        key_origin_generated,
     })
 }
 
@@ -460,6 +484,29 @@ fn find_context_tag_body(body: &[u8], target_tag: u32) -> Option<&[u8]> {
         rest = remaining;
     }
     None
+}
+
+/// True iff the AuthorizationList body carries `origin [702] == GENERATED`
+/// (KeyOrigin 0): the key's private material was created inside secure
+/// hardware and never imported, so it cannot have existed outside the
+/// secure element. Absent or any other value (DERIVED/IMPORTED/UNKNOWN)
+/// returns false — a conservative default that treats an unproven origin
+/// as potentially exportable.
+fn origin_is_generated(hw_body: &[u8]) -> bool {
+    let explicit = match find_context_tag_body(hw_body, ORIGIN_TAG) {
+        Some(b) => b,
+        None => return false,
+    };
+    // `[702] EXPLICIT` wraps a universal INTEGER. DER encodes the value 0
+    // (GENERATED) as a single 0x00 content byte; any nonzero content is a
+    // different origin.
+    match read_tlv(explicit) {
+        // class 0 = universal, primitive, tag number 2 = INTEGER.
+        Some((0, false, 2, val, _)) => {
+            val.len() == 1 && val[0] == KEY_ORIGIN_GENERATED
+        }
+        _ => false,
+    }
 }
 
 const TAG_CLASS_CONTEXT_SPECIFIC: u8 = 0b10;
@@ -724,4 +771,58 @@ fn skip_tlv(r: &mut SliceReader<'_>) -> Option<()> {
     let header = der::Header::decode(r).ok()?;
     r.read_slice(header.length).ok()?;
     Some(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `[702] EXPLICIT INTEGER(value)`: context-specific constructed tag 702
+    /// (`0xBF 0x85 0x3E`) wrapping a universal INTEGER (`0x02 0x01 value`).
+    fn origin_element(value: u8) -> Vec<u8> {
+        vec![0xBF, 0x85, 0x3E, 0x03, 0x02, 0x01, value]
+    }
+
+    /// `[704] EXPLICIT` with an empty body (`0xBF 0x85 0x40 0x00`).
+    fn empty_root_of_trust_element() -> Vec<u8> {
+        vec![0xBF, 0x85, 0x40, 0x00]
+    }
+
+    #[test]
+    fn origin_generated_detected() {
+        assert!(origin_is_generated(&origin_element(KEY_ORIGIN_GENERATED)));
+    }
+
+    #[test]
+    fn non_generated_origins_rejected() {
+        // DERIVED=1, IMPORTED=2, UNKNOWN=3 are all exportable-or-unproven.
+        for v in [1u8, 2, 3] {
+            assert!(!origin_is_generated(&origin_element(v)), "origin {v}");
+        }
+    }
+
+    #[test]
+    fn absent_origin_rejected() {
+        // Empty list, and a list whose only field is a higher tag [704]:
+        // the ordered walker passes the 702 slot without finding it.
+        assert!(!origin_is_generated(&[]));
+        assert!(!origin_is_generated(&empty_root_of_trust_element()));
+    }
+
+    #[test]
+    fn origin_found_before_root_of_trust() {
+        // Real ordering is ascending: [702] origin then [704] rootOfTrust.
+        let mut body = origin_element(KEY_ORIGIN_GENERATED);
+        body.extend_from_slice(&empty_root_of_trust_element());
+        assert!(origin_is_generated(&body));
+    }
+
+    /// Guards the tag-number trap: 504 is `userAuthType`, not `origin`.
+    /// A `[504]` element must never be read as the origin.
+    #[test]
+    fn user_auth_type_tag_is_not_origin() {
+        // [504] = 0xBF 0x83 0x78 (504 = 3*128 + 120). Body INTEGER(0).
+        let user_auth = vec![0xBF, 0x83, 0x78, 0x03, 0x02, 0x01, 0x00];
+        assert!(!origin_is_generated(&user_auth));
+    }
 }
