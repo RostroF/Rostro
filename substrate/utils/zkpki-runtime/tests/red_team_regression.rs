@@ -178,6 +178,7 @@ fn mint_tpm_cert(user: [u8; 32], ek_hash: [u8; 32]) -> [u8; 32] {
         None,
         None, // commitment_c
         None, // ec_key_pub_claimed
+        None, // chat_enrollment
     ));
     let ui_key = zk_pki_primitives::keys::UserIssuerKey::new(
         account(user),
@@ -286,6 +287,7 @@ fn offer_ttl_mint_succeeds_at_last_valid_block() {
             None,
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
     });
 }
@@ -310,6 +312,7 @@ fn offer_ttl_mint_rejected_at_expiry_block() {
                 None,
                 None, // commitment_c
                 None, // ec_key_pub_claimed
+                None, // chat_enrollment
             ),
             zk_pki_pallet::Error::<Runtime>::ContractExpired,
         );
@@ -479,6 +482,7 @@ fn purge_index_overflow_distributes_to_next_block() {
             None,
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
 
         // Resolve the newly minted thumbprint via the user index.
@@ -538,6 +542,7 @@ fn purge_index_all_lookahead_slots_full_emits_skipped_event() {
             None,
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
 
         let ui_key = zk_pki_primitives::keys::UserIssuerKey::new(

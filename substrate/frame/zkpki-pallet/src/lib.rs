@@ -48,7 +48,9 @@ pub mod pallet {
         tpm::AttestationType,
         traits::AttestationVerifier,
     };
-    use zk_pki_tpm::{AttestationPayloadV3, BindingProofVerifier};
+    use zk_pki_tpm::{
+        verify_chat_enrollment, AttestationPayloadV3, BindingProofVerifier, ChatEnrollment,
+    };
     use rostro_membership_tree::{
         empty_leaf, empty_root, empty_roots, update as smt_update, NodeStore,
         CAPACITY as MEMBERSHIP_CAPACITY,
@@ -901,6 +903,15 @@ pub mod pallet {
         RootAlreadyCompromised,
         IssuerAlreadyCompromised,
         AttestationInvalid,
+        /// The chat-enrollment id-binding signature failed to verify under
+        /// the attested key for this offer nonce.
+        ChatEnrollmentInvalid,
+        /// The submitted `id_commitment` is not a canonical BN254 scalar
+        /// (>= the field modulus).
+        IdCommitmentNotCanonical,
+        /// The membership tree is full (2^32 leaves) — practically
+        /// unreachable; surfaced instead of panicking.
+        MembershipTreeFull,
         InvalidPublicKey,
         UserAlreadyHasCertFromIssuer,
         AlreadySuspended,
@@ -1309,6 +1320,7 @@ pub mod pallet {
                 suspension_block: None,
                 issuer_metadata: None,
                 genesis_fingerprint: None,
+                leaf_position: None,
             });
             if let Some(eh) = ek_opt {
                 EkRegistry::<T>::insert(&who, eh, thumbprint);
@@ -1434,6 +1446,7 @@ pub mod pallet {
                 suspension_block: None,
                 issuer_metadata: None,
                 genesis_fingerprint: None,
+                leaf_position: None,
             });
             if let Some(eh) = ek_opt {
                 EkRegistry::<T>::insert(&root_addr, eh, thumbprint);
@@ -1579,6 +1592,7 @@ pub mod pallet {
             hip_proof_at_genesis: Option<CanonicalHipProof>,
             commitment_c: Option<[u8; 32]>,
             ec_key_pub_claimed: Option<[u8; 32]>,
+            chat_enrollment: Option<ChatEnrollment>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let offer = ContractOffers::<T>::get(contract_nonce)
@@ -1640,6 +1654,27 @@ pub mod pallet {
             {
                 return Err(Error::<T>::PopRequired.into());
             }
+
+            // Chat membership enrollment (optional). If present, verify the
+            // id_commitment is bound to the same attested silicon (the
+            // attest_ec key the attestation just proved) for this offer
+            // nonce, and is a canonical field element. The leaf is built now
+            // and inserted with the cert record below, so it only ever
+            // enters the tree if the whole mint commits.
+            let membership_leaf: Option<MembershipFr> = match chat_enrollment.as_ref() {
+                Some(enrollment) => {
+                    verify_chat_enrollment(
+                        enrollment,
+                        &verified.attest_ec_pubkey,
+                        &contract_nonce,
+                    )
+                    .map_err(|_| Error::<T>::ChatEnrollmentInvalid)?;
+                    let id_commitment = fr_from_canonical_bytes_le(&enrollment.id_commitment)
+                        .ok_or(Error::<T>::IdCommitmentNotCanonical)?;
+                    Some(Self::membership_leaf_value(id_commitment, expiry_block))
+                }
+                None => None,
+            };
 
             // HIP genesis recording. For PoP templates we require a
             // `CanonicalHipProof` and verify it internally (no prior
@@ -1903,6 +1938,15 @@ pub mod pallet {
                 )?;
             }
 
+            // Insert the membership leaf (if enrolling) and capture its
+            // position. Transactional with the rest of the mint.
+            let leaf_position = match membership_leaf {
+                Some(leaf) => {
+                    Some(Self::membership_insert(leaf).ok_or(Error::<T>::MembershipTreeFull)?)
+                }
+                None => None,
+            };
+
             CertLookupHot::<T>::insert(thumbprint, CertRecordHot {
                 schema_version: CURRENT_SCHEMA_VERSION, thumbprint,
                 root: issuer_rec.root.clone(), issuer: offer.issuer.clone(), user: who.clone(),
@@ -1929,6 +1973,7 @@ pub mod pallet {
                 suspension_block: None,
                 issuer_metadata: Some(offer.metadata.clone()),
                 genesis_fingerprint,
+                leaf_position,
             });
             if let Some(eh) = ek_opt {
                 EkRegistry::<T>::insert(&issuer_rec.root, eh, thumbprint);
@@ -2233,6 +2278,7 @@ pub mod pallet {
                 suspension_block: None,
                 issuer_metadata: Some(new_metadata),
                 genesis_fingerprint: None,
+                leaf_position: None,
             });
             if let Some(eh) = new_ek_hash {
                 EkRegistry::<T>::insert(&old_rec.root, eh, new_thumbprint);
@@ -2432,6 +2478,7 @@ pub mod pallet {
                     suspension_block: None,
                     issuer_metadata: None,
                     genesis_fingerprint: None,
+                    leaf_position: None,
                 });
                 if let Some(eh) = renewal_ek_opt {
                     EkRegistry::<T>::insert(&who, eh, new_thumbprint);
@@ -2530,6 +2577,7 @@ pub mod pallet {
                     suspension_block: None,
                     issuer_metadata: None,
                     genesis_fingerprint: None,
+                    leaf_position: None,
                 });
                 if let Some(eh) = renewal_ek_opt {
                     EkRegistry::<T>::insert(&issuer_rec.root, eh, new_thumbprint);
@@ -3301,6 +3349,13 @@ pub mod pallet {
         /// end-user mints only.
         fn remove_cert_entry(thumbprint: Thumbprint, rec: &CertRecordHot<T::AccountId, BlockNumberFor<T>>) {
             CertLookupHot::<T>::remove(thumbprint);
+            // Clear the membership leaf (if this cert enrolled chat) before
+            // dropping the cold record that holds its position.
+            if let Some(cold) = CertLookupCold::<T>::get(thumbprint) {
+                if let Some(pos) = cold.leaf_position {
+                    Self::membership_remove(pos);
+                }
+            }
             CertLookupCold::<T>::remove(thumbprint);
             // Mime-wrap binding pair, if any. Stored only for
             // MimeWrap-mechanism certs at mint; safe `remove` for
@@ -3930,5 +3985,9 @@ pub mod pallet {
         /// root/issuer/renewal paths. Future HIP-gated extrinsics
         /// compare fresh proofs against this ground truth.
         pub genesis_fingerprint: Option<zk_pki_primitives::hip::GenesisHardwareFingerprint>,
+        /// Membership-tree leaf index, set when the holder enrolls chat
+        /// membership at mint (id_commitment hardware-bound). `None` for
+        /// certs that did not enroll. Read at removal to clear the leaf.
+        pub leaf_position: Option<u64>,
     }
 }

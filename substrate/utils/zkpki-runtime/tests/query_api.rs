@@ -158,6 +158,7 @@ fn mint_tpm_cert(ek_hash: [u8; 32]) -> [u8; 32] {
         None,
         None, // commitment_c
         None, // ec_key_pub_claimed
+        None, // chat_enrollment
     ));
     // Locate the minted thumbprint via the user-issuer index.
     let ui_key = zk_pki_primitives::keys::UserIssuerKey::new(

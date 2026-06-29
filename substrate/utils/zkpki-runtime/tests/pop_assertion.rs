@@ -256,6 +256,7 @@ fn mint_pop_cert_for(user: [u8; 32]) -> [u8; 32] {
         Some(synth_hip_proof(genesis_hip_nonce)),
         None, // commitment_c — HipSigned path
         None, // ec_key_pub_claimed — HipSigned path
+        None, // chat_enrollment
     ));
 
     let user_issuer_key = zk_pki_primitives::keys::UserIssuerKey::new(
@@ -336,6 +337,7 @@ fn mint_non_pop_cert_for(user: [u8; 32]) -> [u8; 32] {
         None,
         None, // commitment_c
         None, // ec_key_pub_claimed
+        None, // chat_enrollment
     ));
     let user_issuer_key = zk_pki_primitives::keys::UserIssuerKey::new(
         account(user),

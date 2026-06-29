@@ -429,6 +429,7 @@ fn mint_cert_writes_ekus_to_hot_record() {
             Some(synth_hip_proof()),
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
 
         let user_key = zk_pki_primitives::keys::UserIssuerKey::new(
@@ -481,6 +482,7 @@ fn cert_status_returns_ekus() {
             Some(synth_hip_proof()),
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
 
         let user_key = zk_pki_primitives::keys::UserIssuerKey::new(
