@@ -141,10 +141,12 @@ pub fn run() -> rc_cli::Result<()> {
 		None => {
 			let canonical_files_dir = cli.canonical_files_dir.clone();
 			let canonical_staging_dir = cli.canonical_staging_dir.clone();
+			let chat_membership_vk = cli.chat_membership_vk.clone();
 			let runner = cli.create_runner(&cli.run)?;
 			runner.run_node_until_exit(move |config| {
 				let canonical_files_dir = canonical_files_dir.clone();
 				let canonical_staging_dir = canonical_staging_dir.clone();
+				let chat_membership_vk = chat_membership_vk.clone();
 				async move {
 					// Phase 6 Layer 2: enforce role-based invariants
 					// before service construction. Validator role rejects
@@ -155,6 +157,7 @@ pub fn run() -> rc_cli::Result<()> {
 						config,
 						canonical_files_dir,
 						canonical_staging_dir,
+						chat_membership_vk,
 					)
 					.map_err(rc_cli::Error::Service)
 				}

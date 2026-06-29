@@ -155,7 +155,20 @@ pub fn new_full<
 	config: Configuration,
 	canonical_files_dir: Option<std::path::PathBuf>,
 	canonical_staging_dir: Option<std::path::PathBuf>,
+	chat_membership_vk: Option<std::path::PathBuf>,
 ) -> Result<TaskManager, ServiceError> {
+	// Load the anonymous-membership verifying key once at startup, if a path
+	// was given. A read error is fatal (the operator explicitly asked for it);
+	// undecodable bytes are caught later in ChatRpc::new (auth stays off).
+	let chat_membership_vk_bytes: Option<Vec<u8>> = match chat_membership_vk {
+		Some(path) => Some(std::fs::read(&path).map_err(|e| {
+			ServiceError::Other(format!(
+				"failed to read --chat-membership-vk {}: {e}",
+				path.display()
+			))
+		})?),
+		None => None,
+	};
 	let rc_service::PartialComponents {
 		client,
 		backend,
@@ -745,6 +758,7 @@ pub fn new_full<
 		let pool = transaction_pool.clone();
 		let chat_share_store = chat_share_store.clone();
 		let network_arc = network_arc.clone();
+		let chat_membership_vk_bytes = chat_membership_vk_bytes.clone();
 		Box::new(move |_| {
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
@@ -756,6 +770,7 @@ pub fn new_full<
 					network: network_arc.clone(),
 					bucket_cache: chat_bucket_cache.clone(),
 					local_subscription: chat_local_subscription.clone(),
+					membership_vk_bytes: chat_membership_vk_bytes.clone(),
 				},
 			};
 			crate::rpc::create_full(deps).map_err(Into::into)

@@ -228,6 +228,36 @@ pub struct EntityStatusResponse<AccountId> {
     pub invalidation_rate: u32,
 }
 
+/// The public side of a cert's anonymous-membership witness: everything the
+/// phone prover needs to assemble a [`MembershipCircuit`] *except* the secret
+/// `s` (which never leaves the device's secure element). The caller already
+/// knows the current roots/epoch/scope via the other API methods; this bundles
+/// the per-cert, position-dependent data: the leaf index and the two depth-32
+/// authentication paths (sibling at each level, bottom-up, canonical LE field
+/// bytes), plus the leaf-value scalars the circuit checks as private witness.
+///
+/// PRIVACY: looking this up by thumbprint reveals to the *serving* node which
+/// cert the caller holds. Anonymity vs the chat **guard** is preserved (the
+/// guard only ever sees the Groth16 proof); anonymity vs the path-serving node
+/// is not, and is a Phase-2 concern (fetch over onion, or from a tree snapshot
+/// the device walks locally). For the smoke test / testnet collection posture
+/// this linkage is acceptable.
+#[derive(Encode, Decode, Clone, PartialEq, Eq, TypeInfo)]
+#[cfg_attr(feature = "std", derive(Debug, serde::Serialize, serde::Deserialize))]
+pub struct MembershipWitnessData {
+    /// The cert's leaf index in both the membership and freshness trees.
+    pub leaf_position: u64,
+    /// Block at which the cert expires (the circuit's `expiry_block` witness).
+    pub expiry_block: u64,
+    /// The cert's current HIP-freshness deadline in epochs (the freshness
+    /// leaf value; circuit's `fresh_until_epoch` witness).
+    pub fresh_until_epoch: u32,
+    /// Depth-32 membership-tree authentication path, bottom-up, LE field bytes.
+    pub membership_path: Vec<[u8; 32]>,
+    /// Depth-32 freshness-tree authentication path, bottom-up, LE field bytes.
+    pub freshness_path: Vec<[u8; 32]>,
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Runtime API trait
 // ──────────────────────────────────────────────────────────────────────
@@ -316,5 +346,12 @@ sp_api::decl_runtime_apis! {
         fn membership_epoch() -> u32;
         /// The anonymity-set scope constant committed in every membership leaf.
         fn membership_scope() -> u64;
+
+        /// The public side of `thumbprint`'s membership witness: leaf index,
+        /// expiry, freshness deadline, and the two depth-32 authentication
+        /// paths. `None` if the thumbprint has no cert or the cert was minted
+        /// without chat enrollment (no `leaf_position`). See
+        /// [`MembershipWitnessData`] for the privacy caveat on this lookup.
+        fn membership_witness(thumbprint: [u8; 32]) -> Option<MembershipWitnessData>;
     }
 }

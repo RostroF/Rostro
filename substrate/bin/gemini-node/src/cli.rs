@@ -34,6 +34,16 @@ pub struct Cli {
 	#[arg(long)]
 	pub canonical_staging_dir: Option<std::path::PathBuf>,
 
+	/// Path to a compressed Groth16 verifying key for the chat
+	/// anonymous-membership circuit. When set, the node pins this vk and
+	/// activates the `chat_authenticateMembership` RPC; when unset, that
+	/// endpoint returns "not activated". DEV / TESTNET ONLY: a real
+	/// deployment bakes a multi-party-ceremony vk into the binary rather
+	/// than loading one from disk. The keys emitted by the membership
+	/// circuit's `setup_test_keys` example are single-party and forgeable.
+	#[arg(long)]
+	pub chat_membership_vk: Option<std::path::PathBuf>,
+
 	#[clap(flatten)]
 	pub run: RunCmd,
 }

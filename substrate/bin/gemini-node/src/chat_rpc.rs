@@ -72,7 +72,7 @@ use rand_core::{OsRng, RngCore};
 use rc_network::{service::traits::NetworkService, types::ProtocolName, IfDisconnected, PeerId};
 use rostro_chat_ephemeral_store::EphemeralShareStore;
 use rostro_chat_membership_auth::{
-	Bn254, ChainView, HandshakeRequest, HandshakeSessions, VerifyingKey,
+	deserialize_vk, Bn254, ChainView, HandshakeRequest, HandshakeSessions, VerifyingKey,
 };
 use rostro_chat_primitives::{
 	bucket::bucket_for_pickup_key,
@@ -628,7 +628,33 @@ where
 		local_subscription: Option<
 			crate::chat_gossip_protocol::LocalSubscriptionState,
 		>,
+		membership_vk_bytes: Option<Vec<u8>>,
 	) -> Self {
+		// Pin the anonymous-membership verifying key, flipping the activation
+		// gate on. `None` (or undecodable bytes) leaves the endpoint returning
+		// "not activated" — the correct posture until a vk is pinned. Mainnet
+		// bakes a ceremony vk into the binary; the dev/testnet path loads one
+		// from `--chat-membership-vk`.
+		let membership_vk = match membership_vk_bytes {
+			Some(bytes) => match deserialize_vk(&bytes) {
+				Some(vk) => {
+					log::info!(
+						target: "rostro-chat",
+						"anonymous-membership auth ACTIVATED (pinned vk, {} bytes)",
+						bytes.len(),
+					);
+					Some(vk)
+				}
+				None => {
+					log::error!(
+						target: "rostro-chat",
+						"chat-membership vk failed to decode; membership auth stays OFF",
+					);
+					None
+				}
+			},
+			None => None,
+		};
 		let onion_ctx = node_seed.map(|seed| {
 			OnionPeelCtx::new(
 				seed,
@@ -646,7 +672,7 @@ where
 			bucket_cache,
 			local_subscription,
 			sessions: Arc::new(Mutex::new(SessionStore::default())),
-			membership_vk: None,
+			membership_vk,
 			membership_sessions: Arc::new(Mutex::new(HandshakeSessions::new())),
 			_block: PhantomData,
 		}

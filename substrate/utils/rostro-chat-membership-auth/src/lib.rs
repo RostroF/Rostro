@@ -28,6 +28,13 @@ use rostro_membership_circuit::groth16;
 use rostro_poseidon_bn254::{fr_from_canonical_bytes_le, hash_to_field_bn254};
 use std::collections::{HashMap, HashSet};
 
+/// Deserialize a compressed verifying key — the node's load path for a
+/// TEST/testnet vk pinned at startup (mainnet bakes the vk into the binary).
+/// Keeps the node from depending on ark-groth16 / ark-serialize directly.
+pub fn deserialize_vk(bytes: &[u8]) -> Option<VerifyingKey<Bn254>> {
+    groth16::deserialize_vk(bytes)
+}
+
 /// Domain tag for the handshake challenge field element. The phone and the
 /// guard must derive it identically.
 pub const DOMAIN_CHALLENGE: &[u8] = b"rostro-chat-handshake-challenge-v1";

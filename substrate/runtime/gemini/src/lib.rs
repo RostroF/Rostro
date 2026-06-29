@@ -1411,6 +1411,12 @@ impl_runtime_apis! {
 		fn membership_scope() -> u64 {
 			zk_pki_pallet::Pallet::<Runtime>::membership_scope()
 		}
+
+		fn membership_witness(
+			thumbprint: [u8; 32],
+		) -> Option<zk_pki_primitives::runtime_api::MembershipWitnessData> {
+			zk_pki_pallet::Pallet::<Runtime>::membership_witness(thumbprint)
+		}
 	}
 }
 

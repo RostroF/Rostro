@@ -66,6 +66,18 @@ pub fn setup<R: RngCore + CryptoRng>(rng: &mut R) -> (ProvingKey<Bn254>, Verifyi
         .expect("groth16 circuit_specific_setup")
 }
 
+/// TEST-ONLY: run single-party setup with a deterministic RNG and return the
+/// serialized `(pk_bytes, vk_bytes)` (both compressed). Deterministic so
+/// repeated runs yield identical keys — a dev/testnet convenience for pinning a
+/// smoke-test vk in the node and shipping the matching pk to the phone. This is
+/// NEVER a production ceremony: the toxic waste is not destroyed.
+pub fn setup_test_keys() -> (Vec<u8>, Vec<u8>) {
+    use ark_std::rand::{rngs::StdRng, SeedableRng};
+    let mut rng = StdRng::seed_from_u64(42);
+    let (pk, vk) = setup(&mut rng);
+    (serialize_pk(&pk), serialize_vk(&vk))
+}
+
 /// Produce a proof for a fully-assigned circuit. `None` on synthesis error.
 pub fn prove<R: RngCore + CryptoRng>(
     pk: &ProvingKey<Bn254>,
@@ -91,6 +103,19 @@ pub fn serialize_vk(vk: &VerifyingKey<Bn254>) -> Vec<u8> {
 /// Deserialize a pinned verifying key.
 pub fn deserialize_vk(bytes: &[u8]) -> Option<VerifyingKey<Bn254>> {
     VerifyingKey::<Bn254>::deserialize_compressed(bytes).ok()
+}
+
+/// Serialize a proving key (compressed) — for shipping to the phone prover.
+/// TEST-ONLY pairing: the matching vk must come from the same `setup` run.
+pub fn serialize_pk(pk: &ProvingKey<Bn254>) -> Vec<u8> {
+    let mut out = Vec::new();
+    pk.serialize_compressed(&mut out).expect("pk serializes");
+    out
+}
+
+/// Deserialize a proving key (the phone prover's load path).
+pub fn deserialize_pk(bytes: &[u8]) -> Option<ProvingKey<Bn254>> {
+    ProvingKey::<Bn254>::deserialize_compressed(bytes).ok()
 }
 
 /// Serialize a proof (compressed) for the wire.

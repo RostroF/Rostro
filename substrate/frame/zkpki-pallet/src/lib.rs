@@ -37,6 +37,7 @@ pub mod pallet {
         },
         pop::{derive_pop_nonce, PopAssertion},
         proxy::ValidateProxy,
+        runtime_api::MembershipWitnessData,
         issuer::{
             DeregistrationRecord, EntityState, IssuerRecord, RootRecord, MAX_CAPABILITY_EKUS,
         },
@@ -52,8 +53,8 @@ pub mod pallet {
         verify_chat_enrollment, AttestationPayloadV3, BindingProofVerifier, ChatEnrollment,
     };
     use rostro_membership_tree::{
-        empty_leaf, empty_root, empty_roots, update as smt_update, NodeStore,
-        CAPACITY as MEMBERSHIP_CAPACITY,
+        authentication_path, empty_leaf, empty_root, empty_roots, update as smt_update,
+        NodeStore, CAPACITY as MEMBERSHIP_CAPACITY,
     };
     use rostro_poseidon_bn254::{
         fr_from_canonical_bytes_le, fr_to_bytes_le, hash_leaf, params as poseidon_params,
@@ -478,6 +479,54 @@ pub mod pallet {
         /// The anonymity-set scope constant committed in every membership leaf.
         pub fn membership_scope() -> u64 {
             MEMBERSHIP_SCOPE
+        }
+
+        /// Assemble the public side of `thumbprint`'s membership witness: the
+        /// leaf index, expiry, freshness deadline, and the two depth-32
+        /// authentication paths. `None` if the cert is absent or was minted
+        /// without chat enrollment (no `leaf_position`).
+        ///
+        /// Pure storage read: walks both sparse trees for sibling nodes via
+        /// [`authentication_path`]. The privacy caveat (this reveals the
+        /// caller's cert to the serving node) is documented on
+        /// [`MembershipWitnessData`].
+        pub fn membership_witness(thumbprint: [u8; 32]) -> Option<MembershipWitnessData> {
+            let cold = CertLookupCold::<T>::get(thumbprint)?;
+            let index = cold.leaf_position?;
+            let hot = CertLookupHot::<T>::get(thumbprint)?;
+
+            let params = poseidon_params();
+            let empties = empty_roots(&params);
+
+            let m_store = MembershipNodeStore::<T>(core::marker::PhantomData);
+            let f_store = FreshnessNodeStore::<T>(core::marker::PhantomData);
+            let membership_path = authentication_path(&m_store, &empties, index)
+                .iter()
+                .map(fr_to_bytes_le)
+                .collect();
+            let freshness_path = authentication_path(&f_store, &empties, index)
+                .iter()
+                .map(fr_to_bytes_le)
+                .collect();
+
+            // The freshness leaf at level 0 is `Fr::from(fresh_until_epoch)`
+            // (see `freshness_set`); recover the integer from its canonical LE
+            // bytes. Absent node ⇒ the empty leaf ⇒ epoch 0.
+            let fresh_until_epoch = FreshnessNodes::<T>::get((0u8, index))
+                .map(|b| {
+                    let mut low = [0u8; 4];
+                    low.copy_from_slice(&b[..4]);
+                    u32::from_le_bytes(low)
+                })
+                .unwrap_or(0);
+
+            Some(MembershipWitnessData {
+                leaf_position: index,
+                expiry_block: hot.expiry_block.unique_saturated_into(),
+                fresh_until_epoch,
+                membership_path,
+                freshness_path,
+            })
         }
 
         /// Reserve a leaf index, reusing a freed slot before advancing the
