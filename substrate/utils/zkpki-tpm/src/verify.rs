@@ -162,6 +162,11 @@ pub struct AttestationPayloadV3 {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct VerifiedAttestation {
     pub cert_ec_pubkey: DevicePublicKey,
+    /// The attested binding key (`zkpki_attest_ec`). Surfaced so the
+    /// pallet can verify a [`crate::chat_enrollment::ChatEnrollment`]
+    /// against the same genuine, same-RootOfTrust silicon this attestation
+    /// proved, without re-parsing the chain.
+    pub attest_ec_pubkey: DevicePublicKey,
     pub ek_hash: [u8; 32],
     pub attestation_type: AttestationType,
     pub device_locked: bool,
@@ -409,6 +414,7 @@ pub fn verify_binding_proof_with_pins(
 
     Ok(VerifiedAttestation {
         cert_ec_pubkey: cert_ec_parsed.pubkey,
+        attest_ec_pubkey: attest_ec_parsed.pubkey,
         ek_hash,
         attestation_type,
         device_locked: cert_ec_parsed.device_locked,
@@ -556,7 +562,8 @@ pub mod test_mock_verifier {
                         )
                     })?;
                     Ok(VerifiedAttestation {
-                        cert_ec_pubkey: pubkey,
+                        cert_ec_pubkey: pubkey.clone(),
+                        attest_ec_pubkey: pubkey,
                         ek_hash,
                         attestation_type: AttestationType::Tpm,
                         device_locked: true,
@@ -573,7 +580,8 @@ pub mod test_mock_verifier {
                         )
                     })?;
                     Ok(VerifiedAttestation {
-                        cert_ec_pubkey: pubkey,
+                        cert_ec_pubkey: pubkey.clone(),
+                        attest_ec_pubkey: pubkey,
                         ek_hash: [0u8; 32],
                         attestation_type: AttestationType::Packed,
                         device_locked: false,
@@ -590,7 +598,8 @@ pub mod test_mock_verifier {
                         )
                     })?;
                     Ok(VerifiedAttestation {
-                        cert_ec_pubkey: pubkey,
+                        cert_ec_pubkey: pubkey.clone(),
+                        attest_ec_pubkey: pubkey,
                         ek_hash: [0u8; 32],
                         attestation_type: AttestationType::None,
                         device_locked: false,
