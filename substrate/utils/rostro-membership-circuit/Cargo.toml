@@ -1,0 +1,34 @@
+[package]
+name = "rostro-membership-circuit"
+description = "Groth16 R1CS circuit for the dotwave chat anonymous-membership proof: prove possession of a hardware-bound, non-expired, HIP-fresh cert in the membership set without revealing which one. Built on the rostro-poseidon-bn254 gadget; this crate is the constraint system + a native-witness harness (no trusted setup)."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ark-bn254             = { workspace = true, features = ["curve"] }
+ark-ff                = { workspace = true }
+ark-relations         = { workspace = true }
+ark-r1cs-std          = { workspace = true }
+rostro-poseidon-bn254 = { workspace = true, features = ["gadget"] }
+rostro-membership-tree = { workspace = true }
+
+[dev-dependencies]
+ark-relations          = { workspace = true, default-features = true }
+ark-r1cs-std           = { workspace = true, default-features = true }
+rostro-poseidon-bn254  = { workspace = true, default-features = true, features = ["gadget"] }
+rostro-membership-tree = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+    "ark-bn254/std",
+    "ark-ff/std",
+    "ark-relations/std",
+    "ark-r1cs-std/std",
+    "rostro-poseidon-bn254/std",
+    "rostro-membership-tree/std",
+]

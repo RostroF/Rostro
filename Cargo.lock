@@ -14038,6 +14038,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-membership-circuit"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254",
+ "ark-ff 0.5.0",
+ "ark-r1cs-std",
+ "ark-relations",
+ "rostro-membership-tree",
+ "rostro-poseidon-bn254",
+]
+
+[[package]]
 name = "rostro-membership-tree"
 version = "0.1.0"
 dependencies = [
