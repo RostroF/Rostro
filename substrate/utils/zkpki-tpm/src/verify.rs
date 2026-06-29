@@ -162,6 +162,11 @@ pub struct AttestationPayloadV3 {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct VerifiedAttestation {
     pub cert_ec_pubkey: DevicePublicKey,
+    /// The attested binding key (`zkpki_attest_ec`). Surfaced so the
+    /// pallet can verify a [`crate::chat_enrollment::ChatEnrollment`]
+    /// against the same genuine, same-RootOfTrust silicon this attestation
+    /// proved, without re-parsing the chain.
+    pub attest_ec_pubkey: DevicePublicKey,
     pub ek_hash: [u8; 32],
     pub attestation_type: AttestationType,
     pub device_locked: bool,
@@ -179,6 +184,10 @@ pub struct VerifiedAttestation {
     /// against the integrity blob's `signing_cert_hash` inside
     /// [`verify_binding_proof`].
     pub signing_cert_hash: Option<[u8; 32]>,
+    /// True iff the `attest_ec` (binding) key's attestation declares
+    /// `origin == GENERATED`: created in secure hardware, never imported.
+    /// The §5.5 non-exportability signal the pallet gates chat enrollment on.
+    pub attest_ec_origin_generated: bool,
 }
 
 /// Distinguishable rejection reasons for [`verify_binding_proof`]. Each
@@ -409,6 +418,7 @@ pub fn verify_binding_proof_with_pins(
 
     Ok(VerifiedAttestation {
         cert_ec_pubkey: cert_ec_parsed.pubkey,
+        attest_ec_pubkey: attest_ec_parsed.pubkey,
         ek_hash,
         attestation_type,
         device_locked: cert_ec_parsed.device_locked,
@@ -422,6 +432,9 @@ pub fn verify_binding_proof_with_pins(
         // parties without re-parsing the chain.
         package_name: cert_ec_parsed.package_name,
         signing_cert_hash: cert_ec_parsed.signing_cert_hash,
+        // §5.5 non-exportability of the binding key: surfaced (not enforced
+        // here); the pallet gates chat enrollment on it.
+        attest_ec_origin_generated: attest_ec_parsed.key_origin_generated,
     })
 }
 
@@ -519,6 +532,11 @@ pub mod test_mock_verifier {
         /// Device is reported as locked + verifiedBoot=Verified,
         /// manufacturer_verified=true.
         Tpm { ek_hash: [u8; 32], pubkey_bytes: Vec<u8> },
+        /// Like `Tpm` (StrongBox-grade, PoP-eligible) but with the binding
+        /// key's `origin != GENERATED` (attest_ec_origin_generated=false):
+        /// an imported, potentially-exportable key. Exercises the §5.5
+        /// non-exportability gate on chat enrollment.
+        TpmImported { ek_hash: [u8; 32], pubkey_bytes: Vec<u8> },
         /// Return `Ok` with `AttestationType::Packed` and the given
         /// pubkey. `ek_hash` is hard-set to `[0u8; 32]` (the pallet's
         /// EK-dedup path checks `attestation_type.is_pop_eligible()`
@@ -556,7 +574,8 @@ pub mod test_mock_verifier {
                         )
                     })?;
                     Ok(VerifiedAttestation {
-                        cert_ec_pubkey: pubkey,
+                        cert_ec_pubkey: pubkey.clone(),
+                        attest_ec_pubkey: pubkey,
                         ek_hash,
                         attestation_type: AttestationType::Tpm,
                         device_locked: true,
@@ -564,6 +583,26 @@ pub mod test_mock_verifier {
                         manufacturer_verified: true,
                         package_name: None,
                         signing_cert_hash: None,
+                        attest_ec_origin_generated: true,
+                    })
+                }
+                MockVerdict::TpmImported { ek_hash, pubkey_bytes } => {
+                    let pubkey = DevicePublicKey::new_p256(&pubkey_bytes).map_err(|_| {
+                        BindingProofError::CertEcChainInvalid(
+                            crate::chain::ChainError::BadPublicKey,
+                        )
+                    })?;
+                    Ok(VerifiedAttestation {
+                        cert_ec_pubkey: pubkey.clone(),
+                        attest_ec_pubkey: pubkey,
+                        ek_hash,
+                        attestation_type: AttestationType::Tpm,
+                        device_locked: true,
+                        verified_boot_state: crate::parse::VerifiedBootState::Verified,
+                        manufacturer_verified: true,
+                        package_name: None,
+                        signing_cert_hash: None,
+                        attest_ec_origin_generated: false,
                     })
                 }
                 MockVerdict::Packed { pubkey_bytes } => {
@@ -573,7 +612,8 @@ pub mod test_mock_verifier {
                         )
                     })?;
                     Ok(VerifiedAttestation {
-                        cert_ec_pubkey: pubkey,
+                        cert_ec_pubkey: pubkey.clone(),
+                        attest_ec_pubkey: pubkey,
                         ek_hash: [0u8; 32],
                         attestation_type: AttestationType::Packed,
                         device_locked: false,
@@ -581,6 +621,7 @@ pub mod test_mock_verifier {
                         manufacturer_verified: false,
                         package_name: None,
                         signing_cert_hash: None,
+                        attest_ec_origin_generated: false,
                     })
                 }
                 MockVerdict::None { pubkey_bytes } => {
@@ -590,7 +631,8 @@ pub mod test_mock_verifier {
                         )
                     })?;
                     Ok(VerifiedAttestation {
-                        cert_ec_pubkey: pubkey,
+                        cert_ec_pubkey: pubkey.clone(),
+                        attest_ec_pubkey: pubkey,
                         ek_hash: [0u8; 32],
                         attestation_type: AttestationType::None,
                         device_locked: false,
@@ -598,6 +640,7 @@ pub mod test_mock_verifier {
                         manufacturer_verified: false,
                         package_name: None,
                         signing_cert_hash: None,
+                        attest_ec_origin_generated: false,
                     })
                 }
             }

@@ -37,6 +37,7 @@ pub mod pallet {
         },
         pop::{derive_pop_nonce, PopAssertion},
         proxy::ValidateProxy,
+        runtime_api::MembershipWitnessData,
         issuer::{
             DeregistrationRecord, EntityState, IssuerRecord, RootRecord, MAX_CAPABILITY_EKUS,
         },
@@ -48,7 +49,17 @@ pub mod pallet {
         tpm::AttestationType,
         traits::AttestationVerifier,
     };
-    use zk_pki_tpm::{AttestationPayloadV3, BindingProofVerifier};
+    use zk_pki_tpm::{
+        verify_chat_enrollment, AttestationPayloadV3, BindingProofVerifier, ChatEnrollment,
+    };
+    use rostro_membership_tree::{
+        authentication_path, empty_leaf, empty_root, empty_roots, update as smt_update,
+        NodeStore, CAPACITY as MEMBERSHIP_CAPACITY,
+    };
+    use rostro_poseidon_bn254::{
+        fr_from_canonical_bytes_le, fr_to_bytes_le, hash_leaf, params as poseidon_params,
+        PoseidonField as MembershipFr,
+    };
     // Bring the `WeightInfo` trait into scope so every extrinsic's
     // `#[pallet::weight(T::WeightInfo::foo())]` resolves.
     use crate::weights::WeightInfo as _;
@@ -345,6 +356,334 @@ pub mod pallet {
         Thumbprint,
         OptionQuery,
     >;
+
+    // -----------------------------------------------------------------------
+    // Chat anonymous-membership tree (depth-32 sparse Poseidon SMT).
+    // Storage adapter over `rostro-membership-tree`; the math lives there,
+    // the persisted state lives here. Leaves are inserted at mint and cleared
+    // on revoke/expiry (wired into the mint / remove paths in a later step).
+    // See DOTWAVE-CHAT-ANON-MEMBERSHIP-AUTH-DECISIONS D5/D6.
+    // -----------------------------------------------------------------------
+
+    /// Domain `scope` committed into every membership leaf, defining the
+    /// anonymity set. One broad scope gives the largest set / best privacy
+    /// (decisions OQ4). A constant for now; promote to a Config item only if
+    /// per-runtime scoping is ever needed.
+    const MEMBERSHIP_SCOPE: u64 = 1;
+
+    /// Recent-root ring depth: how many superseded roots stay acceptable so a
+    /// proof built just before a root change still verifies.
+    const MEMBERSHIP_ROOT_HISTORY: u32 = 128;
+
+    /// Sparse occupied tree nodes: `(level, index)` → 32-byte field element.
+    /// A missing entry is the empty-subtree root for that level.
+    #[pallet::storage]
+    pub type MembershipNodes<T: Config> =
+        StorageMap<_, Blake2_128Concat, (u8, u64), [u8; 32], OptionQuery>;
+
+    /// Current membership root (canonical 32-byte field element). `None`
+    /// before the first leaf — readers fall back to the empty-tree root.
+    #[pallet::storage]
+    pub type MembershipRoot<T: Config> = StorageValue<_, [u8; 32], OptionQuery>;
+
+    /// Next never-used leaf index (the high-water mark).
+    #[pallet::storage]
+    pub type MembershipNextIndex<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+    /// Free-list stack of reusable slots: stack position → leaf index.
+    #[pallet::storage]
+    pub type MembershipFreeSlots<T: Config> =
+        StorageMap<_, Blake2_128Concat, u32, u64, OptionQuery>;
+
+    /// Number of entries currently on the free-list stack.
+    #[pallet::storage]
+    pub type MembershipFreeCount<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+    /// Ring of recent roots (newest last), bounded at [`MEMBERSHIP_ROOT_HISTORY`].
+    #[pallet::storage]
+    pub type MembershipRootHistory<T: Config> =
+        StorageValue<_, BoundedVec<[u8; 32], ConstU32<MEMBERSHIP_ROOT_HISTORY>>, ValueQuery>;
+
+    /// Binds the membership tree's [`NodeStore`] to pallet storage. Stored
+    /// nodes are always written canonically, so the read back never fails the
+    /// canonical decode.
+    pub struct MembershipNodeStore<T>(core::marker::PhantomData<T>);
+
+    impl<T: Config> NodeStore for MembershipNodeStore<T> {
+        fn get(&self, level: u8, index: u64) -> Option<MembershipFr> {
+            MembershipNodes::<T>::get((level, index)).and_then(|b| fr_from_canonical_bytes_le(&b))
+        }
+        fn set(&mut self, level: u8, index: u64, value: MembershipFr) {
+            MembershipNodes::<T>::insert((level, index), fr_to_bytes_le(&value));
+        }
+        fn clear(&mut self, level: u8, index: u64) {
+            MembershipNodes::<T>::remove((level, index));
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// The leaf value for a cert: `H(id_commitment, expiry_block, scope)`.
+        /// `expiry_block` is the cert's TTL deadline; `scope` is the constant
+        /// anonymity-set domain. Freshness is committed separately (D6).
+        pub fn membership_leaf_value(
+            id_commitment: MembershipFr,
+            expiry_block: BlockNumberFor<T>,
+        ) -> MembershipFr {
+            let params = poseidon_params();
+            let expiry: u64 = expiry_block.unique_saturated_into();
+            hash_leaf(
+                &params,
+                id_commitment,
+                MembershipFr::from(expiry),
+                MembershipFr::from(MEMBERSHIP_SCOPE),
+            )
+        }
+
+        /// Insert `leaf`, returning its index, or `None` if the tree is full.
+        pub fn membership_insert(leaf: MembershipFr) -> Option<u64> {
+            let params = poseidon_params();
+            let empties = empty_roots(&params);
+            let index = Self::membership_alloc_slot()?;
+            let mut store = MembershipNodeStore::<T>(core::marker::PhantomData);
+            let root = smt_update(&mut store, &params, &empties, index, leaf);
+            Self::membership_commit_root(fr_to_bytes_le(&root));
+            Some(index)
+        }
+
+        /// Clear the leaf at `index`, returning the slot to the free-list.
+        pub fn membership_remove(index: u64) {
+            let params = poseidon_params();
+            let empties = empty_roots(&params);
+            let mut store = MembershipNodeStore::<T>(core::marker::PhantomData);
+            let root = smt_update(&mut store, &params, &empties, index, empty_leaf());
+            Self::membership_free_slot(index);
+            Self::membership_commit_root(fr_to_bytes_le(&root));
+        }
+
+        /// The current membership root, or the empty-tree root before any leaf.
+        pub fn membership_root() -> [u8; 32] {
+            MembershipRoot::<T>::get().unwrap_or_else(|| {
+                let params = poseidon_params();
+                fr_to_bytes_le(&empty_root(&params))
+            })
+        }
+
+        /// Whether `root` is the current root or within the recent-root ring.
+        pub fn membership_root_recent(root: &[u8; 32]) -> bool {
+            if Self::membership_root() == *root {
+                return true;
+            }
+            MembershipRootHistory::<T>::get().iter().any(|r| r == root)
+        }
+
+        /// The anonymity-set scope constant committed in every membership leaf.
+        pub fn membership_scope() -> u64 {
+            MEMBERSHIP_SCOPE
+        }
+
+        /// Assemble the public side of `thumbprint`'s membership witness: the
+        /// leaf index, expiry, freshness deadline, and the two depth-32
+        /// authentication paths. `None` if the cert is absent or was minted
+        /// without chat enrollment (no `leaf_position`).
+        ///
+        /// Pure storage read: walks both sparse trees for sibling nodes via
+        /// [`authentication_path`]. The privacy caveat (this reveals the
+        /// caller's cert to the serving node) is documented on
+        /// [`MembershipWitnessData`].
+        pub fn membership_witness(thumbprint: [u8; 32]) -> Option<MembershipWitnessData> {
+            let cold = CertLookupCold::<T>::get(thumbprint)?;
+            let index = cold.leaf_position?;
+            let hot = CertLookupHot::<T>::get(thumbprint)?;
+
+            let params = poseidon_params();
+            let empties = empty_roots(&params);
+
+            let m_store = MembershipNodeStore::<T>(core::marker::PhantomData);
+            let f_store = FreshnessNodeStore::<T>(core::marker::PhantomData);
+            let membership_path = authentication_path(&m_store, &empties, index)
+                .iter()
+                .map(fr_to_bytes_le)
+                .collect();
+            let freshness_path = authentication_path(&f_store, &empties, index)
+                .iter()
+                .map(fr_to_bytes_le)
+                .collect();
+
+            // The freshness leaf at level 0 is `Fr::from(fresh_until_epoch)`
+            // (see `freshness_set`); recover the integer from its canonical LE
+            // bytes. Absent node ⇒ the empty leaf ⇒ epoch 0.
+            let fresh_until_epoch = FreshnessNodes::<T>::get((0u8, index))
+                .map(|b| {
+                    let mut low = [0u8; 4];
+                    low.copy_from_slice(&b[..4]);
+                    u32::from_le_bytes(low)
+                })
+                .unwrap_or(0);
+
+            Some(MembershipWitnessData {
+                leaf_position: index,
+                expiry_block: hot.expiry_block.unique_saturated_into(),
+                fresh_until_epoch,
+                membership_path,
+                freshness_path,
+            })
+        }
+
+        /// Reserve a leaf index, reusing a freed slot before advancing the
+        /// high-water mark.
+        fn membership_alloc_slot() -> Option<u64> {
+            let count = MembershipFreeCount::<T>::get();
+            if count > 0 {
+                let pos = count - 1;
+                if let Some(slot) = MembershipFreeSlots::<T>::take(pos) {
+                    MembershipFreeCount::<T>::put(pos);
+                    return Some(slot);
+                }
+            }
+            let next = MembershipNextIndex::<T>::get();
+            if next >= MEMBERSHIP_CAPACITY {
+                return None;
+            }
+            MembershipNextIndex::<T>::put(next + 1);
+            Some(next)
+        }
+
+        /// Return a slot to the free-list stack.
+        fn membership_free_slot(index: u64) {
+            let count = MembershipFreeCount::<T>::get();
+            MembershipFreeSlots::<T>::insert(count, index);
+            MembershipFreeCount::<T>::put(count + 1);
+        }
+
+        /// Persist a new root and append it to the recent-root ring (evicting
+        /// the oldest when full; a repeated root is not duplicated).
+        fn membership_commit_root(root: [u8; 32]) {
+            MembershipRoot::<T>::put(root);
+            MembershipRootHistory::<T>::mutate(|h| {
+                if h.last() == Some(&root) {
+                    return;
+                }
+                if h.len() as u32 >= MEMBERSHIP_ROOT_HISTORY {
+                    let _ = h.remove(0);
+                }
+                let _ = h.try_push(root);
+            });
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // HIP-freshness tree (parallel to the membership tree, decisions D6).
+    // A second depth-32 sparse Poseidon SMT over the SAME leaf indices: the
+    // freshness leaf at index i commits the cert's `fresh_until_epoch` as a
+    // bare field element, decoupled from the static membership leaf so
+    // freshness churn never perturbs the (privacy-anchor) membership root.
+    // Phase 0 sets the initial value at enrollment; Phase 1 HIP continuity
+    // bumps it via `freshness_set`. The circuit checks, for the same index i,
+    // membership-leaf in R_m AND freshness-leaf (= fresh_until_epoch) in R_f
+    // with `fresh_until_epoch >= current_epoch`.
+    // -----------------------------------------------------------------------
+
+    /// ~24h epoch length in blocks (decisions D7). Tunable: the membership
+    /// root is stable under any cadence; only the freshness root churns.
+    const EPOCH_LENGTH_BLOCKS: u32 = 14_400;
+
+    /// Initial freshness window (in epochs) granted at enrollment, before the
+    /// first HIP continuity bump.
+    const FRESHNESS_INITIAL_EPOCHS: u32 = 7;
+
+    /// Sparse occupied freshness-tree nodes: `(level, index)` → field bytes.
+    #[pallet::storage]
+    pub type FreshnessNodes<T: Config> =
+        StorageMap<_, Blake2_128Concat, (u8, u64), [u8; 32], OptionQuery>;
+
+    /// Current freshness root. `None` before any leaf → empty-tree root.
+    #[pallet::storage]
+    pub type FreshnessRoot<T: Config> = StorageValue<_, [u8; 32], OptionQuery>;
+
+    /// Recent freshness roots (newest last), bounded at the same depth as the
+    /// membership history.
+    #[pallet::storage]
+    pub type FreshnessRootHistory<T: Config> =
+        StorageValue<_, BoundedVec<[u8; 32], ConstU32<MEMBERSHIP_ROOT_HISTORY>>, ValueQuery>;
+
+    /// NodeStore adapter binding the freshness tree to storage.
+    pub struct FreshnessNodeStore<T>(core::marker::PhantomData<T>);
+
+    impl<T: Config> NodeStore for FreshnessNodeStore<T> {
+        fn get(&self, level: u8, index: u64) -> Option<MembershipFr> {
+            FreshnessNodes::<T>::get((level, index)).and_then(|b| fr_from_canonical_bytes_le(&b))
+        }
+        fn set(&mut self, level: u8, index: u64, value: MembershipFr) {
+            FreshnessNodes::<T>::insert((level, index), fr_to_bytes_le(&value));
+        }
+        fn clear(&mut self, level: u8, index: u64) {
+            FreshnessNodes::<T>::remove((level, index));
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// Current epoch derived from the block number.
+        pub fn current_epoch() -> u32 {
+            let now: u64 = <frame_system::Pallet<T>>::block_number().unique_saturated_into();
+            (now / EPOCH_LENGTH_BLOCKS as u64) as u32
+        }
+
+        /// The freshness deadline granted to a cert at enrollment (Phase 0).
+        pub fn initial_fresh_until_epoch() -> u32 {
+            Self::current_epoch().saturating_add(FRESHNESS_INITIAL_EPOCHS)
+        }
+
+        /// Set (or bump) the freshness leaf at `index` to `fresh_until_epoch`.
+        /// The leaf value is the epoch itself, so the circuit checks
+        /// `leaf >= current_epoch` directly. Used at enrollment and by Phase 1
+        /// HIP continuity.
+        pub fn freshness_set(index: u64, fresh_until_epoch: u32) {
+            let params = poseidon_params();
+            let empties = empty_roots(&params);
+            let mut store = FreshnessNodeStore::<T>(core::marker::PhantomData);
+            let leaf = MembershipFr::from(fresh_until_epoch as u64);
+            let root = smt_update(&mut store, &params, &empties, index, leaf);
+            Self::freshness_commit_root(fr_to_bytes_le(&root));
+        }
+
+        /// Clear the freshness leaf at `index` (cert removed).
+        pub fn freshness_remove(index: u64) {
+            let params = poseidon_params();
+            let empties = empty_roots(&params);
+            let mut store = FreshnessNodeStore::<T>(core::marker::PhantomData);
+            let root = smt_update(&mut store, &params, &empties, index, empty_leaf());
+            Self::freshness_commit_root(fr_to_bytes_le(&root));
+        }
+
+        /// Current freshness root, or the empty-tree root before any leaf.
+        pub fn freshness_root() -> [u8; 32] {
+            FreshnessRoot::<T>::get().unwrap_or_else(|| {
+                let params = poseidon_params();
+                fr_to_bytes_le(&empty_root(&params))
+            })
+        }
+
+        /// Whether `root` is the current freshness root or within its ring.
+        pub fn freshness_root_recent(root: &[u8; 32]) -> bool {
+            if Self::freshness_root() == *root {
+                return true;
+            }
+            FreshnessRootHistory::<T>::get().iter().any(|r| r == root)
+        }
+
+        fn freshness_commit_root(root: [u8; 32]) {
+            FreshnessRoot::<T>::put(root);
+            FreshnessRootHistory::<T>::mutate(|h| {
+                if h.last() == Some(&root) {
+                    return;
+                }
+                if h.len() as u32 >= MEMBERSHIP_ROOT_HISTORY {
+                    let _ = h.remove(0);
+                }
+                let _ = h.try_push(root);
+            });
+        }
+    }
 
     /// Registered roots: AccountId → RootRecord.
     #[pallet::storage]
@@ -732,6 +1071,26 @@ pub mod pallet {
         RootAlreadyCompromised,
         IssuerAlreadyCompromised,
         AttestationInvalid,
+        /// The chat-enrollment id-binding signature failed to verify under
+        /// the attested key for this offer nonce.
+        ChatEnrollmentInvalid,
+        /// The submitted `id_commitment` is not a canonical BN254 scalar
+        /// (>= the field modulus).
+        IdCommitmentNotCanonical,
+        /// The membership tree is full (2^32 leaves) — practically
+        /// unreachable; surfaced instead of panicking.
+        MembershipTreeFull,
+        /// Chat enrollment was attempted from a cert whose attestation is
+        /// not StrongBox-grade (PoP-eligible: bootloader-locked + verified
+        /// boot). Only intact hardware may bind a membership commitment
+        /// (§5.5 device-integrity gate).
+        ChatEnrollmentInsecureDevice,
+        /// Chat enrollment was attempted with a binding key whose
+        /// attestation does not declare `origin == GENERATED`: the key was
+        /// imported (or origin unproven), so it may be exportable. Only a
+        /// hardware-generated, non-exportable key may bind a membership
+        /// commitment (§5.5 non-exportability gate).
+        ChatEnrollmentKeyNotHardwareGenerated,
         InvalidPublicKey,
         UserAlreadyHasCertFromIssuer,
         AlreadySuspended,
@@ -1140,6 +1499,7 @@ pub mod pallet {
                 suspension_block: None,
                 issuer_metadata: None,
                 genesis_fingerprint: None,
+                leaf_position: None,
             });
             if let Some(eh) = ek_opt {
                 EkRegistry::<T>::insert(&who, eh, thumbprint);
@@ -1265,6 +1625,7 @@ pub mod pallet {
                 suspension_block: None,
                 issuer_metadata: None,
                 genesis_fingerprint: None,
+                leaf_position: None,
             });
             if let Some(eh) = ek_opt {
                 EkRegistry::<T>::insert(&root_addr, eh, thumbprint);
@@ -1410,6 +1771,7 @@ pub mod pallet {
             hip_proof_at_genesis: Option<CanonicalHipProof>,
             commitment_c: Option<[u8; 32]>,
             ec_key_pub_claimed: Option<[u8; 32]>,
+            chat_enrollment: Option<ChatEnrollment>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let offer = ContractOffers::<T>::get(contract_nonce)
@@ -1471,6 +1833,47 @@ pub mod pallet {
             {
                 return Err(Error::<T>::PopRequired.into());
             }
+
+            // Chat membership enrollment (optional). If present, verify the
+            // id_commitment is bound to the same attested silicon (the
+            // attest_ec key the attestation just proved) for this offer
+            // nonce, and is a canonical field element. The leaf is built now
+            // and inserted with the cert record below, so it only ever
+            // enters the tree if the whole mint commits.
+            let membership_leaf: Option<MembershipFr> = match chat_enrollment.as_ref() {
+                Some(enrollment) => {
+                    // §5.5 device-integrity gate: only StrongBox-grade, intact
+                    // silicon may bind a membership commitment.
+                    // `attestation_type == Tpm` is `is_pop_eligible`: StrongBox
+                    // security level on both keys AND bootloader locked AND
+                    // verified boot. The binding key shares this RootOfTrust,
+                    // so this gates the silicon the id_commitment is bound to.
+                    // (Key non-exportability, origin==GENERATED, is the
+                    // remaining §5.5 item, pending a parser extension.)
+                    ensure!(
+                        att_type == AttestationType::Tpm,
+                        Error::<T>::ChatEnrollmentInsecureDevice,
+                    );
+                    // §5.5 non-exportability: the binding key (attest_ec) must
+                    // be hardware-generated (origin == GENERATED), so its
+                    // private material was never imported and cannot have
+                    // existed outside the secure element.
+                    ensure!(
+                        verified.attest_ec_origin_generated,
+                        Error::<T>::ChatEnrollmentKeyNotHardwareGenerated,
+                    );
+                    verify_chat_enrollment(
+                        enrollment,
+                        &verified.attest_ec_pubkey,
+                        &contract_nonce,
+                    )
+                    .map_err(|_| Error::<T>::ChatEnrollmentInvalid)?;
+                    let id_commitment = fr_from_canonical_bytes_le(&enrollment.id_commitment)
+                        .ok_or(Error::<T>::IdCommitmentNotCanonical)?;
+                    Some(Self::membership_leaf_value(id_commitment, expiry_block))
+                }
+                None => None,
+            };
 
             // HIP genesis recording. For PoP templates we require a
             // `CanonicalHipProof` and verify it internally (no prior
@@ -1734,6 +2137,21 @@ pub mod pallet {
                 )?;
             }
 
+            // Insert the membership leaf (if enrolling) and capture its
+            // position. Transactional with the rest of the mint.
+            let leaf_position = match membership_leaf {
+                Some(leaf) => {
+                    let index =
+                        Self::membership_insert(leaf).ok_or(Error::<T>::MembershipTreeFull)?;
+                    // Phase 0: set the cert's initial HIP-freshness deadline at
+                    // the same index in the parallel freshness tree. Phase 1
+                    // continuity bumps it; the membership leaf stays static (D6).
+                    Self::freshness_set(index, Self::initial_fresh_until_epoch());
+                    Some(index)
+                }
+                None => None,
+            };
+
             CertLookupHot::<T>::insert(thumbprint, CertRecordHot {
                 schema_version: CURRENT_SCHEMA_VERSION, thumbprint,
                 root: issuer_rec.root.clone(), issuer: offer.issuer.clone(), user: who.clone(),
@@ -1760,6 +2178,7 @@ pub mod pallet {
                 suspension_block: None,
                 issuer_metadata: Some(offer.metadata.clone()),
                 genesis_fingerprint,
+                leaf_position,
             });
             if let Some(eh) = ek_opt {
                 EkRegistry::<T>::insert(&issuer_rec.root, eh, thumbprint);
@@ -2064,6 +2483,7 @@ pub mod pallet {
                 suspension_block: None,
                 issuer_metadata: Some(new_metadata),
                 genesis_fingerprint: None,
+                leaf_position: None,
             });
             if let Some(eh) = new_ek_hash {
                 EkRegistry::<T>::insert(&old_rec.root, eh, new_thumbprint);
@@ -2263,6 +2683,7 @@ pub mod pallet {
                     suspension_block: None,
                     issuer_metadata: None,
                     genesis_fingerprint: None,
+                    leaf_position: None,
                 });
                 if let Some(eh) = renewal_ek_opt {
                     EkRegistry::<T>::insert(&who, eh, new_thumbprint);
@@ -2361,6 +2782,7 @@ pub mod pallet {
                     suspension_block: None,
                     issuer_metadata: None,
                     genesis_fingerprint: None,
+                    leaf_position: None,
                 });
                 if let Some(eh) = renewal_ek_opt {
                     EkRegistry::<T>::insert(&issuer_rec.root, eh, new_thumbprint);
@@ -3132,6 +3554,14 @@ pub mod pallet {
         /// end-user mints only.
         fn remove_cert_entry(thumbprint: Thumbprint, rec: &CertRecordHot<T::AccountId, BlockNumberFor<T>>) {
             CertLookupHot::<T>::remove(thumbprint);
+            // Clear the membership leaf (if this cert enrolled chat) before
+            // dropping the cold record that holds its position.
+            if let Some(cold) = CertLookupCold::<T>::get(thumbprint) {
+                if let Some(pos) = cold.leaf_position {
+                    Self::membership_remove(pos);
+                    Self::freshness_remove(pos);
+                }
+            }
             CertLookupCold::<T>::remove(thumbprint);
             // Mime-wrap binding pair, if any. Stored only for
             // MimeWrap-mechanism certs at mint; safe `remove` for
@@ -3761,5 +4191,9 @@ pub mod pallet {
         /// root/issuer/renewal paths. Future HIP-gated extrinsics
         /// compare fresh proofs against this ground truth.
         pub genesis_fingerprint: Option<zk_pki_primitives::hip::GenesisHardwareFingerprint>,
+        /// Membership-tree leaf index, set when the holder enrolls chat
+        /// membership at mint (id_commitment hardware-bound). `None` for
+        /// certs that did not enroll. Read at removal to clear the leaf.
+        pub leaf_position: Option<u64>,
     }
 }

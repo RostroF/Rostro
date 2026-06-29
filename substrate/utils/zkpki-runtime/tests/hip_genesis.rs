@@ -254,6 +254,7 @@ fn non_pop_mint_without_hip_proof_records_no_fingerprint() {
             None,
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
         let ui_key = zk_pki_primitives::keys::UserIssuerKey::new(
             account(USER_ACCOUNT),
@@ -283,6 +284,7 @@ fn non_pop_mint_with_hip_proof_silently_ignores_it() {
             Some(synth_hip_proof()),
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
         let ui_key = zk_pki_primitives::keys::UserIssuerKey::new(
             account(USER_ACCOUNT),
@@ -313,6 +315,7 @@ fn pop_mint_without_hip_proof_rejected() {
                 None,
                 None, // commitment_c
                 None, // ec_key_pub_claimed
+                None, // chat_enrollment
             ),
             zk_pki_pallet::Error::<Runtime>::HipProofRequired,
         );
@@ -340,6 +343,7 @@ fn pop_mint_with_valid_hip_proof_records_fingerprint() {
             Some(proof),
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
 
         let ui_key = zk_pki_primitives::keys::UserIssuerKey::new(
@@ -399,6 +403,7 @@ fn pop_mint_with_invalid_hip_proof_rejected() {
                 Some(bad_proof),
                 None, // commitment_c
                 None, // ec_key_pub_claimed
+                None, // chat_enrollment
             ),
             zk_pki_pallet::Error::<Runtime>::HipProofInvalid,
         );
@@ -558,6 +563,7 @@ fn pop_mint_with_strongbox_proof_records_strongbox_fingerprint() {
             Some(proof),
             Some([0xCCu8; 32]),       // commitment_c — placeholder for this fingerprint test
             Some(expected_ec_key_pub), // ec_key_pub_claimed — must match chain re-derivation
+            None, // chat_enrollment
         ));
 
         let ui_key = zk_pki_primitives::keys::UserIssuerKey::new(

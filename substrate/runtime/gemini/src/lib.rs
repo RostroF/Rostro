@@ -1387,6 +1387,36 @@ impl_runtime_apis! {
 		) -> Option<zk_pki_primitives::hip::GenesisHardwareFingerprint> {
 			zk_pki_pallet::Pallet::<Runtime>::query_cert_hip_genesis(thumbprint)
 		}
+
+		fn membership_root() -> [u8; 32] {
+			zk_pki_pallet::Pallet::<Runtime>::membership_root()
+		}
+
+		fn membership_root_recent(root: [u8; 32]) -> bool {
+			zk_pki_pallet::Pallet::<Runtime>::membership_root_recent(&root)
+		}
+
+		fn freshness_root() -> [u8; 32] {
+			zk_pki_pallet::Pallet::<Runtime>::freshness_root()
+		}
+
+		fn freshness_root_recent(root: [u8; 32]) -> bool {
+			zk_pki_pallet::Pallet::<Runtime>::freshness_root_recent(&root)
+		}
+
+		fn membership_epoch() -> u32 {
+			zk_pki_pallet::Pallet::<Runtime>::current_epoch()
+		}
+
+		fn membership_scope() -> u64 {
+			zk_pki_pallet::Pallet::<Runtime>::membership_scope()
+		}
+
+		fn membership_witness(
+			thumbprint: [u8; 32],
+		) -> Option<zk_pki_primitives::runtime_api::MembershipWitnessData> {
+			zk_pki_pallet::Pallet::<Runtime>::membership_witness(thumbprint)
+		}
 	}
 }
 

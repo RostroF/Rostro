@@ -381,6 +381,7 @@ dependencies = [
  "ark-crypto-primitives-macros",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
+ "ark-r1cs-std",
  "ark-relations",
  "ark-serialize 0.5.0",
  "ark-snark",
@@ -392,6 +393,7 @@ dependencies = [
  "merlin",
  "rayon",
  "sha2 0.10.9",
+ "tracing",
 ]
 
 [[package]]
@@ -4583,6 +4585,7 @@ dependencies = [
  "rns-types",
  "rostro-canonical-fetch",
  "rostro-chat-ephemeral-store",
+ "rostro-chat-membership-auth",
  "rostro-chat-onion",
  "rostro-chat-primitives",
  "rostro-chat-sealed-sender",
@@ -13784,6 +13787,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-chat-membership-auth"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-relations",
+ "ark-std 0.5.0",
+ "rostro-membership-circuit",
+ "rostro-membership-tree",
+ "rostro-poseidon-bn254",
+]
+
+[[package]]
 name = "rostro-chat-mls"
 version = "0.1.0"
 dependencies = [
@@ -14036,6 +14053,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-membership-circuit"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-r1cs-std",
+ "ark-relations",
+ "ark-serialize 0.5.0",
+ "ark-snark",
+ "ark-std 0.5.0",
+ "rostro-membership-tree",
+ "rostro-poseidon-bn254",
+]
+
+[[package]]
+name = "rostro-membership-tree"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254",
+ "ark-ff 0.5.0",
+ "rostro-poseidon-bn254",
+]
+
+[[package]]
 name = "rostro-multi-key"
 version = "0.1.0"
 dependencies = [
@@ -14150,6 +14192,19 @@ dependencies = [
  "p3-matrix",
  "p3-poseidon2",
  "p3-symmetric",
+]
+
+[[package]]
+name = "rostro-poseidon-bn254"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254",
+ "ark-crypto-primitives",
+ "ark-ff 0.5.0",
+ "ark-r1cs-std",
+ "ark-relations",
+ "ark-serialize 0.5.0",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -20839,6 +20894,8 @@ dependencies = [
  "frame-support",
  "frame-system",
  "parity-scale-codec",
+ "rostro-membership-tree",
+ "rostro-poseidon-bn254",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -20899,6 +20956,8 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "parity-scale-codec",
+ "rostro-membership-tree",
+ "rostro-poseidon-bn254",
  "scale-info",
  "sp-api",
  "sp-block-builder",

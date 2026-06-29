@@ -1,0 +1,56 @@
+[package]
+name = "rostro-membership-circuit"
+description = "Groth16 R1CS circuit for the dotwave chat anonymous-membership proof: prove possession of a hardware-bound, non-expired, HIP-fresh cert in the membership set without revealing which one. Built on the rostro-poseidon-bn254 gadget; this crate is the constraint system + a native-witness harness (no trusted setup)."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ark-bn254             = { workspace = true, features = ["curve"] }
+ark-ff                = { workspace = true }
+ark-relations         = { workspace = true }
+ark-r1cs-std          = { workspace = true }
+rostro-poseidon-bn254 = { workspace = true, features = ["gadget"] }
+rostro-membership-tree = { workspace = true }
+
+# Groth16 proving machinery (feature "groth16"). Optional: the constraint
+# system itself does not need the pairing curve.
+ark-groth16   = { workspace = true, optional = true }
+ark-snark     = { workspace = true, optional = true }
+ark-serialize = { workspace = true, optional = true }
+ark-std       = { workspace = true, optional = true }
+
+[dev-dependencies]
+ark-relations          = { workspace = true, default-features = true }
+ark-r1cs-std           = { workspace = true, default-features = true }
+rostro-poseidon-bn254  = { workspace = true, default-features = true, features = ["gadget"] }
+rostro-membership-tree = { workspace = true, default-features = true }
+
+[[example]]
+name = "setup_test_keys"
+required-features = ["groth16"]
+
+[features]
+default = ["std"]
+std = [
+    "ark-bn254/std",
+    "ark-ff/std",
+    "ark-relations/std",
+    "ark-r1cs-std/std",
+    "rostro-poseidon-bn254/std",
+    "rostro-membership-tree/std",
+]
+# Groth16 setup / prove / verify + (de)serialization. Implies std.
+groth16 = [
+    "std",
+    "dep:ark-groth16",
+    "dep:ark-snark",
+    "dep:ark-serialize",
+    "dep:ark-std",
+    "ark-groth16/std",
+    "ark-serialize/std",
+    "ark-std/std",
+]

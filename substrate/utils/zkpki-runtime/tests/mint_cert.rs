@@ -212,6 +212,7 @@ fn mint_cert_with_valid_attestation_succeeds() {
             None,
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
 
         // Offer consumed.
@@ -253,6 +254,7 @@ fn mint_cert_with_invalid_attestation_fails() {
                 None,
                 None, // commitment_c
                 None, // ec_key_pub_claimed
+                None, // chat_enrollment
             ),
             zk_pki_pallet::Error::<Runtime>::AttestationInvalid,
         );
@@ -281,6 +283,7 @@ fn mint_cert_ek_dedup_blocks_second_cert() {
             None,
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
         assert!(zk_pki_pallet::EkRegistry::<Runtime>::contains_key(
             &account(ROOT_ACCOUNT),
@@ -324,6 +327,7 @@ fn mint_cert_ek_dedup_blocks_second_cert() {
                 None,
                 None, // commitment_c
                 None, // ec_key_pub_claimed
+                None, // chat_enrollment
             ),
             zk_pki_pallet::Error::<Runtime>::EkAlreadyRegistered,
         );
@@ -348,6 +352,7 @@ fn mint_cert_packed_skips_ek_dedup() {
             None,
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
 
         // The Packed mock returns ek_hash = [0u8; 32]. Registry must
@@ -393,6 +398,7 @@ fn mint_cert_packed_skips_ek_dedup() {
             None,
             None, // commitment_c
             None, // ec_key_pub_claimed
+            None, // chat_enrollment
         ));
 
         // Both certs minted, both with attestation_type=Packed.
@@ -400,5 +406,152 @@ fn mint_cert_packed_skips_ek_dedup() {
             .filter(|r| r.attestation_type == zk_pki_primitives::tpm::AttestationType::Packed)
             .count();
         assert_eq!(packed_count, 2, "two Packed mints must have landed");
+    });
+}
+
+/// Build a valid chat enrollment for `nonce`: `id_commitment = Poseidon(s)`,
+/// signed by the same P-256 key the mock returns as `attest_ec` (scalar 7,
+/// via `test_cert_ec_pubkey`).
+fn valid_enrollment(nonce: &[u8; 32]) -> zk_pki_tpm::ChatEnrollment {
+    use p256::ecdsa::{signature::Signer, Signature, SigningKey};
+    use rostro_poseidon_bn254::{fr_to_bytes_le, id_commitment, params, PoseidonField as Fr};
+
+    let p = params();
+    let idc_bytes = fr_to_bytes_le(&id_commitment(&p, Fr::from(12345u64)));
+    let sk = SigningKey::from_slice(&[7u8; 32]).unwrap();
+    let mut input = Vec::new();
+    input.extend_from_slice(zk_pki_tpm::ID_BINDING_CONTEXT);
+    input.extend_from_slice(&idc_bytes);
+    input.extend_from_slice(nonce);
+    let msg = sp_core::hashing::blake2_256(&input);
+    let sig: Signature = sk.sign(&msg);
+    zk_pki_tpm::ChatEnrollment {
+        id_commitment: idc_bytes,
+        id_binding_signature: sig.to_der().as_bytes().to_vec(),
+    }
+}
+
+#[test]
+fn mint_cert_with_chat_enrollment_inserts_leaf() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+
+        let empty_root = ZkPki::membership_root();
+        let empty_freshness = ZkPki::freshness_root();
+        assert_ok!(ZkPki::mint_cert(
+            RuntimeOrigin::signed(account(USER_ACCOUNT)),
+            nonce,
+            payload,
+            created_at,
+            None,
+            None, // commitment_c
+            None, // ec_key_pub_claimed
+            Some(enrollment),
+        ));
+
+        // A membership leaf was inserted and recorded on the cold record.
+        assert_ne!(ZkPki::membership_root(), empty_root, "root advances on enrollment");
+        let thumb = zk_pki_pallet::CertsByUser::<Runtime>::iter_prefix(account(USER_ACCOUNT))
+            .next()
+            .map(|(t, _)| t)
+            .expect("cert minted");
+        let cold = zk_pki_pallet::CertLookupCold::<Runtime>::get(thumb).expect("cold record");
+        assert_eq!(cold.leaf_position, Some(0));
+
+        // The parallel freshness leaf was set at the same index on enrollment.
+        assert_ne!(
+            ZkPki::freshness_root(),
+            empty_freshness,
+            "freshness leaf set on enrollment",
+        );
+    });
+}
+
+#[test]
+fn mint_cert_with_bad_enrollment_signature_rejected() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let mut enrollment = valid_enrollment(&nonce);
+        // Corrupt the binding signature: the mint must reject before any
+        // storage write (assert_noop verifies no state change).
+        enrollment.id_binding_signature = vec![0u8; 8];
+
+        assert_noop!(
+            ZkPki::mint_cert(
+                RuntimeOrigin::signed(account(USER_ACCOUNT)),
+                nonce,
+                payload,
+                created_at,
+                None,
+                None, // commitment_c
+                None, // ec_key_pub_claimed
+                Some(enrollment),
+            ),
+            zk_pki_pallet::Error::<Runtime>::ChatEnrollmentInvalid,
+        );
+    });
+}
+
+#[test]
+fn mint_cert_enrollment_from_non_strongbox_rejected() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer();
+        // Packed = not StrongBox-grade (not PoP-eligible). Enrollment must
+        // be refused even with an otherwise-valid binding signature: the
+        // §5.5 device-integrity gate fires before the signature check.
+        let payload = payload_with_verdict(MockVerdict::Packed {
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        assert_noop!(
+            ZkPki::mint_cert(
+                RuntimeOrigin::signed(account(USER_ACCOUNT)),
+                nonce,
+                payload,
+                created_at,
+                None,
+                None, // commitment_c
+                None, // ec_key_pub_claimed
+                Some(enrollment),
+            ),
+            zk_pki_pallet::Error::<Runtime>::ChatEnrollmentInsecureDevice,
+        );
+    });
+}
+
+#[test]
+fn mint_cert_enrollment_with_imported_key_rejected() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer();
+        // StrongBox-grade device (passes the device-integrity gate) but the
+        // binding key was imported (origin != GENERATED). The §5.5
+        // non-exportability gate must refuse it.
+        let payload = payload_with_verdict(MockVerdict::TpmImported {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        assert_noop!(
+            ZkPki::mint_cert(
+                RuntimeOrigin::signed(account(USER_ACCOUNT)),
+                nonce,
+                payload,
+                created_at,
+                None,
+                None, // commitment_c
+                None, // ec_key_pub_claimed
+                Some(enrollment),
+            ),
+            zk_pki_pallet::Error::<Runtime>::ChatEnrollmentKeyNotHardwareGenerated,
+        );
     });
 }

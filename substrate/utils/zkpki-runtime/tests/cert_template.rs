@@ -273,6 +273,7 @@ fn mint_under_template(
         Some(synth_hip_proof()),
         None, // commitment_c — HipSigned path
         None, // ec_key_pub_claimed — HipSigned path
+        None, // chat_enrollment
     ));
     let user_key = zk_pki_primitives::keys::UserIssuerKey::new(
         account(user),
@@ -735,6 +736,7 @@ fn mint_cert_pop_required_packed_rejected() {
                 None,
                 None, // commitment_c
                 None, // ec_key_pub_claimed
+                None, // chat_enrollment
             ),
             zk_pki_pallet::Error::<Runtime>::PopRequired,
         );

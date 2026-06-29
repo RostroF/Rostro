@@ -1,8 +1,13 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod chain;
+pub mod chat_enrollment;
 pub mod parse;
 mod verify;
+
+pub use chat_enrollment::{
+    verify_chat_enrollment, ChatEnrollment, ChatEnrollmentError, ID_BINDING_CONTEXT,
+};
 
 pub use chain::{
     verify_chain, verify_chain_with_pin, verify_chain_with_pin_and_intermediates, ChainError,

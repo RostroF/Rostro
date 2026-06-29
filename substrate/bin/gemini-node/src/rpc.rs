@@ -70,6 +70,11 @@ pub struct ChatRpcDeps {
 	/// `chat_mySubscription` introspection RPC.
 	pub local_subscription:
 		Option<crate::chat_gossip_protocol::LocalSubscriptionState>,
+	/// Compressed anonymous-membership verifying key to pin at startup, if any.
+	/// `Some` flips the `chat_authenticateMembership` activation gate on (dev /
+	/// testnet `--chat-membership-vk` path); `None` leaves it returning "not
+	/// activated". Mainnet bakes the ceremony vk into the binary instead.
+	pub membership_vk_bytes: Option<Vec<u8>>,
 }
 
 /// Instantiate all full RPC extensions.
@@ -104,6 +109,7 @@ where
 			client,
 			chat.bucket_cache,
 			chat.local_subscription,
+			chat.membership_vk_bytes,
 		)
 		.into_rpc(),
 	)?;

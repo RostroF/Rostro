@@ -395,6 +395,7 @@ fn mint_hipsigned_template_with_strongbox_proof_rejected() {
                 Some(synth_strongbox_proof()),
                 None,
                 None,
+                None, // chat_enrollment
             ),
             zk_pki_pallet::Error::<Runtime>::HipSignedNotPermittedOnStrongBox,
         );
@@ -423,6 +424,7 @@ fn mint_mimewrap_template_with_tpm2_proof_rejected() {
                 Some(synth_tpm2_proof()),
                 Some([0xCCu8; 32]),
                 Some(expected),
+                None, // chat_enrollment
             ),
             zk_pki_pallet::Error::<Runtime>::MimeWrapNotPermittedOnTpm2,
         );
@@ -455,6 +457,7 @@ fn mint_mimewrap_with_wrong_ec_key_pub_claimed_rejected() {
                 Some(synth_strongbox_proof()),
                 Some([0xCCu8; 32]),
                 Some(bogus_claimed),
+                None, // chat_enrollment
             ),
             zk_pki_pallet::Error::<Runtime>::MimeWrapEcKeyPubMismatch,
         );
@@ -482,6 +485,7 @@ fn mint_mimewrap_without_commitment_rejected() {
                 Some(synth_strongbox_proof()),
                 None,
                 Some(expected),
+                None, // chat_enrollment
             ),
             zk_pki_pallet::Error::<Runtime>::MimeWrapCommitmentRequired,
         );
@@ -505,6 +509,7 @@ fn mint_hipsigned_with_commitment_rejected() {
                 Some(synth_tpm2_proof()),
                 Some([0xCCu8; 32]),
                 None,
+                None, // chat_enrollment
             ),
             zk_pki_pallet::Error::<Runtime>::MimeWrapCommitmentNotApplicable,
         );

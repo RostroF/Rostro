@@ -250,6 +250,7 @@ fn do_mint_cert<T: Config>(
         Some(bench_hip_proof()),
         None, // commitment_c
         None, // ec_key_pub_claimed
+        None, // chat_enrollment
     )
     .expect("mint_cert benchmark setup");
     // Locate thumbprint via the UserIssuerIndex — one cert per
@@ -396,6 +397,7 @@ mod benchmarks {
             None::<CanonicalHipProof>,
             None::<[u8; 32]>, // commitment_c
             None::<[u8; 32]>, // ec_key_pub_claimed
+            None, // chat_enrollment
         );
     }
 

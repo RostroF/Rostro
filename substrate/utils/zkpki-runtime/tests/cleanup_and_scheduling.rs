@@ -166,6 +166,7 @@ fn mint_tpm_cert(user: [u8; 32], ek_hash: [u8; 32]) -> [u8; 32] {
         None,
         None, // commitment_c
         None, // ec_key_pub_claimed
+        None, // chat_enrollment
     ));
     let ui_key = zk_pki_primitives::keys::UserIssuerKey::new(
         account(user),
