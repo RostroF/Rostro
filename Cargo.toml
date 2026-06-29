@@ -321,6 +321,7 @@ members = [
 	"substrate/utils/rostro-poseidon-bn254",
 	"substrate/utils/rostro-membership-tree",
 	"substrate/utils/rostro-membership-circuit",
+	"substrate/utils/rostro-chat-membership-auth",
 	"substrate/utils/rostro-chaum-pedersen-air",
 	"substrate/utils/rostro-range-check",
 	"substrate/utils/rostro-rsa2048-air",
@@ -711,6 +712,7 @@ rostro-hash-to-curve-air = { path = "substrate/utils/rostro-hash-to-curve-air", 
 rostro-poseidon-bn254 = { path = "substrate/utils/rostro-poseidon-bn254", default-features = false }
 rostro-membership-tree = { path = "substrate/utils/rostro-membership-tree", default-features = false }
 rostro-membership-circuit = { path = "substrate/utils/rostro-membership-circuit", default-features = false }
+rostro-chat-membership-auth = { path = "substrate/utils/rostro-chat-membership-auth", default-features = false }
 rostro-chaum-pedersen-air = { path = "substrate/utils/rostro-chaum-pedersen-air", default-features = false }
 rostro-range-check = { path = "substrate/utils/rostro-range-check", default-features = false }
 rostro-rsa2048-air = { path = "substrate/utils/rostro-rsa2048-air", default-features = false }

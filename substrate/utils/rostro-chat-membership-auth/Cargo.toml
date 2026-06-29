@@ -1,0 +1,21 @@
+[package]
+name = "rostro-chat-membership-auth"
+description = "Guard-side verifier for the dotwave chat anonymous-membership handshake: verify a Groth16 membership proof, validate its public inputs against chain state, reconstruct the guard-bound challenge + session-key commitment, spend the per-epoch nullifier, and issue a session. Apache utility so the GPL node stays thin."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ark-bn254             = { workspace = true, features = ["curve", "std"] }
+ark-ff                = { workspace = true, features = ["std"] }
+ark-groth16           = { workspace = true, features = ["std"] }
+rostro-membership-circuit = { workspace = true, default-features = true, features = ["groth16"] }
+rostro-poseidon-bn254 = { workspace = true, default-features = true }
+
+[dev-dependencies]
+ark-std                = { workspace = true, default-features = true }
+ark-relations          = { workspace = true, default-features = true }
+rostro-membership-tree = { workspace = true, default-features = true }

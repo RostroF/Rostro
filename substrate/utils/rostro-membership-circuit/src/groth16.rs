@@ -12,7 +12,8 @@
 
 use ark_bn254::{Bn254, Fr};
 use ark_ff::Zero;
-use ark_groth16::{prepare_verifying_key, Groth16, Proof, ProvingKey, VerifyingKey};
+use ark_groth16::{prepare_verifying_key, Groth16};
+pub use ark_groth16::{Proof, ProvingKey, VerifyingKey};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_snark::SNARK;
 use ark_std::rand::{CryptoRng, RngCore};
