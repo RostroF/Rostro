@@ -49,6 +49,14 @@ pub mod pallet {
         traits::AttestationVerifier,
     };
     use zk_pki_tpm::{AttestationPayloadV3, BindingProofVerifier};
+    use rostro_membership_tree::{
+        empty_leaf, empty_root, empty_roots, update as smt_update, NodeStore,
+        CAPACITY as MEMBERSHIP_CAPACITY,
+    };
+    use rostro_poseidon_bn254::{
+        fr_from_canonical_bytes_le, fr_to_bytes_le, hash_leaf, params as poseidon_params,
+        PoseidonField as MembershipFr,
+    };
     // Bring the `WeightInfo` trait into scope so every extrinsic's
     // `#[pallet::weight(T::WeightInfo::foo())]` resolves.
     use crate::weights::WeightInfo as _;
@@ -345,6 +353,167 @@ pub mod pallet {
         Thumbprint,
         OptionQuery,
     >;
+
+    // -----------------------------------------------------------------------
+    // Chat anonymous-membership tree (depth-32 sparse Poseidon SMT).
+    // Storage adapter over `rostro-membership-tree`; the math lives there,
+    // the persisted state lives here. Leaves are inserted at mint and cleared
+    // on revoke/expiry (wired into the mint / remove paths in a later step).
+    // See DOTWAVE-CHAT-ANON-MEMBERSHIP-AUTH-DECISIONS D5/D6.
+    // -----------------------------------------------------------------------
+
+    /// Domain `scope` committed into every membership leaf, defining the
+    /// anonymity set. One broad scope gives the largest set / best privacy
+    /// (decisions OQ4). A constant for now; promote to a Config item only if
+    /// per-runtime scoping is ever needed.
+    const MEMBERSHIP_SCOPE: u64 = 1;
+
+    /// Recent-root ring depth: how many superseded roots stay acceptable so a
+    /// proof built just before a root change still verifies.
+    const MEMBERSHIP_ROOT_HISTORY: u32 = 128;
+
+    /// Sparse occupied tree nodes: `(level, index)` → 32-byte field element.
+    /// A missing entry is the empty-subtree root for that level.
+    #[pallet::storage]
+    pub type MembershipNodes<T: Config> =
+        StorageMap<_, Blake2_128Concat, (u8, u64), [u8; 32], OptionQuery>;
+
+    /// Current membership root (canonical 32-byte field element). `None`
+    /// before the first leaf — readers fall back to the empty-tree root.
+    #[pallet::storage]
+    pub type MembershipRoot<T: Config> = StorageValue<_, [u8; 32], OptionQuery>;
+
+    /// Next never-used leaf index (the high-water mark).
+    #[pallet::storage]
+    pub type MembershipNextIndex<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+    /// Free-list stack of reusable slots: stack position → leaf index.
+    #[pallet::storage]
+    pub type MembershipFreeSlots<T: Config> =
+        StorageMap<_, Blake2_128Concat, u32, u64, OptionQuery>;
+
+    /// Number of entries currently on the free-list stack.
+    #[pallet::storage]
+    pub type MembershipFreeCount<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+    /// Ring of recent roots (newest last), bounded at [`MEMBERSHIP_ROOT_HISTORY`].
+    #[pallet::storage]
+    pub type MembershipRootHistory<T: Config> =
+        StorageValue<_, BoundedVec<[u8; 32], ConstU32<MEMBERSHIP_ROOT_HISTORY>>, ValueQuery>;
+
+    /// Binds the membership tree's [`NodeStore`] to pallet storage. Stored
+    /// nodes are always written canonically, so the read back never fails the
+    /// canonical decode.
+    pub struct MembershipNodeStore<T>(core::marker::PhantomData<T>);
+
+    impl<T: Config> NodeStore for MembershipNodeStore<T> {
+        fn get(&self, level: u8, index: u64) -> Option<MembershipFr> {
+            MembershipNodes::<T>::get((level, index)).and_then(|b| fr_from_canonical_bytes_le(&b))
+        }
+        fn set(&mut self, level: u8, index: u64, value: MembershipFr) {
+            MembershipNodes::<T>::insert((level, index), fr_to_bytes_le(&value));
+        }
+        fn clear(&mut self, level: u8, index: u64) {
+            MembershipNodes::<T>::remove((level, index));
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// The leaf value for a cert: `H(id_commitment, expiry_block, scope)`.
+        /// `expiry_block` is the cert's TTL deadline; `scope` is the constant
+        /// anonymity-set domain. Freshness is committed separately (D6).
+        pub fn membership_leaf_value(
+            id_commitment: MembershipFr,
+            expiry_block: BlockNumberFor<T>,
+        ) -> MembershipFr {
+            let params = poseidon_params();
+            let expiry: u64 = expiry_block.unique_saturated_into();
+            hash_leaf(
+                &params,
+                id_commitment,
+                MembershipFr::from(expiry),
+                MembershipFr::from(MEMBERSHIP_SCOPE),
+            )
+        }
+
+        /// Insert `leaf`, returning its index, or `None` if the tree is full.
+        pub fn membership_insert(leaf: MembershipFr) -> Option<u64> {
+            let params = poseidon_params();
+            let empties = empty_roots(&params);
+            let index = Self::membership_alloc_slot()?;
+            let mut store = MembershipNodeStore::<T>(core::marker::PhantomData);
+            let root = smt_update(&mut store, &params, &empties, index, leaf);
+            Self::membership_commit_root(fr_to_bytes_le(&root));
+            Some(index)
+        }
+
+        /// Clear the leaf at `index`, returning the slot to the free-list.
+        pub fn membership_remove(index: u64) {
+            let params = poseidon_params();
+            let empties = empty_roots(&params);
+            let mut store = MembershipNodeStore::<T>(core::marker::PhantomData);
+            let root = smt_update(&mut store, &params, &empties, index, empty_leaf());
+            Self::membership_free_slot(index);
+            Self::membership_commit_root(fr_to_bytes_le(&root));
+        }
+
+        /// The current membership root, or the empty-tree root before any leaf.
+        pub fn membership_root() -> [u8; 32] {
+            MembershipRoot::<T>::get().unwrap_or_else(|| {
+                let params = poseidon_params();
+                fr_to_bytes_le(&empty_root(&params))
+            })
+        }
+
+        /// Whether `root` is the current root or within the recent-root ring.
+        pub fn membership_root_recent(root: &[u8; 32]) -> bool {
+            if Self::membership_root() == *root {
+                return true;
+            }
+            MembershipRootHistory::<T>::get().iter().any(|r| r == root)
+        }
+
+        /// Reserve a leaf index, reusing a freed slot before advancing the
+        /// high-water mark.
+        fn membership_alloc_slot() -> Option<u64> {
+            let count = MembershipFreeCount::<T>::get();
+            if count > 0 {
+                let pos = count - 1;
+                if let Some(slot) = MembershipFreeSlots::<T>::take(pos) {
+                    MembershipFreeCount::<T>::put(pos);
+                    return Some(slot);
+                }
+            }
+            let next = MembershipNextIndex::<T>::get();
+            if next >= MEMBERSHIP_CAPACITY {
+                return None;
+            }
+            MembershipNextIndex::<T>::put(next + 1);
+            Some(next)
+        }
+
+        /// Return a slot to the free-list stack.
+        fn membership_free_slot(index: u64) {
+            let count = MembershipFreeCount::<T>::get();
+            MembershipFreeSlots::<T>::insert(count, index);
+            MembershipFreeCount::<T>::put(count + 1);
+        }
+
+        /// Persist a new root and append it to the recent-root ring (evicting
+        /// the oldest when full; a repeated root is not duplicated).
+        fn membership_commit_root(root: [u8; 32]) {
+            MembershipRoot::<T>::put(root);
+            MembershipRootHistory::<T>::mutate(|h| {
+                if h.last() == Some(&root) {
+                    return;
+                }
+                if h.len() as u32 >= MEMBERSHIP_ROOT_HISTORY {
+                    let _ = h.remove(0);
+                }
+                let _ = h.try_push(root);
+            });
+        }
+    }
 
     /// Registered roots: AccountId → RootRecord.
     #[pallet::storage]
