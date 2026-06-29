@@ -61,7 +61,7 @@ fn kats() {
     );
     assert_eq!(
         fr_to_bytes_le(&hash_node(&p, l, r)),
-        from_hex("20758b922fb92b875eb956d0c33077e6127a6fd53121ecbdb5e2f2d540d55115"),
+        from_hex("00a7e5069273dc206e9f16709b9f462d0ac1a224e5543f7d9845748597049326"),
         "hash_node KAT drift",
     );
     assert_eq!(

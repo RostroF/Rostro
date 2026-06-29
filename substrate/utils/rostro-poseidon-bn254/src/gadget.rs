@@ -14,7 +14,7 @@ use ark_crypto_primitives::sponge::{
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
 
-use crate::{DOMAIN_COMMITMENT, DOMAIN_LEAF, DOMAIN_NODE, DOMAIN_NULLIFIER};
+use crate::{DOMAIN_COMMITMENT, DOMAIN_LEAF, DOMAIN_NULLIFIER};
 
 /// Core in-circuit sponge hash: absorb the constant `domain` tag, then
 /// `elems`, squeeze one element. Mirrors [`crate::hash`].
@@ -41,14 +41,17 @@ pub fn id_commitment_var(
     hash_var(cs, params, DOMAIN_COMMITMENT, core::slice::from_ref(s))
 }
 
-/// In-circuit [`crate::hash_node`].
+/// In-circuit [`crate::hash_node`]. Domain-free 2-to-1 compression.
 pub fn hash_node_var(
     cs: ConstraintSystemRef<Fr>,
     params: &PoseidonConfig<Fr>,
     left: &FpVar<Fr>,
     right: &FpVar<Fr>,
 ) -> Result<FpVar<Fr>, SynthesisError> {
-    hash_var(cs, params, DOMAIN_NODE, &[left.clone(), right.clone()])
+    let mut sponge = PoseidonSpongeVar::<Fr>::new(cs, params);
+    sponge.absorb(left)?;
+    sponge.absorb(right)?;
+    Ok(sponge.squeeze_field_elements(1)?[0].clone())
 }
 
 /// In-circuit [`crate::hash_leaf`].

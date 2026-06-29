@@ -93,8 +93,6 @@ pub fn params() -> PoseidonConfig<Fr> {
 
 /// Domain tag for `id_commitment = H(s)`.
 pub const DOMAIN_COMMITMENT: u64 = 1;
-/// Domain tag for a 2-to-1 Merkle node hash.
-pub const DOMAIN_NODE: u64 = 2;
 /// Domain tag for the membership leaf hash.
 pub const DOMAIN_LEAF: u64 = 3;
 /// Domain tag for the per-epoch nullifier.
@@ -118,9 +116,17 @@ pub fn id_commitment(params: &PoseidonConfig<Fr>, s: Fr) -> Fr {
     hash(params, DOMAIN_COMMITMENT, &[s])
 }
 
-/// `H(DOMAIN_NODE, left, right)`: a 2-to-1 Merkle node compression.
+/// `H(left, right)`: a 2-to-1 Merkle node compression. Domain-free by design:
+/// leaves are domain-tagged (membership) or structurally distinct small
+/// values (freshness), the two trees have separate roots, and the fixed-depth
+/// tree pins each value's level, so a node hash can never be reinterpreted as
+/// a leaf. Domain-free keeps this to one permutation (rate 2), halving the
+/// in-circuit Merkle-path cost versus a domain-tagged sponge.
 pub fn hash_node(params: &PoseidonConfig<Fr>, left: Fr, right: Fr) -> Fr {
-    hash(params, DOMAIN_NODE, &[left, right])
+    let mut sponge = PoseidonSponge::<Fr>::new(params);
+    sponge.absorb(&left);
+    sponge.absorb(&right);
+    sponge.squeeze_native_field_elements(1)[0]
 }
 
 /// `leaf = H(DOMAIN_LEAF, id_commitment, expiry_block, scope)`. Static
