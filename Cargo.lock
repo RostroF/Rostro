@@ -381,6 +381,7 @@ dependencies = [
  "ark-crypto-primitives-macros",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
+ "ark-r1cs-std",
  "ark-relations",
  "ark-serialize 0.5.0",
  "ark-snark",
@@ -392,6 +393,7 @@ dependencies = [
  "merlin",
  "rayon",
  "sha2 0.10.9",
+ "tracing",
 ]
 
 [[package]]
@@ -14150,6 +14152,19 @@ dependencies = [
  "p3-matrix",
  "p3-poseidon2",
  "p3-symmetric",
+]
+
+[[package]]
+name = "rostro-poseidon-bn254"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254",
+ "ark-crypto-primitives",
+ "ark-ff 0.5.0",
+ "ark-r1cs-std",
+ "ark-relations",
+ "ark-serialize 0.5.0",
+ "sha2 0.10.9",
 ]
 
 [[package]]

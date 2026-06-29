@@ -1,0 +1,41 @@
+[package]
+name = "rostro-poseidon-bn254"
+description = "Canonical Poseidon-over-BN254 instance for the dotwave chat anonymous-membership scheme. Domain-separated role hashes (commitment / node / leaf / nullifier) shared byte-for-byte across phone proving, the runtime, and the Groth16 circuit, plus an arkworks R1CS gadget and pinned known-answer tests."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ark-bn254             = { workspace = true, features = ["curve"] }
+ark-ff                = { workspace = true }
+ark-crypto-primitives = { workspace = true, features = ["sponge"] }
+ark-serialize         = { workspace = true }
+sha2                  = { workspace = true }
+
+# Gadget (in-circuit) mirror. Off by default so the runtime and the phone
+# pull only the native path; the circuit crate enables `gadget`.
+ark-r1cs-std  = { workspace = true, optional = true }
+ark-relations = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The native-vs-gadget equivalence test needs a real constraint system.
+ark-r1cs-std  = { workspace = true, default-features = true }
+ark-relations = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+    "ark-bn254/std",
+    "ark-ff/std",
+    "ark-crypto-primitives/std",
+    "ark-serialize/std",
+    "sha2/std",
+    "ark-r1cs-std?/std",
+    "ark-relations?/std",
+]
+# Pulls the in-circuit Poseidon (ark-crypto-primitives `r1cs`) and the
+# FpVar/ConstraintSystem types the gadget module is written against.
+gadget = ["dep:ark-r1cs-std", "dep:ark-relations", "ark-crypto-primitives/r1cs"]

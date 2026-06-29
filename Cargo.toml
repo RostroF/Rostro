@@ -318,6 +318,7 @@ members = [
 	"substrate/utils/rostro-poseidon-sponge-air",
 	"substrate/utils/rostro-hash-to-field-air",
 	"substrate/utils/rostro-hash-to-curve-air",
+	"substrate/utils/rostro-poseidon-bn254",
 	"substrate/utils/rostro-chaum-pedersen-air",
 	"substrate/utils/rostro-range-check",
 	"substrate/utils/rostro-rsa2048-air",
@@ -415,6 +416,7 @@ ark-bn254 = { version = "0.5.0", default-features = false }
 ark-bw6-761 = { version = "0.5.0", default-features = false }
 ark-bw6-761-ext = { version = "0.5.0", default-features = false }
 ark-circom = { version = "0.5.0", default-features = false }
+ark-crypto-primitives = { version = "0.5.0", default-features = false }
 ark-ec = { version = "0.5.0", default-features = false }
 ark-ed-on-bls12-377 = { version = "0.5.0", default-features = false }
 ark-ed-on-bls12-377-ext = { version = "0.5.0", default-features = false }
@@ -424,6 +426,7 @@ ark-ff = { version = "0.5.0", default-features = false }
 ark-groth16 = { version = "0.5.0", default-features = false }
 ark-pallas = { version = "0.5.0", default-features = false }
 ark-pallas-ext = { version = "0.5.0", default-features = false }
+ark-r1cs-std = { version = "0.5.0", default-features = false }
 ark-relations = { version = "0.5.0", default-features = false }
 ark-scale = { version = "0.0.13", default-features = false }
 ark-serialize = { version = "0.5.0", default-features = false }
@@ -703,6 +706,7 @@ rostro-poseidon-air = { path = "substrate/utils/rostro-poseidon-air", default-fe
 rostro-poseidon-sponge-air = { path = "substrate/utils/rostro-poseidon-sponge-air", default-features = false }
 rostro-hash-to-field-air = { path = "substrate/utils/rostro-hash-to-field-air", default-features = false }
 rostro-hash-to-curve-air = { path = "substrate/utils/rostro-hash-to-curve-air", default-features = false }
+rostro-poseidon-bn254 = { path = "substrate/utils/rostro-poseidon-bn254", default-features = false }
 rostro-chaum-pedersen-air = { path = "substrate/utils/rostro-chaum-pedersen-air", default-features = false }
 rostro-range-check = { path = "substrate/utils/rostro-range-check", default-features = false }
 rostro-rsa2048-air = { path = "substrate/utils/rostro-rsa2048-air", default-features = false }
