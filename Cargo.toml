@@ -319,6 +319,7 @@ members = [
 	"substrate/utils/rostro-hash-to-field-air",
 	"substrate/utils/rostro-hash-to-curve-air",
 	"substrate/utils/rostro-poseidon-bn254",
+	"substrate/utils/rostro-membership-tree",
 	"substrate/utils/rostro-chaum-pedersen-air",
 	"substrate/utils/rostro-range-check",
 	"substrate/utils/rostro-rsa2048-air",
@@ -707,6 +708,7 @@ rostro-poseidon-sponge-air = { path = "substrate/utils/rostro-poseidon-sponge-ai
 rostro-hash-to-field-air = { path = "substrate/utils/rostro-hash-to-field-air", default-features = false }
 rostro-hash-to-curve-air = { path = "substrate/utils/rostro-hash-to-curve-air", default-features = false }
 rostro-poseidon-bn254 = { path = "substrate/utils/rostro-poseidon-bn254", default-features = false }
+rostro-membership-tree = { path = "substrate/utils/rostro-membership-tree", default-features = false }
 rostro-chaum-pedersen-air = { path = "substrate/utils/rostro-chaum-pedersen-air", default-features = false }
 rostro-range-check = { path = "substrate/utils/rostro-range-check", default-features = false }
 rostro-rsa2048-air = { path = "substrate/utils/rostro-rsa2048-air", default-features = false }

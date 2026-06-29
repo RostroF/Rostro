@@ -35,13 +35,17 @@ extern crate alloc;
 
 use ark_bn254::Fr;
 use ark_crypto_primitives::sponge::{
-    poseidon::{find_poseidon_ark_and_mds, PoseidonConfig, PoseidonSponge},
+    poseidon::{find_poseidon_ark_and_mds, PoseidonSponge},
     CryptographicSponge, FieldBasedCryptographicSponge,
 };
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 pub use ark_bn254::Fr as PoseidonField;
+/// The Poseidon configuration type, re-exported so downstream crates can
+/// thread `&PoseidonConfig` through hot paths without depending on
+/// ark-crypto-primitives directly.
+pub use ark_crypto_primitives::sponge::poseidon::PoseidonConfig;
 
 #[cfg(feature = "gadget")]
 pub mod gadget;

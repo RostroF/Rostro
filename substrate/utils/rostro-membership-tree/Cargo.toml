@@ -1,0 +1,22 @@
+[package]
+name = "rostro-membership-tree"
+description = "Depth-32 sparse Poseidon-BN254 Merkle tree for the dotwave chat anonymous-membership set: insert/remove with free-list slot reuse, sparse empty-subtree roots, authentication paths, and a root-history ring. no_std; the pallet supplies storage, this crate is the math."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ark-bn254             = { workspace = true, features = ["curve"] }
+ark-ff                = { workspace = true }
+rostro-poseidon-bn254 = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "ark-bn254/std",
+    "ark-ff/std",
+    "rostro-poseidon-bn254/std",
+]
