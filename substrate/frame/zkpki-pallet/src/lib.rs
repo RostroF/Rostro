@@ -912,6 +912,11 @@ pub mod pallet {
         /// The membership tree is full (2^32 leaves) — practically
         /// unreachable; surfaced instead of panicking.
         MembershipTreeFull,
+        /// Chat enrollment was attempted from a cert whose attestation is
+        /// not StrongBox-grade (PoP-eligible: bootloader-locked + verified
+        /// boot). Only intact hardware may bind a membership commitment
+        /// (§5.5 device-integrity gate).
+        ChatEnrollmentInsecureDevice,
         InvalidPublicKey,
         UserAlreadyHasCertFromIssuer,
         AlreadySuspended,
@@ -1663,6 +1668,18 @@ pub mod pallet {
             // enters the tree if the whole mint commits.
             let membership_leaf: Option<MembershipFr> = match chat_enrollment.as_ref() {
                 Some(enrollment) => {
+                    // §5.5 device-integrity gate: only StrongBox-grade, intact
+                    // silicon may bind a membership commitment.
+                    // `attestation_type == Tpm` is `is_pop_eligible`: StrongBox
+                    // security level on both keys AND bootloader locked AND
+                    // verified boot. The binding key shares this RootOfTrust,
+                    // so this gates the silicon the id_commitment is bound to.
+                    // (Key non-exportability, origin==GENERATED, is the
+                    // remaining §5.5 item, pending a parser extension.)
+                    ensure!(
+                        att_type == AttestationType::Tpm,
+                        Error::<T>::ChatEnrollmentInsecureDevice,
+                    );
                     verify_chat_enrollment(
                         enrollment,
                         &verified.attest_ec_pubkey,

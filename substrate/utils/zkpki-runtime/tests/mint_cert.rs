@@ -492,3 +492,30 @@ fn mint_cert_with_bad_enrollment_signature_rejected() {
         );
     });
 }
+
+#[test]
+fn mint_cert_enrollment_from_non_strongbox_rejected() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer();
+        // Packed = not StrongBox-grade (not PoP-eligible). Enrollment must
+        // be refused even with an otherwise-valid binding signature: the
+        // §5.5 device-integrity gate fires before the signature check.
+        let payload = payload_with_verdict(MockVerdict::Packed {
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        assert_noop!(
+            ZkPki::mint_cert(
+                RuntimeOrigin::signed(account(USER_ACCOUNT)),
+                nonce,
+                payload,
+                created_at,
+                None,
+                None, // commitment_c
+                None, // ec_key_pub_claimed
+                Some(enrollment),
+            ),
+            zk_pki_pallet::Error::<Runtime>::ChatEnrollmentInsecureDevice,
+        );
+    });
+}
