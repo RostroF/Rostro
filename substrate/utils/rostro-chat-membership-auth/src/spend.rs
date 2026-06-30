@@ -27,6 +27,14 @@ use rostro_poseidon_bn254::{
     fr_from_canonical_bytes_le, fr_to_bytes_le, hash_node, hash_to_field_bn254, PoseidonConfig,
 };
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::sync::OnceLock;
+
+/// Process-global canonical Poseidon params. The instance is a deterministic
+/// constant, but its Grain-LFSR / MDS derivation is expensive, so build it once.
+fn cached_params() -> &'static PoseidonConfig<Fr> {
+    static PARAMS: OnceLock<PoseidonConfig<Fr>> = OnceLock::new();
+    PARAMS.get_or_init(rostro_poseidon_bn254::params)
+}
 
 /// Opaque node identity (e.g. a libp2p peer id's bytes). Matches the
 /// `guard_node_id: &[u8]` the handshake verifier already threads through.
@@ -386,6 +394,13 @@ impl SpendStore {
     /// set of nullifiers produce the same root regardless of arrival order.
     pub fn root(&self, params: &PoseidonConfig<Fr>) -> [u8; 32] {
         self.acc.root(params)
+    }
+
+    /// The reconcilable root using process-global cached Poseidon params. The
+    /// node calls this on the hot reconciliation path so it never builds the
+    /// (expensive) params per request or depends on the Poseidon types itself.
+    pub fn root_cached(&self) -> [u8; 32] {
+        self.root(cached_params())
     }
 
     /// Drop everything and adopt `epoch` if it differs (epoch rollover). A no-op

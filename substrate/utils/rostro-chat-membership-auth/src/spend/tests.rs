@@ -459,6 +459,16 @@ fn spend_store_rollover_clears() {
 }
 
 #[test]
+fn spend_store_root_cached_matches_explicit() {
+    let p = params();
+    let mut s = SpendStore::new(1);
+    for x in 0..5u64 {
+        s.insert(bare_record(nf(x), 1)).unwrap();
+    }
+    assert_eq!(s.root_cached(), s.root(&p));
+}
+
+#[test]
 fn spend_store_records_for_sync_is_bounded() {
     let mut s = SpendStore::new(1);
     for x in 0..10u64 {

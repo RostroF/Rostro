@@ -425,6 +425,24 @@ pub fn new_full<
 			validator_channel_sessions.clone(),
 		);
 	net_config.add_request_response_protocol(chat_ae_config);
+
+		// chat-spend-witness Phase 3: /rostro/chat-spend/1 responder. Answers
+		// SpendSyncRequest(epoch, root) against the shared per-epoch spend store
+		// with Match / Mismatch+records / EpochSkew. Reconciled by the initiator
+		// (spawned post-build_network) and written by the verifier/recorder path
+		// in Phase 4.
+		let chat_spend_store = crate::chat_spend_protocol::new_shared_store();
+		let (chat_spend_config, chat_spend_handler) =
+			crate::chat_spend_protocol::build_spend_sync_protocol::<N, _>(
+				chat_spend_store.clone(),
+				validator_channel_sessions.clone(),
+			);
+		net_config.add_request_response_protocol(chat_spend_config);
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-spend-server",
+			Some("rostro"),
+			chat_spend_handler,
+		);
 	task_manager.spawn_handle().spawn(
 		"rostro-chat-anti-entropy-server",
 		Some("rostro"),
@@ -577,7 +595,24 @@ pub fn new_full<
 			),
 		);
 
-		// Commit A.1: weekly rebalance task. Reads CHAT_BUCKET_TARGET_COUNT
+		// chat-spend-witness Phase 3: spend-set reconciliation initiator. Each
+			// tick rolls the store to the chain epoch, reads that epoch's RNS
+			// guard set, reconciles with one random peer, and merges records
+			// that validate against the guard set.
+			let spend_network: Arc<dyn rc_network::service::traits::NetworkService> =
+				Arc::new(network.clone());
+			task_manager.spawn_handle().spawn(
+				"rostro-chat-spend",
+				Some("rostro"),
+				crate::chat_spend_protocol::run_spend_sync_initiator(
+					spend_network,
+					chat_spend_store.clone(),
+					chat_bucket_cache.clone(),
+					client.clone(),
+				),
+			);
+
+			// Commit A.1: weekly rebalance task. Reads CHAT_BUCKET_TARGET_COUNT
 		// from env (default = BUCKET_COUNT, i.e., no rebalance). At
 		// dialed-down target counts, fires once per ISO week at this
 		// node's deterministic-random time within the Tuesday
