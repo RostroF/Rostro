@@ -1330,6 +1330,10 @@ impl_runtime_apis! {
 				pending_name_offers,
 			}
 		}
+
+		fn guard_set() -> Vec<[u8; 32]> {
+			pallet_rns_resolvers::resolvers::Pallet::<Runtime>::guard_set()
+		}
 	}
 
 	// zk-pki runtime API — cert / EK / chain-validity queries. Each
