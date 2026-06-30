@@ -4,6 +4,7 @@
 
 use super::*;
 use ark_bn254::Fr;
+use codec::{Decode, Encode};
 use rostro_poseidon_bn254::{fr_to_bytes_le, hash_to_field_bn254, params};
 use std::collections::HashMap;
 
@@ -389,4 +390,109 @@ fn accumulator_insert_is_idempotent() {
     assert_eq!(a.insert(nf(7)), Ok(false));
     assert_eq!(a.len(), 1);
     assert!(a.contains(&nf(7)));
+}
+
+// ───────────────────────────── spend store ─────────────────────────────────
+
+fn bare_record(nullifier: [u8; 32], epoch: u64) -> SpendRecord {
+    SpendRecord {
+        nullifier,
+        epoch,
+        membership_root: [7u8; 32],
+        verifier: b"node-0".to_vec(),
+        verifier_sig: vec![1, 2, 3],
+        recorders: vec![RecorderSig { recorder: b"node-1".to_vec(), sig: vec![4, 5, 6] }],
+    }
+}
+
+#[test]
+fn spend_store_inserts_dedups_and_roots() {
+    let p = params();
+    let mut s = SpendStore::new(5);
+    assert!(s.is_empty());
+    assert_eq!(s.insert(bare_record(nf(1), 5)), Ok(true));
+    assert_eq!(s.insert(bare_record(nf(2), 5)), Ok(true));
+    // Duplicate nullifier is a no-op.
+    assert_eq!(s.insert(bare_record(nf(1), 5)), Ok(false));
+    assert_eq!(s.len(), 2);
+    assert!(s.contains(&nf(1)));
+    assert_eq!(s.get(&nf(2)).map(|r| r.nullifier), Some(nf(2)));
+    assert_ne!(s.root(&p), SpendStore::new(5).root(&p));
+}
+
+#[test]
+fn spend_store_rejects_wrong_epoch_and_noncanonical() {
+    let mut s = SpendStore::new(5);
+    // A record for another epoch is not merged.
+    assert_eq!(s.insert(bare_record(nf(1), 6)), Ok(false));
+    assert!(s.is_empty());
+    // A non-canonical nullifier is rejected at the boundary.
+    assert_eq!(s.insert(bare_record([0xffu8; 32], 5)), Err(AccumulatorError::NonCanonical));
+    assert!(s.is_empty());
+}
+
+#[test]
+fn spend_store_root_is_order_independent() {
+    let p = params();
+    let mut a = SpendStore::new(9);
+    let mut b = SpendStore::new(9);
+    for x in [3u64, 1, 2, 9, 4] {
+        a.insert(bare_record(nf(x), 9)).unwrap();
+    }
+    for x in [9u64, 4, 2, 1, 3] {
+        b.insert(bare_record(nf(x), 9)).unwrap();
+    }
+    assert_eq!(a.root(&p), b.root(&p));
+}
+
+#[test]
+fn spend_store_rollover_clears() {
+    let p = params();
+    let mut s = SpendStore::new(5);
+    s.insert(bare_record(nf(1), 5)).unwrap();
+    s.roll_to(6);
+    assert_eq!(s.epoch(), 6);
+    assert!(s.is_empty());
+    assert_eq!(s.root(&p), SpendStore::new(6).root(&p));
+    // Now records for epoch 6 are accepted.
+    assert_eq!(s.insert(bare_record(nf(1), 6)), Ok(true));
+}
+
+#[test]
+fn spend_store_records_for_sync_is_bounded() {
+    let mut s = SpendStore::new(1);
+    for x in 0..10u64 {
+        s.insert(bare_record(nf(x), 1)).unwrap();
+    }
+    assert_eq!(s.records_for_sync(4).len(), 4);
+    assert_eq!(s.records_for_sync(100).len(), 10);
+}
+
+// ───────────────────────────── wire codecs ─────────────────────────────────
+
+#[test]
+fn spend_record_codec_roundtrips() {
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    let rec = build_record(&kr, &gs, 3, nf(11), 5, [9u8; 32], &gs[0], 2);
+    let bytes = rec.encode();
+    let back = SpendRecord::decode(&mut &bytes[..]).expect("decodes");
+    assert_eq!(back, rec);
+}
+
+#[test]
+fn spend_sync_wire_roundtrips() {
+    let req = SpendSyncRequest { epoch: 42, root: [0xABu8; 32] };
+    assert_eq!(SpendSyncRequest::decode(&mut &req.encode()[..]).unwrap(), req);
+
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    let rec = build_record(&kr, &gs, 3, nf(7), 5, [9u8; 32], &gs[0], 2);
+    for resp in [
+        SpendSyncResponse::Match,
+        SpendSyncResponse::Mismatch { records: vec![rec] },
+        SpendSyncResponse::EpochSkew { epoch: 99 },
+    ] {
+        assert_eq!(SpendSyncResponse::decode(&mut &resp.encode()[..]).unwrap(), resp);
+    }
 }

@@ -12,6 +12,7 @@ publish = false
 ark-bn254             = { workspace = true, features = ["curve", "std"] }
 ark-ff                = { workspace = true, features = ["std"] }
 ark-groth16           = { workspace = true, features = ["std"] }
+codec                 = { workspace = true, features = ["derive"] }
 rostro-membership-circuit = { workspace = true, default-features = true, features = ["groth16"] }
 rostro-poseidon-bn254 = { workspace = true, default-features = true }
 

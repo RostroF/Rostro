@@ -22,10 +22,11 @@
 //! key; tests implement it over a mock keyring.
 
 use ark_bn254::Fr;
+use codec::{Decode, Encode};
 use rostro_poseidon_bn254::{
     fr_from_canonical_bytes_le, fr_to_bytes_le, hash_node, hash_to_field_bn254, PoseidonConfig,
 };
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 /// Opaque node identity (e.g. a libp2p peer id's bytes). Matches the
 /// `guard_node_id: &[u8]` the handshake verifier already threads through.
@@ -159,7 +160,7 @@ pub fn committee_for(
 // ───────────────────────────── spend record ────────────────────────────────
 
 /// A recorder's counter-signature on a spend.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
 pub struct RecorderSig {
     pub recorder: NodeId,
     pub sig: Vec<u8>,
@@ -168,7 +169,7 @@ pub struct RecorderSig {
 /// A witnessed spend: the verifier's claim plus the committee counter-signatures
 /// that admit it. A record with `t` valid distinct recorder signatures is the
 /// session's admission ticket.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
 pub struct SpendRecord {
     pub nullifier: [u8; 32],
     pub epoch: u64,
@@ -321,6 +322,115 @@ impl SpendAccumulator {
     pub fn difference(&self, other: &SpendAccumulator) -> Vec<[u8; 32]> {
         self.set.difference(&other.set).copied().collect()
     }
+}
+
+// ───────────────────────────── spend store ─────────────────────────────────
+
+/// The node's per-epoch set of witnessed spends: the full [`SpendRecord`]s keyed
+/// by nullifier, plus the reconcilable accumulator root over them. The records
+/// (not just the nullifiers) are held because a peer that is missing one must
+/// receive the signed record to validate it before merging.
+///
+/// Self-pruning on epoch rollover, like the accumulator: a new epoch produces
+/// different nullifiers, so the prior epoch's records can never match and are
+/// dropped wholesale.
+#[derive(Clone, Debug, Default)]
+pub struct SpendStore {
+    epoch: u64,
+    records: BTreeMap<[u8; 32], SpendRecord>,
+    acc: SpendAccumulator,
+}
+
+impl SpendStore {
+    pub fn new(epoch: u64) -> Self {
+        Self { epoch, records: BTreeMap::new(), acc: SpendAccumulator::new() }
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    pub fn contains(&self, nullifier: &[u8; 32]) -> bool {
+        self.records.contains_key(nullifier)
+    }
+
+    pub fn get(&self, nullifier: &[u8; 32]) -> Option<&SpendRecord> {
+        self.records.get(nullifier)
+    }
+
+    /// Insert a record the caller has already validated. Returns whether it was
+    /// newly inserted. Rejects a non-canonical nullifier at the wire boundary
+    /// (via the accumulator), and ignores a record whose epoch is not this
+    /// store's epoch (a stale-epoch record can never belong here).
+    pub fn insert(&mut self, record: SpendRecord) -> Result<bool, AccumulatorError> {
+        if record.epoch != self.epoch {
+            return Ok(false);
+        }
+        if self.records.contains_key(&record.nullifier) {
+            return Ok(false);
+        }
+        self.acc.insert(record.nullifier)?;
+        self.records.insert(record.nullifier, record);
+        Ok(true)
+    }
+
+    /// The reconcilable root over the current record set. Two nodes with the same
+    /// set of nullifiers produce the same root regardless of arrival order.
+    pub fn root(&self, params: &PoseidonConfig<Fr>) -> [u8; 32] {
+        self.acc.root(params)
+    }
+
+    /// Drop everything and adopt `epoch` if it differs (epoch rollover). A no-op
+    /// if already on `epoch`.
+    pub fn roll_to(&mut self, epoch: u64) {
+        if epoch != self.epoch {
+            self.records.clear();
+            self.acc = SpendAccumulator::new();
+            self.epoch = epoch;
+        }
+    }
+
+    /// Up to `max` records to hand a peer in a sync response.
+    pub fn records_for_sync(&self, max: usize) -> Vec<SpendRecord> {
+        self.records.values().take(max).cloned().collect()
+    }
+}
+
+// ───────────────────────────── sync wire types ─────────────────────────────
+
+/// Cap on records returned in one [`SpendSyncResponse::Mismatch`]. Bounds the
+/// response payload; the initiator reconciles the remainder on later ticks.
+pub const MAX_SPEND_RECORDS_PER_RESPONSE: usize = 4096;
+
+/// Initiator -> responder: "for epoch `epoch`, my spend-set root is `root`".
+/// Sent on `/rostro/chat-spend/1`.
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
+pub struct SpendSyncRequest {
+    pub epoch: u64,
+    pub root: [u8; 32],
+}
+
+/// Responder -> initiator.
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
+pub enum SpendSyncResponse {
+    /// Roots agree for the epoch; the two stores are in sync, nothing to send.
+    Match,
+    /// Roots differ for the same epoch; here are the responder's records (bounded
+    /// to [`MAX_SPEND_RECORDS_PER_RESPONSE`]) for the initiator to validate and
+    /// merge what it is missing.
+    Mismatch { records: Vec<SpendRecord> },
+    /// The responder is on a different epoch than the request (a boundary skew);
+    /// the initiator must not merge these as same-epoch records, and should retry
+    /// once epochs realign.
+    EpochSkew { epoch: u64 },
 }
 
 #[cfg(test)]
