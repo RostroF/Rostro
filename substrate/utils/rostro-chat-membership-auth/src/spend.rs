@@ -448,5 +448,118 @@ pub enum SpendSyncResponse {
     EpochSkew { epoch: u64 },
 }
 
+// ───────────────────────────── witness handshake ───────────────────────────
+
+/// A verifier's request to a committee member to witness a spend. It is the
+/// verifier's half of a [`SpendRecord`] (no recorder signatures yet). The
+/// recorder validates it, refuses if it has already witnessed this nullifier this
+/// epoch, and otherwise returns its counter-signature.
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
+pub struct WitnessRequest {
+    pub nullifier: [u8; 32],
+    pub epoch: u64,
+    pub membership_root: [u8; 32],
+    pub verifier: NodeId,
+    pub verifier_sig: Vec<u8>,
+}
+
+/// A committee member's reply to a [`WitnessRequest`].
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
+pub enum WitnessResponse {
+    /// The recorder witnessed the spend and counter-signed.
+    Accepted { recorder: NodeId, recorder_sig: Vec<u8> },
+    /// The recorder declined; `reason` says why.
+    Refused { reason: WitnessRefusal },
+}
+
+/// Why a recorder refused to witness a spend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode)]
+pub enum WitnessRefusal {
+    /// The request's epoch is not the recorder's current epoch.
+    EpochMismatch,
+    /// The verifier is not in the guard set.
+    VerifierNotGuard,
+    /// The verifier signature did not verify.
+    BadVerifierSig,
+    /// This recorder is not on the committee for `(nullifier, epoch)`.
+    NotOnCommittee,
+    /// This recorder already witnessed this nullifier this epoch (the honest-side
+    /// double-sign refusal, the heart of the round-robin defence).
+    AlreadyWitnessed,
+    /// The membership root is not current or recent on this recorder's chain
+    /// view. Set by the node's chain check, not by [`validate_witness`].
+    StaleRoot,
+}
+
+/// A recorder's per-epoch set of witnessed nullifiers. A recorder counter-signs a
+/// given nullifier at most once per epoch, so a member who round-robins to many
+/// verifiers cannot collect a second valid committee quorum: every verifier maps
+/// the nullifier to the same committee, and these recorders refuse the repeat.
+///
+/// Self-pruning on epoch rollover, like the spent set.
+#[derive(Clone, Debug, Default)]
+pub struct RecorderState {
+    epoch: u64,
+    witnessed: HashSet<[u8; 32]>,
+}
+
+impl RecorderState {
+    pub fn new(epoch: u64) -> Self {
+        Self { epoch, witnessed: HashSet::new() }
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    pub fn has_witnessed(&self, nullifier: &[u8; 32]) -> bool {
+        self.witnessed.contains(nullifier)
+    }
+
+    /// Record that this recorder has counter-signed `nullifier` this epoch.
+    pub fn mark_witnessed(&mut self, nullifier: [u8; 32]) {
+        self.witnessed.insert(nullifier);
+    }
+
+    /// Drop the witnessed set and adopt `epoch` if it differs (epoch rollover).
+    pub fn roll_to(&mut self, epoch: u64) {
+        if epoch != self.epoch {
+            self.witnessed.clear();
+            self.epoch = epoch;
+        }
+    }
+}
+
+/// Validate a witness request from the recorder's side: right epoch, the verifier
+/// is a guard with a valid signature, this recorder is on the committee, and the
+/// nullifier is unseen this epoch. Pure; the caller does chain checks (root
+/// recency) and, on `Ok`, marks the nullifier witnessed and counter-signs.
+pub fn validate_witness(
+    req: &WitnessRequest,
+    my_node_id: &[u8],
+    guard_set: &[NodeId],
+    k: usize,
+    sig: &impl SpendSigVerify,
+    recorder_state: &RecorderState,
+) -> Result<(), WitnessRefusal> {
+    if req.epoch != recorder_state.epoch {
+        return Err(WitnessRefusal::EpochMismatch);
+    }
+    if !guard_set.iter().any(|g| g.as_slice() == req.verifier.as_slice()) {
+        return Err(WitnessRefusal::VerifierNotGuard);
+    }
+    let payload = verifier_sig_payload(&req.nullifier, req.epoch, &req.membership_root);
+    if !sig.verify(&req.verifier, &payload, &req.verifier_sig) {
+        return Err(WitnessRefusal::BadVerifierSig);
+    }
+    if !is_committee_member(my_node_id, &req.nullifier, req.epoch, guard_set, k, &req.verifier) {
+        return Err(WitnessRefusal::NotOnCommittee);
+    }
+    if recorder_state.has_witnessed(&req.nullifier) {
+        return Err(WitnessRefusal::AlreadyWitnessed);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;

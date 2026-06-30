@@ -506,3 +506,126 @@ fn spend_sync_wire_roundtrips() {
         assert_eq!(SpendSyncResponse::decode(&mut &resp.encode()[..]).unwrap(), resp);
     }
 }
+
+// ───────────────────────────── witness handshake ───────────────────────────
+
+const W_EPOCH: u64 = 5;
+const W_ROOT: [u8; 32] = [9u8; 32];
+
+fn witness_req(kr: &Keyring, verifier: &NodeId, nullifier: [u8; 32]) -> WitnessRequest {
+    let payload = verifier_sig_payload(&nullifier, W_EPOCH, &W_ROOT);
+    WitnessRequest {
+        nullifier,
+        epoch: W_EPOCH,
+        membership_root: W_ROOT,
+        verifier: verifier.clone(),
+        verifier_sig: kr.sign(verifier, &payload),
+    }
+}
+
+#[test]
+fn validate_witness_accepts_a_committee_member() {
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    let v = &gs[0];
+    let n = nf(11);
+    let req = witness_req(&kr, v, n);
+    let recorder = &committee(&n, W_EPOCH, &gs, K, v)[0];
+    let rs = RecorderState::new(W_EPOCH);
+    assert_eq!(validate_witness(&req, recorder, &gs, K, &kr, &rs), Ok(()));
+}
+
+#[test]
+fn validate_witness_refuses_repeat_same_epoch() {
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    let v = &gs[0];
+    let n = nf(11);
+    let req = witness_req(&kr, v, n);
+    let recorder = &committee(&n, W_EPOCH, &gs, K, v)[0];
+    let mut rs = RecorderState::new(W_EPOCH);
+    rs.mark_witnessed(n);
+    assert_eq!(
+        validate_witness(&req, recorder, &gs, K, &kr, &rs),
+        Err(WitnessRefusal::AlreadyWitnessed)
+    );
+}
+
+#[test]
+fn validate_witness_refuses_non_committee_member() {
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    let v = &gs[0];
+    let n = nf(11);
+    let req = witness_req(&kr, v, n);
+    let comm = committee(&n, W_EPOCH, &gs, K, v);
+    let outsider = gs.iter().find(|g| *g != v && !comm.contains(g)).unwrap();
+    let rs = RecorderState::new(W_EPOCH);
+    assert_eq!(
+        validate_witness(&req, outsider, &gs, K, &kr, &rs),
+        Err(WitnessRefusal::NotOnCommittee)
+    );
+}
+
+#[test]
+fn validate_witness_refuses_bad_sig_and_wrong_epoch() {
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    let v = &gs[0];
+    let n = nf(11);
+    let recorder = &committee(&n, W_EPOCH, &gs, K, v)[0];
+
+    let mut bad = witness_req(&kr, v, n);
+    bad.verifier_sig[0] ^= 0xFF;
+    assert_eq!(
+        validate_witness(&bad, recorder, &gs, K, &kr, &RecorderState::new(W_EPOCH)),
+        Err(WitnessRefusal::BadVerifierSig)
+    );
+
+    let good = witness_req(&kr, v, n);
+    assert_eq!(
+        validate_witness(&good, recorder, &gs, K, &kr, &RecorderState::new(W_EPOCH + 1)),
+        Err(WitnessRefusal::EpochMismatch)
+    );
+}
+
+#[test]
+fn validate_witness_refuses_non_guard_verifier() {
+    let gs = nodes(8);
+    let intruder = b"intruder".to_vec();
+    let kr = Keyring::new(&[gs.clone(), vec![intruder.clone()]].concat());
+    let n = nf(11);
+    let req = witness_req(&kr, &intruder, n);
+    // A real committee member for this (nullifier, epoch, intruder-verifier).
+    let recorder = &committee(&n, W_EPOCH, &gs, K, &intruder)[0];
+    assert_eq!(
+        validate_witness(&req, recorder, &gs, K, &kr, &RecorderState::new(W_EPOCH)),
+        Err(WitnessRefusal::VerifierNotGuard)
+    );
+}
+
+#[test]
+fn recorder_state_rolls_over() {
+    let mut rs = RecorderState::new(5);
+    rs.mark_witnessed(nf(1));
+    assert!(rs.has_witnessed(&nf(1)));
+    rs.roll_to(6);
+    assert_eq!(rs.epoch(), 6);
+    assert!(!rs.has_witnessed(&nf(1)));
+}
+
+#[test]
+fn witness_wire_roundtrips() {
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    let req = witness_req(&kr, &gs[0], nf(7));
+    assert_eq!(WitnessRequest::decode(&mut &req.encode()[..]).unwrap(), req);
+
+    for resp in [
+        WitnessResponse::Accepted { recorder: gs[1].clone(), recorder_sig: vec![1, 2, 3] },
+        WitnessResponse::Refused { reason: WitnessRefusal::AlreadyWitnessed },
+        WitnessResponse::Refused { reason: WitnessRefusal::NotOnCommittee },
+    ] {
+        assert_eq!(WitnessResponse::decode(&mut &resp.encode()[..]).unwrap(), resp);
+    }
+}

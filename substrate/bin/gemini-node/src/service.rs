@@ -438,6 +438,15 @@ pub fn new_full<
 				validator_channel_sessions.clone(),
 			);
 		net_config.add_request_response_protocol(chat_spend_config);
+
+		// chat-spend-witness Phase 4a: register the witness-handshake responder
+		// config (verifier -> recorder). Its handler needs this node's identity
+		// seed, so it is spawned later in the onion block; the config + recorder
+		// state are created here.
+		let chat_recorder_state = crate::chat_spend_protocol::new_shared_recorder_state();
+		let (chat_witness_config, chat_witness_rx) =
+			crate::chat_spend_protocol::build_witness_protocol_config::<N>();
+		net_config.add_request_response_protocol(chat_witness_config);
 		task_manager.spawn_handle().spawn(
 			"rostro-chat-spend-server",
 			Some("rostro"),
@@ -770,6 +779,22 @@ pub fn new_full<
 	// the stripe path. Only spawned when this node has a persistent
 	// identity (onion relaying requires the node key).
 	if let Some(onion_seed) = chat_node_seed {
+		// chat-spend-witness Phase 4a: recorder side of
+		// /rostro/chat-spend-witness/1. Spawned here because it needs this node's
+		// identity seed (to counter-sign), available only after build_network.
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-spend-witness-server",
+			Some("rostro"),
+			crate::chat_spend_protocol::run_witness_server(
+				onion_seed,
+				chat_node_pubkey_ed25519,
+				client.clone(),
+				chat_recorder_state.clone(),
+				validator_channel_sessions.clone(),
+				chat_witness_rx,
+			),
+		);
+
 		let onion_peel_ctx = Arc::new(crate::chat_rpc::OnionPeelCtx::new(
 			onion_seed,
 			chat_node_pubkey_ed25519,

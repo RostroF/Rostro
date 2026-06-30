@@ -30,10 +30,11 @@ use rc_network::{
 	IfDisconnected, NetworkBackend,
 };
 use rostro_chat_membership_auth::spend::{
-	verify_record, SpendSigVerify, SpendStore, SpendSyncRequest, SpendSyncResponse,
+	recorder_sig_payload, validate_witness, verify_record, RecorderState, SpendSigVerify, SpendStore,
+	SpendSyncRequest, SpendSyncResponse, WitnessRefusal, WitnessRequest, WitnessResponse,
 	MAX_SPEND_RECORDS_PER_RESPONSE,
 };
-use rostro_node_identity::NodeIdentity;
+use rostro_node_identity::{NodeIdentity, NodeSecret};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_runtime::traits::Block as BlockT;
@@ -50,6 +51,9 @@ use crate::validator_channel::SharedSessions;
 /// libp2p protocol name. Distinct from the chat-bucket protocols.
 pub const CHAT_SPEND_PROTOCOL_NAME: &str = "/rostro/chat-spend/1";
 
+/// libp2p protocol name for the verifier->recorder witness handshake.
+pub const CHAT_SPEND_WITNESS_PROTOCOL_NAME: &str = "/rostro/chat-spend-witness/1";
+
 /// How often the initiator reconciles with a peer. 20s: fast enough that a
 /// fresh spend is globally visible within a couple of ticks, sparse enough to
 /// stay cheap.
@@ -65,6 +69,11 @@ const MAX_REQUEST_SIZE: u64 = 128;
 /// Bounded by `MAX_SPEND_RECORDS_PER_RESPONSE` records of a few hundred bytes.
 const MAX_RESPONSE_SIZE: u64 = MAX_SPEND_RECORDS_PER_RESPONSE as u64 * 512 + 4096;
 const REQUEST_TIMEOUT_SECS: u64 = 60;
+/// A WitnessRequest is `nullifier(32) + epoch(8) + root(32) + verifier(~33) +
+/// verifier_sig(~65)` plus framing; 512 is generous.
+const MAX_WITNESS_REQUEST_SIZE: u64 = 512;
+/// A WitnessResponse is `recorder(~33) + recorder_sig(~65)` plus framing.
+const MAX_WITNESS_RESPONSE_SIZE: u64 = 256;
 
 /// The shared per-epoch spend store: reconciled here, and (Phase 4) written by
 /// the verifier/recorder path.
@@ -74,6 +83,16 @@ pub type SharedSpendStore = Arc<Mutex<SpendStore>>;
 /// to the chain's current membership epoch.
 pub fn new_shared_store() -> SharedSpendStore {
 	Arc::new(Mutex::new(SpendStore::default()))
+}
+
+/// The recorder's per-epoch witnessed-nullifier set, shared with whatever needs
+/// to inspect it (Phase 5 quarantine).
+pub type SharedRecorderState = Arc<Mutex<RecorderState>>;
+
+/// A fresh recorder state. Epoch 0 until the first witness request rolls it to
+/// the chain's current membership epoch.
+pub fn new_shared_recorder_state() -> SharedRecorderState {
+	Arc::new(Mutex::new(RecorderState::default()))
 }
 
 /// ed25519 signature verification over libp2p node keys: the committee identity
@@ -269,6 +288,122 @@ pub async fn run_spend_sync_initiator<Client>(
 				}
 			}
 		}
+	}
+}
+
+/// Build the witness-protocol responder *config* and its inbound channel. The
+/// config must register into `net_config` before `build_network`; the handler is
+/// spawned later (it needs the node identity, available post-build_network).
+pub fn build_witness_protocol_config<N>(
+) -> (N::RequestResponseProtocolConfig, async_channel::Receiver<IncomingRequest>)
+where
+	N: NetworkBackend<Block, <Block as BlockT>::Hash>,
+{
+	let (tx, rx) = async_channel::bounded::<IncomingRequest>(INBOUND_QUEUE_CAPACITY);
+	let config = N::request_response_config(
+		ProtocolName::from(CHAT_SPEND_WITNESS_PROTOCOL_NAME),
+		Vec::new(),
+		MAX_WITNESS_REQUEST_SIZE,
+		MAX_WITNESS_RESPONSE_SIZE,
+		Duration::from_secs(REQUEST_TIMEOUT_SECS),
+		Some(tx),
+	);
+	(config, rx)
+}
+
+fn reject() -> OutgoingResponse {
+	OutgoingResponse { result: Err(()), reputation_changes: Vec::new(), sent_feedback: None }
+}
+
+/// Recorder side of the witness handshake. For each `WitnessRequest`: roll the
+/// recorder state to the chain epoch, check the membership root is recent, and
+/// validate committee membership + the verifier signature + that the nullifier is
+/// unseen this epoch. On success, mark it witnessed and counter-sign; otherwise
+/// refuse with a reason. Marking-witnessed before signing is the double-sign
+/// refusal that makes the committee a single serialisation point per nullifier.
+pub async fn run_witness_server<Client>(
+	node_seed: [u8; 32],
+	node_pubkey: [u8; 32],
+	client: Arc<Client>,
+	recorder_state: SharedRecorderState,
+	validator_sessions: SharedSessions,
+	mut rx: async_channel::Receiver<IncomingRequest>,
+) where
+	Client: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	Client::Api: ZkPkiApi<Block, AccountId> + PnsStorageApi<Block, u64, Balance, AccountId>,
+{
+	let node_secret = NodeSecret::from_seed(node_seed);
+	let sigv = NodeSigVerify;
+
+	while let Some(IncomingRequest { peer, payload, pending_response }) = rx.next().await {
+		if !is_chat_admitted(&validator_sessions, &peer) {
+			let _ = pending_response.send(reject());
+			continue;
+		}
+		let req = match WitnessRequest::decode(&mut &payload[..]) {
+			Ok(r) => r,
+			Err(_) => {
+				log::debug!(target: "rostro-chat-spend", "undecodable witness request from {peer}");
+				let _ = pending_response.send(reject());
+				continue;
+			}
+		};
+
+		// Chain context: current epoch + anchor, the epoch's guard set, and
+		// whether the claimed membership root is recent. (Runtime calls outside
+		// the recorder-state lock.)
+		let (epoch, anchor) = match spend_committee::epoch_anchor(&client) {
+			Ok(v) => v,
+			Err(e) => {
+				log::debug!(target: "rostro-chat-spend", "witness: epoch anchor unavailable: {e}");
+				let _ = pending_response.send(reject());
+				continue;
+			}
+		};
+		let guard_set = match spend_committee::fetch_guard_set(&client, anchor) {
+			Ok(g) => g,
+			Err(e) => {
+				log::debug!(target: "rostro-chat-spend", "witness: guard set unavailable: {e}");
+				let _ = pending_response.send(reject());
+				continue;
+			}
+		};
+		let root_recent = client
+			.runtime_api()
+			.membership_root_recent(client.info().best_hash, req.membership_root)
+			.unwrap_or(false);
+
+		let resp = {
+			let mut rs = recorder_state.lock();
+			rs.roll_to(epoch);
+			if !root_recent {
+				WitnessResponse::Refused { reason: WitnessRefusal::StaleRoot }
+			} else {
+				match validate_witness(&req, &node_pubkey, &guard_set, COMMITTEE_K, &sigv, &rs) {
+					Ok(()) => {
+						rs.mark_witnessed(req.nullifier);
+						let payload = recorder_sig_payload(
+							&req.nullifier,
+							req.epoch,
+							&req.membership_root,
+							&req.verifier,
+						);
+						let sig = node_secret.sign(&payload);
+						WitnessResponse::Accepted {
+							recorder: node_pubkey.to_vec(),
+							recorder_sig: sig.to_vec(),
+						}
+					}
+					Err(reason) => WitnessResponse::Refused { reason },
+				}
+			}
+		};
+
+		let _ = pending_response.send(OutgoingResponse {
+			result: Ok(resp.encode()),
+			reputation_changes: Vec::new(),
+			sent_feedback: None,
+		});
 	}
 }
 
