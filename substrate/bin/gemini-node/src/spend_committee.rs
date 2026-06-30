@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
-//! chat-spend-witness Phase 2b — node-side guard-set read + committee selection.
+//! chat-spend-witness — node-side guard-set read + committee selection.
 //!
 //! Reads the enrolled guard set from RNS (`PnsStorageApi::guard_set`) at the
-//! membership-epoch anchor block and selects the witnessed-spend committee over
-//! it via the pure [`committee`] function. Reading at the epoch anchor (the block
-//! at the start of the current membership epoch) gives every node the same
-//! per-epoch snapshot, so verifier and recorders agree on the committee for a
-//! given nullifier.
+//! finalized head and selects the witnessed-spend committee over it via the pure
+//! [`committee`] function. The guard set is current RNS membership, NOT an
+//! epoch-locked snapshot: verifier and recorders agree because they read the same
+//! finalized state, and the set changes only via RNS enrol/expire (slow,
+//! consensus-agreed). Guard churn (connect/disconnect) is liveness, absorbed by
+//! the `t`-of-`k` collection, and never affects membership.
 //!
 //! The committee math lives in `rostro-chat-membership-auth` (Apache, fully
-//! tested without a runtime client). This module is the thin runtime-API glue;
-//! the verifier/recorder protocol that calls it lands in Phase 4.
+//! tested without a runtime client). This module is the thin runtime-API glue.
 
 use std::sync::Arc;
 
@@ -46,7 +46,7 @@ where
 /// guard set always available. The set may drift within an epoch as guards
 /// enrol/leave, but the verifier and recorders agree as long as both have
 /// finalised the same head, which holds outside brief finality lag.
-pub fn epoch_anchor<Client>(
+pub fn epoch_and_head<Client>(
 	client: &Arc<Client>,
 ) -> Result<(u64, <Block as BlockT>::Hash), String>
 where
@@ -61,11 +61,10 @@ where
 	Ok((epoch, info.finalized_hash))
 }
 
-/// Select the witnessed-spend committee for `nullifier` over the guard set at the
-/// current epoch anchor, excluding `verifier`. This is the node entry point; it
-/// delegates to the pure [`committee`] selection, so its result matches the
-/// committee any other node computes from the same epoch-anchored set.
-#[allow(dead_code)] // wired into the verifier/recorder path in Phase 4
+/// Select the witnessed-spend committee for `nullifier` over the current guard set
+/// (read at the finalized head), excluding `verifier`. Delegates to the pure
+/// [`committee`] selection, so its result matches the committee any other node
+/// computes from the same finalized set.
 pub fn committee_at_epoch<Client>(
 	client: &Arc<Client>,
 	nullifier: &[u8; 32],
@@ -76,7 +75,7 @@ where
 	Client: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
 	Client::Api: PnsStorageApi<Block, u64, Balance, AccountId> + ZkPkiApi<Block, AccountId>,
 {
-	let (epoch, at) = epoch_anchor(client)?;
-	let set = fetch_guard_set(client, at)?;
+	let (epoch, head) = epoch_and_head(client)?;
+	let set = fetch_guard_set(client, head)?;
 	Ok(committee(nullifier, epoch, &set, k, verifier))
 }

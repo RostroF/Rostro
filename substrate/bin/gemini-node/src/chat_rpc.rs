@@ -72,8 +72,8 @@ use rand_core::{OsRng, RngCore};
 use rc_network::{service::traits::NetworkService, types::ProtocolName, IfDisconnected, PeerId};
 use rostro_chat_ephemeral_store::EphemeralShareStore;
 use rostro_chat_membership_auth::{
-	deserialize_vk, verify_handshake_proof, AcceptedSession, Bn254, ChainView, HandshakeRequest,
-	HandshakeSessions, VerifyingKey,
+	deserialize_vk, verify_handshake_proof, AcceptedSession, Bn254, ChainView, HandshakeError,
+	HandshakeRequest, HandshakeSessions, VerifyingKey,
 };
 use rostro_chat_primitives::{
 	bucket::bucket_for_pickup_key,
@@ -848,12 +848,20 @@ where
 
 		// Verify the proof + chain checks only — NO local nullifier spend. The
 		// spend is witnessed by the committee in the async caller.
-		verify_handshake_proof(vk, &req, &self.node_pubkey_ed25519, &chain).map_err(|e| {
-			ErrorObject::owned::<()>(
-				-32000,
-				format!("membership handshake rejected: {e:?}"),
+		verify_handshake_proof(vk, &req, &self.node_pubkey_ed25519, &chain).map_err(|e| match e {
+			// Hard cutover at the epoch boundary: a proof for a lapsed epoch is
+			// rejected with an actionable error so the client rebuilds for the
+			// current epoch. No grace window; the boundary stays clean.
+			HandshakeError::EpochMismatch => ErrorObject::owned::<()>(
+				-32005,
+				"epoch rolled; rebuild the membership proof for the current epoch",
 				None,
-			)
+			),
+			other => ErrorObject::owned::<()>(
+				-32000,
+				format!("membership handshake rejected: {other:?}"),
+				None,
+			),
 		})?;
 		Ok(req)
 	}

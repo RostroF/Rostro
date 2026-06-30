@@ -48,9 +48,11 @@ gives neither agreement nor sybil resistance on its own. RNS supplies both:
   libp2p ed25519 key, validated to exactly 32 bytes the way `CHAT` is. Distinct from
   `VALIDATOR` (a validator *stash account*, and these are non-validators) and from
   `CHAT` (a messaging address). New purpose, new record.
-- **Agreed + enumerable.** RNS is on-chain, so every node reads the same set. Reading
-  the `NODE` records at the membership-epoch anchor block *is* the per-epoch snapshot;
-  no separate snapshot store, and the set cannot shift mid-epoch and desync committees.
+- **Agreed + enumerable.** RNS is on-chain, so every node reads the same set. The set is
+  read at the **finalized head** (current RNS membership, NOT an epoch-locked snapshot):
+  verifier and recorders agree because they read the same finalized state, and the set
+  changes only via RNS enrol/expire (slow, consensus-agreed). Guard churn
+  (connect/disconnect) is liveness, absorbed by `t`-of-`k`, and never affects membership.
 - **Sybil gate.** Holding an RNS name costs, so guard-set membership costs. Policy is
   **one `NODE` record per name**: each guard identity costs a name, so an attacker must
   buy names in proportion to the committee weight they want, which preserves the
@@ -137,9 +139,13 @@ blocks x 6s = 24 hours (`current_epoch() = block_number / EPOCH_LENGTH_BLOCKS`).
 distinct from the 1-hour Sassafras consensus epoch and from the 7-epoch (7-day)
 freshness grant.
 
-At the boundary, the prior epoch's set is retained for one trailing-overlap window so
-a proof built just before rollover but arriving just after is not wrongly rejected for
-clock skew (same idea as the chain's recent-root ring).
+The boundary is a **hard cutover**, not a grace window: a proof built for a lapsed
+epoch is rejected with a clear, actionable error (`-32005`, "epoch rolled; rebuild for
+the current epoch") and the client rebuilds the proof for the current epoch (~1s prove,
+once per 24h). A grace window would only move the boundary problem to the end of the
+window; the clean cutover keeps it at the boundary. (Decision: hard cutover over a
+trailing-overlap window, to avoid the dual-epoch spent-state and a managed
+cross-boundary double-spend window.)
 
 The set is held as a per-epoch Merkle accumulator with a root, so committee members
 can compare roots and reconcile missing entries cheaply (a plain set cannot be diffed).
@@ -190,11 +196,11 @@ which was the property the anonymous path was built to preserve.
 |---|---|---|
 | `k` committee size | 3 | config-bindable |
 | `t` threshold | 2 | config-bindable; 2-of-3 + quarantine posture |
-| guard-set source | RNS `NODE` records | on-chain; read at the epoch anchor block |
+| guard-set source | RNS `NODE` records | on-chain; read at the finalized head (current set, not epoch-locked) |
 | nodes per RNS name | 1 | sybil gate: guard count tied to name count |
-| epoch | 24h (`EPOCH_LENGTH_BLOCKS = 14_400`) | the nullifier clock |
-| trailing overlap | 1 epoch | boundary skew tolerance |
-| quarantine threshold | `X` bad records / timeout | tunable, set in Phase 5 |
+| epoch | 24h (`EPOCH_LENGTH_BLOCKS = 14_400`) | the nullifier rate-limit clock |
+| epoch boundary | hard cutover | lapsed-epoch proof rejected with a clear error (`-32005`); client rebuilds |
+| quarantine threshold | `FLOOD_THRESHOLD` (10) bad proofs / epoch | per-verifier; quarantines flooders |
 
 ## 4. Build plan and gates
 
@@ -213,15 +219,15 @@ accumulator-root reconciliation. KATs for HRW.
 
 **Phase 2a - RNS guard-set source.** Add a `NODE` `RecordType` (32-byte libp2p
 ed25519 key, validated like `CHAT`), one per RNS name. Maintain an index over `NODE`
-records and expose `guard_set()` on the RNS runtime API. Reading at the
-membership-epoch anchor block is the per-epoch snapshot.
+records and expose `guard_set()` on the RNS runtime API. `guard_set()` enumerates the
+current RNS `NODE` records.
 *Gate:* a node registered into its owner's RNS entry appears in `guard_set()`; a name
-without a `NODE` record does not; a second `NODE` record on a name is rejected; the
-set is stable across a block range within an epoch.
+without a `NODE` record does not; a second `NODE` record on a name is rejected.
 
 **Phase 2b - Node reads set + computes committee.** Thin wiring: the node reads
-`guard_set()` at the epoch anchor and computes committees via the Phase 1
-`committee()`.
+`guard_set()` at the finalized head and computes committees via the Phase 1
+`committee()`. (The guard set is current RNS membership, not an epoch-locked snapshot;
+churn is liveness, absorbed by `t`-of-`k`.)
 *Gate:* node-computed committee matches the Phase 1 pure tests against that set.
 
 **Phase 3 - Spend-record gossip.** `/rostro/chat-spend/1` carrying records +
@@ -244,11 +250,14 @@ proof). Quarantine vote drops the offender. Scope quarantine governance here.
 *Gate (lab):* injected double-signer detected + quarantined; injected garbage flood
 quarantined; honest nodes unaffected.
 
-**Phase 6 - Rollover + liveness hardening.** Epoch set-swap with trailing overlap;
-one-recorder-offline tolerated by t-of-k; new node syncs current accumulator before
-acting as recorder.
-*Gate (lab):* rollover clears cleanly across the overlap; admission survives one
-offline committee member; fresh node catches up before recording.
+**Phase 6 - Rollover + liveness hardening.** Hard cutover at the epoch boundary
+(clear `-32005` error; no grace window). Guard set read at the finalized head (not an
+epoch-start anchor, which a pruned node cannot serve). One-recorder-offline is
+tolerated by `t`-of-`k` (the verifier collects from whoever answers); a freshly
+*enrolled* node is not committee-eligible until its RNS record is finalized, by which
+point it is synced; connect/disconnect is liveness, never membership.
+*Gate (lab):* rollover clears cleanly (hard cutover, clear error); admission survives
+one offline committee member; a churning guard does not desync committees.
 
 **Phase 7 - Integration + activation gate + merge.** End-to-end behind `membership_vk`;
 mainnet-targeted, testnet stays off. Residuals documented.
@@ -263,8 +272,11 @@ rostro-main.
 - Sybil resistance rests on RNS name cost plus the one-`NODE`-per-name policy. An
   attacker with many names still buys committee weight in proportion, so RNS name
   pricing is load-bearing here (ties to RNS genesis pricing).
-- A guard whose RNS name expires mid-epoch stays in the set until the next
-  epoch-anchor read; bounded to one epoch.
+- The guard set is read at the finalized head, so it tracks RNS enrol/expire within
+  a few blocks of finality. A targeted committee-grind (registering node-ids that rank
+  onto a specific nullifier's committee) is bounded by RNS cost + honest-majority; an
+  epoch-length activation delay would defeat it outright but at a 24h onboarding cost,
+  so it is deferred unless grinding proves worthwhile.
 - HRW security rests on an honest-majority, sybil-resistant guard set, the same
   assumption the validator set already carries.
 - Quarantine governance (tally authority, dispute, un-quarantine) needs its own small

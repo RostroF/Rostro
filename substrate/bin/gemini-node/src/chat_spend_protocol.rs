@@ -234,18 +234,18 @@ pub async fn run_spend_sync_initiator<Client>(
 	loop {
 		ticker.tick().await;
 
-		// 1. Current epoch + its anchor block, and the guard set as of that
-		//    anchor. Roll the store so it tracks the chain epoch (self-pruning).
-		let (epoch, anchor) = match spend_committee::epoch_anchor(&client) {
+		// 1. Current epoch + finalized head, and the guard set at that head. Roll
+		//    the store so it tracks the chain epoch (self-pruning).
+		let (epoch, head) = match spend_committee::epoch_and_head(&client) {
 			Ok(v) => v,
 			Err(e) => {
-				log::debug!(target: "rostro-chat-spend", "epoch anchor unavailable: {e}");
+				log::debug!(target: "rostro-chat-spend", "epoch/head unavailable: {e}");
 				continue;
 			}
 		};
 		store.lock().roll_to(epoch);
 		quarantine.lock().roll_to(epoch);
-		let guard_set = match spend_committee::fetch_guard_set(&client, anchor) {
+		let guard_set = match spend_committee::fetch_guard_set(&client, head) {
 			Ok(g) => g,
 			Err(e) => {
 				log::debug!(target: "rostro-chat-spend", "guard set unavailable: {e}");
@@ -406,18 +406,18 @@ pub async fn run_witness_server<Client>(
 			}
 		};
 
-		// Chain context: current epoch + anchor, the epoch's guard set, and
-		// whether the claimed membership root is recent. (Runtime calls outside
-		// the recorder-state lock.)
-		let (epoch, anchor) = match spend_committee::epoch_anchor(&client) {
+		// Chain context: current epoch + finalized head, the guard set at that
+		// head, and whether the claimed membership root is recent. (Runtime calls
+		// outside the recorder-state lock.)
+		let (epoch, head) = match spend_committee::epoch_and_head(&client) {
 			Ok(v) => v,
 			Err(e) => {
-				log::debug!(target: "rostro-chat-spend", "witness: epoch anchor unavailable: {e}");
+				log::debug!(target: "rostro-chat-spend", "witness: epoch/head unavailable: {e}");
 				let _ = pending_response.send(reject());
 				continue;
 			}
 		};
-		let guard_set = match spend_committee::fetch_guard_set(&client, anchor) {
+		let guard_set = match spend_committee::fetch_guard_set(&client, head) {
 			Ok(g) => g,
 			Err(e) => {
 				log::debug!(target: "rostro-chat-spend", "witness: guard set unavailable: {e}");
