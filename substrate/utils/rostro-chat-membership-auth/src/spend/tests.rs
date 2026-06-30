@@ -520,7 +520,40 @@ fn witness_req(kr: &Keyring, verifier: &NodeId, nullifier: [u8; 32]) -> WitnessR
         membership_root: W_ROOT,
         verifier: verifier.clone(),
         verifier_sig: kr.sign(verifier, &payload),
+        // Proof fields exercised by the node's recorder, not validate_witness.
+        proof: vec![0xAB; 8],
+        freshness_root: [3u8; 32],
+        anchor_block: 100,
+        session_pubkey: vec![0xCD; 32],
     }
+}
+
+#[test]
+fn recorder_state_tracks_bad_requests() {
+    let mut rs = RecorderState::new(5);
+    let v = b"node-0".to_vec();
+    assert_eq!(rs.bad_request_count(&v), 0);
+    assert_eq!(rs.record_bad_request(&v), 1);
+    assert_eq!(rs.record_bad_request(&v), 2);
+    assert_eq!(rs.bad_request_count(&v), 2);
+    // Self-prunes on epoch rollover.
+    rs.roll_to(6);
+    assert_eq!(rs.bad_request_count(&v), 0);
+}
+
+#[test]
+fn witness_request_reconstructs_handshake() {
+    let gs = nodes(4);
+    let kr = Keyring::new(&gs);
+    let req = witness_req(&kr, &gs[0], nf(7));
+    let hr = req.handshake_request();
+    assert_eq!(hr.nullifier, req.nullifier);
+    assert_eq!(hr.membership_root, req.membership_root);
+    assert_eq!(hr.freshness_root, req.freshness_root);
+    assert_eq!(hr.current_epoch, req.epoch);
+    assert_eq!(hr.anchor_block, req.anchor_block);
+    assert_eq!(hr.session_pubkey, req.session_pubkey);
+    assert_eq!(hr.proof, req.proof);
 }
 
 #[test]

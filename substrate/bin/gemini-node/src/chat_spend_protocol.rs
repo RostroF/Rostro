@@ -35,10 +35,12 @@ use rostro_chat_membership_auth::spend::{
 	SpendSyncRequest, SpendSyncResponse, WitnessRefusal, WitnessRequest, WitnessResponse,
 	MAX_SPEND_RECORDS_PER_RESPONSE,
 };
+use rostro_chat_membership_auth::{verify_handshake_proof, Bn254, HandshakeRequest, VerifyingKey};
 use rostro_node_identity::{NodeIdentity, NodeSecret};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_runtime::traits::Block as BlockT;
+use sp_runtime::SaturatedConversion;
 
 use gemini_runtime::{opaque::Block, AccountId, Balance};
 use rns_runtime_api::PnsStorageApi;
@@ -46,6 +48,7 @@ use zk_pki_primitives::runtime_api::ZkPkiApi;
 
 use crate::chat_admission::is_chat_admitted;
 use crate::chat_bucket_cache::BucketCache;
+use crate::chat_rpc::RuntimeChainView;
 use crate::spend_committee;
 use crate::validator_channel::SharedSessions;
 
@@ -63,6 +66,10 @@ pub const SPEND_SYNC_TICK_INTERVAL_SECS: u64 = 20;
 /// Committee parameters (must match the witnessed-spend policy: 2-of-3).
 const COMMITTEE_K: usize = 3;
 const COMMITTEE_T: usize = 2;
+
+/// Bogus (proof-invalid) requests from one verifier within an epoch before it is
+/// quarantined for flooding.
+const FLOOD_THRESHOLD: usize = 10;
 
 const INBOUND_QUEUE_CAPACITY: usize = 16;
 /// `epoch(8) + root(32)` plus SCALE framing; 128 is generous headroom.
@@ -372,6 +379,7 @@ fn reject() -> OutgoingResponse {
 pub async fn run_witness_server<Client>(
 	node_seed: [u8; 32],
 	node_pubkey: [u8; 32],
+	membership_vk: Option<VerifyingKey<Bn254>>,
 	client: Arc<Client>,
 	recorder_state: SharedRecorderState,
 	quarantine: SharedQuarantineSet,
@@ -422,31 +430,55 @@ pub async fn run_witness_server<Client>(
 			.membership_root_recent(client.info().best_hash, req.membership_root)
 			.unwrap_or(false);
 
-		let resp = {
+		let (resp, flood_verifier) = {
 			let mut rs = recorder_state.lock();
 			rs.roll_to(epoch);
 			if !root_recent {
-				WitnessResponse::Refused { reason: WitnessRefusal::StaleRoot }
+				(WitnessResponse::Refused { reason: WitnessRefusal::StaleRoot }, None)
 			} else {
 				match validate_witness(&req, &node_pubkey, &guard_set, COMMITTEE_K, &sigv, &rs) {
+					Err(reason) => (WitnessResponse::Refused { reason }, None),
 					Ok(()) => {
-						rs.mark_witnessed(req.nullifier);
-						let payload = recorder_sig_payload(
-							&req.nullifier,
-							req.epoch,
-							&req.membership_root,
-							&req.verifier,
-						);
-						let sig = node_secret.sign(&payload);
-						WitnessResponse::Accepted {
-							recorder: node_pubkey.to_vec(),
-							recorder_sig: sig.to_vec(),
+						// Genuine-request filter: re-verify the membership proof with
+						// the verifier as guard id. A bogus proof is counted against
+						// the verifier; enough this epoch quarantine it for flooding.
+						if verify_witnessed_proof(&membership_vk, &client, &req) {
+							rs.mark_witnessed(req.nullifier);
+							let payload = recorder_sig_payload(
+								&req.nullifier,
+								req.epoch,
+								&req.membership_root,
+								&req.verifier,
+							);
+							let sig = node_secret.sign(&payload);
+							(
+								WitnessResponse::Accepted {
+									recorder: node_pubkey.to_vec(),
+									recorder_sig: sig.to_vec(),
+								},
+								None,
+							)
+						} else {
+							let n = rs.record_bad_request(&req.verifier) as usize;
+							let flood = (n >= FLOOD_THRESHOLD).then(|| req.verifier.clone());
+							(WitnessResponse::Refused { reason: WitnessRefusal::BadProof }, flood)
 						}
 					}
-					Err(reason) => WitnessResponse::Refused { reason },
 				}
 			}
 		};
+
+		// Quarantine a flooding verifier outside the recorder-state lock.
+		if let Some(v) = flood_verifier {
+			if quarantine.lock().quarantine(v.clone()) {
+				log::warn!(
+					target: "rostro-chat-spend",
+					"quarantined flooding verifier {} ({}+ bogus proofs this epoch)",
+					hex::encode(&v[..v.len().min(8)]),
+					FLOOD_THRESHOLD,
+				);
+			}
+		}
 
 		let _ = pending_response.send(OutgoingResponse {
 			result: Ok(resp.encode()),
@@ -454,6 +486,32 @@ pub async fn run_witness_server<Client>(
 			sent_feedback: None,
 		});
 	}
+}
+
+/// Re-verify a witnessed membership proof against the recorder's chain view, with
+/// the request's verifier as the guard id (the guard the proof's challenge is
+/// bound to). Returns true when no vk is pinned, so a node without the vk falls
+/// back to trusting the verifier signature (Phase 4a posture).
+fn verify_witnessed_proof<Client>(
+	membership_vk: &Option<VerifyingKey<Bn254>>,
+	client: &Arc<Client>,
+	req: &WitnessRequest,
+) -> bool
+where
+	Client: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	Client::Api: ZkPkiApi<Block, AccountId>,
+{
+	let vk = match membership_vk {
+		Some(vk) => vk,
+		None => return true,
+	};
+	let info = client.info();
+	let chain = RuntimeChainView {
+		client: client.as_ref(),
+		best: info.best_hash,
+		best_number: info.best_number.saturated_into::<u64>(),
+	};
+	verify_handshake_proof(vk, &req.handshake_request(), &req.verifier, &chain).is_ok()
 }
 
 /// Why the verifier could not produce a witnessed spend.
@@ -480,14 +538,16 @@ pub async fn run_verifier<Client>(
 	node_pubkey: [u8; 32],
 	spend_store: &SharedSpendStore,
 	quarantine: &SharedQuarantineSet,
-	nullifier: [u8; 32],
-	epoch: u64,
-	membership_root: [u8; 32],
+	req: &HandshakeRequest,
 ) -> Result<SpendRecord, VerifierError>
 where
 	Client: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
 	Client::Api: ZkPkiApi<Block, AccountId> + PnsStorageApi<Block, u64, Balance, AccountId>,
 {
+	let nullifier = req.nullifier;
+	let epoch = req.current_epoch;
+	let membership_root = req.membership_root;
+
 	// Cheap early reject if a completed record is already in the local store.
 	if spend_store.lock().contains(&nullifier) {
 		return Err(VerifierError::AlreadySpent);
@@ -505,6 +565,10 @@ where
 		membership_root,
 		verifier: node_pubkey.to_vec(),
 		verifier_sig: verifier_sig.clone(),
+		proof: req.proof.clone(),
+		freshness_root: req.freshness_root,
+		anchor_block: req.anchor_block,
+		session_pubkey: req.session_pubkey.clone(),
 	};
 	let wbytes = wreq.encode();
 

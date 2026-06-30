@@ -791,6 +791,9 @@ pub fn new_full<
 			crate::chat_spend_protocol::run_witness_server(
 				onion_seed,
 				chat_node_pubkey_ed25519,
+				chat_membership_vk_bytes
+					.as_deref()
+					.and_then(rostro_chat_membership_auth::deserialize_vk),
 				client.clone(),
 				chat_recorder_state.clone(),
 				chat_quarantine.clone(),

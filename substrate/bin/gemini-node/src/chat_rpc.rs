@@ -360,11 +360,12 @@ pub struct ChatMembershipAuthResult {
 const MEMBERSHIP_ANCHOR_WINDOW_BLOCKS: u64 = 14_400;
 
 /// [`ChainView`] over the zkpki runtime API at a fixed best block, so the
-/// membership-auth verifier can validate a proof's public inputs.
-struct RuntimeChainView<'a, C> {
-	client: &'a C,
-	best: <Block as BlockT>::Hash,
-	best_number: u64,
+/// membership-auth verifier can validate a proof's public inputs. `pub(crate)`
+/// so the recorder (chat_spend_protocol) can re-verify a witnessed proof.
+pub(crate) struct RuntimeChainView<'a, C> {
+	pub(crate) client: &'a C,
+	pub(crate) best: <Block as BlockT>::Hash,
+	pub(crate) best_number: u64,
 }
 
 impl<'a, C> ChainView for RuntimeChainView<'a, C>
@@ -1960,9 +1961,7 @@ where
 			self.node_pubkey_ed25519,
 			&self.spend_store,
 			&self.quarantine,
-			req.nullifier,
-			req.current_epoch,
-			req.membership_root,
+			&req,
 		)
 		.await
 		.map_err(|e| match e {

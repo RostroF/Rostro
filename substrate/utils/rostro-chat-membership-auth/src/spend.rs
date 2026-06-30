@@ -26,7 +26,7 @@ use codec::{Decode, Encode};
 use rostro_poseidon_bn254::{
     fr_from_canonical_bytes_le, fr_to_bytes_le, hash_node, hash_to_field_bn254, PoseidonConfig,
 };
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::OnceLock;
 
 /// Process-global canonical Poseidon params. The instance is a deterministic
@@ -471,6 +471,31 @@ pub struct WitnessRequest {
     pub membership_root: [u8; 32],
     pub verifier: NodeId,
     pub verifier_sig: Vec<u8>,
+    /// The membership proof and the remaining public inputs, so the recorder can
+    /// re-verify the spend is genuine before counter-signing (the genuine-request
+    /// filter). The verifier is the guard the proof's challenge is bound to, so
+    /// the recorder verifies with `verifier` as the guard id. A tampered field
+    /// just makes the proof fail, so these need no separate signature.
+    pub proof: Vec<u8>,
+    pub freshness_root: [u8; 32],
+    pub anchor_block: u64,
+    pub session_pubkey: Vec<u8>,
+}
+
+impl WitnessRequest {
+    /// Reconstruct the handshake request the proof was made for, so the recorder
+    /// can re-verify it (with `verifier` as the guard id).
+    pub fn handshake_request(&self) -> crate::HandshakeRequest {
+        crate::HandshakeRequest {
+            proof: self.proof.clone(),
+            membership_root: self.membership_root,
+            freshness_root: self.freshness_root,
+            nullifier: self.nullifier,
+            current_epoch: self.epoch,
+            anchor_block: self.anchor_block,
+            session_pubkey: self.session_pubkey.clone(),
+        }
+    }
 }
 
 /// A committee member's reply to a [`WitnessRequest`].
@@ -499,6 +524,9 @@ pub enum WitnessRefusal {
     /// The membership root is not current or recent on this recorder's chain
     /// view. Set by the node's chain check, not by [`validate_witness`].
     StaleRoot,
+    /// The membership proof did not verify against the recorder's chain view: a
+    /// bogus request. Repeated bogus requests from a verifier get it quarantined.
+    BadProof,
 }
 
 /// A recorder's per-epoch set of witnessed nullifiers. A recorder counter-signs a
@@ -511,11 +539,14 @@ pub enum WitnessRefusal {
 pub struct RecorderState {
     epoch: u64,
     witnessed: HashSet<[u8; 32]>,
+    /// Per-verifier count of bogus (proof-invalid) requests this epoch — the
+    /// flood signal. A verifier exceeding the node's threshold gets quarantined.
+    bad_requests: HashMap<NodeId, u32>,
 }
 
 impl RecorderState {
     pub fn new(epoch: u64) -> Self {
-        Self { epoch, witnessed: HashSet::new() }
+        Self { epoch, witnessed: HashSet::new(), bad_requests: HashMap::new() }
     }
 
     pub fn epoch(&self) -> u64 {
@@ -531,10 +562,24 @@ impl RecorderState {
         self.witnessed.insert(nullifier);
     }
 
-    /// Drop the witnessed set and adopt `epoch` if it differs (epoch rollover).
+    /// Count a bogus request from `verifier`, returning its running total this
+    /// epoch. The caller quarantines the verifier once the total crosses its
+    /// flood threshold.
+    pub fn record_bad_request(&mut self, verifier: &[u8]) -> u32 {
+        let c = self.bad_requests.entry(verifier.to_vec()).or_insert(0);
+        *c = c.saturating_add(1);
+        *c
+    }
+
+    pub fn bad_request_count(&self, verifier: &[u8]) -> u32 {
+        self.bad_requests.get(verifier).copied().unwrap_or(0)
+    }
+
+    /// Drop the per-epoch state and adopt `epoch` if it differs (rollover).
     pub fn roll_to(&mut self, epoch: u64) {
         if epoch != self.epoch {
             self.witnessed.clear();
+            self.bad_requests.clear();
             self.epoch = epoch;
         }
     }
