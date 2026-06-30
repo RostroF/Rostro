@@ -27,12 +27,12 @@ use rc_network::{
 	request_responses::{IncomingRequest, OutgoingResponse},
 	service::traits::NetworkService,
 	types::ProtocolName,
-	IfDisconnected, NetworkBackend,
+	IfDisconnected, NetworkBackend, PeerId,
 };
 use rostro_chat_membership_auth::spend::{
-	recorder_sig_payload, validate_witness, verify_record, RecorderState, SpendSigVerify, SpendStore,
-	SpendSyncRequest, SpendSyncResponse, WitnessRefusal, WitnessRequest, WitnessResponse,
-	MAX_SPEND_RECORDS_PER_RESPONSE,
+	recorder_sig_payload, validate_witness, verifier_sig_payload, verify_record, RecorderSig,
+	RecorderState, SpendRecord, SpendSigVerify, SpendStore, SpendSyncRequest, SpendSyncResponse,
+	WitnessRefusal, WitnessRequest, WitnessResponse, MAX_SPEND_RECORDS_PER_RESPONSE,
 };
 use rostro_node_identity::{NodeIdentity, NodeSecret};
 use sp_api::ProvideRuntimeApi;
@@ -407,10 +407,116 @@ pub async fn run_witness_server<Client>(
 	}
 }
 
+/// Why the verifier could not produce a witnessed spend.
+#[derive(Debug)]
+pub enum VerifierError {
+	/// The nullifier is already spent this epoch (seen in the local store).
+	AlreadySpent,
+	/// The guard set / committee could not be computed (runtime read failed).
+	Committee(String),
+	/// Fewer than `t` committee members counter-signed.
+	InsufficientWitnesses { got: usize, need: usize },
+}
+
+/// Verifier side of the witnessed spend. After the proof is verified (caller's
+/// job), compute the committee for `(nullifier, epoch)`, collect `t` recorder
+/// counter-signatures over `/rostro/chat-spend-witness/1`, assemble the
+/// `SpendRecord`, write it to the local store, and return it. The committee is a
+/// single serialisation point per nullifier (every verifier maps to the same
+/// members), so a round-robining member cannot collect a second quorum.
+pub async fn run_verifier<Client>(
+	network: &Arc<dyn NetworkService>,
+	client: &Arc<Client>,
+	node_secret: &NodeSecret,
+	node_pubkey: [u8; 32],
+	spend_store: &SharedSpendStore,
+	nullifier: [u8; 32],
+	epoch: u64,
+	membership_root: [u8; 32],
+) -> Result<SpendRecord, VerifierError>
+where
+	Client: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	Client::Api: ZkPkiApi<Block, AccountId> + PnsStorageApi<Block, u64, Balance, AccountId>,
+{
+	// Cheap early reject if a completed record is already in the local store.
+	if spend_store.lock().contains(&nullifier) {
+		return Err(VerifierError::AlreadySpent);
+	}
+
+	let committee = spend_committee::committee_at_epoch(client, &nullifier, COMMITTEE_K, &node_pubkey)
+		.map_err(VerifierError::Committee)?;
+
+	let verifier_sig = node_secret
+		.sign(&verifier_sig_payload(&nullifier, epoch, &membership_root))
+		.to_vec();
+	let wreq = WitnessRequest {
+		nullifier,
+		epoch,
+		membership_root,
+		verifier: node_pubkey.to_vec(),
+		verifier_sig: verifier_sig.clone(),
+	};
+	let wbytes = wreq.encode();
+
+	let mut recorders: Vec<RecorderSig> = Vec::new();
+	for member in &committee {
+		let key: [u8; 32] = match member.as_slice().try_into() {
+			Ok(k) => k,
+			Err(_) => continue,
+		};
+		let peer = match PeerId::from_ed25519(&key) {
+			Some(p) => p,
+			None => continue,
+		};
+		match network
+			.request(
+				peer,
+				ProtocolName::from(CHAT_SPEND_WITNESS_PROTOCOL_NAME),
+				wbytes.clone(),
+				None,
+				IfDisconnected::ImmediateError,
+			)
+			.await
+		{
+			Ok((b, _)) => {
+				if let Ok(WitnessResponse::Accepted { recorder, recorder_sig }) =
+					WitnessResponse::decode(&mut &b[..])
+				{
+					recorders.push(RecorderSig { recorder, sig: recorder_sig });
+					if recorders.len() >= COMMITTEE_T {
+						break;
+					}
+				}
+			}
+			Err(e) => {
+				log::debug!(target: "rostro-chat-spend", "witness request to {peer} failed: {e:?}");
+			}
+		}
+	}
+
+	if recorders.len() < COMMITTEE_T {
+		return Err(VerifierError::InsufficientWitnesses {
+			got: recorders.len(),
+			need: COMMITTEE_T,
+		});
+	}
+
+	let record = SpendRecord {
+		nullifier,
+		epoch,
+		membership_root,
+		verifier: node_pubkey.to_vec(),
+		verifier_sig,
+		recorders,
+	};
+	// Make it locally visible immediately; anti-entropy spreads it network-wide.
+	let _ = spend_store.lock().insert(record.clone());
+	Ok(record)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rostro_chat_membership_auth::spend::{RecorderSig, SpendRecord};
 	use rostro_node_identity::NodeSecret;
 
 	fn canon(x: u8) -> [u8; 32] {

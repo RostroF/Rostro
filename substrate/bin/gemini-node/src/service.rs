@@ -819,6 +819,7 @@ pub fn new_full<
 		let chat_share_store = chat_share_store.clone();
 		let network_arc = network_arc.clone();
 		let chat_membership_vk_bytes = chat_membership_vk_bytes.clone();
+		let chat_spend_store = chat_spend_store.clone();
 		Box::new(move |_| {
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
@@ -831,6 +832,7 @@ pub fn new_full<
 					bucket_cache: chat_bucket_cache.clone(),
 					local_subscription: chat_local_subscription.clone(),
 					membership_vk_bytes: chat_membership_vk_bytes.clone(),
+					spend_store: chat_spend_store.clone(),
 				},
 			};
 			crate::rpc::create_full(deps).map_err(Into::into)

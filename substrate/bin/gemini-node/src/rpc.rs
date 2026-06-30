@@ -14,6 +14,7 @@ use rc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
+use rns_runtime_api::PnsStorageApi;
 use zk_pki_primitives::runtime_api::ZkPkiApi;
 
 use crate::chat_rpc::ChatRpc;
@@ -75,6 +76,9 @@ pub struct ChatRpcDeps {
 	/// testnet `--chat-membership-vk` path); `None` leaves it returning "not
 	/// activated". Mainnet bakes the ceremony vk into the binary instead.
 	pub membership_vk_bytes: Option<Vec<u8>>,
+	/// Shared per-epoch witnessed-spend store. The verifier path writes admitted
+	/// spends here; the `/rostro/chat-spend/1` reconciliation keeps it convergent.
+	pub spend_store: crate::chat_spend_protocol::SharedSpendStore,
 }
 
 /// Instantiate all full RPC extensions.
@@ -89,6 +93,7 @@ where
 	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
 	C::Api: BlockBuilder<Block>,
 	C::Api: ZkPkiApi<Block, AccountId>,
+	C::Api: PnsStorageApi<Block, u64, Balance, AccountId>,
 	P: TransactionPool + 'static,
 {
 	use crate::chat_rpc::ChatRpcApiServer;
@@ -110,6 +115,7 @@ where
 			chat.bucket_cache,
 			chat.local_subscription,
 			chat.membership_vk_bytes,
+			chat.spend_store,
 		)
 		.into_rpc(),
 	)?;
