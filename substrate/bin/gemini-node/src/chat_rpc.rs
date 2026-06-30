@@ -621,6 +621,9 @@ pub struct ChatRpc<C> {
 	/// Shared per-epoch witnessed-spend store. The verifier writes admitted spends
 	/// here; `/rostro/chat-spend/1` reconciliation spreads them network-wide.
 	spend_store: crate::chat_spend_protocol::SharedSpendStore,
+	/// Shared per-epoch quarantine set. The verifier skips quarantined committee
+	/// members so it only builds admissible records.
+	quarantine: crate::chat_spend_protocol::SharedQuarantineSet,
 	_block: PhantomData<Block>,
 }
 
@@ -641,6 +644,7 @@ where
 		>,
 		membership_vk_bytes: Option<Vec<u8>>,
 		spend_store: crate::chat_spend_protocol::SharedSpendStore,
+		quarantine: crate::chat_spend_protocol::SharedQuarantineSet,
 	) -> Self {
 		// Pin the anonymous-membership verifying key, flipping the activation
 		// gate on. `None` (or undecodable bytes) leaves the endpoint returning
@@ -688,6 +692,7 @@ where
 			membership_sessions: Arc::new(Mutex::new(HandshakeSessions::new())),
 			node_secret: node_seed.map(NodeSecret::from_seed),
 			spend_store,
+			quarantine,
 			_block: PhantomData,
 		}
 	}
@@ -1954,6 +1959,7 @@ where
 			node_secret,
 			self.node_pubkey_ed25519,
 			&self.spend_store,
+			&self.quarantine,
 			req.nullifier,
 			req.current_epoch,
 			req.membership_root,

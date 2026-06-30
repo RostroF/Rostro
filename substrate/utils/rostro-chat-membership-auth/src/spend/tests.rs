@@ -646,15 +646,18 @@ fn quarantine_set_tracks_and_taints() {
     assert!(!q.is_quarantined(&gs[3]));
 
     let kr = Keyring::new(&gs);
-    // A record whose recorder gs[2] is quarantined is tainted.
-    let tainted = rec_with(&kr, &gs[0], nf(1), &[&gs[1], &gs[2]]);
-    assert!(q.taints(&tainted));
-    // A record with a quarantined verifier is tainted.
-    let tainted_v = rec_with(&kr, &gs[2], nf(2), &[&gs[1], &gs[3]]);
-    assert!(q.taints(&tainted_v));
-    // A clean record is not.
+    // Two recorders, one (gs[2]) quarantined: only 1 valid sig < t=2, not admitted.
+    let one_bad = rec_with(&kr, &gs[0], nf(1), &[&gs[1], &gs[2]]);
+    assert!(!q.admits(&one_bad, 2));
+    // Three recorders, one quarantined: 2 valid >= t=2, still admitted.
+    let three = rec_with(&kr, &gs[0], nf(4), &[&gs[1], &gs[2], &gs[3]]);
+    assert!(q.admits(&three, 2));
+    // A quarantined verifier is never admitted.
+    let bad_v = rec_with(&kr, &gs[2], nf(2), &[&gs[1], &gs[3]]);
+    assert!(!q.admits(&bad_v, 2));
+    // A clean 2-of-? record is admitted.
     let clean = rec_with(&kr, &gs[0], nf(3), &[&gs[1], &gs[3]]);
-    assert!(!q.taints(&clean));
+    assert!(q.admits(&clean, 2));
 }
 
 #[test]

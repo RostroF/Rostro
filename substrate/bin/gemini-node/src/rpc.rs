@@ -79,6 +79,8 @@ pub struct ChatRpcDeps {
 	/// Shared per-epoch witnessed-spend store. The verifier path writes admitted
 	/// spends here; the `/rostro/chat-spend/1` reconciliation keeps it convergent.
 	pub spend_store: crate::chat_spend_protocol::SharedSpendStore,
+	/// Shared per-epoch quarantine set (equivocation enforcement).
+	pub quarantine: crate::chat_spend_protocol::SharedQuarantineSet,
 }
 
 /// Instantiate all full RPC extensions.
@@ -116,6 +118,7 @@ where
 			chat.local_subscription,
 			chat.membership_vk_bytes,
 			chat.spend_store,
+			chat.quarantine,
 		)
 		.into_rpc(),
 	)?;

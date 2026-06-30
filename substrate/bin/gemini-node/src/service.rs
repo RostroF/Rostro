@@ -432,9 +432,11 @@ pub fn new_full<
 		// (spawned post-build_network) and written by the verifier/recorder path
 		// in Phase 4.
 		let chat_spend_store = crate::chat_spend_protocol::new_shared_store();
+		let chat_quarantine = crate::chat_spend_protocol::new_shared_quarantine_set();
 		let (chat_spend_config, chat_spend_handler) =
 			crate::chat_spend_protocol::build_spend_sync_protocol::<N, _>(
 				chat_spend_store.clone(),
+				chat_quarantine.clone(),
 				validator_channel_sessions.clone(),
 			);
 		net_config.add_request_response_protocol(chat_spend_config);
@@ -616,6 +618,7 @@ pub fn new_full<
 				crate::chat_spend_protocol::run_spend_sync_initiator(
 					spend_network,
 					chat_spend_store.clone(),
+					chat_quarantine.clone(),
 					chat_bucket_cache.clone(),
 					client.clone(),
 				),
@@ -790,6 +793,7 @@ pub fn new_full<
 				chat_node_pubkey_ed25519,
 				client.clone(),
 				chat_recorder_state.clone(),
+				chat_quarantine.clone(),
 				validator_channel_sessions.clone(),
 				chat_witness_rx,
 			),
@@ -820,6 +824,7 @@ pub fn new_full<
 		let network_arc = network_arc.clone();
 		let chat_membership_vk_bytes = chat_membership_vk_bytes.clone();
 		let chat_spend_store = chat_spend_store.clone();
+		let chat_quarantine = chat_quarantine.clone();
 		Box::new(move |_| {
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
@@ -833,6 +838,7 @@ pub fn new_full<
 					local_subscription: chat_local_subscription.clone(),
 					membership_vk_bytes: chat_membership_vk_bytes.clone(),
 					spend_store: chat_spend_store.clone(),
+					quarantine: chat_quarantine.clone(),
 				},
 			};
 			crate::rpc::create_full(deps).map_err(Into::into)

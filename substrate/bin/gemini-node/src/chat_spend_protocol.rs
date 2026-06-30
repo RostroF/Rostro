@@ -30,9 +30,10 @@ use rc_network::{
 	IfDisconnected, NetworkBackend, PeerId,
 };
 use rostro_chat_membership_auth::spend::{
-	recorder_sig_payload, validate_witness, verifier_sig_payload, verify_record, RecorderSig,
-	RecorderState, SpendRecord, SpendSigVerify, SpendStore, SpendSyncRequest, SpendSyncResponse,
-	WitnessRefusal, WitnessRequest, WitnessResponse, MAX_SPEND_RECORDS_PER_RESPONSE,
+	equivocators, recorder_sig_payload, validate_witness, verifier_sig_payload, verify_record,
+	QuarantineSet, RecorderSig, RecorderState, SpendRecord, SpendSigVerify, SpendStore,
+	SpendSyncRequest, SpendSyncResponse, WitnessRefusal, WitnessRequest, WitnessResponse,
+	MAX_SPEND_RECORDS_PER_RESPONSE,
 };
 use rostro_node_identity::{NodeIdentity, NodeSecret};
 use sp_api::ProvideRuntimeApi;
@@ -95,6 +96,23 @@ pub fn new_shared_recorder_state() -> SharedRecorderState {
 	Arc::new(Mutex::new(RecorderState::default()))
 }
 
+/// Per-epoch quarantine set, shared across the spend protocols: detection writes
+/// it (reconciliation), enforcement reads it (merge, peering, committee).
+pub type SharedQuarantineSet = Arc<Mutex<QuarantineSet>>;
+
+/// A fresh quarantine set. Epoch 0 until rolled to the chain epoch.
+pub fn new_shared_quarantine_set() -> SharedQuarantineSet {
+	Arc::new(Mutex::new(QuarantineSet::default()))
+}
+
+/// Whether `peer`'s node identity is quarantined (its messages are dropped).
+fn peer_quarantined(quarantine: &SharedQuarantineSet, peer: &PeerId) -> bool {
+	match peer.clone().into_ed25519() {
+		Some(key) => quarantine.lock().is_quarantined(&key),
+		None => false,
+	}
+}
+
 /// ed25519 signature verification over libp2p node keys: the committee identity
 /// published in RNS is the node's ed25519 key, and records are signed with it.
 struct NodeSigVerify;
@@ -130,6 +148,7 @@ fn decide_response(store: &SpendStore, req: &SpendSyncRequest) -> SpendSyncRespo
 /// config into `net_config` and spawns the handler.
 pub fn build_spend_sync_protocol<N, B>(
 	store: SharedSpendStore,
+	quarantine: SharedQuarantineSet,
 	validator_sessions: SharedSessions,
 ) -> (N::RequestResponseProtocolConfig, impl std::future::Future<Output = ()>)
 where
@@ -147,17 +166,18 @@ where
 		Some(tx),
 	);
 
-	(config, run_spend_sync_server(store, validator_sessions, rx))
+	(config, run_spend_sync_server(store, quarantine, validator_sessions, rx))
 }
 
 /// Inbound responder: decode `SpendSyncRequest`, answer from the local store.
 async fn run_spend_sync_server(
 	store: SharedSpendStore,
+	quarantine: SharedQuarantineSet,
 	validator_sessions: SharedSessions,
 	mut rx: async_channel::Receiver<IncomingRequest>,
 ) {
 	while let Some(IncomingRequest { peer, payload, pending_response }) = rx.next().await {
-		if !is_chat_admitted(&validator_sessions, &peer) {
+		if !is_chat_admitted(&validator_sessions, &peer) || peer_quarantined(&quarantine, &peer) {
 			let _ = pending_response.send(OutgoingResponse {
 				result: Err(()),
 				reputation_changes: Vec::new(),
@@ -194,6 +214,7 @@ async fn run_spend_sync_server(
 pub async fn run_spend_sync_initiator<Client>(
 	network: Arc<dyn NetworkService>,
 	store: SharedSpendStore,
+	quarantine: SharedQuarantineSet,
 	bucket_cache: BucketCache,
 	client: Arc<Client>,
 ) where
@@ -216,6 +237,7 @@ pub async fn run_spend_sync_initiator<Client>(
 			}
 		};
 		store.lock().roll_to(epoch);
+		quarantine.lock().roll_to(epoch);
 		let guard_set = match spend_committee::fetch_guard_set(&client, anchor) {
 			Ok(g) => g,
 			Err(e) => {
@@ -269,10 +291,36 @@ pub async fn run_spend_sync_initiator<Client>(
 				let mut merged = 0usize;
 				let mut rejected = 0usize;
 				for rec in records {
-					if rec.epoch != epoch || store.lock().contains(&rec.nullifier) {
+					if rec.epoch != epoch {
 						continue;
 					}
-					if verify_record(&rec, &guard_set, COMMITTEE_K, COMMITTEE_T, &sigv).is_ok() {
+					// Equivocation detection: a different record already stored for
+					// this nullifier means someone double-signed. Quarantine the
+					// recorders that signed for both (different) verifiers.
+					if let Some(existing) = store.lock().conflict(&rec) {
+						let bad = equivocators(&existing, &rec);
+						if !bad.is_empty() {
+							let mut q = quarantine.lock();
+							for n in bad {
+								if q.quarantine(n.clone()) {
+									log::warn!(
+										target: "rostro-chat-spend",
+										"quarantined equivocator {} (double-signed a nullifier)",
+										hex::encode(&n[..n.len().min(8)]),
+									);
+								}
+							}
+						}
+						continue;
+					}
+					if store.lock().contains(&rec.nullifier) {
+						continue;
+					}
+					// Merge only records that verify AND remain admissible after
+					// discarding any quarantined signer (>= t honest sigs).
+					if verify_record(&rec, &guard_set, COMMITTEE_K, COMMITTEE_T, &sigv).is_ok()
+						&& quarantine.lock().admits(&rec, COMMITTEE_T)
+					{
 						if store.lock().insert(rec).unwrap_or(false) {
 							merged += 1;
 						}
@@ -326,6 +374,7 @@ pub async fn run_witness_server<Client>(
 	node_pubkey: [u8; 32],
 	client: Arc<Client>,
 	recorder_state: SharedRecorderState,
+	quarantine: SharedQuarantineSet,
 	validator_sessions: SharedSessions,
 	mut rx: async_channel::Receiver<IncomingRequest>,
 ) where
@@ -336,7 +385,7 @@ pub async fn run_witness_server<Client>(
 	let sigv = NodeSigVerify;
 
 	while let Some(IncomingRequest { peer, payload, pending_response }) = rx.next().await {
-		if !is_chat_admitted(&validator_sessions, &peer) {
+		if !is_chat_admitted(&validator_sessions, &peer) || peer_quarantined(&quarantine, &peer) {
 			let _ = pending_response.send(reject());
 			continue;
 		}
@@ -430,6 +479,7 @@ pub async fn run_verifier<Client>(
 	node_secret: &NodeSecret,
 	node_pubkey: [u8; 32],
 	spend_store: &SharedSpendStore,
+	quarantine: &SharedQuarantineSet,
 	nullifier: [u8; 32],
 	epoch: u64,
 	membership_root: [u8; 32],
@@ -460,6 +510,11 @@ where
 
 	let mut recorders: Vec<RecorderSig> = Vec::new();
 	for member in &committee {
+		// Skip a quarantined committee member: its counter-signature is worthless
+		// (rejected network-wide), so don't waste a round-trip on it.
+		if quarantine.lock().is_quarantined(member) {
+			continue;
+		}
 		let key: [u8; 32] = match member.as_slice().try_into() {
 			Ok(k) => k,
 			Err(_) => continue,

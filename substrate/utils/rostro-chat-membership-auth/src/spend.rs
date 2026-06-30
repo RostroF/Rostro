@@ -619,11 +619,20 @@ impl QuarantineSet {
         }
     }
 
-    /// True if `record`'s verifier or any recorder is quarantined, so the record
-    /// must not be admitted (a quarantined signer's signature is worthless).
-    pub fn taints(&self, record: &SpendRecord) -> bool {
-        self.is_quarantined(&record.verifier)
-            || record.recorders.iter().any(|r| self.is_quarantined(&r.recorder))
+    /// Whether `record` is still admissible under this quarantine: its verifier is
+    /// not quarantined, and at least `t` of its recorder signatures are from
+    /// non-quarantined recorders (a quarantined signer's signature is worthless,
+    /// so it does not count toward the threshold).
+    pub fn admits(&self, record: &SpendRecord, t: usize) -> bool {
+        if self.is_quarantined(&record.verifier) {
+            return false;
+        }
+        let valid = record
+            .recorders
+            .iter()
+            .filter(|r| !self.is_quarantined(&r.recorder))
+            .count();
+        valid >= t
     }
 }
 
