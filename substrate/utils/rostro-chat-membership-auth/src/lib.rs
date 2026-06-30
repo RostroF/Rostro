@@ -23,6 +23,8 @@
 pub use ark_bn254::Bn254;
 pub use ark_groth16::VerifyingKey;
 
+pub mod spend;
+
 use ark_bn254::Fr;
 use rostro_membership_circuit::groth16;
 use rostro_poseidon_bn254::{fr_from_canonical_bytes_le, hash_to_field_bn254};
