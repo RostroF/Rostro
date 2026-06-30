@@ -30,9 +30,40 @@ putting a transaction on the login path.
 
 A spend is recorded by a committee the verifier cannot choose, co-signed, and
 gossiped. The verifier issues a session only after a threshold of the committee
-counter-signs.
+counter-signs. The committee is selected over the guard set defined below.
 
-### 1.1 Deterministic committee
+### 1.1 The guard set (RNS NODE records)
+
+The committee is selected over a consensus-agreed, sybil-resistant set of guard node
+identities. That set is sourced from RNS (the Rostro Name Service), not from the
+validator set: guards and relays are ordinary non-validator nodes.
+
+Every node already has a free ed25519 libp2p identity (its PeerId, the key it signs
+onion forwards with and the `guard_node_id` the handshake challenge binds). What was
+missing is an *agreed, sybil-resistant set* of those identities; a free-to-mint key
+gives neither agreement nor sybil resistance on its own. RNS supplies both:
+
+- **Enrolment.** A node is registered into its owner's RNS entry under a new `NODE`
+  record (a fresh `RecordType` alongside `CHAT`/`MESSAGE`/`VALIDATOR`): a 32-byte
+  libp2p ed25519 key, validated to exactly 32 bytes the way `CHAT` is. Distinct from
+  `VALIDATOR` (a validator *stash account*, and these are non-validators) and from
+  `CHAT` (a messaging address). New purpose, new record.
+- **Agreed + enumerable.** RNS is on-chain, so every node reads the same set. Reading
+  the `NODE` records at the membership-epoch anchor block *is* the per-epoch snapshot;
+  no separate snapshot store, and the set cannot shift mid-epoch and desync committees.
+- **Sybil gate.** Holding an RNS name costs, so guard-set membership costs. Policy is
+  **one `NODE` record per name**: each guard identity costs a name, so an attacker must
+  buy names in proportion to the committee weight they want, which preserves the
+  honest-majority assumption HRW rests on. Owner accountability (every node traces to an
+  RNS owner) feeds the Phase 5 quarantine.
+
+The guard's committee identity is its libp2p node key, the same key used for onion
+forwarding and the handshake challenge. One universal node identity, published in RNS.
+
+RNS exposes per-name `lookup` today but no global enumeration, so Phase 2a adds an
+index over `NODE` records and a `guard_set()` runtime API (see the build plan).
+
+### 1.2 Deterministic committee
 
 For nullifier `N` in epoch `E`:
 
@@ -54,7 +85,7 @@ The committee is a single fixed serialisation point per `N`. This converts an
 eventually-consistent gossip race (which an attacker can sprint through during the
 propagation window) into a one-committee chokepoint the attacker cannot relocate.
 
-### 1.2 Signed spend record
+### 1.3 Signed spend record
 
 ```
 SpendRecord {
@@ -70,9 +101,9 @@ SpendRecord {
 
 Both identities are in the record, so the network knows who did the verification and
 who did the witnessing. That is the accountability requirement and the basis for
-equivocation detection (1.5).
+equivocation detection (1.6).
 
-### 1.3 Threshold admission
+### 1.4 Threshold admission
 
 The verifier issues a session only after collecting `t` of `k` recorder signatures.
 That threshold set is the session's admission ticket and is embedded in the session
@@ -89,13 +120,13 @@ properly witnessed.
     one colluder outright.
 - 2-of-3 tolerates one offline recorder for liveness, but its double-spend safety
   holds only when all three are honest. A colluding recorder can leak one extra
-  session. We accept that because the cheat is **provable equivocation** (1.5): the
+  session. We accept that because the cheat is **provable equivocation** (1.6): the
   colluder self-incriminates and is quarantined, and the leaked session is bounded by
   the session lifetime and per-session rate limit. Detection-and-punishment over
   prevention. `k`/`t` stay parameters, so dialling to 3-of-4 later is config, not a
   redesign.
 
-### 1.4 Epoch scoping and self-pruning
+### 1.5 Epoch scoping and self-pruning
 
 `N` bakes in the epoch, so at epoch rollover every entry refers to a stale epoch and
 the same cert produces a different `N`. The set is therefore dropped and replaced
@@ -113,7 +144,7 @@ clock skew (same idea as the chain's recent-root ring).
 The set is held as a per-epoch Merkle accumulator with a root, so committee members
 can compare roots and reconcile missing entries cheaply (a plain set cannot be diffed).
 
-### 1.5 Equivocation detection and quarantine
+### 1.6 Equivocation detection and quarantine
 
 - **Double-signing recorder.** A recorder that counter-signs two records for the same
   `N` in one epoch self-incriminates: both records gossip, and any node can see `W`
@@ -127,7 +158,7 @@ can compare roots and reconcile missing entries cheaply (a plain set cannot be d
   committee eligibility and `/rostro/chat-spend/1` peering. Governance of the vote
   (tally authority, dispute path, un-quarantine) is scoped in Phase 5.
 
-### 1.6 What stays off-chain
+### 1.7 What stays off-chain
 
 The spend lives in node RAM, gossips between nodes, and prunes per epoch. It never
 hits consensus. It borrows consensus only for the two things that genuinely need
@@ -147,6 +178,11 @@ which was the property the anonymous path was built to preserve.
   thin.
 - Transport is a dedicated libp2p protocol `/rostro/chat-spend/1`, separate from
   message-bucket gossip. No second purpose on a channel built for one purpose.
+- The guard-set source is RNS runtime/pallet work, separate from the Apache util
+  core: a new `NODE` `RecordType` in `rns-types`/`rns-resolvers`, an enumeration index
+  over `NODE` records, and a `guard_set()` method on the RNS runtime API
+  (`rns-runtime-api`). Each guard's committee identity is its libp2p node key, unified
+  with onion forwarding and the handshake challenge.
 
 ## 3. Parameters
 
@@ -154,6 +190,8 @@ which was the property the anonymous path was built to preserve.
 |---|---|---|
 | `k` committee size | 3 | config-bindable |
 | `t` threshold | 2 | config-bindable; 2-of-3 + quarantine posture |
+| guard-set source | RNS `NODE` records | on-chain; read at the epoch anchor block |
+| nodes per RNS name | 1 | sybil gate: guard count tied to name count |
 | epoch | 24h (`EPOCH_LENGTH_BLOCKS = 14_400`) | the nullifier clock |
 | trailing overlap | 1 epoch | boundary skew tolerance |
 | quarantine threshold | `X` bad records / timeout | tunable, set in Phase 5 |
@@ -173,11 +211,18 @@ payloads, HRW `committee()`, threshold verifier, per-epoch accumulator with root
 simulated node sets), verifier-exclusion, signature validation, t-of-k accept/reject,
 accumulator-root reconciliation. KATs for HRW.
 
-**Phase 2 - Guard-set runtime API.** Expose the canonical per-epoch guard set to the
-node for committee computation (reuse validators/session API if present, else add a
-stable snapshot).
-*Gate:* node reads the same guard set at a block; node-computed committee matches the
-Phase 1 pure tests against that set.
+**Phase 2a - RNS guard-set source.** Add a `NODE` `RecordType` (32-byte libp2p
+ed25519 key, validated like `CHAT`), one per RNS name. Maintain an index over `NODE`
+records and expose `guard_set()` on the RNS runtime API. Reading at the
+membership-epoch anchor block is the per-epoch snapshot.
+*Gate:* a node registered into its owner's RNS entry appears in `guard_set()`; a name
+without a `NODE` record does not; a second `NODE` record on a name is rejected; the
+set is stable across a block range within an epoch.
+
+**Phase 2b - Node reads set + computes committee.** Thin wiring: the node reads
+`guard_set()` at the epoch anchor and computes committees via the Phase 1
+`committee()`.
+*Gate:* node-computed committee matches the Phase 1 pure tests against that set.
 
 **Phase 3 - Spend-record gossip.** `/rostro/chat-spend/1` carrying records +
 accumulator-root reconciliation. Receive -> validate (sigs, committee membership,
@@ -215,6 +260,11 @@ rostro-main.
 
 - A full committee partition can briefly yield two sessions; bounded, and requires
   simultaneous failures.
+- Sybil resistance rests on RNS name cost plus the one-`NODE`-per-name policy. An
+  attacker with many names still buys committee weight in proportion, so RNS name
+  pricing is load-bearing here (ties to RNS genesis pricing).
+- A guard whose RNS name expires mid-epoch stays in the set until the next
+  epoch-anchor read; bounded to one epoch.
 - HRW security rests on an honest-majority, sybil-resistant guard set, the same
   assumption the validator set already carries.
 - Quarantine governance (tally authority, dispute, un-quarantine) needs its own small
