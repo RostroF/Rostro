@@ -132,6 +132,30 @@ pub fn is_committee_member(
         .any(|c| c.as_slice() == node)
 }
 
+/// The per-epoch guard set the committee is selected over. The node implements
+/// this over the RNS `guard_set()` runtime API, read at the membership-epoch
+/// anchor block so every node sees the same set; tests implement it over a fixed
+/// set. Keeping it a seam lets the node-side committee path be exercised without
+/// a runtime client, and guarantees the node path cannot diverge from the pure
+/// [`committee`] selection.
+pub trait GuardSetSource {
+    fn guard_set(&self, epoch: u64) -> Vec<NodeId>;
+}
+
+/// Select the committee for `(nullifier, epoch)` over the set `source` yields for
+/// that epoch. A thin wrapper over [`committee`]: the node reads the guard set
+/// from chain and calls exactly this, so its result is identical to the pure
+/// selection given the same set.
+pub fn committee_for(
+    source: &impl GuardSetSource,
+    nullifier: &[u8; 32],
+    epoch: u64,
+    k: usize,
+    verifier: &[u8],
+) -> Vec<NodeId> {
+    committee(nullifier, epoch, &source.guard_set(epoch), k, verifier)
+}
+
 // ───────────────────────────── spend record ────────────────────────────────
 
 /// A recorder's counter-signature on a spend.

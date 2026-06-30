@@ -60,6 +60,7 @@ frame-support = { workspace = true, default-features = true }
 frame-system = { workspace = true, default-features = true }
 pallet-rns-registrar = { workspace = true, default-features = true }
 rns-types = { workspace = true, default-features = true }
+rns-runtime-api = { workspace = true, default-features = true }
 pallet-rostro-canonical-files = { workspace = true, default-features = true }
 pallet-rostro-rpc-method-policy = { workspace = true, default-features = true }
 pallet-sassafras = { workspace = true, default-features = true }

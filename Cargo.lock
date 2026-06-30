@@ -4582,6 +4582,7 @@ dependencies = [
  "rc-telemetry",
  "rc-transaction-pool",
  "rc-transaction-pool-api",
+ "rns-runtime-api",
  "rns-types",
  "rostro-canonical-fetch",
  "rostro-chat-ephemeral-store",

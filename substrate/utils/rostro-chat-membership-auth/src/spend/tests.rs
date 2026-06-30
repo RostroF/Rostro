@@ -164,6 +164,56 @@ fn committee_frozen_vector() {
 // Filled from the first test run (see committee_frozen_vector).
 const FROZEN_COMMITTEE: [&str; 3] = ["node-4", "node-5", "node-7"];
 
+// A guard-set source that returns a fixed set regardless of epoch.
+struct FixedSource(Vec<NodeId>);
+impl GuardSetSource for FixedSource {
+    fn guard_set(&self, _epoch: u64) -> Vec<NodeId> {
+        self.0.clone()
+    }
+}
+
+#[test]
+fn committee_for_matches_pure_committee() {
+    // The node path (read a set from a source, then select) must produce exactly
+    // the pure committee for that set, across nullifiers and committee sizes.
+    let gs = nodes(8);
+    let src = FixedSource(gs.clone());
+    let v = &gs[0];
+    for x in 0..50u64 {
+        for k in 1..=4usize {
+            assert_eq!(
+                committee_for(&src, &nf(x), 7, k, v),
+                committee(&nf(x), 7, &gs, k, v),
+            );
+        }
+    }
+}
+
+#[test]
+fn committee_for_tracks_the_epoch_set() {
+    // A source whose set depends on the epoch yields the committee for whichever
+    // set applies to the epoch being selected.
+    struct PerEpoch;
+    impl GuardSetSource for PerEpoch {
+        fn guard_set(&self, epoch: u64) -> Vec<NodeId> {
+            if epoch == 1 {
+                nodes(4)
+            } else {
+                nodes(8)
+            }
+        }
+    }
+    let v = b"node-0".to_vec();
+    assert_eq!(
+        committee_for(&PerEpoch, &nf(3), 1, 3, &v),
+        committee(&nf(3), 1, &nodes(4), 3, &v),
+    );
+    assert_eq!(
+        committee_for(&PerEpoch, &nf(3), 2, 3, &v),
+        committee(&nf(3), 2, &nodes(8), 3, &v),
+    );
+}
+
 // ───────────────────────────── record verify ───────────────────────────────
 
 const K: usize = 3;

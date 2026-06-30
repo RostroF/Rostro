@@ -29,6 +29,7 @@ mod policy_refresh;
 mod role;
 mod rpc;
 mod service;
+mod spend_committee;
 mod ticket_submitter;
 mod validator_channel;
 
