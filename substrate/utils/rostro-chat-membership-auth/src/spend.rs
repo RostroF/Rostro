@@ -417,6 +417,16 @@ impl SpendStore {
     pub fn records_for_sync(&self, max: usize) -> Vec<SpendRecord> {
         self.records.values().take(max).cloned().collect()
     }
+
+    /// The stored record for `record`'s nullifier if it differs from `record`.
+    /// A same-nullifier conflict is the signal for equivocation detection (two
+    /// distinct valid records for one nullifier should not exist).
+    pub fn conflict(&self, record: &SpendRecord) -> Option<SpendRecord> {
+        match self.records.get(&record.nullifier) {
+            Some(existing) if existing != record => Some(existing.clone()),
+            _ => None,
+        }
+    }
 }
 
 // ───────────────────────────── sync wire types ─────────────────────────────
@@ -559,6 +569,80 @@ pub fn validate_witness(
         return Err(WitnessRefusal::AlreadyWitnessed);
     }
     Ok(())
+}
+
+// ───────────────────────────── quarantine ──────────────────────────────────
+
+/// Per-epoch set of node identities quarantined for provable misbehaviour
+/// (equivocation today; bogus-request flooding later). A quarantined node's
+/// signatures are treated as worthless, so it cannot help mint a session even if
+/// HRW still selects it onto a committee.
+///
+/// Self-pruning on epoch rollover. A persistent / reputation-weighted quarantine
+/// and the un-quarantine path are governance, deferred.
+#[derive(Clone, Debug, Default)]
+pub struct QuarantineSet {
+    epoch: u64,
+    quarantined: HashSet<NodeId>,
+}
+
+impl QuarantineSet {
+    pub fn new(epoch: u64) -> Self {
+        Self { epoch, quarantined: HashSet::new() }
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    pub fn is_quarantined(&self, node: &[u8]) -> bool {
+        self.quarantined.contains(node)
+    }
+
+    /// Quarantine `node`. Returns whether it was newly added.
+    pub fn quarantine(&mut self, node: NodeId) -> bool {
+        self.quarantined.insert(node)
+    }
+
+    pub fn len(&self) -> usize {
+        self.quarantined.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.quarantined.is_empty()
+    }
+
+    pub fn roll_to(&mut self, epoch: u64) {
+        if epoch != self.epoch {
+            self.quarantined.clear();
+            self.epoch = epoch;
+        }
+    }
+
+    /// True if `record`'s verifier or any recorder is quarantined, so the record
+    /// must not be admitted (a quarantined signer's signature is worthless).
+    pub fn taints(&self, record: &SpendRecord) -> bool {
+        self.is_quarantined(&record.verifier)
+            || record.recorders.iter().any(|r| self.is_quarantined(&r.recorder))
+    }
+}
+
+/// The recorders that counter-signed the *same* nullifier for two *different*
+/// verifiers: provable equivocation. An honest recorder refuses the second
+/// witness request for a nullifier (its [`RecorderState`] is keyed by nullifier
+/// alone), so appearing in two records for that nullifier under different
+/// verifiers means it double-signed. Returns empty unless `a` and `b` are a
+/// genuine same-nullifier, different-verifier conflict.
+pub fn equivocators(a: &SpendRecord, b: &SpendRecord) -> Vec<NodeId> {
+    if a.nullifier != b.nullifier || a.verifier == b.verifier {
+        return Vec::new();
+    }
+    let bset: HashSet<&[u8]> = b.recorders.iter().map(|r| r.recorder.as_slice()).collect();
+    a.recorders
+        .iter()
+        .filter(|r| bset.contains(r.recorder.as_slice()))
+        .map(|r| r.recorder.clone())
+        .collect()
 }
 
 #[cfg(test)]

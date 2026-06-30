@@ -614,6 +614,98 @@ fn recorder_state_rolls_over() {
     assert!(!rs.has_witnessed(&nf(1)));
 }
 
+// ───────────────────────────── quarantine ──────────────────────────────────
+
+/// Build a record with a chosen verifier and explicit recorder ids (so tests can
+/// craft overlaps), all signatures valid under `kr`.
+fn rec_with(kr: &Keyring, verifier: &NodeId, nullifier: [u8; 32], recorders: &[&NodeId]) -> SpendRecord {
+    let root = [9u8; 32];
+    let vpayload = verifier_sig_payload(&nullifier, 5, &root);
+    let rpayload = recorder_sig_payload(&nullifier, 5, &root, verifier);
+    SpendRecord {
+        nullifier,
+        epoch: 5,
+        membership_root: root,
+        verifier: verifier.clone(),
+        verifier_sig: kr.sign(verifier, &vpayload),
+        recorders: recorders
+            .iter()
+            .map(|r| RecorderSig { recorder: (*r).clone(), sig: kr.sign(r, &rpayload) })
+            .collect(),
+    }
+}
+
+#[test]
+fn quarantine_set_tracks_and_taints() {
+    let gs = nodes(6);
+    let mut q = QuarantineSet::new(5);
+    assert!(q.is_empty());
+    assert!(q.quarantine(gs[2].clone()));
+    assert!(!q.quarantine(gs[2].clone())); // idempotent
+    assert!(q.is_quarantined(&gs[2]));
+    assert!(!q.is_quarantined(&gs[3]));
+
+    let kr = Keyring::new(&gs);
+    // A record whose recorder gs[2] is quarantined is tainted.
+    let tainted = rec_with(&kr, &gs[0], nf(1), &[&gs[1], &gs[2]]);
+    assert!(q.taints(&tainted));
+    // A record with a quarantined verifier is tainted.
+    let tainted_v = rec_with(&kr, &gs[2], nf(2), &[&gs[1], &gs[3]]);
+    assert!(q.taints(&tainted_v));
+    // A clean record is not.
+    let clean = rec_with(&kr, &gs[0], nf(3), &[&gs[1], &gs[3]]);
+    assert!(!q.taints(&clean));
+}
+
+#[test]
+fn quarantine_set_rolls_over() {
+    let mut q = QuarantineSet::new(5);
+    q.quarantine(b"node-2".to_vec());
+    q.roll_to(6);
+    assert_eq!(q.epoch(), 6);
+    assert!(q.is_empty());
+}
+
+#[test]
+fn equivocators_finds_the_double_signer() {
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    // Same nullifier, DIFFERENT verifiers, recorder gs[2] signed for both.
+    let a = rec_with(&kr, &gs[0], nf(7), &[&gs[1], &gs[2]]);
+    let b = rec_with(&kr, &gs[3], nf(7), &[&gs[2], &gs[4]]);
+    assert_eq!(equivocators(&a, &b), vec![gs[2].clone()]);
+}
+
+#[test]
+fn equivocators_empty_without_a_real_conflict() {
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    let a = rec_with(&kr, &gs[0], nf(7), &[&gs[1], &gs[2]]);
+    // Same verifier -> not equivocation (same signed message).
+    let same_v = rec_with(&kr, &gs[0], nf(7), &[&gs[1], &gs[5]]);
+    assert!(equivocators(&a, &same_v).is_empty());
+    // Different nullifier -> no conflict.
+    let diff_n = rec_with(&kr, &gs[3], nf(8), &[&gs[2], &gs[4]]);
+    assert!(equivocators(&a, &diff_n).is_empty());
+    // Identical record -> no conflict.
+    assert!(equivocators(&a, &a).is_empty());
+}
+
+#[test]
+fn spend_store_detects_conflict() {
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    let a = rec_with(&kr, &gs[0], nf(7), &[&gs[1], &gs[2]]);
+    let b = rec_with(&kr, &gs[3], nf(7), &[&gs[2], &gs[4]]); // same N, different content
+    let c = rec_with(&kr, &gs[0], nf(9), &[&gs[1], &gs[2]]); // different N
+
+    let mut s = SpendStore::new(5);
+    s.insert(a.clone()).unwrap();
+    assert_eq!(s.conflict(&b), Some(a.clone())); // conflict surfaces the stored record
+    assert_eq!(s.conflict(&a), None); // identical: no conflict
+    assert_eq!(s.conflict(&c), None); // absent nullifier: no conflict
+}
+
 #[test]
 fn witness_wire_roundtrips() {
     let gs = nodes(8);
