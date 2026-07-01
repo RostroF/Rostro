@@ -40,12 +40,15 @@ where
 	Ok(keys.into_iter().map(|k| k.to_vec()).collect())
 }
 
-/// The current membership epoch and the block to read the guard set at: the
-/// finalized head. Reading at the finalized head, rather than the epoch-start
-/// block (up to a full epoch old and pruned on non-archive nodes), keeps the
-/// guard set always available. The set may drift within an epoch as guards
-/// enrol/leave, but the verifier and recorders agree as long as both have
-/// finalised the same head, which holds outside brief finality lag.
+/// The current membership epoch and the block to read the guard set at: the best
+/// (current) head. Reading at the current head keeps the guard set always
+/// available, unlike the epoch-start block (~24h old, pruned on non-archive
+/// nodes), and unlike the finalized head it does not depend on finality
+/// progressing (so it works on small or stalled-finality networks). The guard set
+/// changes only via RNS enrol/expire, which is deep within a block or two, so the
+/// best head and the finalized head give the same set in practice; reading the
+/// head just drops the finality dependency. Verifier and recorders agree as long
+/// as both are at ~the same head.
 pub fn epoch_and_head<Client>(
 	client: &Arc<Client>,
 ) -> Result<(u64, <Block as BlockT>::Hash), String>
@@ -58,7 +61,7 @@ where
 		.runtime_api()
 		.membership_epoch(info.best_hash)
 		.map_err(|e| format!("ZkPkiApi::membership_epoch runtime call: {e:?}"))? as u64;
-	Ok((epoch, info.finalized_hash))
+	Ok((epoch, info.best_hash))
 }
 
 /// Select the witnessed-spend committee for `nullifier` over the current guard set
