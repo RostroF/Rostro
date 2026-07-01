@@ -57,7 +57,9 @@ pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 # binding verifier paseo uses pre-`DOTWAVE_SIGNING_CERT_HASH`. The
 # production `ProductionBindingProofVerifier` swap happens once
 # dotwave's signing cert is final.
-zk-pki-pallet = { workspace = true }
+# Testbed runtime: enable the test-harness enroll extrinsic. NEVER enabled by the
+# mainnet (rostro) runtime.
+zk-pki-pallet = { workspace = true, features = ["test-harness"] }
 zk-pki-primitives = { workspace = true }
 zk-pki-tpm = { workspace = true, features = ["test-utils"] }
 

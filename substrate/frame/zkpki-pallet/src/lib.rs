@@ -931,6 +931,9 @@ pub mod pallet {
         ContractOffered { issuer: T::AccountId, user: T::AccountId, nonce: [u8; 32], expiry_block: BlockNumberFor<T> },
         ContractReplaced { issuer: T::AccountId, user: T::AccountId, old_nonce: [u8; 32], new_nonce: [u8; 32] },
         CertMinted { thumbprint: Thumbprint, user: T::AccountId, issuer: T::AccountId },
+        /// TEST HARNESS ONLY: a membership leaf was directly enrolled at `index`.
+        #[cfg(feature = "test-harness")]
+        TestMembershipEnrolled { index: u64, expiry_block: BlockNumberFor<T> },
         CertSuspended { thumbprint: Thumbprint, issuer: T::AccountId },
         CertReactivated { thumbprint: Thumbprint, issuer: T::AccountId },
         CertInvalidated { thumbprint: Thumbprint },
@@ -3178,6 +3181,32 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::MimeWrapVkTooLong)?;
             MimeWrapVk::<T>::put(bounded);
             Self::deposit_event(Event::MimeWrapVkSet);
+            Ok(())
+        }
+
+        /// TEST HARNESS ONLY (feature `test-harness`, absent on any mainnet
+        /// runtime): enrol a membership + freshness leaf directly for
+        /// `id_commitment`, skipping the offer -> attestation ->
+        /// chat-enrollment-binding mint gauntlet. Any signed origin; the caller is
+        /// irrelevant to the leaf. Emits the leaf index so a client can build its
+        /// Merkle witness locally. This is NOT a cert (no `CertLookup` record); the
+        /// guard verifies membership proofs against the root, which this advances.
+        #[cfg(feature = "test-harness")]
+        #[pallet::call_index(20)]
+        #[pallet::weight(frame_support::weights::Weight::from_parts(20_000_000, 0))]
+        pub fn test_enroll_membership(
+            origin: OriginFor<T>,
+            id_commitment: [u8; 32],
+        ) -> DispatchResult {
+            let _who = ensure_signed(origin)?;
+            let idc = fr_from_canonical_bytes_le(&id_commitment)
+                .ok_or(Error::<T>::IdCommitmentNotCanonical)?;
+            let now = <frame_system::Pallet<T>>::block_number();
+            let expiry_block = now.saturating_add(T::MaxRootTtlBlocks::get());
+            let leaf = Self::membership_leaf_value(idc, expiry_block);
+            let index = Self::membership_insert(leaf).ok_or(Error::<T>::MembershipTreeFull)?;
+            Self::freshness_set(index, Self::initial_fresh_until_epoch());
+            Self::deposit_event(Event::TestMembershipEnrolled { index, expiry_block });
             Ok(())
         }
     }
