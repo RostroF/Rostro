@@ -84,12 +84,20 @@ pub mod codec_type {
         /// message content; this is the key you encrypt content *to*.
         /// (IANA private use 65294.)
         MESSAGE,
+        /// Relay/guard node identity — the 32-byte libp2p ed25519 public key
+        /// (the bytes a PeerId derives from) a node publishes under its owner's
+        /// RNS entry to enrol as a chat guard. One per name. Distinct from
+        /// `VALIDATOR` (a validator stash *account*) and `CHAT` (a *messaging*
+        /// address): this is the node's network/transport identity, the key it
+        /// signs onion forwards and witnessed-spend records with. Exactly 32
+        /// raw bytes. (IANA private use 65295.)
+        NODE,
         /// Unknown Record type, or unsupported
         Unknown(u16),
     }
 
     impl RecordType {
-        pub fn all() -> [Self; 17] {
+        pub fn all() -> [Self; 18] {
             [
                 RecordType::A,
                 RecordType::AAAA,
@@ -108,6 +116,7 @@ pub mod codec_type {
                 RecordType::CONTENT,
                 RecordType::CHAT,
                 RecordType::MESSAGE,
+                RecordType::NODE,
             ]
         }
     }
@@ -129,8 +138,10 @@ mod tests {
         // New, appended:
         assert_eq!(RecordType::CHAT.encode(), vec![15]);
         assert_eq!(RecordType::MESSAGE.encode(), vec![16]);
-        // Unknown moved 15 -> 17; safe because nothing is ever stored under it.
-        let mut expected = vec![17u8];
+        // NODE appended after MESSAGE, before Unknown; existing 0..=16 unchanged.
+        assert_eq!(RecordType::NODE.encode(), vec![17]);
+        // Unknown moved 17 -> 18; safe because nothing is ever stored under it.
+        let mut expected = vec![18u8];
         expected.extend_from_slice(&65_293u16.encode());
         assert_eq!(RecordType::Unknown(65_293).encode(), expected);
     }
@@ -138,8 +149,9 @@ mod tests {
     #[test]
     fn all_includes_chat_and_message() {
         let all = RecordType::all();
-        assert_eq!(all.len(), 17);
+        assert_eq!(all.len(), 18);
         assert!(all.contains(&RecordType::CHAT));
         assert!(all.contains(&RecordType::MESSAGE));
+        assert!(all.contains(&RecordType::NODE));
     }
 }

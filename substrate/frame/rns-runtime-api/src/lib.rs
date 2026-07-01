@@ -29,5 +29,10 @@ sp_api::decl_runtime_apis! {
         /// pending subname offers, pending name-gift offers. Single round-trip
         /// for an inbox/dashboard view that would otherwise require N storage walks.
         fn account_dashboard(owner: AccountId) -> AccountDashboard;
+        /// Every enrolled guard node identity: the 32-byte libp2p ed25519 keys
+        /// published under names' `NODE` records. The consensus-agreed, enumerable
+        /// guard set the witnessed-spend committee is selected over; read at a
+        /// fixed block to get the per-epoch snapshot.
+        fn guard_set() -> sp_std::vec::Vec<[u8; 32]>;
     }
 }

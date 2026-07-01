@@ -67,12 +67,13 @@ use std::time::{Duration, Instant};
 
 use codec::{Decode, Encode};
 use ed25519_zebra::{Signature as Ed25519Signature, VerificationKey as Ed25519VerificationKey};
-use gemini_runtime::{opaque::Block, AccountId};
+use gemini_runtime::{opaque::Block, AccountId, Balance};
 use rand_core::{OsRng, RngCore};
 use rc_network::{service::traits::NetworkService, types::ProtocolName, IfDisconnected, PeerId};
 use rostro_chat_ephemeral_store::EphemeralShareStore;
 use rostro_chat_membership_auth::{
-	deserialize_vk, Bn254, ChainView, HandshakeRequest, HandshakeSessions, VerifyingKey,
+	deserialize_vk, verify_handshake_proof, AcceptedSession, Bn254, ChainView, HandshakeError,
+	HandshakeRequest, HandshakeSessions, VerifyingKey,
 };
 use rostro_chat_primitives::{
 	bucket::bucket_for_pickup_key,
@@ -96,7 +97,10 @@ use sp_runtime::traits::Block as BlockT;
 use sp_runtime::SaturatedConversion;
 use zk_pki_hip::{verify_hip_proof_against_genesis, verify_hip_proof_internal};
 use zk_pki_primitives::hip::CanonicalHipProof;
+use rns_runtime_api::PnsStorageApi;
 use zk_pki_primitives::runtime_api::{CertState as RpcCertState, ZkPkiApi};
+
+use crate::chat_spend_protocol::VerifierError;
 
 use crate::chat_bucket_cache::BucketCache;
 use crate::chat_onion_forward_protocol::{
@@ -356,11 +360,12 @@ pub struct ChatMembershipAuthResult {
 const MEMBERSHIP_ANCHOR_WINDOW_BLOCKS: u64 = 14_400;
 
 /// [`ChainView`] over the zkpki runtime API at a fixed best block, so the
-/// membership-auth verifier can validate a proof's public inputs.
-struct RuntimeChainView<'a, C> {
-	client: &'a C,
-	best: <Block as BlockT>::Hash,
-	best_number: u64,
+/// membership-auth verifier can validate a proof's public inputs. `pub(crate)`
+/// so the recorder (chat_spend_protocol) can re-verify a witnessed proof.
+pub(crate) struct RuntimeChainView<'a, C> {
+	pub(crate) client: &'a C,
+	pub(crate) best: <Block as BlockT>::Hash,
+	pub(crate) best_number: u64,
 }
 
 impl<'a, C> ChainView for RuntimeChainView<'a, C>
@@ -607,9 +612,19 @@ pub struct ChatRpc<C> {
 	/// configured (a mainnet posture), the membership endpoint returns "not
 	/// activated". Testnet runs with `None`.
 	membership_vk: Option<VerifyingKey<Bn254>>,
-	/// Node-local anonymous-membership sessions (keyed by session pubkey) plus
-	/// the per-epoch spent-nullifier set. The cert is never stored.
+	/// Node-local anonymous-membership sessions (keyed by session pubkey). The
+	/// cert is never stored. The spend is now witnessed by the committee, not the
+	/// local set, so admission writes here via `note_session`.
 	membership_sessions: Arc<Mutex<HandshakeSessions>>,
+	/// This node's ed25519 identity, for signing as the verifier in the witnessed
+	/// spend. `None` (no persistent libp2p key) disables membership admission.
+	node_secret: Option<NodeSecret>,
+	/// Shared per-epoch witnessed-spend store. The verifier writes admitted spends
+	/// here; `/rostro/chat-spend/1` reconciliation spreads them network-wide.
+	spend_store: crate::chat_spend_protocol::SharedSpendStore,
+	/// Shared per-epoch quarantine set. The verifier skips quarantined committee
+	/// members so it only builds admissible records.
+	quarantine: crate::chat_spend_protocol::SharedQuarantineSet,
 	_block: PhantomData<Block>,
 }
 
@@ -629,6 +644,8 @@ where
 			crate::chat_gossip_protocol::LocalSubscriptionState,
 		>,
 		membership_vk_bytes: Option<Vec<u8>>,
+		spend_store: crate::chat_spend_protocol::SharedSpendStore,
+		quarantine: crate::chat_spend_protocol::SharedQuarantineSet,
 	) -> Self {
 		// Pin the anonymous-membership verifying key, flipping the activation
 		// gate on. `None` (or undecodable bytes) leaves the endpoint returning
@@ -674,6 +691,9 @@ where
 			sessions: Arc::new(Mutex::new(SessionStore::default())),
 			membership_vk,
 			membership_sessions: Arc::new(Mutex::new(HandshakeSessions::new())),
+			node_secret: node_seed.map(NodeSecret::from_seed),
+			spend_store,
+			quarantine,
 			_block: PhantomData,
 		}
 	}
@@ -773,7 +793,11 @@ where
 	/// Anonymous-membership handshake (Phase 2). Verifies a Groth16 proof
 	/// against the pinned vk and recent chain roots, spends the nullifier, and
 	/// records a session. Sync; the async trait method wraps it.
-	fn do_authenticate_membership(
+	/// Verify a membership handshake's proof against chain state, with no spend,
+	/// returning the validated request. The witnessed spend (committee network
+	/// round-trip) and session issuance happen in the async
+	/// `authenticate_membership`, which calls this first.
+	fn verify_membership_proof(
 		&self,
 		proof_hex: &str,
 		membership_root_hex: &str,
@@ -782,7 +806,7 @@ where
 		current_epoch: u64,
 		anchor_block: u64,
 		session_pubkey_hex: &str,
-	) -> Result<ChatMembershipAuthResult, ErrorObject<'static>> {
+	) -> Result<HandshakeRequest, ErrorObject<'static>> {
 		// Activation gate: inactive until a production verifying key is pinned.
 		let vk = self.membership_vk.as_ref().ok_or_else(|| {
 			ErrorObject::owned::<()>(
@@ -822,27 +846,24 @@ where
 			best_number: info.best_number.saturated_into::<u64>(),
 		};
 
-		// Verify the proof, spend the nullifier, and issue the session.
-		let session = {
-			let mut sessions = self.membership_sessions.lock().map_err(|_| {
-				ErrorObject::owned::<()>(-32000, "membership session lock poisoned", None)
-			})?;
-			sessions
-				.admit(vk, &req, &self.node_pubkey_ed25519, &chain)
-				.map_err(|e| {
-					ErrorObject::owned::<()>(
-						-32000,
-						format!("membership handshake rejected: {e:?}"),
-						None,
-					)
-				})?
-		};
-
-		Ok(ChatMembershipAuthResult {
-			session_pubkey_hex: format!("0x{}", hex::encode(&session.session_pubkey)),
-			expires_epoch: session.expires_epoch,
-			current_epoch,
-		})
+		// Verify the proof + chain checks only — NO local nullifier spend. The
+		// spend is witnessed by the committee in the async caller.
+		verify_handshake_proof(vk, &req, &self.node_pubkey_ed25519, &chain).map_err(|e| match e {
+			// Hard cutover at the epoch boundary: a proof for a lapsed epoch is
+			// rejected with an actionable error so the client rebuilds for the
+			// current epoch. No grace window; the boundary stays clean.
+			HandshakeError::EpochMismatch => ErrorObject::owned::<()>(
+				-32005,
+				"epoch rolled; rebuild the membership proof for the current epoch",
+				None,
+			),
+			other => ErrorObject::owned::<()>(
+				-32000,
+				format!("membership handshake rejected: {other:?}"),
+				None,
+			),
+		})?;
+		Ok(req)
 	}
 
 	fn do_authenticate(
@@ -1356,6 +1377,7 @@ impl<C> ChatRpcApiServer for ChatRpc<C>
 where
 	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
 	C::Api: ZkPkiApi<Block, AccountId>,
+	C::Api: PnsStorageApi<Block, u64, Balance, AccountId>,
 {
 	fn node_info(&self) -> RpcResult<ChatNodeInfo> {
 		Ok(ChatNodeInfo {
@@ -1916,7 +1938,8 @@ where
 		anchor_block: u64,
 		session_pubkey_hex: String,
 	) -> RpcResult<ChatMembershipAuthResult> {
-		self.do_authenticate_membership(
+		// 1. Verify the proof against chain state. No local nullifier spend.
+		let req = self.verify_membership_proof(
 			&proof_hex,
 			&membership_root_hex,
 			&freshness_root_hex,
@@ -1924,8 +1947,64 @@ where
 			current_epoch,
 			anchor_block,
 			&session_pubkey_hex,
+		)?;
+
+		// 2. The verifier signs as its node identity; without a persistent libp2p
+		//    key it cannot participate in the witnessed spend.
+		let node_secret = self.node_secret.as_ref().ok_or_else(|| {
+			ErrorObject::owned::<()>(
+				-32002,
+				"membership auth requires a persistent node identity (set --node-key)",
+				None,
+			)
+		})?;
+
+		// 3. Witnessed spend: the committee collects t counter-signatures. The
+		//    committee is a single serialisation point per nullifier, so a member
+		//    round-robining across guards cannot assemble a second quorum.
+		let _record = crate::chat_spend_protocol::run_verifier(
+			&self.network,
+			&self.client,
+			node_secret,
+			self.node_pubkey_ed25519,
+			&self.spend_store,
+			&self.quarantine,
+			&req,
 		)
-		.map_err(Into::into)
+		.await
+		.map_err(|e| match e {
+			VerifierError::AlreadySpent => {
+				ErrorObject::owned::<()>(-32003, "nullifier already spent this epoch", None)
+			}
+			VerifierError::Committee(s) => {
+				ErrorObject::owned::<()>(-32000, format!("witness committee unavailable: {s}"), None)
+			}
+			VerifierError::InsufficientWitnesses { got, need } => ErrorObject::owned::<()>(
+				-32004,
+				format!("insufficient committee witnesses: {got}/{need}"),
+				None,
+			),
+		})?;
+
+		// 4. Issue the session, keyed by session pubkey, for cheap per-drop auth.
+		//    No local spend recorded here: the committee enforced single-use.
+		let session = AcceptedSession {
+			session_pubkey: req.session_pubkey.clone(),
+			nullifier: req.nullifier,
+			expires_epoch: req.current_epoch,
+		};
+		{
+			let mut sessions = self.membership_sessions.lock().map_err(|_| {
+				ErrorObject::owned::<()>(-32000, "membership session lock poisoned", None)
+			})?;
+			sessions.note_session(session.clone());
+		}
+
+		Ok(ChatMembershipAuthResult {
+			session_pubkey_hex: format!("0x{}", hex::encode(&session.session_pubkey)),
+			expires_epoch: session.expires_epoch,
+			current_epoch,
+		})
 	}
 }
 

@@ -48,6 +48,10 @@ sp-runtime = { workspace = true, default-features = true }
 
 [features]
 default = ["std"]
+# Test-harness only: enables `test_enroll_membership`, a direct membership-leaf
+# insert that skips the mint gauntlet. Enabled by the gemini testbed runtime; NEVER
+# by a mainnet runtime.
+test-harness = []
 std = [
     "codec/std",
     "frame-benchmarking?/std",

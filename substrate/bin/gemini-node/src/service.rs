@@ -425,6 +425,35 @@ pub fn new_full<
 			validator_channel_sessions.clone(),
 		);
 	net_config.add_request_response_protocol(chat_ae_config);
+
+		// chat-spend-witness Phase 3: /rostro/chat-spend/1 responder. Answers
+		// SpendSyncRequest(epoch, root) against the shared per-epoch spend store
+		// with Match / Mismatch+records / EpochSkew. Reconciled by the initiator
+		// (spawned post-build_network) and written by the verifier/recorder path
+		// in Phase 4.
+		let chat_spend_store = crate::chat_spend_protocol::new_shared_store();
+		let chat_quarantine = crate::chat_spend_protocol::new_shared_quarantine_set();
+		let (chat_spend_config, chat_spend_handler) =
+			crate::chat_spend_protocol::build_spend_sync_protocol::<N, _>(
+				chat_spend_store.clone(),
+				chat_quarantine.clone(),
+				validator_channel_sessions.clone(),
+			);
+		net_config.add_request_response_protocol(chat_spend_config);
+
+		// chat-spend-witness Phase 4a: register the witness-handshake responder
+		// config (verifier -> recorder). Its handler needs this node's identity
+		// seed, so it is spawned later in the onion block; the config + recorder
+		// state are created here.
+		let chat_recorder_state = crate::chat_spend_protocol::new_shared_recorder_state();
+		let (chat_witness_config, chat_witness_rx) =
+			crate::chat_spend_protocol::build_witness_protocol_config::<N>();
+		net_config.add_request_response_protocol(chat_witness_config);
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-spend-server",
+			Some("rostro"),
+			chat_spend_handler,
+		);
 	task_manager.spawn_handle().spawn(
 		"rostro-chat-anti-entropy-server",
 		Some("rostro"),
@@ -577,7 +606,25 @@ pub fn new_full<
 			),
 		);
 
-		// Commit A.1: weekly rebalance task. Reads CHAT_BUCKET_TARGET_COUNT
+		// chat-spend-witness Phase 3: spend-set reconciliation initiator. Each
+			// tick rolls the store to the chain epoch, reads that epoch's RNS
+			// guard set, reconciles with one random peer, and merges records
+			// that validate against the guard set.
+			let spend_network: Arc<dyn rc_network::service::traits::NetworkService> =
+				Arc::new(network.clone());
+			task_manager.spawn_handle().spawn(
+				"rostro-chat-spend",
+				Some("rostro"),
+				crate::chat_spend_protocol::run_spend_sync_initiator(
+					spend_network,
+					chat_spend_store.clone(),
+					chat_quarantine.clone(),
+					chat_bucket_cache.clone(),
+					client.clone(),
+				),
+			);
+
+			// Commit A.1: weekly rebalance task. Reads CHAT_BUCKET_TARGET_COUNT
 		// from env (default = BUCKET_COUNT, i.e., no rebalance). At
 		// dialed-down target counts, fires once per ISO week at this
 		// node's deterministic-random time within the Tuesday
@@ -735,6 +782,26 @@ pub fn new_full<
 	// the stripe path. Only spawned when this node has a persistent
 	// identity (onion relaying requires the node key).
 	if let Some(onion_seed) = chat_node_seed {
+		// chat-spend-witness Phase 4a: recorder side of
+		// /rostro/chat-spend-witness/1. Spawned here because it needs this node's
+		// identity seed (to counter-sign), available only after build_network.
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-spend-witness-server",
+			Some("rostro"),
+			crate::chat_spend_protocol::run_witness_server(
+				onion_seed,
+				chat_node_pubkey_ed25519,
+				chat_membership_vk_bytes
+					.as_deref()
+					.and_then(rostro_chat_membership_auth::deserialize_vk),
+				client.clone(),
+				chat_recorder_state.clone(),
+				chat_quarantine.clone(),
+				validator_channel_sessions.clone(),
+				chat_witness_rx,
+			),
+		);
+
 		let onion_peel_ctx = Arc::new(crate::chat_rpc::OnionPeelCtx::new(
 			onion_seed,
 			chat_node_pubkey_ed25519,
@@ -759,6 +826,8 @@ pub fn new_full<
 		let chat_share_store = chat_share_store.clone();
 		let network_arc = network_arc.clone();
 		let chat_membership_vk_bytes = chat_membership_vk_bytes.clone();
+		let chat_spend_store = chat_spend_store.clone();
+		let chat_quarantine = chat_quarantine.clone();
 		Box::new(move |_| {
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
@@ -771,6 +840,8 @@ pub fn new_full<
 					bucket_cache: chat_bucket_cache.clone(),
 					local_subscription: chat_local_subscription.clone(),
 					membership_vk_bytes: chat_membership_vk_bytes.clone(),
+					spend_store: chat_spend_store.clone(),
+					quarantine: chat_quarantine.clone(),
 				},
 			};
 			crate::rpc::create_full(deps).map_err(Into::into)

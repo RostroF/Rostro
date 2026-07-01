@@ -84,6 +84,21 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// Index of enrolled guard node identities: the 32-byte libp2p ed25519 key
+    /// published under a name's `NODE` record, mapped to the name that owns it.
+    /// Maintained in step with the `NODE` record in `Records` so `guard_set()`
+    /// can enumerate every guard key without walking all names. A key maps to at
+    /// most one name (global uniqueness, enforced in `set_record`), which makes it
+    /// a stable committee identity for the witnessed-spend scheme.
+    #[pallet::storage]
+    pub type GuardNodes<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        [u8; 32],
+        rns_types::DomainHash,
+        OptionQuery,
+    >;
+
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
         pub texts: Vec<(rns_types::DomainHash, TextKind, Content<T>)>,
@@ -137,6 +152,11 @@ pub mod pallet {
         /// A `CHAT` record must be exactly 32 bytes — a published Ed25519 mail
         /// address. Anything else is rejected (the typed record stays well-formed).
         InvalidChatKey,
+        /// A `NODE` record must be exactly 32 bytes — a libp2p ed25519 node key.
+        InvalidNodeKey,
+        /// The `NODE` key is already registered under a different name. A node
+        /// identity belongs to one name so the guard set has no duplicates.
+        NodeKeyTaken,
     }
 
     impl<T: Config> Pallet<T> {
@@ -217,7 +237,7 @@ pub mod pallet {
                 RecordType::PUBKEY1, RecordType::PUBKEY2, RecordType::PUBKEY3,
                 RecordType::AVATAR, RecordType::CONTRACT,
                 RecordType::IPFS, RecordType::CONTENT,
-                RecordType::CHAT, RecordType::MESSAGE,
+                RecordType::CHAT, RecordType::MESSAGE, RecordType::NODE,
             ];
             ensure!(
                 USER_SETTABLE.contains(&record_type),
@@ -236,6 +256,26 @@ pub mod pallet {
                 T::RegistryChecker::check_node_useable(node, &who),
                 Error::<T>::InvalidPermission
             );
+            // `NODE` is the guard's libp2p ed25519 identity: exactly 32 bytes and
+            // globally unique (a key belongs to at most one name), so it is a
+            // stable committee identity for the witnessed-spend scheme. Keep the
+            // GuardNodes index in step with the record here: reject a key already
+            // claimed elsewhere, drop a superseded key, claim the new one.
+            if record_type == RecordType::NODE {
+                ensure!(content.len() == 32, Error::<T>::InvalidNodeKey);
+                let mut key = [0u8; 32];
+                key.copy_from_slice(&content[..]);
+                if let Some(owner_node) = GuardNodes::<T>::get(key) {
+                    ensure!(owner_node == node, Error::<T>::NodeKeyTaken);
+                }
+                let prev = Records::<T>::get(node, RecordType::NODE);
+                if prev.len() == 32 && &prev[..] != &content[..] {
+                    let mut old = [0u8; 32];
+                    old.copy_from_slice(&prev[..]);
+                    GuardNodes::<T>::remove(old);
+                }
+                GuardNodes::<T>::insert(key, node);
+            }
             const MAX_RECORDS_PER_NAME: u32 = 20;
             let is_update = Records::<T>::contains_key(node, record_type);
             if !is_update {
@@ -412,6 +452,7 @@ impl<C: Config> Pallet<C> {
     /// would let a round-trip sale forge "proof of registration block" for
     /// any `pns_getInfo` consumer.
     pub fn clear_records_except_ss58(node: DomainHash) {
+        Self::drop_guard_node(node);
         const MAX_CLEANUP: usize = 100;
         let to_remove: Vec<RecordType> = pallet::Records::<C>::iter_prefix(node)
             .filter(|(rt, _)| *rt != RecordType::SS58 && *rt != RecordType::ORIGIN)
@@ -431,9 +472,29 @@ impl<C: Config> Pallet<C> {
     /// Called when a domain is completely destroyed (e.g. a subname that is
     /// auto-cleared when its parent is transferred, released, or sold).
     pub fn clear_all_records(node: DomainHash) {
+        Self::drop_guard_node(node);
         const MAX_CLEANUP: u32 = 100;
         let _ = pallet::Records::<C>::clear_prefix(node, MAX_CLEANUP, None);
         let _ = pallet::Texts::<C>::clear_prefix(node, MAX_CLEANUP, None);
         pallet::RecordCount::<C>::remove(node);
+    }
+
+    /// Remove this name's guard-node index entry, if it has a `NODE` record.
+    /// Called from the record-clear paths so the GuardNodes index never points at
+    /// a name whose `NODE` record was wiped on transfer / sale / destruction.
+    fn drop_guard_node(node: DomainHash) {
+        let prev = pallet::Records::<C>::get(node, RecordType::NODE);
+        if prev.len() == 32 {
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&prev[..]);
+            pallet::GuardNodes::<C>::remove(key);
+        }
+    }
+
+    /// Every enrolled guard node identity (the keys of the GuardNodes index).
+    /// Off-chain enumeration for the witnessed-spend committee; read via the
+    /// runtime API, never in a weighed extrinsic path.
+    pub fn guard_set() -> Vec<[u8; 32]> {
+        pallet::GuardNodes::<C>::iter_keys().collect()
     }
 }

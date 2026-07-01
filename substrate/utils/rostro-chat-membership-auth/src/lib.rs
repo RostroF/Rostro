@@ -23,6 +23,8 @@
 pub use ark_bn254::Bn254;
 pub use ark_groth16::VerifyingKey;
 
+pub mod spend;
+
 use ark_bn254::Fr;
 use rostro_membership_circuit::groth16;
 use rostro_poseidon_bn254::{fr_from_canonical_bytes_le, hash_to_field_bn254};
@@ -132,17 +134,21 @@ pub fn derive_session_commit(session_pubkey: &[u8]) -> Fr {
     hash_to_field_bn254(&buf)
 }
 
-/// Verify a membership handshake and, on success, return the session to store.
+/// Verify a membership handshake's *proof* against chain state, with no spend.
+///
+/// This is the verification core: the cheap chain checks (roots, epoch, anchor),
+/// the guard-bound public-input reconstruction, and the Groth16 pairing. It does
+/// NOT touch any nullifier set, so the witnessed-spend path (which spends via the
+/// committee, not locally) calls this and then runs the committee handshake.
 ///
 /// `guard_node_id` is this node's identity; it is folded into the challenge so
 /// the proof is non-relayable to other guards.
-pub fn verify_handshake(
+pub fn verify_handshake_proof(
     vk: &VerifyingKey<Bn254>,
     req: &HandshakeRequest,
     guard_node_id: &[u8],
     chain: &impl ChainView,
-    nullifiers: &mut impl NullifierStore,
-) -> Result<AcceptedSession, HandshakeError> {
+) -> Result<(), HandshakeError> {
     // 1. Cheap chain checks first — never pair on a claim the chain rejects.
     if !chain.membership_root_recent(&req.membership_root) {
         return Err(HandshakeError::UnknownMembershipRoot);
@@ -155,9 +161,6 @@ pub fn verify_handshake(
     }
     if !chain.anchor_recent(req.anchor_block) {
         return Err(HandshakeError::StaleAnchor);
-    }
-    if nullifiers.is_spent(&req.nullifier) {
-        return Err(HandshakeError::NullifierSpent);
     }
 
     // 2. Reconstruct the guard-bound public inputs from our own node id and the
@@ -188,8 +191,29 @@ pub fn verify_handshake(
     if !groth16::verify(vk, &public, &proof) {
         return Err(HandshakeError::ProofInvalid);
     }
+    Ok(())
+}
 
-    // 5. Spend the nullifier and issue the session.
+/// Verify a membership handshake and, on success, locally spend the nullifier and
+/// return the session. This is the node-local-spend path, retained for tests and
+/// the pre-witnessed posture; the live node uses [`verify_handshake_proof`] plus
+/// the committee witness flow instead.
+///
+/// `guard_node_id` is this node's identity; it is folded into the challenge so
+/// the proof is non-relayable to other guards.
+pub fn verify_handshake(
+    vk: &VerifyingKey<Bn254>,
+    req: &HandshakeRequest,
+    guard_node_id: &[u8],
+    chain: &impl ChainView,
+    nullifiers: &mut impl NullifierStore,
+) -> Result<AcceptedSession, HandshakeError> {
+    if nullifiers.is_spent(&req.nullifier) {
+        return Err(HandshakeError::NullifierSpent);
+    }
+    verify_handshake_proof(vk, req, guard_node_id, chain)?;
+
+    // Spend the nullifier and issue the session.
     nullifiers.mark_spent(req.nullifier);
     Ok(AcceptedSession {
         session_pubkey: req.session_pubkey.clone(),
@@ -239,6 +263,15 @@ impl HandshakeSessions {
         self.sessions
             .insert(session.session_pubkey.clone(), session.clone());
         Ok(session)
+    }
+
+    /// Record a session issued by the witnessed-spend path. Unlike [`admit`], no
+    /// local nullifier is spent here — the committee enforced single-use. Rolls
+    /// epoch-stale state first, keyed by session public key.
+    pub fn note_session(&mut self, session: AcceptedSession) {
+        self.roll_to(session.expires_epoch);
+        self.sessions
+            .insert(session.session_pubkey.clone(), session);
     }
 
     /// A live session for `session_pubkey` at `current_epoch`, if any. The

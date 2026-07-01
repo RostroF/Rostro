@@ -20,6 +20,7 @@ mod chat_gossip_protocol;
 mod chat_onion_forward_protocol;
 mod chat_rebalance;
 mod chat_rpc;
+mod chat_spend_protocol;
 mod chat_stripe_protocol;
 mod cli;
 mod command;
@@ -29,6 +30,7 @@ mod policy_refresh;
 mod role;
 mod rpc;
 mod service;
+mod spend_committee;
 mod ticket_submitter;
 mod validator_channel;
 
