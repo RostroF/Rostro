@@ -70,4 +70,4 @@ rustc-ice-*
 # The rostro.org marketing site source. Lives in this repo for editing
 # but is published from a separate path (GH Pages config / dedicated repo)
 # and is not part of the chain build.
-/site/
+/site/.spend-rig/
