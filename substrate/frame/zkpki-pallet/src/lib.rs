@@ -3201,11 +3201,16 @@ pub mod pallet {
             let _who = ensure_signed(origin)?;
             let idc = fr_from_canonical_bytes_le(&id_commitment)
                 .ok_or(Error::<T>::IdCommitmentNotCanonical)?;
-            let now = <frame_system::Pallet<T>>::block_number();
-            let expiry_block = now.saturating_add(T::MaxRootTtlBlocks::get());
+            // Fixed, harness-agreed leaf parameters so a client can rebuild the
+            // exact leaf offline without reading chain state: an absolute expiry
+            // far in the future and a freshness deadline far past any epoch. Both
+            // easily satisfy the circuit's `expiry > anchor` and `fresh >= epoch`.
+            const TEST_EXPIRY_BLOCK: u64 = 1_000_000;
+            const TEST_FRESH_UNTIL_EPOCH: u32 = 1_000_000;
+            let expiry_block: BlockNumberFor<T> = TEST_EXPIRY_BLOCK.unique_saturated_into();
             let leaf = Self::membership_leaf_value(idc, expiry_block);
             let index = Self::membership_insert(leaf).ok_or(Error::<T>::MembershipTreeFull)?;
-            Self::freshness_set(index, Self::initial_fresh_until_epoch());
+            Self::freshness_set(index, TEST_FRESH_UNTIL_EPOCH);
             Self::deposit_event(Event::TestMembershipEnrolled { index, expiry_block });
             Ok(())
         }
