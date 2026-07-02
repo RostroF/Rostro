@@ -42,10 +42,12 @@ pub type NodeId = Vec<u8>;
 
 /// Domain-separation tag for the HRW committee score.
 pub const HRW_DST: &[u8] = b"rostro-chat-spend-hrw-v1";
-/// Domain tag for the verifier signature payload.
-pub const DOMAIN_SPEND_VERIFIER: &[u8] = b"rostro-chat-spend-verifier-v1";
-/// Domain tag for the recorder signature payload.
-pub const DOMAIN_SPEND_RECORDER: &[u8] = b"rostro-chat-spend-recorder-v1";
+/// Domain tag for the verifier signature payload. v2: the payload commits to
+/// the session public key (CHAT-SESSION-TICKET.md), so a v1 signature can
+/// never validate a v2 record.
+pub const DOMAIN_SPEND_VERIFIER: &[u8] = b"rostro-chat-spend-verifier-v2";
+/// Domain tag for the recorder signature payload (v2, see above).
+pub const DOMAIN_SPEND_RECORDER: &[u8] = b"rostro-chat-spend-recorder-v2";
 /// Accumulator fold seed, distinct from every Poseidon role domain so a spend
 /// accumulator root can never be reinterpreted as a leaf/node/nullifier.
 pub const SPEND_ACC_DOMAIN: u64 = 0x5350_4e44; // "SPND"
@@ -60,13 +62,23 @@ pub trait SpendSigVerify {
 }
 
 /// Canonical bytes the verifier signs: "I verified a valid membership proof
-/// producing nullifier `n` at epoch `e` under membership root `r`".
-pub fn verifier_sig_payload(nullifier: &[u8; 32], epoch: u64, membership_root: &[u8; 32]) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(DOMAIN_SPEND_VERIFIER.len() + 32 + 8 + 32);
+/// producing nullifier `n` at epoch `e` under membership root `r`, authorizing
+/// session key `s`". Committing to the session key is what makes the witnessed
+/// record a portable admission ticket: without it, a signature could be reused
+/// to graft a different session key onto the same witnessed nullifier.
+pub fn verifier_sig_payload(
+    nullifier: &[u8; 32],
+    epoch: u64,
+    membership_root: &[u8; 32],
+    session_pubkey: &[u8],
+) -> Vec<u8> {
+    let mut buf =
+        Vec::with_capacity(DOMAIN_SPEND_VERIFIER.len() + 32 + 8 + 32 + session_pubkey.len());
     buf.extend_from_slice(DOMAIN_SPEND_VERIFIER);
     buf.extend_from_slice(nullifier);
     buf.extend_from_slice(&epoch.to_le_bytes());
     buf.extend_from_slice(membership_root);
+    buf.extend_from_slice(session_pubkey);
     buf
 }
 
@@ -77,14 +89,17 @@ pub fn recorder_sig_payload(
     epoch: u64,
     membership_root: &[u8; 32],
     verifier: &[u8],
+    session_pubkey: &[u8],
 ) -> Vec<u8> {
-    let mut buf =
-        Vec::with_capacity(DOMAIN_SPEND_RECORDER.len() + 32 + 8 + 32 + verifier.len());
+    let mut buf = Vec::with_capacity(
+        DOMAIN_SPEND_RECORDER.len() + 32 + 8 + 32 + verifier.len() + session_pubkey.len(),
+    );
     buf.extend_from_slice(DOMAIN_SPEND_RECORDER);
     buf.extend_from_slice(nullifier);
     buf.extend_from_slice(&epoch.to_le_bytes());
     buf.extend_from_slice(membership_root);
     buf.extend_from_slice(verifier);
+    buf.extend_from_slice(session_pubkey);
     buf
 }
 
@@ -175,13 +190,18 @@ pub struct RecorderSig {
 }
 
 /// A witnessed spend: the verifier's claim plus the committee counter-signatures
-/// that admit it. A record with `t` valid distinct recorder signatures is the
-/// session's admission ticket.
+/// that admit it. A record with `t` valid distinct recorder signatures IS the
+/// session's admission ticket: it names the authorized `session_pubkey`, both
+/// signature payloads commit to it, and any guard can validate the whole thing
+/// against the current guard set (CHAT-SESSION-TICKET.md).
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
 pub struct SpendRecord {
     pub nullifier: [u8; 32],
     pub epoch: u64,
     pub membership_root: [u8; 32],
+    /// The Ed25519 session key the witnessed handshake authorized (32 bytes;
+    /// length-checked in [`verify_record`], validate-at-handoff).
+    pub session_pubkey: Vec<u8>,
     pub verifier: NodeId,
     pub verifier_sig: Vec<u8>,
     pub recorders: Vec<RecorderSig>,
@@ -190,6 +210,9 @@ pub struct SpendRecord {
 /// Why a spend record was rejected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpendRecordError {
+    /// `session_pubkey` is not 32 bytes (shape check at the wire boundary;
+    /// whether it is a VALID Ed25519 point is the drop-verification's concern).
+    BadSessionKey,
     /// The verifier signature did not verify over the verifier payload.
     BadVerifierSig,
     /// The verifier is not in the guard set.
@@ -219,10 +242,18 @@ pub fn verify_record(
     t: usize,
     sig: &impl SpendSigVerify,
 ) -> Result<usize, SpendRecordError> {
+    if rec.session_pubkey.len() != 32 {
+        return Err(SpendRecordError::BadSessionKey);
+    }
     if !guard_set.iter().any(|g| g.as_slice() == rec.verifier.as_slice()) {
         return Err(SpendRecordError::VerifierNotGuard);
     }
-    let vpayload = verifier_sig_payload(&rec.nullifier, rec.epoch, &rec.membership_root);
+    let vpayload = verifier_sig_payload(
+        &rec.nullifier,
+        rec.epoch,
+        &rec.membership_root,
+        &rec.session_pubkey,
+    );
     if !sig.verify(&rec.verifier, &vpayload, &rec.verifier_sig) {
         return Err(SpendRecordError::BadVerifierSig);
     }
@@ -230,8 +261,13 @@ pub fn verify_record(
     let expected = committee(&rec.nullifier, rec.epoch, guard_set, k, &rec.verifier);
     let expected: HashSet<&[u8]> = expected.iter().map(|n| n.as_slice()).collect();
 
-    let rpayload =
-        recorder_sig_payload(&rec.nullifier, rec.epoch, &rec.membership_root, &rec.verifier);
+    let rpayload = recorder_sig_payload(
+        &rec.nullifier,
+        rec.epoch,
+        &rec.membership_root,
+        &rec.verifier,
+        &rec.session_pubkey,
+    );
     let mut seen: HashSet<&[u8]> = HashSet::new();
     let mut valid = 0usize;
     for rs in &rec.recorders {
@@ -346,12 +382,21 @@ impl SpendAccumulator {
 pub struct SpendStore {
     epoch: u64,
     records: BTreeMap<[u8; 32], SpendRecord>,
+    /// Session-pubkey -> nullifier index for portable-ticket admission: a
+    /// guard that never saw the handshake looks the drop's session key up
+    /// here (CHAT-SESSION-TICKET.md 2.2). Same lifetime as `records`.
+    by_session: BTreeMap<Vec<u8>, [u8; 32]>,
     acc: SpendAccumulator,
 }
 
 impl SpendStore {
     pub fn new(epoch: u64) -> Self {
-        Self { epoch, records: BTreeMap::new(), acc: SpendAccumulator::new() }
+        Self {
+            epoch,
+            records: BTreeMap::new(),
+            by_session: BTreeMap::new(),
+            acc: SpendAccumulator::new(),
+        }
     }
 
     pub fn epoch(&self) -> u64 {
@@ -374,6 +419,12 @@ impl SpendStore {
         self.records.get(nullifier)
     }
 
+    /// The record whose witnessed handshake authorized `session_pubkey`, if
+    /// any — the portable-ticket admission lookup.
+    pub fn get_by_session(&self, session_pubkey: &[u8]) -> Option<&SpendRecord> {
+        self.by_session.get(session_pubkey).and_then(|n| self.records.get(n))
+    }
+
     /// Insert a record the caller has already validated. Returns whether it was
     /// newly inserted. Rejects a non-canonical nullifier at the wire boundary
     /// (via the accumulator), and ignores a record whose epoch is not this
@@ -386,6 +437,7 @@ impl SpendStore {
             return Ok(false);
         }
         self.acc.insert(record.nullifier)?;
+        self.by_session.insert(record.session_pubkey.clone(), record.nullifier);
         self.records.insert(record.nullifier, record);
         Ok(true)
     }
@@ -408,6 +460,7 @@ impl SpendStore {
     pub fn roll_to(&mut self, epoch: u64) {
         if epoch != self.epoch {
             self.records.clear();
+            self.by_session.clear();
             self.acc = SpendAccumulator::new();
             self.epoch = epoch;
         }
@@ -603,7 +656,12 @@ pub fn validate_witness(
     if !guard_set.iter().any(|g| g.as_slice() == req.verifier.as_slice()) {
         return Err(WitnessRefusal::VerifierNotGuard);
     }
-    let payload = verifier_sig_payload(&req.nullifier, req.epoch, &req.membership_root);
+    let payload = verifier_sig_payload(
+        &req.nullifier,
+        req.epoch,
+        &req.membership_root,
+        &req.session_pubkey,
+    );
     if !sig.verify(&req.verifier, &payload, &req.verifier_sig) {
         return Err(WitnessRefusal::BadVerifierSig);
     }
