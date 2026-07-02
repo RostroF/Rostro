@@ -59,6 +59,10 @@ fn nf(x: u64) -> [u8; 32] {
     fr_to_bytes_le(&Fr::from(x))
 }
 
+/// The session key test records authorize (any 32 bytes; verify_record only
+/// shape-checks — Ed25519 validity is the drop path's concern).
+const TEST_SESSION_KEY: [u8; 32] = [0xAB; 32];
+
 /// Build a fully signed record where the first `n_recorders` committee members
 /// have counter-signed.
 fn build_record(
@@ -71,18 +75,28 @@ fn build_record(
     verifier: &NodeId,
     n_recorders: usize,
 ) -> SpendRecord {
-    let vpayload = verifier_sig_payload(&nullifier, epoch, &membership_root);
+    let session = TEST_SESSION_KEY.to_vec();
+    let vpayload = verifier_sig_payload(&nullifier, epoch, &membership_root, &session);
     let verifier_sig = kr.sign(verifier, &vpayload);
 
     let comm = committee(&nullifier, epoch, guard_set, k, verifier);
-    let rpayload = recorder_sig_payload(&nullifier, epoch, &membership_root, verifier);
+    let rpayload =
+        recorder_sig_payload(&nullifier, epoch, &membership_root, verifier, &session);
     let recorders = comm
         .iter()
         .take(n_recorders)
         .map(|r| RecorderSig { recorder: r.clone(), sig: kr.sign(r, &rpayload) })
         .collect();
 
-    SpendRecord { nullifier, epoch, membership_root, verifier: verifier.clone(), verifier_sig, recorders }
+    SpendRecord {
+        nullifier,
+        epoch,
+        membership_root,
+        session_pubkey: session,
+        verifier: verifier.clone(),
+        verifier_sig,
+        recorders,
+    }
 }
 
 // ───────────────────────────── committee ───────────────────────────────────
@@ -272,7 +286,13 @@ fn record_verifier_as_recorder_rejected() {
     let v = &gs[0];
     let mut rec = build_record(&kr, &gs, K, nf(11), 5, [9u8; 32], v, T);
     // Splice the verifier in as a recorder with a syntactically valid sig.
-    let rpayload = recorder_sig_payload(&rec.nullifier, rec.epoch, &rec.membership_root, v);
+    let rpayload = recorder_sig_payload(
+        &rec.nullifier,
+        rec.epoch,
+        &rec.membership_root,
+        v,
+        &rec.session_pubkey,
+    );
     rec.recorders[0] = RecorderSig { recorder: v.clone(), sig: kr.sign(v, &rpayload) };
     assert_eq!(verify_record(&rec, &gs, K, T, &kr), Err(SpendRecordError::VerifierIsRecorder));
 }
@@ -292,7 +312,7 @@ fn record_recorder_not_in_committee_rejected() {
         .find(|g| *g != v && !comm.contains(g))
         .expect("an out-of-committee guard exists")
         .clone();
-    let rpayload = recorder_sig_payload(&n, epoch, &root, v);
+    let rpayload = recorder_sig_payload(&n, epoch, &root, v, &TEST_SESSION_KEY);
     let mut rec = build_record(&kr, &gs, K, n, epoch, root, v, T);
     rec.recorders[0] = RecorderSig { recorder: outsider.clone(), sig: kr.sign(&outsider, &rpayload) };
     assert_eq!(verify_record(&rec, &gs, K, T, &kr), Err(SpendRecordError::RecorderNotInCommittee));
@@ -399,6 +419,7 @@ fn bare_record(nullifier: [u8; 32], epoch: u64) -> SpendRecord {
         nullifier,
         epoch,
         membership_root: [7u8; 32],
+        session_pubkey: TEST_SESSION_KEY.to_vec(),
         verifier: b"node-0".to_vec(),
         verifier_sig: vec![1, 2, 3],
         recorders: vec![RecorderSig { recorder: b"node-1".to_vec(), sig: vec![4, 5, 6] }],
@@ -507,13 +528,57 @@ fn spend_sync_wire_roundtrips() {
     }
 }
 
+// ───────────────────── portable session ticket (P1 gates) ──────────────────
+
+/// The core ticket property: a record whose session key was swapped AFTER
+/// signing must fail, because both signature payloads commit to the key. A
+/// malicious verifier cannot graft its own session key onto a witnessed
+/// nullifier.
+#[test]
+fn record_with_swapped_session_key_rejected() {
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    let v = &gs[0];
+    let mut rec = build_record(&kr, &gs, K, nf(21), 5, [9u8; 32], v, T);
+    assert!(verify_record(&rec, &gs, K, T, &kr).is_ok());
+    rec.session_pubkey = vec![0xEE; 32];
+    assert_eq!(verify_record(&rec, &gs, K, T, &kr), Err(SpendRecordError::BadVerifierSig));
+}
+
+/// Shape check at the wire boundary: a session key that isn't 32 bytes is
+/// rejected before any signature work.
+#[test]
+fn record_with_malformed_session_key_rejected() {
+    let gs = nodes(8);
+    let kr = Keyring::new(&gs);
+    let v = &gs[0];
+    let mut rec = build_record(&kr, &gs, K, nf(22), 5, [9u8; 32], v, T);
+    rec.session_pubkey = vec![0xEE; 31];
+    assert_eq!(verify_record(&rec, &gs, K, T, &kr), Err(SpendRecordError::BadSessionKey));
+}
+
+/// The store's session index resolves the ticket for the admission path and
+/// self-prunes on rollover with everything else.
+#[test]
+fn spend_store_session_index() {
+    let mut st = SpendStore::new(5);
+    let rec = bare_record(nf(31), 5);
+    let session = rec.session_pubkey.clone();
+    assert!(st.get_by_session(&session).is_none());
+    st.insert(rec).unwrap();
+    assert_eq!(st.get_by_session(&session).unwrap().nullifier, nf(31));
+    st.roll_to(6);
+    assert!(st.get_by_session(&session).is_none());
+}
+
 // ───────────────────────────── witness handshake ───────────────────────────
 
 const W_EPOCH: u64 = 5;
 const W_ROOT: [u8; 32] = [9u8; 32];
 
 fn witness_req(kr: &Keyring, verifier: &NodeId, nullifier: [u8; 32]) -> WitnessRequest {
-    let payload = verifier_sig_payload(&nullifier, W_EPOCH, &W_ROOT);
+    let session = vec![0xCD; 32];
+    let payload = verifier_sig_payload(&nullifier, W_EPOCH, &W_ROOT, &session);
     WitnessRequest {
         nullifier,
         epoch: W_EPOCH,
@@ -524,7 +589,7 @@ fn witness_req(kr: &Keyring, verifier: &NodeId, nullifier: [u8; 32]) -> WitnessR
         proof: vec![0xAB; 8],
         freshness_root: [3u8; 32],
         anchor_block: 100,
-        session_pubkey: vec![0xCD; 32],
+        session_pubkey: session,
     }
 }
 
@@ -653,12 +718,14 @@ fn recorder_state_rolls_over() {
 /// craft overlaps), all signatures valid under `kr`.
 fn rec_with(kr: &Keyring, verifier: &NodeId, nullifier: [u8; 32], recorders: &[&NodeId]) -> SpendRecord {
     let root = [9u8; 32];
-    let vpayload = verifier_sig_payload(&nullifier, 5, &root);
-    let rpayload = recorder_sig_payload(&nullifier, 5, &root, verifier);
+    let session = TEST_SESSION_KEY.to_vec();
+    let vpayload = verifier_sig_payload(&nullifier, 5, &root, &session);
+    let rpayload = recorder_sig_payload(&nullifier, 5, &root, verifier, &session);
     SpendRecord {
         nullifier,
         epoch: 5,
         membership_root: root,
+        session_pubkey: session,
         verifier: verifier.clone(),
         verifier_sig: kr.sign(verifier, &vpayload),
         recorders: recorders

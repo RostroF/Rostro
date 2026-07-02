@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
-//! `/rostro/chat-spend/1` — anti-entropy reconciliation of the per-epoch
+//! `/rostro/chat-spend/2` — anti-entropy reconciliation of the per-epoch
 //! witnessed-spend set (chat-spend-witness Phase 3).
 //!
 //! Each node holds a [`SpendStore`] of the witnessed [`SpendRecord`]s for the
@@ -53,10 +53,10 @@ use crate::spend_committee;
 use crate::validator_channel::SharedSessions;
 
 /// libp2p protocol name. Distinct from the chat-bucket protocols.
-pub const CHAT_SPEND_PROTOCOL_NAME: &str = "/rostro/chat-spend/1";
+pub const CHAT_SPEND_PROTOCOL_NAME: &str = "/rostro/chat-spend/2";
 
 /// libp2p protocol name for the verifier->recorder witness handshake.
-pub const CHAT_SPEND_WITNESS_PROTOCOL_NAME: &str = "/rostro/chat-spend-witness/1";
+pub const CHAT_SPEND_WITNESS_PROTOCOL_NAME: &str = "/rostro/chat-spend-witness/2";
 
 /// How often the initiator reconciles with a peer. 20s: fast enough that a
 /// fresh spend is globally visible within a couple of ticks, sparse enough to
@@ -64,8 +64,8 @@ pub const CHAT_SPEND_WITNESS_PROTOCOL_NAME: &str = "/rostro/chat-spend-witness/1
 pub const SPEND_SYNC_TICK_INTERVAL_SECS: u64 = 20;
 
 /// Committee parameters (must match the witnessed-spend policy: 2-of-3).
-const COMMITTEE_K: usize = 3;
-const COMMITTEE_T: usize = 2;
+pub(crate) const COMMITTEE_K: usize = 3;
+pub(crate) const COMMITTEE_T: usize = 2;
 
 /// Bogus (proof-invalid) requests from one verifier within an epoch before it is
 /// quarantined for flooding.
@@ -122,7 +122,7 @@ fn peer_quarantined(quarantine: &SharedQuarantineSet, peer: &PeerId) -> bool {
 
 /// ed25519 signature verification over libp2p node keys: the committee identity
 /// published in RNS is the node's ed25519 key, and records are signed with it.
-struct NodeSigVerify;
+pub(crate) struct NodeSigVerify;
 
 impl SpendSigVerify for NodeSigVerify {
 	fn verify(&self, signer: &[u8], msg: &[u8], sig: &[u8]) -> bool {
@@ -449,6 +449,7 @@ pub async fn run_witness_server<Client>(
 								req.epoch,
 								&req.membership_root,
 								&req.verifier,
+								&req.session_pubkey,
 							);
 							let sig = node_secret.sign(&payload);
 							(
@@ -527,7 +528,7 @@ pub enum VerifierError {
 
 /// Verifier side of the witnessed spend. After the proof is verified (caller's
 /// job), compute the committee for `(nullifier, epoch)`, collect `t` recorder
-/// counter-signatures over `/rostro/chat-spend-witness/1`, assemble the
+/// counter-signatures over `/rostro/chat-spend-witness/2`, assemble the
 /// `SpendRecord`, write it to the local store, and return it. The committee is a
 /// single serialisation point per nullifier (every verifier maps to the same
 /// members), so a round-robining member cannot collect a second quorum.
@@ -557,7 +558,12 @@ where
 		.map_err(VerifierError::Committee)?;
 
 	let verifier_sig = node_secret
-		.sign(&verifier_sig_payload(&nullifier, epoch, &membership_root))
+		.sign(&verifier_sig_payload(
+			&nullifier,
+			epoch,
+			&membership_root,
+			&req.session_pubkey,
+		))
 		.to_vec();
 	let wreq = WitnessRequest {
 		nullifier,
@@ -624,6 +630,7 @@ where
 		nullifier,
 		epoch,
 		membership_root,
+		session_pubkey: req.session_pubkey.clone(),
 		verifier: node_pubkey.to_vec(),
 		verifier_sig,
 		recorders,
@@ -650,6 +657,7 @@ mod tests {
 			nullifier,
 			epoch,
 			membership_root: [7u8; 32],
+			session_pubkey: vec![0xAB; 32],
 			verifier: b"node-0".to_vec(),
 			verifier_sig: vec![1, 2, 3],
 			recorders: vec![RecorderSig { recorder: b"node-1".to_vec(), sig: vec![4, 5, 6] }],
@@ -658,7 +666,7 @@ mod tests {
 
 	#[test]
 	fn protocol_name_is_versioned() {
-		assert_eq!(CHAT_SPEND_PROTOCOL_NAME, "/rostro/chat-spend/1");
+		assert_eq!(CHAT_SPEND_PROTOCOL_NAME, "/rostro/chat-spend/2");
 	}
 
 	#[test]

@@ -353,6 +353,11 @@ pub struct ChatMembershipAuthResult {
 	pub expires_epoch: u64,
 	/// The node's current epoch at acceptance.
 	pub current_epoch: u64,
+	/// The witnessed spend record, SCALE-encoded (hex) — the PORTABLE
+	/// admission ticket (CHAT-SESSION-TICKET.md): present it to any other
+	/// guard via `chat_presentSessionTicket` to enter there without a new
+	/// handshake (and without a second spend, which would be refused).
+	pub ticket_hex: String,
 }
 
 /// A proof's `anchor_block` must be within this many blocks of the node's best
@@ -579,6 +584,17 @@ pub trait ChatRpcApi {
 		anchor_block: u64,
 		session_pubkey_hex: String,
 	) -> RpcResult<ChatMembershipAuthResult>;
+
+	/// Present a witnessed session ticket (the `ticket_hex` returned by
+	/// `chat_authenticateMembership`) to install its session at THIS guard
+	/// without a new handshake — the portable-ticket path
+	/// (CHAT-SESSION-TICKET.md 2.2 / D2). The guard validates the record
+	/// against the current guard set + quarantine and, on success, inserts
+	/// it into the spend store (feeding gossip) and caches the session.
+	/// Idempotent: re-presenting a live ticket is a no-op success. Returns
+	/// the epoch the session is valid through.
+	#[method(name = "chat_presentSessionTicket")]
+	async fn present_session_ticket(&self, ticket_hex: String) -> RpcResult<u64>;
 }
 
 /// Concrete implementation. Holds only the node's PUBLIC libp2p
@@ -1020,7 +1036,14 @@ where
 
 		Ok(session.bound_account)
 	}
+}
 
+impl<C> ChatRpc<C>
+where
+	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	C::Api: ZkPkiApi<Block, AccountId>,
+	C::Api: PnsStorageApi<Block, u64, Balance, AccountId>,
+{
 	/// Membership-session counterpart of [`Self::verify_session_drop`]:
 	/// admit a drop signed by a session key the ANONYMOUS handshake
 	/// (`chat_authenticateMembership`) authorized. Same Ed25519 check over
@@ -1028,6 +1051,13 @@ where
 	/// key is the session pubkey itself (there is no cert thumbprint — the
 	/// session is anonymous by construction, so nothing is returned on
 	/// success) and liveness is epoch-gated rather than wall-clock-gated.
+	///
+	/// Portable-ticket admission (CHAT-SESSION-TICKET.md 2.2): on a
+	/// session-cache miss, the witnessed spend record itself is the
+	/// admission ticket — look the session key up in the spend store
+	/// (fed by gossip and by `chat_presentSessionTicket`), re-validate it
+	/// against the CURRENT guard set + quarantine, and cache the session.
+	/// A guard that never saw the handshake admits the same session.
 	fn verify_membership_session_drop(
 		&self,
 		drop_bytes: &[u8],
@@ -1050,7 +1080,7 @@ where
 		};
 		let current_epoch = chain.current_epoch();
 
-		let stored_pubkey = {
+		let cached = {
 			let sessions = self
 				.membership_sessions
 				.lock()
@@ -1058,12 +1088,11 @@ where
 			sessions
 				.live(&session_pubkey, current_epoch)
 				.map(|s| s.session_pubkey.clone())
-		}
-		.ok_or_else(|| {
-			auth_err(
-				"no live session for this key — re-handshake (chat_authenticateMembership)",
-			)
-		})?;
+		};
+		let stored_pubkey = match cached {
+			Some(p) => p,
+			None => self.admit_session_ticket(&session_pubkey, current_epoch)?,
+		};
 
 		let mut to_sign =
 			Vec::with_capacity(CHAT_SESSION_DROP_DOMAIN.len() + drop_bytes.len());
@@ -1077,6 +1106,79 @@ where
 		vk.verify(&sig, &digest)
 			.map_err(|_| auth_err("session-key signature verification failed"))?;
 		Ok(())
+	}
+
+	/// The spend-store half of portable-ticket admission: find the witnessed
+	/// record authorizing `session_pubkey`, validate it against the current
+	/// guard set (t-of-k signatures, committee membership) and the quarantine
+	/// set, and on success cache an [`AcceptedSession`] so subsequent drops
+	/// take the cheap path. Returns the authorized session pubkey.
+	fn admit_session_ticket(
+		&self,
+		session_pubkey: &[u8; 32],
+		current_epoch: u64,
+	) -> Result<Vec<u8>, ErrorObject<'static>> {
+		let record = self
+			.spend_store
+			.lock()
+			.get_by_session(session_pubkey)
+			.cloned()
+			.ok_or_else(|| {
+				auth_err(
+					"no live session and no witnessed ticket for this key — \
+					 re-handshake (chat_authenticateMembership) or present the \
+					 ticket (chat_presentSessionTicket)",
+				)
+			})?;
+		self.install_session_ticket(record, Some(current_epoch))
+	}
+
+	/// Validate a witnessed record against the CURRENT guard set + quarantine
+	/// and, on success, insert it into the spend store (so it also gossips)
+	/// and cache the session. `expected_epoch` pins the record to the caller's
+	/// epoch when known (the drop path); `None` uses the chain's current epoch
+	/// (the present-ticket path). Returns the authorized session pubkey.
+	fn install_session_ticket(
+		&self,
+		record: rostro_chat_membership_auth::spend::SpendRecord,
+		expected_epoch: Option<u64>,
+	) -> Result<Vec<u8>, ErrorObject<'static>> {
+		use crate::chat_spend_protocol::{NodeSigVerify, COMMITTEE_K, COMMITTEE_T};
+		use rostro_chat_membership_auth::spend::verify_record;
+
+		let (chain_epoch, head) = crate::spend_committee::epoch_and_head(&self.client)
+			.map_err(|e| auth_err(&format!("epoch/head unavailable: {e}")))?;
+		let want = expected_epoch.unwrap_or(chain_epoch);
+		if record.epoch != want {
+			return Err(auth_err("session ticket is from a different epoch — re-handshake"));
+		}
+		let guard_set = crate::spend_committee::fetch_guard_set(&self.client, head)
+			.map_err(|e| auth_err(&format!("guard set unavailable: {e}")))?;
+		verify_record(&record, &guard_set, COMMITTEE_K, COMMITTEE_T, &NodeSigVerify)
+			.map_err(|e| auth_err(&format!("session ticket failed verification: {e:?}")))?;
+		if !self.quarantine.lock().admits(&record, COMMITTEE_T) {
+			return Err(auth_err("session ticket's signers are quarantined"));
+		}
+
+		let session_pubkey = record.session_pubkey.clone();
+		let session = AcceptedSession {
+			session_pubkey: session_pubkey.clone(),
+			nullifier: record.nullifier,
+			expires_epoch: record.epoch,
+		};
+		// Insert into the spend store too: a presented ticket then reaches
+		// other guards by the same anti-entropy gossip a handshake would.
+		let _ = self.spend_store.lock().insert(record);
+		self.membership_sessions
+			.lock()
+			.map_err(|_| auth_err("membership session lock poisoned"))?
+			.note_session(session);
+		log::debug!(
+			target: "rostro-chat-rpc",
+			"membership session installed via witnessed ticket (epoch {})",
+			want,
+		);
+		Ok(session_pubkey)
 	}
 }
 
@@ -2040,7 +2142,7 @@ where
 		// 3. Witnessed spend: the committee collects t counter-signatures. The
 		//    committee is a single serialisation point per nullifier, so a member
 		//    round-robining across guards cannot assemble a second quorum.
-		let _record = crate::chat_spend_protocol::run_verifier(
+		let record = crate::chat_spend_protocol::run_verifier(
 			&self.network,
 			&self.client,
 			node_secret,
@@ -2082,7 +2184,21 @@ where
 			session_pubkey_hex: format!("0x{}", hex::encode(&session.session_pubkey)),
 			expires_epoch: session.expires_epoch,
 			current_epoch,
+			ticket_hex: format!("0x{}", hex::encode(record.encode())),
 		})
+	}
+
+	async fn present_session_ticket(&self, ticket_hex: String) -> RpcResult<u64> {
+		let bytes = hex::decode(ticket_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("ticket_hex", &format!("invalid hex: {e}")))?;
+		let record = rostro_chat_membership_auth::spend::SpendRecord::decode(&mut &bytes[..])
+			.map_err(|e| invalid_param("ticket_hex", &format!("SCALE-decode failed: {e}")))?;
+		let epoch = record.epoch;
+		// None => validate against the chain's CURRENT epoch, so a ticket from
+		// a past epoch is refused (the record.epoch == current_epoch check in
+		// install_session_ticket does this); on success `epoch` is that epoch.
+		self.install_session_ticket(record, None)?;
+		Ok(epoch)
 	}
 }
 
