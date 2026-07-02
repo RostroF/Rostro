@@ -490,11 +490,14 @@ pub trait ChatRpcApi {
 	///   * `total_shares` — stripe count for the eventual distribution.
 	///   * `auth_*` — full per-drop cert auth (the renewal/fallback path).
 	///   * `session_cert_thumbprint_hex` + `session_sig_hex` — the cheap
-	///     session path: within a live session (established via
-	///     `chat_authenticate`), the drop is admitted by an Ed25519
-	///     session-key signature over the onion packet, with no
-	///     secure-element crossing. Preferred when present; the node falls
-	///     back to full cert auth otherwise. (Trailing `Option`s keep this
+	///     session path: within a live session, the drop is admitted by an
+	///     Ed25519 session-key signature over the onion packet, with no
+	///     secure-element crossing. The 32-byte lookup key is the cert
+	///     thumbprint for an identified session (`chat_authenticate`) or
+	///     the authorized session pubkey for an anonymous membership
+	///     session (`chat_authenticateMembership`) — both stores are
+	///     consulted. Preferred when present; the node falls back to full
+	///     cert auth otherwise. (Trailing `Option`s keep this
 	///     wire-compatible with pre-session callers.)
 	#[method(name = "chat_send_onion")]
 	async fn send_onion(
@@ -1016,6 +1019,64 @@ where
 			.map_err(|_| auth_err("session-key signature verification failed"))?;
 
 		Ok(session.bound_account)
+	}
+
+	/// Membership-session counterpart of [`Self::verify_session_drop`]:
+	/// admit a drop signed by a session key the ANONYMOUS handshake
+	/// (`chat_authenticateMembership`) authorized. Same Ed25519 check over
+	/// `blake2_256(CHAT_SESSION_DROP_DOMAIN ‖ drop_bytes)`, but the lookup
+	/// key is the session pubkey itself (there is no cert thumbprint — the
+	/// session is anonymous by construction, so nothing is returned on
+	/// success) and liveness is epoch-gated rather than wall-clock-gated.
+	fn verify_membership_session_drop(
+		&self,
+		drop_bytes: &[u8],
+		session_pubkey_hex: &str,
+		session_sig_hex: &str,
+	) -> Result<(), ErrorObject<'static>> {
+		let session_pubkey = decode_hex32(session_pubkey_hex)
+			.map_err(|e| invalid_param("session_cert_thumbprint_hex", &e))?;
+		let sig_bytes = hex::decode(session_sig_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("session_sig_hex", &format!("invalid hex: {e}")))?;
+		let sig_arr: [u8; 64] = sig_bytes.as_slice().try_into().map_err(|_| {
+			invalid_param("session_sig_hex", "expected a 64-byte Ed25519 signature")
+		})?;
+
+		let info = self.client.info();
+		let chain = RuntimeChainView {
+			client: self.client.as_ref(),
+			best: info.best_hash,
+			best_number: info.best_number.saturated_into::<u64>(),
+		};
+		let current_epoch = chain.current_epoch();
+
+		let stored_pubkey = {
+			let sessions = self
+				.membership_sessions
+				.lock()
+				.map_err(|_| auth_err("membership session lock poisoned"))?;
+			sessions
+				.live(&session_pubkey, current_epoch)
+				.map(|s| s.session_pubkey.clone())
+		}
+		.ok_or_else(|| {
+			auth_err(
+				"no live session for this key — re-handshake (chat_authenticateMembership)",
+			)
+		})?;
+
+		let mut to_sign =
+			Vec::with_capacity(CHAT_SESSION_DROP_DOMAIN.len() + drop_bytes.len());
+		to_sign.extend_from_slice(CHAT_SESSION_DROP_DOMAIN);
+		to_sign.extend_from_slice(drop_bytes);
+		let digest = blake2_256(&to_sign);
+
+		let vk = Ed25519VerificationKey::try_from(stored_pubkey.as_slice())
+			.map_err(|_| auth_err("stored session pubkey is not a valid Ed25519 key"))?;
+		let sig = Ed25519Signature::from(sig_arr);
+		vk.verify(&sig, &digest)
+			.map_err(|_| auth_err("session-key signature verification failed"))?;
+		Ok(())
 	}
 }
 
@@ -1690,12 +1751,29 @@ where
 		// canonical-peer status instead, never re-authing the sender.
 		match (session_cert_thumbprint_hex, session_sig_hex) {
 			(Some(tp), Some(sig)) => {
-				let authed = self.verify_session_drop(&packet_bytes, &tp, &sig)?;
-				log::debug!(
-					target: "rostro-chat-rpc",
-					"chat_send_onion authenticated via session as account {:?}",
-					authed,
-				);
+				// One session-auth surface, two stores: the identified
+				// cert-session store (keyed by cert thumbprint) and the
+				// anonymous membership-session store (keyed by the session
+				// pubkey `chat_authenticateMembership` authorized). Try the
+				// cert store first; on ANY miss fall through to membership —
+				// the same 32-byte param carries whichever key the client's
+				// handshake produced, and the signature check is identical.
+				match self.verify_session_drop(&packet_bytes, &tp, &sig) {
+					Ok(authed) => {
+						log::debug!(
+							target: "rostro-chat-rpc",
+							"chat_send_onion authenticated via cert session as account {:?}",
+							authed,
+						);
+					}
+					Err(_) => {
+						self.verify_membership_session_drop(&packet_bytes, &tp, &sig)?;
+						log::debug!(
+							target: "rostro-chat-rpc",
+							"chat_send_onion authenticated via anonymous membership session",
+						);
+					}
+				}
 			}
 			_ => match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
 				(Some(tp), Some(ts), Some(sig)) => {
