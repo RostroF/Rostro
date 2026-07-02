@@ -549,6 +549,20 @@ pub mod test_mock_verifier {
         /// Return `Err(BindingProofError::BindingSignatureInvalid)`.
         /// Pallet surfaces this as `Error::AttestationInvalid`.
         Fail,
+        /// Like `Tpm`, but reporting a DISTINCT attest_ec pubkey instead
+        /// of mirroring `pubkey_bytes` into both key slots. This is what
+        /// lets the phone's chat enrollment verify against its REAL
+        /// StrongBox attest_ec on the testnet-collection posture: the
+        /// vendor-chain check stays mocked, but `verify_chat_enrollment`
+        /// runs against the genuine binding key — the same crypto mainnet's
+        /// `ProductionBindingProofVerifier` will enforce from the parsed
+        /// chain. Appended after `Fail` so variant indexes 0-4 (and every
+        /// existing encoded blob) stay stable.
+        TpmWithAttest {
+            ek_hash: [u8; 32],
+            pubkey_bytes: Vec<u8>,
+            attest_pubkey_bytes: Vec<u8>,
+        },
     }
 
     /// Mock implementation of [`BindingProofVerifier`] controlled by
@@ -567,6 +581,31 @@ pub mod test_mock_verifier {
             })?;
             match verdict {
                 MockVerdict::Fail => Err(BindingProofError::BindingSignatureInvalid),
+                MockVerdict::TpmWithAttest { ek_hash, pubkey_bytes, attest_pubkey_bytes } => {
+                    let pubkey = DevicePublicKey::new_p256(&pubkey_bytes).map_err(|_| {
+                        BindingProofError::CertEcChainInvalid(
+                            crate::chain::ChainError::BadPublicKey,
+                        )
+                    })?;
+                    let attest_pubkey =
+                        DevicePublicKey::new_p256(&attest_pubkey_bytes).map_err(|_| {
+                            BindingProofError::AttestEcChainInvalid(
+                                crate::chain::ChainError::BadPublicKey,
+                            )
+                        })?;
+                    Ok(VerifiedAttestation {
+                        cert_ec_pubkey: pubkey,
+                        attest_ec_pubkey: attest_pubkey,
+                        ek_hash,
+                        attestation_type: AttestationType::Tpm,
+                        device_locked: true,
+                        verified_boot_state: crate::parse::VerifiedBootState::Verified,
+                        manufacturer_verified: true,
+                        package_name: None,
+                        signing_cert_hash: None,
+                        attest_ec_origin_generated: true,
+                    })
+                }
                 MockVerdict::Tpm { ek_hash, pubkey_bytes } => {
                     let pubkey = DevicePublicKey::new_p256(&pubkey_bytes).map_err(|_| {
                         BindingProofError::CertEcChainInvalid(
