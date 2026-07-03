@@ -1285,6 +1285,12 @@ pub mod pallet {
         /// client-supplied parameter and chain-derives only — see
         /// `ZK-PKI ec_key_pub Binding` memory.
         MimeWrapEcKeyPubMismatch,
+        /// `mint_cert` carried a `chat_enrollment` but the offer's
+        /// template does not grant the `ChatAuth` EKU. Membership-tree
+        /// admission is a chartered capability (root → issuer →
+        /// template), not a device-class side effect — an unchartered
+        /// enrollment is a hard reject, never a silent skip.
+        ChatEnrollmentNotPermittedByTemplate,
     }
 
     // ---------------------------------------------------------------------------
@@ -1845,6 +1851,15 @@ pub mod pallet {
             // enters the tree if the whole mint commits.
             let membership_leaf: Option<MembershipFr> = match chat_enrollment.as_ref() {
                 Some(enrollment) => {
+                    // Charter gate: membership-tree admission requires the
+                    // template to grant the ChatAuth EKU, which itself flows
+                    // through the root → issuer capability-subset checks.
+                    // This is the policy half of the EKU ⇔ leaf invariant;
+                    // the stamping half is at the cert-record write below.
+                    ensure!(
+                        template.ekus.iter().any(|e| *e == Eku::ChatAuth),
+                        Error::<T>::ChatEnrollmentNotPermittedByTemplate,
+                    );
                     // §5.5 device-integrity gate: only StrongBox-grade, intact
                     // silicon may bind a membership commitment.
                     // `attestation_type == Tpm` is `is_pop_eligible`: StrongBox
@@ -2155,6 +2170,23 @@ pub mod pallet {
                 None => None,
             };
 
+            // EKU truthfulness (the stamping half of EKU ⇔ leaf): ChatAuth
+            // reaches the cert record only when an enrollment actually
+            // inserted a leaf. A mint that declines enrollment under a
+            // ChatAuth template gets the EKU stripped — the cert never
+            // claims a capability it cannot exercise.
+            let cert_ekus = if leaf_position.is_some() {
+                template.ekus.clone()
+            } else {
+                BoundedVec::truncate_from(
+                    template
+                        .ekus
+                        .iter()
+                        .filter(|e| **e != Eku::ChatAuth)
+                        .cloned()
+                        .collect::<sp_std::vec::Vec<_>>(),
+                )
+            };
             CertLookupHot::<T>::insert(thumbprint, CertRecordHot {
                 schema_version: CURRENT_SCHEMA_VERSION, thumbprint,
                 root: issuer_rec.root.clone(), issuer: offer.issuer.clone(), user: who.clone(),
@@ -2163,7 +2195,7 @@ pub mod pallet {
                 attestation_type: att_type,
                 manufacturer_verified: verified.manufacturer_verified,
                 template_name: offer.template_name.clone(),
-                ekus: template.ekus.clone(),
+                ekus: cert_ekus,
                 // Inherit the template's PoP mechanism — pinned at
                 // mint, never mutated. Drives `verify_pop_assertion`
                 // dispatch later.
@@ -3778,6 +3810,7 @@ pub mod pallet {
                 mint_block: record.mint_block.clone().unique_saturated_into(),
                 attestation_type: record.attestation_type.clone(),
                 manufacturer_verified: record.manufacturer_verified,
+                ekus: record.ekus.clone(),
             }
         }
 

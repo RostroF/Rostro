@@ -60,6 +60,20 @@ pub enum Eku {
     RootCert,
     /// Authority to issue via ink! smart contracts.
     SmartContractIssuer,
+    /// Chat membership: the cert may authenticate to chat guards.
+    ///
+    /// The declared form of the membership-tree leaf: `mint_cert`
+    /// accepts a `chat_enrollment` only under a template carrying
+    /// this EKU, and stamps it onto the cert record only when the
+    /// enrollment actually inserted a leaf — so possession of this
+    /// EKU on a cert is equivalent to a live leaf in the membership
+    /// tree. Chartering flows through the normal capability chain
+    /// (root → issuer → template); the holder's silicon is checked
+    /// at mint (§5.5), not via the root's own attestation.
+    ///
+    /// Appended after `SmartContractIssuer` — variant indexes are
+    /// live in SCALE-encoded chain state; append-only.
+    ChatAuth,
 }
 
 impl Eku {
@@ -75,6 +89,7 @@ impl Eku {
                 | Eku::SmartContractIssuer
                 | Eku::IssuerCert
                 | Eku::RootCert
+                | Eku::ChatAuth
         )
     }
 
@@ -89,7 +104,10 @@ impl Eku {
     pub fn valid_for_root(&self) -> bool {
         matches!(
             self,
-            Eku::RootCert | Eku::ProofOfPersonhood | Eku::SmartContractIssuer
+            Eku::RootCert
+                | Eku::ProofOfPersonhood
+                | Eku::SmartContractIssuer
+                | Eku::ChatAuth
         )
     }
 
@@ -97,7 +115,50 @@ impl Eku {
     pub fn valid_for_issuer(&self) -> bool {
         matches!(
             self,
-            Eku::IssuerCert | Eku::ProofOfPersonhood | Eku::SmartContractIssuer
+            Eku::IssuerCert
+                | Eku::ProofOfPersonhood
+                | Eku::SmartContractIssuer
+                | Eku::ChatAuth
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codec::Encode;
+
+    /// SCALE variant indexes are live in chain state (templates, cert
+    /// records, capability sets) — this pin fails loudly if anyone
+    /// reorders or inserts instead of appending.
+    #[test]
+    fn eku_variant_indexes_are_pinned() {
+        let pins: [(Eku, u8); 11] = [
+            (Eku::ServerAuth, 0),
+            (Eku::ClientAuth, 1),
+            (Eku::CodeSigning, 2),
+            (Eku::EmailProtection, 3),
+            (Eku::ProofOfPersonhood, 4),
+            (Eku::BlockchainSigning, 5),
+            (Eku::IdentityAssertion, 6),
+            (Eku::IssuerCert, 7),
+            (Eku::RootCert, 8),
+            (Eku::SmartContractIssuer, 9),
+            (Eku::ChatAuth, 10),
+        ];
+        for (eku, index) in pins {
+            assert_eq!(eku.encode(), vec![index], "{eku:?} index drifted");
+        }
+    }
+
+    #[test]
+    fn chat_auth_capability_plumbing() {
+        assert!(Eku::ChatAuth.requires_issuer_capability());
+        assert!(Eku::ChatAuth.valid_for_root());
+        assert!(Eku::ChatAuth.valid_for_issuer());
+        // ChatAuth must NOT force a PoP template: the §5.5 silicon gate
+        // on the enrollment itself is the hardware check, so PoP-free
+        // templates may carry ChatAuth (e.g. lab desktop mints).
+        assert!(!Eku::ChatAuth.implies_pop_required());
     }
 }
