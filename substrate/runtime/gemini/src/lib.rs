@@ -189,8 +189,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	impl_name: Cow::Borrowed("gemini-runtime"),
 	authoring_version: 1,
 	// Bumped per forkless set_code upgrade — Substrate requires strict
-	// increase. 101 = first live runtime upgrade (2026-07-02).
-	spec_version: 101,
+	// increase. 101 = first live upgrade (dev chain, 2026-07-02);
+	// 102 = first 3-node lab-cluster upgrade (2026-07-02).
+	spec_version: 102,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
