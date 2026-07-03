@@ -153,3 +153,10 @@ substrate-build-script-utils = { workspace = true, default-features = true }
 
 [features]
 default = []
+
+# Lab-only chat diagnostics. When OFF (the canonical release default),
+# every success-path chat auth/admission/delivery log statement is
+# `#[cfg]`-removed, so the canonical binary provably contains no such
+# log literal (verify: `strings` finds none). The lab rig builds with
+# this ON to keep the E2E verification loop. See docs/GUARD-PRIVACY-AUDIT.md.
+chat-diagnostics = []

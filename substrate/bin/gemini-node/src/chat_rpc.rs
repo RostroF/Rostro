@@ -674,6 +674,7 @@ where
 		let membership_vk = match membership_vk_bytes {
 			Some(bytes) => match deserialize_vk(&bytes) {
 				Some(vk) => {
+					#[cfg(feature = "chat-diagnostics")]
 					log::info!(
 						target: "rostro-chat",
 						"anonymous-membership auth ACTIVATED (pinned vk, {} bytes)",
@@ -1173,6 +1174,7 @@ where
 			.lock()
 			.map_err(|_| auth_err("membership session lock poisoned"))?
 			.note_session(session);
+		#[cfg(feature = "chat-diagnostics")]
 		log::debug!(
 			target: "rostro-chat-rpc",
 			"membership session installed via witnessed ticket (epoch {})",
@@ -1507,12 +1509,14 @@ impl OnionPeelCtx {
 			}
 		}
 
+		// No message_id: even the lab build must not link a distribute
+		// outcome to its message (GUARD-PRIVACY-AUDIT G3). Aggregate
+		// shard counts are operational.
+		#[cfg(feature = "chat-diagnostics")]
 		log::info!(
 			target: "rostro-chat-rpc",
 			"chat distribute: shards={n_shares} stored={stored_total} \
-			 rejected={rejected_total} transport_failed={transport_failed_total} \
-			 message_id={}",
-			hex::encode(message_id.0),
+			 rejected={rejected_total} transport_failed={transport_failed_total}",
 		);
 
 		if stored_total < n_shares {
@@ -1604,11 +1608,13 @@ where
 		// unauthenticated path.
 		match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
 			(Some(tp), Some(ts), Some(sig)) => {
-				let authed = self.verify_chat_auth(&envelope_bytes, &tp, ts, &sig)?;
+				// The `?` is the auth gate; the account it returns must
+				// not persist on a log line (GUARD-PRIVACY-AUDIT G3).
+				self.verify_chat_auth(&envelope_bytes, &tp, ts, &sig)?;
+				#[cfg(feature = "chat-diagnostics")]
 				log::debug!(
 					target: "rostro-chat-rpc",
-					"chat_send_envelope authenticated as account {:?}",
-					authed,
+					"chat_send_envelope authenticated via cert session",
 				);
 			}
 			_ => {
@@ -1737,12 +1743,14 @@ where
 							}
 							Ok(StoreResponse::Rejected(reason)) => {
 								rejected_total += 1;
+								// No message_id: a shard-placement rejection must
+								// not link the shard to its message on a
+								// persisted log line (GUARD-PRIVACY-AUDIT G2).
+								// share_index + peer + reason are operational.
 								log::debug!(
 									target: "rostro-chat-rpc",
-									"push shard {} of message {} to {} \
-									 rejected: {:?}",
+									"push shard {} to {} rejected: {:?}",
 									share_index,
-									hex::encode(&message_id.0[..4]),
 									peer,
 									reason,
 								);
@@ -1765,12 +1773,11 @@ where
 					}
 					Err(e) => {
 						transport_failed_total += 1;
+						// No message_id (GUARD-PRIVACY-AUDIT G2).
 						log::debug!(
 							target: "rostro-chat-rpc",
-							"push shard {} of message {} to {} \
-							 transport failed: {:?}",
+							"push shard {} to {} transport failed: {:?}",
 							share_index,
-							hex::encode(&message_id.0[..4]),
 							peer,
 							e,
 						);
@@ -1784,18 +1791,19 @@ where
 		// landed somewhere — at least n_shares total Stored
 		// responses. If we got fewer, the send is degraded;
 		// callers see a structured warning in the response shape.
+		// No message_id (GUARD-PRIVACY-AUDIT G3).
+		#[cfg(feature = "chat-diagnostics")]
 		let total_attempts = n_shares * n_replicas;
+		#[cfg(feature = "chat-diagnostics")]
 		log::info!(
 			target: "rostro-chat-rpc",
-			"chat_send_envelope: shards={} replicas={} attempts={} stored={} rejected={} transport_failed={} \
-			 message_id={}",
+			"chat_send_envelope: shards={} replicas={} attempts={} stored={} rejected={} transport_failed={}",
 			n_shares,
 			n_replicas,
 			total_attempts,
 			stored_total,
 			rejected_total,
 			transport_failed_total,
-			hex::encode(message_id.0),
 		);
 
 		if stored_total < n_shares {
@@ -1861,15 +1869,17 @@ where
 				// the same 32-byte param carries whichever key the client's
 				// handshake produced, and the signature check is identical.
 				match self.verify_session_drop(&packet_bytes, &tp, &sig) {
-					Ok(authed) => {
+					Ok(_) => {
+						// Account dropped from the log (GUARD-PRIVACY-AUDIT G3).
+						#[cfg(feature = "chat-diagnostics")]
 						log::debug!(
 							target: "rostro-chat-rpc",
-							"chat_send_onion authenticated via cert session as account {:?}",
-							authed,
+							"chat_send_onion authenticated via cert session",
 						);
 					}
 					Err(_) => {
 						self.verify_membership_session_drop(&packet_bytes, &tp, &sig)?;
+						#[cfg(feature = "chat-diagnostics")]
 						log::debug!(
 							target: "rostro-chat-rpc",
 							"chat_send_onion authenticated via anonymous membership session",
@@ -1879,11 +1889,13 @@ where
 			}
 			_ => match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
 				(Some(tp), Some(ts), Some(sig)) => {
-					let authed = self.verify_chat_auth(&packet_bytes, &tp, ts, &sig)?;
+					// The `?` is the auth gate; account dropped from the log
+					// (GUARD-PRIVACY-AUDIT G3).
+					self.verify_chat_auth(&packet_bytes, &tp, ts, &sig)?;
+					#[cfg(feature = "chat-diagnostics")]
 					log::debug!(
 						target: "rostro-chat-rpc",
-						"chat_send_onion authenticated via cert auth as account {:?}",
-						authed,
+						"chat_send_onion authenticated via cert auth",
 					);
 				}
 				_ => {
@@ -2001,6 +2013,9 @@ where
 				.take(MAX_FALLBACK_FETCH_PEERS)
 				.collect();
 
+			// bucket is a coarse pickup locator; this fetch event stays
+			// out of the canonical binary (GUARD-PRIVACY-AUDIT G3).
+			#[cfg(feature = "chat-diagnostics")]
 			if !to_query.is_empty() {
 				log::debug!(
 					target: "rostro-chat-rpc",
@@ -2028,10 +2043,14 @@ where
 					Ok((resp_bytes, _)) => {
 						match FetchResponse::decode(&mut &resp_bytes[..]) {
 							Ok(resp) => {
+								// Share-hit count is a delivery event; keep it
+								// out of the canonical binary (G3).
+								#[cfg(feature = "chat-diagnostics")]
 								let n = resp.shares.len();
 								for fs in resp.shares {
 									matched.push((fs.descriptor, fs.share_bytes, fs.mac_tag));
 								}
+								#[cfg(feature = "chat-diagnostics")]
 								if n > 0 {
 									log::debug!(
 										target: "rostro-chat-rpc",

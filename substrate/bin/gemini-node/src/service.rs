@@ -391,6 +391,36 @@ pub fn new_full<
 		rostro_chat_ephemeral_store::EphemeralShareStore::with_default_config(),
 	);
 
+	// Privacy-critical retention bound: a dead-drop / stripe share
+	// must not outlive its TTL in RAM. `sweep_expired` deletes entries
+	// whose wall-clock expiry has passed; without this task the only
+	// reclaim paths are 64 MiB capacity pressure and node restart, so
+	// on a low-traffic guard a share (payload bytes + pickup-key
+	// metadata) would linger far past its intended life. Local-clock
+	// only, no chain involvement (see GUARD-PRIVACY-AUDIT G1). 30 s
+	// cadence bounds over-retention to at most one tick.
+	{
+		const SWEEP_INTERVAL_SECS: u64 = 30;
+		let sweep_store = chat_share_store.clone();
+		task_manager.spawn_handle().spawn(
+			"rostro-chat-share-sweep",
+			Some("rostro"),
+			async move {
+				let mut ticker =
+					tokio::time::interval(Duration::from_secs(SWEEP_INTERVAL_SECS));
+				ticker.tick().await; // immediate first tick, skip
+				loop {
+					ticker.tick().await;
+					let now = std::time::SystemTime::now()
+						.duration_since(std::time::UNIX_EPOCH)
+						.map(|d| d.as_secs())
+						.unwrap_or(0);
+					sweep_store.sweep_expired(now);
+				}
+			},
+		);
+	}
+
 	let (chat_stripe_config, chat_stripe_handler) =
 		crate::chat_stripe_protocol::build_chat_stripe_protocol::<N, _, _>(
 			chat_share_store.clone(),

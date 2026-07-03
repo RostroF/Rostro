@@ -391,10 +391,12 @@ pub async fn run_anti_entropy_task<S>(
 								}
 							}
 							Err(e) => {
+								// No pickup key: it is a dead-drop label and
+								// must not persist on a log line (GUARD-PRIVACY-
+								// AUDIT G2). peer + error are operational.
 								log::debug!(
 									target: "rostro-chat-anti-entropy",
-									"AE fetch (pickup {}) to {} failed: {:?}",
-									hex_short(&pickup.0),
+									"AE fetch to {} failed: {:?}",
 									peer,
 									e,
 								);
@@ -417,7 +419,9 @@ pub async fn run_anti_entropy_task<S>(
 	}
 }
 
-/// Short hex prefix for logging.
+/// Short hex prefix. Retained for its unit tests only; no longer used
+/// on any log line (pickup keys were stripped per GUARD-PRIVACY-AUDIT G2).
+#[cfg(test)]
 fn hex_short(bytes: &[u8]) -> String {
 	let n = bytes.len().min(8);
 	let mut s = String::with_capacity(n * 2);

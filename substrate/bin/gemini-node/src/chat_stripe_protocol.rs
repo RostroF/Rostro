@@ -135,6 +135,9 @@ async fn run_handler<S>(
 		let (response_bytes, decoded_ok) =
 			process_store_request_bytes(store.as_ref(), now_ts, &payload);
 		if decoded_ok {
+			// Drop-stored success + depositing peer: not in the canonical
+			// binary (GUARD-PRIVACY-AUDIT G3).
+			#[cfg(feature = "chat-diagnostics")]
 			log::trace!(
 				target: "rostro-chat-stripe",
 				"processed store request from {}",
