@@ -107,26 +107,44 @@ fn run<R>(f: impl FnOnce() -> R) -> R {
 /// Register a root, issue an issuer cert to `ISSUER_ACCOUNT`, create
 /// a contract offer for `USER_ACCOUNT`. Returns the offer nonce and
 /// the offer's `created_at` block — both needed by `mint_cert`.
+///
+/// Plain variant: no capability EKUs anywhere, so the template cannot
+/// admit chat enrollments. Enrollment tests use
+/// [`setup_up_to_offer_chat_auth`].
 fn setup_up_to_offer() -> ([u8; 32], BlockNumber) {
+    setup_offer_impl(false)
+}
+
+/// Chat-chartered variant: `ChatAuth` flows root capability → issuer
+/// capability → template EKUs, so `mint_cert` accepts a
+/// `chat_enrollment` under the offer.
+fn setup_up_to_offer_chat_auth() -> ([u8; 32], BlockNumber) {
+    setup_offer_impl(true)
+}
+
+fn setup_offer_impl(chat_auth: bool) -> ([u8; 32], BlockNumber) {
+    use zk_pki_primitives::eku::Eku;
+
     // 1. Register root. T::Attestation is NoopAttestationVerifier so
     //    the bytes of `attestation` don't matter — we pass an empty
     //    BoundedVec.  ttl_blocks must be ≤ MaxRootTtlBlocks.
     let root_pubkey =
         DevicePublicKey::new_p256(&test_cert_ec_pubkey()).expect("valid P-256 pubkey");
     let empty_att: BoundedVec<_, _> = BoundedVec::try_from(vec![]).unwrap();
-    let empty_cap_ekus:
+    let cap_source: Vec<Eku> = if chat_auth { vec![Eku::ChatAuth] } else { vec![] };
+    let cap_ekus:
         BoundedVec<zk_pki_primitives::eku::Eku, frame_support::traits::ConstU32<8>> =
-        BoundedVec::try_from(vec![]).unwrap();
-    let empty_template_ekus:
+        BoundedVec::try_from(cap_source.clone()).unwrap();
+    let template_ekus:
         BoundedVec<zk_pki_primitives::eku::Eku, frame_support::traits::ConstU32<16>> =
-        BoundedVec::try_from(vec![]).unwrap();
+        BoundedVec::try_from(cap_source).unwrap();
     assert_ok!(ZkPki::register_root(
         RuntimeOrigin::signed(account(ROOT_ACCOUNT)),
         account(ROOT_PROXY),
         root_pubkey.clone(),
         empty_att.clone(),
         1_000_000u64,
-        empty_cap_ekus.clone(),
+        cap_ekus.clone(),
     ));
 
     // 2. Issue issuer cert.
@@ -137,7 +155,7 @@ fn setup_up_to_offer() -> ([u8; 32], BlockNumber) {
         root_pubkey,
         empty_att.clone(),
         500_000u64,
-        empty_cap_ekus,
+        cap_ekus,
     ));
 
     // 3. Create a permissive cert template the offer can reference.
@@ -150,7 +168,7 @@ fn setup_up_to_offer() -> ([u8; 32], BlockNumber) {
         1_000u64,
         None,
         None,
-        empty_template_ekus,
+        template_ekus,
     ));
 
     // 4. Offer contract to the user under the template.
@@ -434,7 +452,7 @@ fn valid_enrollment(nonce: &[u8; 32]) -> zk_pki_tpm::ChatEnrollment {
 #[test]
 fn mint_cert_with_chat_enrollment_inserts_leaf() {
     run(|| {
-        let (nonce, created_at) = setup_up_to_offer();
+        let (nonce, created_at) = setup_up_to_offer_chat_auth();
         let payload = payload_with_verdict(MockVerdict::Tpm {
             ek_hash: [0x42u8; 32],
             pubkey_bytes: test_cert_ec_pubkey(),
@@ -499,7 +517,7 @@ fn mint_cert_enrollment_verifies_against_distinct_attest_key() {
 
     // Signed by the distinct attest key -> leaf inserted.
     run(|| {
-        let (nonce, created_at) = setup_up_to_offer();
+        let (nonce, created_at) = setup_up_to_offer_chat_auth();
         let payload = payload_with_verdict(MockVerdict::TpmWithAttest {
             ek_hash: [0x42u8; 32],
             pubkey_bytes: test_cert_ec_pubkey(),
@@ -525,7 +543,7 @@ fn mint_cert_enrollment_verifies_against_distinct_attest_key() {
     // Signed by the CERT key -> rejected: proves the mock's attest slot,
     // not its cert slot, is what the enrollment verifies against.
     run(|| {
-        let (nonce, created_at) = setup_up_to_offer();
+        let (nonce, created_at) = setup_up_to_offer_chat_auth();
         let payload = payload_with_verdict(MockVerdict::TpmWithAttest {
             ek_hash: [0x42u8; 32],
             pubkey_bytes: test_cert_ec_pubkey(),
@@ -554,7 +572,7 @@ fn mint_cert_enrollment_verifies_against_distinct_attest_key() {
 #[test]
 fn mint_cert_with_bad_enrollment_signature_rejected() {
     run(|| {
-        let (nonce, created_at) = setup_up_to_offer();
+        let (nonce, created_at) = setup_up_to_offer_chat_auth();
         let payload = payload_with_verdict(MockVerdict::Tpm {
             ek_hash: [0x42u8; 32],
             pubkey_bytes: test_cert_ec_pubkey(),
@@ -583,7 +601,7 @@ fn mint_cert_with_bad_enrollment_signature_rejected() {
 #[test]
 fn mint_cert_enrollment_from_non_strongbox_rejected() {
     run(|| {
-        let (nonce, created_at) = setup_up_to_offer();
+        let (nonce, created_at) = setup_up_to_offer_chat_auth();
         // Packed = not StrongBox-grade (not PoP-eligible). Enrollment must
         // be refused even with an otherwise-valid binding signature: the
         // §5.5 device-integrity gate fires before the signature check.
@@ -610,7 +628,7 @@ fn mint_cert_enrollment_from_non_strongbox_rejected() {
 #[test]
 fn mint_cert_enrollment_with_imported_key_rejected() {
     run(|| {
-        let (nonce, created_at) = setup_up_to_offer();
+        let (nonce, created_at) = setup_up_to_offer_chat_auth();
         // StrongBox-grade device (passes the device-integrity gate) but the
         // binding key was imported (origin != GENERATED). The §5.5
         // non-exportability gate must refuse it.
@@ -632,5 +650,109 @@ fn mint_cert_enrollment_with_imported_key_rejected() {
             ),
             zk_pki_pallet::Error::<Runtime>::ChatEnrollmentKeyNotHardwareGenerated,
         );
+    });
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// ChatAuth EKU ⇔ membership leaf invariant
+// ──────────────────────────────────────────────────────────────────────
+
+/// Charter gate: an enrollment under a template that does NOT grant
+/// `ChatAuth` is a hard reject — tree admission is a chartered
+/// capability, not a device-class side effect.
+#[test]
+fn mint_cert_enrollment_without_chat_auth_template_rejected() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer(); // plain template
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        assert_noop!(
+            ZkPki::mint_cert(
+                RuntimeOrigin::signed(account(USER_ACCOUNT)),
+                nonce,
+                payload,
+                created_at,
+                None,
+                None, // commitment_c
+                None, // ec_key_pub_claimed
+                Some(enrollment),
+            ),
+            zk_pki_pallet::Error::<Runtime>::ChatEnrollmentNotPermittedByTemplate,
+        );
+    });
+}
+
+/// Stamping half of the invariant: a ChatAuth template mint that
+/// declines enrollment gets the EKU STRIPPED from the cert record and
+/// inserts no leaf — the cert never claims a capability it cannot
+/// exercise.
+#[test]
+fn mint_cert_chat_auth_template_without_enrollment_strips_eku() {
+    use zk_pki_primitives::eku::Eku;
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer_chat_auth();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let empty_root = ZkPki::membership_root();
+        assert_ok!(ZkPki::mint_cert(
+            RuntimeOrigin::signed(account(USER_ACCOUNT)),
+            nonce,
+            payload,
+            created_at,
+            None,
+            None, // commitment_c
+            None, // ec_key_pub_claimed
+            None, // chat_enrollment declined
+        ));
+        assert_eq!(ZkPki::membership_root(), empty_root, "no leaf inserted");
+        let thumb = zk_pki_pallet::CertsByUser::<Runtime>::iter_prefix(account(USER_ACCOUNT))
+            .next()
+            .map(|(t, _)| t)
+            .expect("cert minted");
+        let hot = zk_pki_pallet::CertLookupHot::<Runtime>::get(thumb).expect("hot record");
+        assert!(
+            !hot.ekus.iter().any(|e| *e == Eku::ChatAuth),
+            "ChatAuth must be stripped when no enrollment happened",
+        );
+        let cold = zk_pki_pallet::CertLookupCold::<Runtime>::get(thumb).expect("cold record");
+        assert_eq!(cold.leaf_position, None);
+    });
+}
+
+/// Positive stamping: enrollment under a ChatAuth template stamps the
+/// EKU onto the cert record — EKU present ⇔ leaf present.
+#[test]
+fn mint_cert_with_enrollment_stamps_chat_auth_eku() {
+    use zk_pki_primitives::eku::Eku;
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer_chat_auth();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        assert_ok!(ZkPki::mint_cert(
+            RuntimeOrigin::signed(account(USER_ACCOUNT)),
+            nonce,
+            payload,
+            created_at,
+            None,
+            None, // commitment_c
+            None, // ec_key_pub_claimed
+            Some(enrollment),
+        ));
+        let thumb = zk_pki_pallet::CertsByUser::<Runtime>::iter_prefix(account(USER_ACCOUNT))
+            .next()
+            .map(|(t, _)| t)
+            .expect("cert minted");
+        let hot = zk_pki_pallet::CertLookupHot::<Runtime>::get(thumb).expect("hot record");
+        assert!(hot.ekus.iter().any(|e| *e == Eku::ChatAuth), "ChatAuth stamped");
+        let cold = zk_pki_pallet::CertLookupCold::<Runtime>::get(thumb).expect("cold record");
+        assert_eq!(cold.leaf_position, Some(0), "leaf inserted");
     });
 }

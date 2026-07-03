@@ -27,6 +27,7 @@ pub const OID_EKU_IDENTITY_ASSERTION: &str    = "1.3.6.1.4.1.YOUR_PEN.1.1.3";
 pub const OID_EKU_ISSUER_CERT: &str           = "1.3.6.1.4.1.YOUR_PEN.1.1.4";
 pub const OID_EKU_ROOT_CERT: &str             = "1.3.6.1.4.1.YOUR_PEN.1.1.5";
 pub const OID_EKU_SMART_CONTRACT_ISSUER: &str = "1.3.6.1.4.1.YOUR_PEN.1.1.6";
+pub const OID_EKU_CHAT_AUTH: &str             = "1.3.6.1.4.1.YOUR_PEN.1.1.7";
 
 // ZK-PKI Certificate Extensions — TODO: replace YOUR_PEN
 pub const OID_EXT_THUMBPRINT: &str            = "1.3.6.1.4.1.YOUR_PEN.1.2.1";

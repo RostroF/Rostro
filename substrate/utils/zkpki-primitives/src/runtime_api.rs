@@ -173,6 +173,11 @@ pub struct CertSummary {
     pub mint_block: u64,
     pub attestation_type: AttestationType,
     pub manufacturer_verified: bool,
+    /// EKUs stamped on the cert at mint. Appended last — off-chain
+    /// SCALE mirrors decode positionally; keep prior fields stable.
+    /// Lets list UIs read capability (notably `ChatAuth`) without a
+    /// per-cert `membership_witness` probe.
+    pub ekus: BoundedVec<Eku, ConstU32<MAX_TEMPLATE_EKUS>>,
 }
 
 /// Minimum cert info needed to authenticate an off-chain
