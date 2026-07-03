@@ -13953,6 +13953,7 @@ dependencies = [
  "sp-core",
  "sp-externalities",
  "sp-io",
+ "sp-maybe-compressed-blob",
  "sp-state-machine",
  "sp-version",
  "sp-wasm-interface",

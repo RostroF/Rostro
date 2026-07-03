@@ -110,6 +110,18 @@ impl<H: HostFunctions + 'static> RostroCodeExecutor<H> {
 		method: &str,
 		data: &[u8],
 	) -> Result<Vec<u8>, String> {
+		// Forkless upgrades submit :code in the sp-maybe-compressed-blob
+		// envelope (zstd + 8-byte magic); genesis blobs are raw PVM\0.
+		// Decompress here, at the single seam all three trait impls
+		// funnel through (CodeExecutor::call, RuntimeVersionOf,
+		// ReadRuntimeVersion), so a compressed blob is valid everywhere
+		// or nowhere. Raw blobs pass through borrowed, zero cost.
+		let blob = sp_maybe_compressed_blob::decompress(
+			blob,
+			sp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
+		)
+		.map_err(|e| format!("decompress runtime blob for '{method}': {e:?}"))?;
+
 		// Substrate runtime calls aren't gas-metered at the VM level —
 		// the runtime's `Weight` tracking does the equivalent at the
 		// FRAME layer. Matches what `rc-executor-polkavm` does

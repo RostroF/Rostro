@@ -155,6 +155,7 @@ substrate/utils/rostro-executor/
   3. **Block production.** 6-second slots, blocks finalized by GRANDPA at 2-block lag.
   4. **Signed extrinsic.** `balance.transferKeepAlive Alice→Bob` lands in a block, free balances reconcile, `system.ExtrinsicSuccess` emitted.
   5. **Runtime upgrade.** `sudo.sudo(system.setCode(<new PVM wasm>))` advances `spec_version`, chain keeps producing under the new blob.
+     ✅ **PROVEN 2026-07-02** on a gemini dev chain: spec 100→101, `CodeUpdated`, zero restarts, chain state intact. Required two fixes (executor decompression, mandatory blob compression against the proposer's 4MiB limit). Full write-up: [FORKLESS-UPGRADES.md](FORKLESS-UPGRADES.md).
 
 **Gate:** all five sub-gates green.
 

@@ -39,6 +39,11 @@ rc-executor = { workspace = true, default-features = true }
 sp-version = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true }
 log = { workspace = true, default-features = true }
+# Forkless runtime upgrades ship :code zstd-compressed (the
+# sp-maybe-compressed-blob envelope); call_inner transparently
+# decompresses before handing bytes to the PVM engine. Raw PVM\0
+# blobs (genesis posture) pass through untouched.
+sp-maybe-compressed-blob = { workspace = true, default-features = true }
 
 [dev-dependencies]
 # sp-io's storage::HostFunctions is what we test the dispatcher against.
