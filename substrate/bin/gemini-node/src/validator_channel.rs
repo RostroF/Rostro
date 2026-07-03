@@ -44,11 +44,13 @@
 //! workstream.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use codec::{Decode, Encode};
 use futures::StreamExt;
+use gemini_runtime::AccountId;
 use parking_lot::Mutex;
 use rand_core::OsRng;
 use rc_network::{
@@ -64,21 +66,41 @@ use rc_network::{
 	IfDisconnected, NetworkBackend, PeerId,
 };
 use rostro_validator_channel::{
-	handshake_preimage, handshake_shared_secret, verify_handshake, HandshakeError,
+	cert_preimage, handshake_preimage, handshake_shared_secret, verify_handshake, ChannelCert,
 	HandshakePayload, Session, WireMessage,
 };
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_consensus_grandpa::{GrandpaApi, KEY_TYPE as GRANDPA_KEY_TYPE};
+use sp_core::crypto::KeyTypeId;
 use sp_core::ed25519 as sp_ed25519;
 use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Block as BlockT;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519SecretKey};
+use zk_pki_primitives::runtime_api::ZkPkiApi;
 
 use crate::active_authority_set::is_active_authority;
 
-/// libp2p request-response protocol for the handshake exchange.
-pub const HANDSHAKE_PROTOCOL_NAME: &str = "/rostro/validator-channel-handshake/1";
+/// Keystore key type for the per-validator *channel key* (ed25519).
+/// This key is NEVER registered on-chain: it is a delegate the GRANDPA
+/// authority key vouches for via a [`ChannelCert`], so the
+/// internet-facing validator-channel code signs handshakes with THIS
+/// key and never touches the slashable consensus key. See
+/// docs/VALIDATOR-CHANNEL-CERT.md and docs/KEYSTORE-AUDIT.md (F1).
+pub const CHANNEL_KEY_TYPE: KeyTypeId = KeyTypeId(*b"chnl");
+
+/// How often [`run_cert_issuer`] polls the chain's 24h membership epoch
+/// to decide whether to re-issue the channel cert. The epoch rolls at
+/// most once per 24h; a 60s poll re-issues within a minute of the roll
+/// at the cost of one cheap runtime read per minute.
+const CERT_REFRESH_POLL_SECS: u64 = 60;
+
+/// libp2p request-response protocol for the handshake exchange. Bumped
+/// to `/2` for the cert-carrying (v2) handshake — the `/1` form signed
+/// the ephemeral directly with the GRANDPA key and is gone. A hard
+/// cutover: a `/1` peer and a `/2` peer simply never negotiate a
+/// substream, which is the intended behavior (no mixed fleet).
+pub const HANDSHAKE_PROTOCOL_NAME: &str = "/rostro/validator-channel-handshake/2";
 
 /// libp2p notification protocol for encrypted message exchange after
 /// a handshake has established a Session.
@@ -131,34 +153,213 @@ pub type SharedSessions = Arc<Mutex<HashMap<PeerId, Session>>>;
 /// failure).
 type PendingEphemerals = Arc<Mutex<HashMap<PeerId, X25519SecretKey>>>;
 
-/// Our own GRANDPA Ed25519 pubkey (if we're a validator). `None` for
-/// non-validators — the handshake task only runs when this is Some.
+/// The current channel [`ChannelCert`], refreshed once per 24h epoch by
+/// [`run_cert_issuer`]. `None` until the issuer runs its first cycle;
+/// the sign paths skip until it is populated. Shared read-mostly, so a
+/// plain mutex is fine (updated ~once/24h, read per handshake).
+pub type SharedCert = Arc<Mutex<Option<ChannelCert>>>;
+
+/// The chain's current 24h membership epoch, published by
+/// [`run_cert_issuer`] each poll and read by the handshake verifier as
+/// the `current_epoch` argument to `verify_handshake`. Starts at 0
+/// (before the first poll no real cert can verify, and we have no cert
+/// of our own to offer either — a harmless startup window).
+pub type SharedEpoch = Arc<AtomicU64>;
+
+/// This node's validator identity for the channel: its on-chain GRANDPA
+/// authority pubkey plus the keystore-resident channel pubkey the
+/// authority delegates to. `None` for non-validators — the handshake
+/// init path only runs when this is `Some`.
 #[derive(Clone)]
-pub struct LocalAuthorityKey {
-	pub pubkey: [u8; 32],
+pub struct LocalChannelIdentity {
+	/// GRANDPA Ed25519 pubkey — on-chain validator identity, cert issuer.
+	pub authority_pubkey: [u8; 32],
+	/// Channel Ed25519 pubkey (`chnl`) — signs handshakes, cert subject.
+	pub channel_pubkey: [u8; 32],
 }
 
-impl LocalAuthorityKey {
-	/// Probe the keystore for a local GRANDPA pubkey. Returns the
-	/// first one found, or `None` if we're not configured as a
-	/// validator (no GRANDPA key in the keystore).
+impl LocalChannelIdentity {
+	/// Probe the keystore for a local GRANDPA pubkey; if present (i.e.
+	/// this node is a validator), get-or-generate the persistent
+	/// channel key and return the pair. Returns `None` for
+	/// non-validators (no GRANDPA key).
+	///
+	/// The channel key is generated once and persisted by the keystore,
+	/// so a restart reuses the same key — a stolen channel key is still
+	/// useless without a current-epoch cert, and reusing one key avoids
+	/// littering the keystore (which has no delete API).
 	pub fn from_keystore(keystore: &KeystorePtr) -> Option<Self> {
-		let keys = keystore.ed25519_public_keys(GRANDPA_KEY_TYPE);
-		keys.first().map(|pk| {
-			let bytes: [u8; 32] = AsRef::<[u8]>::as_ref(pk)
-				.try_into()
-				.expect("Ed25519 pubkey is 32 bytes");
-			LocalAuthorityKey { pubkey: bytes }
-		})
+		let authority_pk = keystore.ed25519_public_keys(GRANDPA_KEY_TYPE).into_iter().next()?;
+		let authority_pubkey: [u8; 32] = AsRef::<[u8]>::as_ref(&authority_pk)
+			.try_into()
+			.expect("Ed25519 pubkey is 32 bytes");
+
+		let channel_pk = match keystore.ed25519_public_keys(CHANNEL_KEY_TYPE).into_iter().next() {
+			Some(pk) => pk,
+			None => match keystore.ed25519_generate_new(CHANNEL_KEY_TYPE, None) {
+				Ok(pk) => {
+					log::info!(
+						target: "rostro-validator-channel",
+						"generated a new channel key (chnl) for handshake signing",
+					);
+					pk
+				},
+				Err(e) => {
+					log::warn!(
+						target: "rostro-validator-channel",
+						"failed to generate channel key: {:?}; channel disabled",
+						e,
+					);
+					return None;
+				},
+			},
+		};
+		let channel_pubkey: [u8; 32] = AsRef::<[u8]>::as_ref(&channel_pk)
+			.try_into()
+			.expect("Ed25519 pubkey is 32 bytes");
+
+		Some(LocalChannelIdentity { authority_pubkey, channel_pubkey })
 	}
+}
+
+/// Read the chain's current 24h membership epoch from the runtime API.
+/// Returns `None` if the runtime call fails (treated as "epoch unknown
+/// this cycle" by the issuer, which simply retries next poll).
+fn fetch_membership_epoch<C, Block>(client: &Arc<C>) -> Option<u64>
+where
+	Block: BlockT,
+	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	C::Api: ZkPkiApi<Block, AccountId>,
+{
+	let best = client.info().best_hash;
+	client.runtime_api().membership_epoch(best).ok().map(|e| e as u64)
+}
+
+/// Issue a [`ChannelCert`] by signing `(channel_pubkey, epoch)` with the
+/// GRANDPA authority key via the keystore. This is the ONE place the
+/// channel subsystem touches the slashable consensus key, and it runs
+/// at most once per 24h epoch. Returns `None` if the keystore has no
+/// GRANDPA signing key for our authority pubkey.
+pub fn issue_cert(
+	keystore: &KeystorePtr,
+	identity: &LocalChannelIdentity,
+	epoch: u64,
+) -> Option<ChannelCert> {
+	let preimage = cert_preimage(&identity.authority_pubkey, &identity.channel_pubkey, epoch);
+	let sp_authority = sp_ed25519::Public::from(identity.authority_pubkey);
+	let sig = match keystore.ed25519_sign(GRANDPA_KEY_TYPE, &sp_authority, &preimage) {
+		Ok(Some(s)) => s,
+		Ok(None) => {
+			log::warn!(
+				target: "rostro-validator-channel",
+				"keystore has no GRANDPA signing key for our authority pubkey; \
+				 cannot issue a channel cert",
+			);
+			return None;
+		},
+		Err(e) => {
+			log::warn!(
+				target: "rostro-validator-channel",
+				"GRANDPA signing failed while issuing channel cert: {:?}",
+				e,
+			);
+			return None;
+		},
+	};
+	Some(ChannelCert {
+		authority_pubkey: identity.authority_pubkey,
+		channel_pubkey: identity.channel_pubkey,
+		epoch,
+		signature: sig.0,
+	})
+}
+
+/// Long-lived task: keep `shared_epoch` and `shared_cert` current.
+/// Polls the chain's 24h membership epoch every
+/// [`CERT_REFRESH_POLL_SECS`]; on the first cycle and whenever the
+/// epoch rolls, re-issues the channel cert (the once-per-epoch GRANDPA
+/// key touch). Spawned only for validators.
+pub async fn run_cert_issuer<C, Block>(
+	client: Arc<C>,
+	keystore: KeystorePtr,
+	identity: LocalChannelIdentity,
+	shared_cert: SharedCert,
+	shared_epoch: SharedEpoch,
+) where
+	Block: BlockT,
+	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	C::Api: ZkPkiApi<Block, AccountId>,
+{
+	let mut interval = tokio::time::interval(Duration::from_secs(CERT_REFRESH_POLL_SECS));
+	let mut issued_for: Option<u64> = None;
+	loop {
+		interval.tick().await;
+		let epoch = match fetch_membership_epoch::<C, Block>(&client) {
+			Some(e) => e,
+			None => continue,
+		};
+		shared_epoch.store(epoch, Ordering::Relaxed);
+
+		let need_reissue = issued_for != Some(epoch) || shared_cert.lock().is_none();
+		if !need_reissue {
+			continue;
+		}
+		match issue_cert(&keystore, &identity, epoch) {
+			Some(cert) => {
+				*shared_cert.lock() = Some(cert);
+				issued_for = Some(epoch);
+				log::info!(
+					target: "rostro-validator-channel",
+					"issued channel cert for epoch {} (chnl 0x{}…)",
+					epoch,
+					hex_prefix(&identity.channel_pubkey, 8),
+				);
+			},
+			None => {
+				// Leave any prior cert in place; retry next poll.
+				log::warn!(
+					target: "rostro-validator-channel",
+					"could not issue channel cert for epoch {}; will retry",
+					epoch,
+				);
+			},
+		}
+	}
+}
+
+/// Build our own outbound/reply handshake payload: sign a fresh session
+/// ephemeral with the CHANNEL key and attach the current cert. Returns
+/// `None` if we have no current cert yet (issuer hasn't run) or the
+/// keystore can't sign with the channel key.
+fn build_our_handshake_payload(
+	keystore: &KeystorePtr,
+	identity: &LocalChannelIdentity,
+	shared_cert: &SharedCert,
+	our_eph_pub: &X25519PublicKey,
+) -> Option<HandshakePayload> {
+	let cert = shared_cert.lock().clone()?;
+	let preimage = handshake_preimage(&cert.channel_pubkey, cert.epoch, our_eph_pub.as_bytes());
+	let sp_channel = sp_ed25519::Public::from(identity.channel_pubkey);
+	let sig = match keystore.ed25519_sign(CHANNEL_KEY_TYPE, &sp_channel, &preimage) {
+		Ok(Some(s)) => s,
+		_ => return None,
+	};
+	Some(HandshakePayload {
+		cert,
+		ephemeral_x25519: *our_eph_pub.as_bytes(),
+		signature: sig.0,
+	})
 }
 
 // ───── Handshake server protocol ───────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_handshake_server<N, C, Block>(
 	client: Arc<C>,
 	keystore: KeystorePtr,
-	local_authority: LocalAuthorityKey,
+	identity: LocalChannelIdentity,
+	shared_cert: SharedCert,
+	shared_epoch: SharedEpoch,
 	sessions: SharedSessions,
 ) -> (N::RequestResponseProtocolConfig, impl std::future::Future<Output = ()>)
 where
@@ -176,14 +377,18 @@ where
 		Duration::from_secs(HANDSHAKE_TIMEOUT_SECS),
 		Some(tx),
 	);
-	let handler = run_handshake_server(client, keystore, local_authority, sessions, rx);
+	let handler =
+		run_handshake_server(client, keystore, identity, shared_cert, shared_epoch, sessions, rx);
 	(config, handler)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_handshake_server<C, Block>(
 	client: Arc<C>,
 	keystore: KeystorePtr,
-	local_authority: LocalAuthorityKey,
+	identity: LocalChannelIdentity,
+	shared_cert: SharedCert,
+	shared_epoch: SharedEpoch,
 	sessions: SharedSessions,
 	mut rx: async_channel::Receiver<IncomingRequest>,
 ) where
@@ -195,7 +400,9 @@ async fn run_handshake_server<C, Block>(
 		let reply = handle_handshake_inbound::<C, Block>(
 			&client,
 			&keystore,
-			&local_authority,
+			&identity,
+			&shared_cert,
+			&shared_epoch,
 			&sessions,
 			peer,
 			&payload,
@@ -208,10 +415,13 @@ async fn run_handshake_server<C, Block>(
 	}
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_handshake_inbound<C, Block>(
 	client: &Arc<C>,
 	keystore: &KeystorePtr,
-	local_authority: &LocalAuthorityKey,
+	identity: &LocalChannelIdentity,
+	shared_cert: &SharedCert,
+	shared_epoch: &SharedEpoch,
 	sessions: &SharedSessions,
 	peer: PeerId,
 	payload: &[u8],
@@ -233,14 +443,16 @@ where
 		},
 	};
 
-	match is_active_authority(client, &req.claimed_pubkey) {
+	// The cert's authority key (not the channel key) is the on-chain
+	// identity that must be in the active validator set.
+	match is_active_authority(client, &req.cert.authority_pubkey) {
 		Ok(true) => {},
 		Ok(false) => {
 			log::debug!(
 				target: "rostro-validator-channel",
-				"peer {} claimed pubkey 0x{} not in active validator set; rejecting",
+				"peer {} authority 0x{} not in active validator set; rejecting",
 				peer,
-				hex_prefix(&req.claimed_pubkey, 8),
+				hex_prefix(&req.cert.authority_pubkey, 8),
 			);
 			return HandshakeReply::Reject;
 		},
@@ -255,48 +467,33 @@ where
 		},
 	}
 
-	if let Err(HandshakeError::SignatureInvalid | HandshakeError::InvalidPubkey) =
-		verify_handshake(&req)
-	{
+	// Cert signature + epoch window + channel-key handshake signature.
+	let current_epoch = shared_epoch.load(Ordering::Relaxed);
+	if let Err(e) = verify_handshake(&req, current_epoch) {
 		log::warn!(
 			target: "rostro-validator-channel",
-			"handshake signature verification failed from {}; rejecting",
+			"handshake verification failed from {} ({:?}); rejecting",
 			peer,
+			e,
 		);
 		return HandshakeReply::Reject;
 	}
 
 	let our_eph_secret = X25519SecretKey::random_from_rng(OsRng);
 	let our_eph_pub = X25519PublicKey::from(&our_eph_secret);
-	let our_preimage = handshake_preimage(&local_authority.pubkey, our_eph_pub.as_bytes());
-	let sp_pubkey = sp_ed25519::Public::from(local_authority.pubkey);
-	let signature = match keystore.ed25519_sign(GRANDPA_KEY_TYPE, &sp_pubkey, &our_preimage) {
-		Ok(Some(sig)) => sig,
-		Ok(None) => {
-			log::warn!(
-				target: "rostro-validator-channel",
-				"keystore has no signing key for our claimed authority pubkey; cannot \
-				 respond to handshake from {}",
-				peer,
-			);
-			return HandshakeReply::Reject;
-		},
-		Err(e) => {
-			log::warn!(
-				target: "rostro-validator-channel",
-				"keystore signing failed during handshake from {}: {:?}",
-				peer,
-				e,
-			);
-			return HandshakeReply::Reject;
-		},
-	};
-
-	let our_payload = HandshakePayload {
-		claimed_pubkey: local_authority.pubkey,
-		ephemeral_x25519: *our_eph_pub.as_bytes(),
-		signature: signature.0,
-	};
+	let our_payload =
+		match build_our_handshake_payload(keystore, identity, shared_cert, &our_eph_pub) {
+			Some(p) => p,
+			None => {
+				log::warn!(
+					target: "rostro-validator-channel",
+					"no current channel cert / channel signing key; cannot respond to \
+					 handshake from {}",
+					peer,
+				);
+				return HandshakeReply::Reject;
+			},
+		};
 
 	let peer_eph_pub = X25519PublicKey::from(req.ephemeral_x25519);
 	let shared = handshake_shared_secret(&our_eph_secret, &peer_eph_pub);
@@ -304,9 +501,9 @@ where
 	sessions.lock().insert(peer, session);
 	log::info!(
 		target: "rostro-validator-channel",
-		"established responder session with peer {} (pubkey 0x{}…)",
+		"established responder session with peer {} (authority 0x{}…)",
 		peer,
-		hex_prefix(&req.claimed_pubkey, 8),
+		hex_prefix(&req.cert.authority_pubkey, 8),
 	);
 
 	HandshakeReply::Accept(our_payload)
@@ -346,6 +543,7 @@ async fn handle_handshake_outbound<N>(
 	network: Arc<N>,
 	peer: PeerId,
 	request_bytes: Vec<u8>,
+	current_epoch: u64,
 	pending: PendingEphemerals,
 	sessions: SharedSessions,
 ) where
@@ -400,11 +598,18 @@ async fn handle_handshake_outbound<N>(
 		},
 	};
 
-	if verify_handshake(&peer_payload).is_err() {
+	// Verify the responder's cert + epoch window + channel-key
+	// signature. Active-set membership of the responder's authority key
+	// is NOT re-checked here: only a node already in our active set
+	// would hold a keystore GRANDPA key able to issue a verifying cert,
+	// and the initiator's own active-set filtering happens when peers
+	// are admitted. The cert signature is the binding that matters.
+	if let Err(e) = verify_handshake(&peer_payload, current_epoch) {
 		log::warn!(
 			target: "rostro-validator-channel",
-			"responder {} signature verification failed; aborting",
+			"responder {} handshake verification failed ({:?}); aborting",
 			peer,
+			e,
 		);
 		pending.lock().remove(&peer);
 		return;
@@ -420,9 +625,9 @@ async fn handle_handshake_outbound<N>(
 	sessions.lock().insert(peer, session);
 	log::info!(
 		target: "rostro-validator-channel",
-		"established initiator session with peer {} (pubkey 0x{}…)",
+		"established initiator session with peer {} (authority 0x{}…)",
 		peer,
-		hex_prefix(&peer_payload.claimed_pubkey, 8),
+		hex_prefix(&peer_payload.cert.authority_pubkey, 8),
 	);
 }
 
@@ -459,11 +664,14 @@ async fn handle_handshake_outbound<N>(
 /// `NotificationService::next_event` channel. Consolidating both
 /// concerns into one task that owns the NotificationService is
 /// the correct pattern under the current sc-network API.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_notification_task<N>(
 	mut notification_service: Box<dyn NotificationService>,
 	network: Arc<N>,
 	keystore: KeystorePtr,
-	local_authority: Option<LocalAuthorityKey>,
+	identity: Option<LocalChannelIdentity>,
+	shared_cert: SharedCert,
+	shared_epoch: SharedEpoch,
 	sessions: SharedSessions,
 	presence_tx: PeerPresenceSender,
 ) where
@@ -475,9 +683,9 @@ pub async fn run_notification_task<N>(
 	// `our_pubkey` is only used inside the validator-channel-internal
 	// heartbeat formatter; for non-validators we have no sessions so
 	// no heartbeats fire — the zero pubkey is a safe placeholder.
-	let our_pubkey: [u8; 32] = local_authority
+	let our_pubkey: [u8; 32] = identity
 		.as_ref()
-		.map(|a| a.pubkey)
+		.map(|i| i.authority_pubkey)
 		.unwrap_or([0u8; 32]);
 
 	let mut interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
@@ -497,9 +705,9 @@ pub async fn run_notification_task<N>(
 						let _ = presence_tx.send(PeerPresenceEvent::Connected(peer));
 
 						// Validator-only branch: initiate the X3DH-lite
-						// handshake. Non-validators (local_authority
-						// == None) emit presence and stop here.
-						let Some(ref local_auth) = local_authority else { continue };
+						// handshake. Non-validators (identity == None)
+						// emit presence and stop here.
+						let Some(ref local_identity) = identity else { continue };
 
 						if sessions.lock().contains_key(&peer) {
 							continue;
@@ -518,31 +726,30 @@ pub async fn run_notification_task<N>(
 
 						let our_eph_secret = X25519SecretKey::random_from_rng(OsRng);
 						let our_eph_pub = X25519PublicKey::from(&our_eph_secret);
-						let preimage =
-							handshake_preimage(&local_auth.pubkey, our_eph_pub.as_bytes());
-						let sp_pubkey = sp_ed25519::Public::from(local_auth.pubkey);
-						let signature = match keystore.ed25519_sign(
-							GRANDPA_KEY_TYPE,
-							&sp_pubkey,
-							&preimage,
+						// Sign with the CHANNEL key + attach the current
+						// cert; the GRANDPA key is never used here.
+						let our_payload = match build_our_handshake_payload(
+							&keystore,
+							local_identity,
+							&shared_cert,
+							&our_eph_pub,
 						) {
-							Ok(Some(s)) => s,
-							_ => {
+							Some(p) => p,
+							None => {
 								log::warn!(
 									target: "rostro-validator-channel",
-									"could not sign our handshake (missing key?); skipping {}",
+									"no current channel cert yet; skipping handshake to {}",
 									peer,
 								);
 								continue;
 							},
 						};
-						let our_payload = HandshakePayload {
-							claimed_pubkey: local_auth.pubkey,
-							ephemeral_x25519: *our_eph_pub.as_bytes(),
-							signature: signature.0,
-						};
 						pending.lock().insert(peer, our_eph_secret);
 
+						// Capture the current epoch for verifying the
+						// responder's reply cert; the round-trip is well
+						// within one 24h epoch.
+						let current_epoch = shared_epoch.load(Ordering::Relaxed);
 						let net = network.clone();
 						let pending_for_task = pending.clone();
 						let sessions_for_task = sessions.clone();
@@ -552,6 +759,7 @@ pub async fn run_notification_task<N>(
 								net,
 								peer,
 								request_bytes,
+								current_epoch,
 								pending_for_task,
 								sessions_for_task,
 							)
@@ -707,7 +915,12 @@ mod tests {
 	#[test]
 	fn handshake_reply_scale_roundtrip() {
 		let accept = HandshakeReply::Accept(HandshakePayload {
-			claimed_pubkey: [0x11; 32],
+			cert: ChannelCert {
+				authority_pubkey: [0x11; 32],
+				channel_pubkey: [0x44; 32],
+				epoch: 7,
+				signature: [0x55; 64],
+			},
 			ephemeral_x25519: [0x22; 32],
 			signature: [0x33; 64],
 		});
