@@ -128,6 +128,9 @@ async fn run_handler<S, Block>(
 		let (response_bytes, decoded_ok) =
 			process_fetch_request_bytes(store.as_ref(), &payload);
 		if decoded_ok {
+			// Pickup-fetch success + fetching peer: not in the canonical
+			// binary (GUARD-PRIVACY-AUDIT G3).
+			#[cfg(feature = "chat-diagnostics")]
 			log::trace!(
 				target: "rostro-chat-fetch",
 				"processed fetch request from {}",
