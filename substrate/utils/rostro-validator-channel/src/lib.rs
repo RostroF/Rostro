@@ -334,31 +334,150 @@ pub fn handshake_shared_secret(
 	*local_secret.diffie_hellman(peer_pub).as_bytes()
 }
 
-// ───── X3DH-lite handshake payload ─────────────────────────────────────
+// ───── Channel delegation certificate ──────────────────────────────────
+//
+// The validator channel no longer signs handshakes with the GRANDPA
+// consensus key. Instead each validator holds a keystore-resident
+// *channel key* (ed25519, key type `chnl`, never registered on-chain)
+// and the GRANDPA key signs a [`ChannelCert`] binding that channel key
+// to the validator's on-chain authority identity, once per 24h epoch.
+// Handshakes then sign with the channel key. Net effect: the
+// internet-facing channel code never touches the slashable consensus
+// key; that key is used exactly once per epoch, for cert issuance.
+// See docs/VALIDATOR-CHANNEL-CERT.md.
+
+/// Domain-separation tag for the [`ChannelCert`] signature preimage.
+/// Distinct from [`HANDSHAKE_DOMAIN`] so a cert signature can never be
+/// replayed as a handshake signature or vice versa.
+pub const CERT_DOMAIN: &[u8] = b"rostro/validator-channel/cert/v1";
+
+/// A GRANDPA-signed delegation from a validator's on-chain authority
+/// key to its keystore-resident channel key, scoped to one epoch.
+///
+/// - **`authority_pubkey`**: the validator's GRANDPA Ed25519 session
+///   key — its on-chain identity. The verifier confirms this is in the
+///   active validator set (caller-side; this crate cannot see chain
+///   state) AND that it signed this cert.
+/// - **`channel_pubkey`**: the delegated channel Ed25519 key. Persistent
+///   across epochs; the cert (not the key) is what rotates.
+/// - **`epoch`**: the 24h epoch this cert authorizes. A cert issued for
+///   epoch `E` is accepted during epochs `E` and `E+1` (a validity
+///   overlap that rides out epoch-boundary races); enforced in
+///   [`verify_handshake`].
+/// - **`signature`**: Ed25519 signature by `authority_pubkey` over
+///   [`cert_preimage`].
+///
+/// Wire size: 32 + 32 + 8 + 64 = 136 bytes (plus SCALE overhead).
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct ChannelCert {
+	pub authority_pubkey: [u8; 32],
+	pub channel_pubkey: [u8; 32],
+	pub epoch: u64,
+	pub signature: [u8; 64],
+}
+
+/// Outcome of [`verify_cert`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CertError {
+	/// `authority_pubkey` is not a valid Ed25519 point.
+	InvalidAuthorityKey,
+	/// `channel_pubkey` is not a valid Ed25519 point.
+	InvalidChannelKey,
+	/// Signature does not verify under `authority_pubkey`.
+	SignatureInvalid,
+}
+
+/// Build the canonical preimage a [`ChannelCert`]'s signature covers.
+/// Layout:
+///
+/// ```text
+/// CERT_DOMAIN || authority_pubkey || channel_pubkey || epoch_le
+/// ```
+pub fn cert_preimage(
+	authority_pubkey: &[u8; 32],
+	channel_pubkey: &[u8; 32],
+	epoch: u64,
+) -> Vec<u8> {
+	let mut buf = Vec::with_capacity(CERT_DOMAIN.len() + 32 + 32 + 8);
+	buf.extend_from_slice(CERT_DOMAIN);
+	buf.extend_from_slice(authority_pubkey);
+	buf.extend_from_slice(channel_pubkey);
+	buf.extend_from_slice(&epoch.to_le_bytes());
+	buf
+}
+
+/// Issue a [`ChannelCert`] by signing `channel_pubkey` + `epoch` with
+/// the authority (GRANDPA) key. This is the ONE place per epoch the
+/// consensus key is used by the channel subsystem. In gemini-node the
+/// signing is done via the keystore rather than a raw `SigningKey`;
+/// this helper is the canonical reference + test path.
+#[cfg(feature = "std")]
+pub fn sign_cert(
+	channel_pubkey: &[u8; 32],
+	epoch: u64,
+	authority_key: &ed25519_zebra::SigningKey,
+) -> ChannelCert {
+	let authority_pubkey: [u8; 32] =
+		ed25519_zebra::VerificationKey::from(authority_key).into();
+	let preimage = cert_preimage(&authority_pubkey, channel_pubkey, epoch);
+	let sig: ed25519_zebra::Signature = authority_key.sign(&preimage);
+	ChannelCert {
+		authority_pubkey,
+		channel_pubkey: *channel_pubkey,
+		epoch,
+		signature: sig.into(),
+	}
+}
+
+/// Verify a [`ChannelCert`]'s signature under its `authority_pubkey`.
+///
+/// **Does NOT check active-set membership or epoch freshness** — those
+/// need chain state and are the caller's responsibility.
+/// [`verify_handshake`] calls this first, then enforces the epoch
+/// window; the caller must still confirm `authority_pubkey` is in the
+/// on-chain active validator set.
+pub fn verify_cert(cert: &ChannelCert) -> Result<(), CertError> {
+	let vk = ed25519_zebra::VerificationKey::try_from(cert.authority_pubkey)
+		.map_err(|_| CertError::InvalidAuthorityKey)?;
+	// Reject a malformed channel key here so a bad cert fails at the
+	// cert layer with a precise error rather than later at the
+	// handshake-signature check.
+	ed25519_zebra::VerificationKey::try_from(cert.channel_pubkey)
+		.map_err(|_| CertError::InvalidChannelKey)?;
+	let sig = ed25519_zebra::Signature::from(cert.signature);
+	let preimage =
+		cert_preimage(&cert.authority_pubkey, &cert.channel_pubkey, cert.epoch);
+	vk.verify(&sig, &preimage)
+		.map_err(|_| CertError::SignatureInvalid)?;
+	Ok(())
+}
+
+// ───── X3DH-lite handshake payload (v2, cert-carrying) ──────────────────
 
 /// Domain-separation tag for the handshake signature preimage.
-/// Bumping breaks every previously-signed handshake — used only on
-/// incompatible protocol changes.
-pub const HANDSHAKE_DOMAIN: &[u8] = b"rostro/validator-channel/handshake/v1";
+/// `/v2` is the cert-carrying handshake — the `/v1` form signed the
+/// ephemeral directly with the GRANDPA key and no longer exists. The
+/// version byte is what makes a stray `/v1` signature un-verifiable
+/// here (cross-domain confusion resistance).
+pub const HANDSHAKE_DOMAIN: &[u8] = b"rostro/validator-channel/handshake/v2";
 
-/// Wire-format handshake payload. Sent on substream open by each
+/// Wire-format handshake payload (v2). Sent on substream open by each
 /// side. Carries:
 ///
-/// - **`claimed_pubkey`**: the sender's claimed Ed25519 session
-///   pubkey. The receiver verifies this matches an entry in the
-///   current on-chain active-validator set BEFORE trusting the
-///   signature.
-/// - **`ephemeral_x25519`**: this session's X25519 ephemeral. Used
-///   for the Double Ratchet initial DH. Rotates per session.
-/// - **`signature`**: Ed25519 signature, by `claimed_pubkey`'s
-///   private key, over [HANDSHAKE_DOMAIN || claimed_pubkey ||
-///   ephemeral_x25519]. Proves the sender controls the session
-///   key without exposing it.
+/// - **`cert`**: the sender's [`ChannelCert`] — its epoch-scoped
+///   delegation from its on-chain authority key to the channel key
+///   that signs this handshake.
+/// - **`ephemeral_x25519`**: this session's X25519 ephemeral, fed into
+///   the Double Ratchet initial DH. Rotates per session.
+/// - **`signature`**: Ed25519 signature, by `cert.channel_pubkey`'s
+///   private key, over [`handshake_preimage`]. Proves the sender
+///   controls the channel key the cert delegated to.
 ///
-/// Total wire size: 32 + 32 + 64 = 128 bytes (plus SCALE overhead).
+/// Wire size: 136 (cert) + 32 + 64 = 232 bytes (plus SCALE overhead),
+/// within the node's 512-byte handshake request/response caps.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct HandshakePayload {
-	pub claimed_pubkey: [u8; 32],
+	pub cert: ChannelCert,
 	pub ephemeral_x25519: [u8; 32],
 	pub signature: [u8; 64],
 }
@@ -366,68 +485,97 @@ pub struct HandshakePayload {
 /// Outcome of [`verify_handshake`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandshakeError {
-	/// `claimed_pubkey` is not a valid Ed25519 point.
+	/// `cert.channel_pubkey` is not a valid Ed25519 point.
 	InvalidPubkey,
-	/// Signature does not verify under `claimed_pubkey` for the
-	/// expected preimage.
+	/// The handshake signature does not verify under
+	/// `cert.channel_pubkey`.
 	SignatureInvalid,
+	/// The embedded [`ChannelCert`] failed [`verify_cert`].
+	CertInvalid,
+	/// `cert.epoch` is neither the current epoch nor the immediately
+	/// preceding one — the cert is stale or forged-ahead.
+	EpochOutOfWindow,
 }
 
-/// Build the canonical preimage that a [`HandshakePayload`]'s
-/// signature covers. Returns a fresh `Vec<u8>` so callers can hash
-/// or verify against it. Layout:
+/// Build the canonical preimage that a v2 [`HandshakePayload`]'s
+/// signature covers. Binds the channel key, the cert epoch, and the
+/// session ephemeral together so a handshake signature is valid only
+/// for the exact `(channel_pubkey, epoch)` the cert authorizes.
+/// Layout:
 ///
 /// ```text
-/// HANDSHAKE_DOMAIN || claimed_pubkey || ephemeral_x25519
+/// HANDSHAKE_DOMAIN || channel_pubkey || epoch_le || ephemeral_x25519
 /// ```
 pub fn handshake_preimage(
-	claimed_pubkey: &[u8; 32],
+	channel_pubkey: &[u8; 32],
+	epoch: u64,
 	ephemeral_x25519: &[u8; 32],
 ) -> Vec<u8> {
-	let mut buf = Vec::with_capacity(HANDSHAKE_DOMAIN.len() + 64);
+	let mut buf = Vec::with_capacity(HANDSHAKE_DOMAIN.len() + 32 + 8 + 32);
 	buf.extend_from_slice(HANDSHAKE_DOMAIN);
-	buf.extend_from_slice(claimed_pubkey);
+	buf.extend_from_slice(channel_pubkey);
+	buf.extend_from_slice(&epoch.to_le_bytes());
 	buf.extend_from_slice(ephemeral_x25519);
 	buf
 }
 
-/// Build a signed handshake payload using the given Ed25519
-/// signing key (presumably the on-chain-registered session key).
-/// Returns the wire-ready [`HandshakePayload`].
+/// Build a signed v2 handshake payload: sign a fresh session ephemeral
+/// with the channel key, carrying the already-issued [`ChannelCert`].
+/// `channel_key` MUST be the key `cert.channel_pubkey` refers to.
 ///
-/// Caller is responsible for generating a fresh ephemeral X25519
-/// per session — the safest pattern is one ephemeral per peer-pair
-/// per era.
+/// In gemini-node the signing is done via the keystore; this helper is
+/// the canonical reference + test path.
+///
+/// Caller is responsible for generating a fresh ephemeral X25519 per
+/// session.
 #[cfg(feature = "std")]
 pub fn sign_handshake(
 	ephemeral_pub: &X25519PublicKey,
-	signing_key: &ed25519_zebra::SigningKey,
+	cert: &ChannelCert,
+	channel_key: &ed25519_zebra::SigningKey,
 ) -> HandshakePayload {
-	let claimed_pubkey: [u8; 32] =
-		ed25519_zebra::VerificationKey::from(signing_key).into();
 	let ephemeral_bytes = *ephemeral_pub.as_bytes();
-	let preimage = handshake_preimage(&claimed_pubkey, &ephemeral_bytes);
-	let sig: ed25519_zebra::Signature = signing_key.sign(&preimage);
+	let preimage =
+		handshake_preimage(&cert.channel_pubkey, cert.epoch, &ephemeral_bytes);
+	let sig: ed25519_zebra::Signature = channel_key.sign(&preimage);
 	HandshakePayload {
-		claimed_pubkey,
+		cert: cert.clone(),
 		ephemeral_x25519: ephemeral_bytes,
 		signature: sig.into(),
 	}
 }
 
-/// Verify a [`HandshakePayload`]'s signature. **Does NOT verify
-/// active-set membership** — caller MUST check
-/// `payload.claimed_pubkey` against the on-chain active validator
-/// set BEFORE invoking this function. If the membership check
-/// passes and `verify_handshake` returns `Ok(())`, the sender is
-/// authenticated and the [`HandshakePayload::ephemeral_x25519`]
-/// can be fed into [`handshake_shared_secret`] to derive the
-/// initial root key.
-pub fn verify_handshake(payload: &HandshakePayload) -> Result<(), HandshakeError> {
-	let vk = ed25519_zebra::VerificationKey::try_from(payload.claimed_pubkey)
+/// Verify a v2 [`HandshakePayload`] against the chain's `current_epoch`.
+///
+/// Checks, in order:
+/// 1. the embedded [`ChannelCert`] signature ([`verify_cert`]);
+/// 2. the epoch window: `cert.epoch ∈ {current_epoch, current_epoch-1}`;
+/// 3. the handshake signature under `cert.channel_pubkey`.
+///
+/// **Does NOT verify active-set membership** — the caller MUST confirm
+/// `payload.cert.authority_pubkey` is in the on-chain active validator
+/// set (that check needs chain state this crate does not have). Once
+/// membership passes and this returns `Ok(())`, the sender is
+/// authenticated and [`HandshakePayload::ephemeral_x25519`] can be fed
+/// into [`handshake_shared_secret`].
+pub fn verify_handshake(
+	payload: &HandshakePayload,
+	current_epoch: u64,
+) -> Result<(), HandshakeError> {
+	verify_cert(&payload.cert).map_err(|_| HandshakeError::CertInvalid)?;
+
+	let epoch = payload.cert.epoch;
+	let in_window =
+		epoch == current_epoch || epoch.checked_add(1) == Some(current_epoch);
+	if !in_window {
+		return Err(HandshakeError::EpochOutOfWindow);
+	}
+
+	let vk = ed25519_zebra::VerificationKey::try_from(payload.cert.channel_pubkey)
 		.map_err(|_| HandshakeError::InvalidPubkey)?;
 	let sig = ed25519_zebra::Signature::from(payload.signature);
-	let preimage = handshake_preimage(&payload.claimed_pubkey, &payload.ephemeral_x25519);
+	let preimage =
+		handshake_preimage(&payload.cert.channel_pubkey, epoch, &payload.ephemeral_x25519);
 	vk.verify(&sig, &preimage)
 		.map_err(|_| HandshakeError::SignatureInvalid)?;
 	Ok(())
@@ -631,10 +779,16 @@ mod tests {
 		assert_ne!(derive_nonce(&mk2), n1);
 	}
 
-	// ── Handshake payload tests ────────────────────────────────────
+	// ── Cert + handshake payload tests ─────────────────────────────
+
+	const TEST_EPOCH: u64 = 42;
 
 	fn fixed_signing_key(seed_byte: u8) -> ed25519_zebra::SigningKey {
 		ed25519_zebra::SigningKey::from([seed_byte; 32])
+	}
+
+	fn pubkey_of(key: &ed25519_zebra::SigningKey) -> [u8; 32] {
+		ed25519_zebra::VerificationKey::from(key).into()
 	}
 
 	fn fresh_ephemeral_pub(rng_seed: u64) -> (X25519SecretKey, X25519PublicKey) {
@@ -644,98 +798,245 @@ mod tests {
 		(secret, public)
 	}
 
+	/// A validator identity for tests: an authority (GRANDPA) key, a
+	/// channel key, and a cert delegating the latter for `epoch`.
+	fn identity(
+		authority_seed: u8,
+		channel_seed: u8,
+		epoch: u64,
+	) -> (ed25519_zebra::SigningKey, ed25519_zebra::SigningKey, ChannelCert) {
+		let authority = fixed_signing_key(authority_seed);
+		let channel = fixed_signing_key(channel_seed);
+		let cert = sign_cert(&pubkey_of(&channel), epoch, &authority);
+		(authority, channel, cert)
+	}
+
+	#[test]
+	fn cert_preimage_layout_is_stable() {
+		let p = cert_preimage(&[0xAA; 32], &[0xBB; 32], 0x0102030405060708);
+		assert_eq!(p.len(), CERT_DOMAIN.len() + 32 + 32 + 8);
+		assert_eq!(&p[..CERT_DOMAIN.len()], CERT_DOMAIN);
+		let off = CERT_DOMAIN.len();
+		assert_eq!(&p[off..off + 32], &[0xAA; 32]);
+		assert_eq!(&p[off + 32..off + 64], &[0xBB; 32]);
+		assert_eq!(&p[off + 64..off + 72], &0x0102030405060708u64.to_le_bytes());
+	}
+
+	#[test]
+	fn cert_scale_roundtrip() {
+		let (_a, _c, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		let bytes = cert.encode();
+		// Pin the wire size: 32 + 32 + 8 + 64 = 136 (+ no SCALE prefix
+		// for fixed-size fields).
+		assert_eq!(bytes.len(), 136);
+		let decoded = ChannelCert::decode(&mut &bytes[..]).unwrap();
+		assert_eq!(cert, decoded);
+	}
+
+	#[test]
+	fn cert_sign_then_verify_passes() {
+		let (_a, _c, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		verify_cert(&cert).expect("freshly issued cert must verify");
+	}
+
+	#[test]
+	fn cert_verify_rejects_tampered_channel_key() {
+		let (_a, _c, mut cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		// Swap in a different valid channel key: the authority never
+		// signed this delegation.
+		cert.channel_pubkey = pubkey_of(&fixed_signing_key(0xC1));
+		assert_eq!(verify_cert(&cert), Err(CertError::SignatureInvalid));
+	}
+
+	#[test]
+	fn cert_verify_rejects_tampered_epoch() {
+		let (_a, _c, mut cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		cert.epoch += 1;
+		assert_eq!(verify_cert(&cert), Err(CertError::SignatureInvalid));
+	}
+
+	#[test]
+	fn cert_verify_rejects_foreign_authority() {
+		let (_a, _c, mut cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		// Claim a different authority issued this cert.
+		cert.authority_pubkey = pubkey_of(&fixed_signing_key(0xA1));
+		assert_eq!(verify_cert(&cert), Err(CertError::SignatureInvalid));
+	}
+
 	#[test]
 	fn handshake_preimage_layout_is_stable() {
-		let p = handshake_preimage(&[0xAA; 32], &[0xBB; 32]);
-		assert_eq!(p.len(), HANDSHAKE_DOMAIN.len() + 64);
+		let p = handshake_preimage(&[0xAA; 32], 0x1122334455667788, &[0xBB; 32]);
+		assert_eq!(p.len(), HANDSHAKE_DOMAIN.len() + 32 + 8 + 32);
 		assert_eq!(&p[..HANDSHAKE_DOMAIN.len()], HANDSHAKE_DOMAIN);
-		let body_off = HANDSHAKE_DOMAIN.len();
-		assert_eq!(&p[body_off..body_off + 32], &[0xAA; 32]);
-		assert_eq!(&p[body_off + 32..body_off + 64], &[0xBB; 32]);
+		let off = HANDSHAKE_DOMAIN.len();
+		assert_eq!(&p[off..off + 32], &[0xAA; 32]);
+		assert_eq!(&p[off + 32..off + 40], &0x1122334455667788u64.to_le_bytes());
+		assert_eq!(&p[off + 40..off + 72], &[0xBB; 32]);
 	}
 
 	#[test]
 	fn handshake_scale_roundtrip() {
-		let key = fixed_signing_key(0xA0);
+		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE1);
-		let payload = sign_handshake(&pub_e, &key);
+		let payload = sign_handshake(&pub_e, &cert, &channel);
 		let bytes = payload.encode();
+		assert_eq!(bytes.len(), 232); // 136 cert + 32 ephemeral + 64 sig
 		let decoded = HandshakePayload::decode(&mut &bytes[..]).unwrap();
 		assert_eq!(payload, decoded);
 	}
 
 	#[test]
 	fn handshake_sign_then_verify_passes() {
-		let key = fixed_signing_key(0xA0);
+		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE2);
-		let payload = sign_handshake(&pub_e, &key);
-		verify_handshake(&payload).expect("freshly signed handshake must verify");
+		let payload = sign_handshake(&pub_e, &cert, &channel);
+		verify_handshake(&payload, TEST_EPOCH)
+			.expect("freshly signed handshake must verify at cert epoch");
 	}
 
 	#[test]
-	fn handshake_verify_rejects_tampered_pubkey() {
-		let key = fixed_signing_key(0xA0);
+	fn handshake_verify_accepts_previous_epoch_cert() {
+		// A cert issued for epoch E stays valid through epoch E+1 to
+		// ride the epoch boundary.
+		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		let (_secret, pub_e) = fresh_ephemeral_pub(0xE2);
+		let payload = sign_handshake(&pub_e, &cert, &channel);
+		verify_handshake(&payload, TEST_EPOCH + 1)
+			.expect("cert from previous epoch must still verify");
+	}
+
+	#[test]
+	fn handshake_verify_rejects_stale_epoch_cert() {
+		// Two epochs behind is out of the {current, current-1} window.
+		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		let (_secret, pub_e) = fresh_ephemeral_pub(0xE2);
+		let payload = sign_handshake(&pub_e, &cert, &channel);
+		assert_eq!(
+			verify_handshake(&payload, TEST_EPOCH + 2),
+			Err(HandshakeError::EpochOutOfWindow),
+		);
+	}
+
+	#[test]
+	fn handshake_verify_rejects_future_epoch_cert() {
+		// A cert forged ahead of the chain's current epoch is refused.
+		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		let (_secret, pub_e) = fresh_ephemeral_pub(0xE2);
+		let payload = sign_handshake(&pub_e, &cert, &channel);
+		assert_eq!(
+			verify_handshake(&payload, TEST_EPOCH - 1),
+			Err(HandshakeError::EpochOutOfWindow),
+		);
+	}
+
+	#[test]
+	fn handshake_verify_rejects_wrong_channel_signer() {
+		// The cert delegates to channel key 0xC0, but the handshake is
+		// signed by a different key. The cert verifies (untouched) but
+		// the handshake signature does not match cert.channel_pubkey.
+		let (_a, _channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		let impostor = fixed_signing_key(0xC9);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE3);
-		let mut payload = sign_handshake(&pub_e, &key);
-		// Replace claimed_pubkey with a DIFFERENT valid key. Sig
-		// was made by the original key over a preimage that
-		// included the original pubkey — both checks fail.
-		let other = fixed_signing_key(0xB0);
-		payload.claimed_pubkey =
-			ed25519_zebra::VerificationKey::from(&other).into();
-		match verify_handshake(&payload) {
-			Err(HandshakeError::SignatureInvalid) => {},
-			other => panic!("expected SignatureInvalid, got {:?}", other),
-		}
+		let mut payload = sign_handshake(&pub_e, &cert, &impostor);
+		// sign_handshake stamped the impostor's sig but the cert still
+		// names 0xC0 as the channel key, so verification must fail on
+		// the handshake signature.
+		payload.cert = cert;
+		assert_eq!(
+			verify_handshake(&payload, TEST_EPOCH),
+			Err(HandshakeError::SignatureInvalid),
+		);
 	}
 
 	#[test]
 	fn handshake_verify_rejects_tampered_ephemeral() {
-		let key = fixed_signing_key(0xA0);
+		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE4);
-		let mut payload = sign_handshake(&pub_e, &key);
+		let mut payload = sign_handshake(&pub_e, &cert, &channel);
 		payload.ephemeral_x25519[0] ^= 0xFF;
-		match verify_handshake(&payload) {
-			Err(HandshakeError::SignatureInvalid) => {},
-			other => panic!("expected SignatureInvalid, got {:?}", other),
-		}
+		assert_eq!(
+			verify_handshake(&payload, TEST_EPOCH),
+			Err(HandshakeError::SignatureInvalid),
+		);
 	}
 
 	#[test]
 	fn handshake_verify_rejects_tampered_signature() {
-		let key = fixed_signing_key(0xA0);
+		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE5);
-		let mut payload = sign_handshake(&pub_e, &key);
+		let mut payload = sign_handshake(&pub_e, &cert, &channel);
 		payload.signature[0] ^= 0xFF;
-		match verify_handshake(&payload) {
-			Err(HandshakeError::SignatureInvalid) => {},
-			other => panic!("expected SignatureInvalid, got {:?}", other),
-		}
+		assert_eq!(
+			verify_handshake(&payload, TEST_EPOCH),
+			Err(HandshakeError::SignatureInvalid),
+		);
+	}
+
+	#[test]
+	fn handshake_verify_rejects_forged_cert() {
+		// A handshake whose cert was never signed by a real authority
+		// is rejected at the cert layer, before the epoch/sig checks.
+		let (_a, channel, mut cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		cert.signature[0] ^= 0xFF; // corrupt the authority's signature
+		let (_secret, pub_e) = fresh_ephemeral_pub(0xE6);
+		let payload = sign_handshake(&pub_e, &cert, &channel);
+		assert_eq!(
+			verify_handshake(&payload, TEST_EPOCH),
+			Err(HandshakeError::CertInvalid),
+		);
+	}
+
+	#[test]
+	fn v1_style_signature_rejected_under_v2_domain() {
+		// Cross-domain confusion guard. Reconstruct the OLD v1 preimage
+		// (v1 domain || channel_pubkey || ephemeral, no epoch) and sign
+		// it with the channel key. It must not verify under the v2
+		// handshake, which expects the v2 domain + epoch binding.
+		const V1_DOMAIN: &[u8] = b"rostro/validator-channel/handshake/v1";
+		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		let (_secret, pub_e) = fresh_ephemeral_pub(0xE7);
+		let ephemeral = *pub_e.as_bytes();
+
+		let mut v1_preimage = Vec::new();
+		v1_preimage.extend_from_slice(V1_DOMAIN);
+		v1_preimage.extend_from_slice(&cert.channel_pubkey);
+		v1_preimage.extend_from_slice(&ephemeral);
+		let v1_sig: ed25519_zebra::Signature = channel.sign(&v1_preimage);
+
+		let payload = HandshakePayload {
+			cert,
+			ephemeral_x25519: ephemeral,
+			signature: v1_sig.into(),
+		};
+		assert_eq!(
+			verify_handshake(&payload, TEST_EPOCH),
+			Err(HandshakeError::SignatureInvalid),
+		);
 	}
 
 	#[test]
 	fn handshake_to_session_end_to_end() {
-		// Full simulation: both sides build signed handshakes,
-		// each verifies the other, computes the shared secret,
-		// initializes a Session, exchanges messages.
-		let alice_signing = fixed_signing_key(0xA0);
-		let bob_signing = fixed_signing_key(0xB0);
+		// Full simulation: both sides issue certs, build signed
+		// handshakes, each verifies the other's cert+handshake,
+		// computes the shared secret, initializes a Session, exchanges
+		// messages.
+		let (_alice_auth, alice_channel, alice_cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		let (_bob_auth, bob_channel, bob_cert) = identity(0xB0, 0xD0, TEST_EPOCH);
 
 		let (alice_eph_secret, alice_eph_pub) = fresh_ephemeral_pub(0xE10);
 		let (bob_eph_secret, bob_eph_pub) = fresh_ephemeral_pub(0xE20);
 
-		let alice_hs = sign_handshake(&alice_eph_pub, &alice_signing);
-		let bob_hs = sign_handshake(&bob_eph_pub, &bob_signing);
+		let alice_hs = sign_handshake(&alice_eph_pub, &alice_cert, &alice_channel);
+		let bob_hs = sign_handshake(&bob_eph_pub, &bob_cert, &bob_channel);
 
-		// Each side verifies the OTHER's handshake.
-		verify_handshake(&bob_hs).expect("alice verifies bob's handshake");
-		verify_handshake(&alice_hs).expect("bob verifies alice's handshake");
+		// Each side verifies the OTHER's handshake at the current epoch.
+		verify_handshake(&bob_hs, TEST_EPOCH).expect("alice verifies bob");
+		verify_handshake(&alice_hs, TEST_EPOCH).expect("bob verifies alice");
 
-		// Membership check would happen here against the on-chain
-		// active set; mocked out in this unit test.
+		// Active-set membership check on cert.authority_pubkey would
+		// happen here against the on-chain set; mocked out in this unit
+		// test.
 
-		// Each side computes the shared secret from the peer's
-		// claimed ephemeral.
 		let bob_eph_pub_rebuilt = X25519PublicKey::from(bob_hs.ephemeral_x25519);
 		let alice_eph_pub_rebuilt = X25519PublicKey::from(alice_hs.ephemeral_x25519);
 		let alice_shared =
@@ -744,15 +1045,11 @@ mod tests {
 			handshake_shared_secret(&bob_eph_secret, &alice_eph_pub_rebuilt);
 		assert_eq!(alice_shared, bob_shared);
 
-		// Sessions established. (Alice = initiator, Bob = responder
-		// by convention; in production whoever opens the substream
-		// is the initiator.)
 		let mut alice =
 			Session::from_handshake_initiator(alice_shared, alice_eph_secret, bob_eph_pub_rebuilt);
 		let mut bob =
 			Session::from_handshake_responder(bob_shared, bob_eph_secret, alice_eph_pub_rebuilt);
 
-		// Sanity: encrypted message roundtrip works.
 		let msg = alice.encrypt(b"first message after handshake");
 		let plain = bob.decrypt(&msg).expect("bob decrypts");
 		assert_eq!(plain, b"first message after handshake");

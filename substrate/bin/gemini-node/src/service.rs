@@ -209,21 +209,32 @@ pub fn new_full<
 	// task that owns it is spawned after build_network.
 	let validator_channel_sessions: crate::validator_channel::SharedSessions =
 		Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new()));
-	let local_validator_authority = crate::validator_channel::LocalAuthorityKey::from_keystore(
-		&keystore_container.keystore(),
-	);
+	// Channel identity (GRANDPA authority + delegated `chnl` key). The
+	// per-epoch cert and current epoch are published by the cert-issuer
+	// task and read by both handshake sign paths; the GRANDPA key itself
+	// is never used by the handshake code, only by cert issuance.
+	let local_channel_identity =
+		crate::validator_channel::LocalChannelIdentity::from_keystore(
+			&keystore_container.keystore(),
+		);
+	let validator_channel_cert: crate::validator_channel::SharedCert =
+		Arc::new(parking_lot::Mutex::new(None));
+	let validator_channel_epoch: crate::validator_channel::SharedEpoch =
+		Arc::new(std::sync::atomic::AtomicU64::new(0));
 	let (vc_notification_config, vc_notification_service) =
 		crate::validator_channel::build_notification_protocol::<N, _>(
 			metrics.clone(),
 			peer_store_handle.clone(),
 		);
 	net_config.add_notification_protocol(vc_notification_config);
-	if let Some(local_auth) = local_validator_authority.clone() {
+	if let Some(identity) = local_channel_identity.clone() {
 		let (vc_handshake_config, vc_handshake_handler) =
 			crate::validator_channel::build_handshake_server::<N, _, _>(
 				client.clone(),
 				keystore_container.keystore(),
-				local_auth,
+				identity.clone(),
+				validator_channel_cert.clone(),
+				validator_channel_epoch.clone(),
 				validator_channel_sessions.clone(),
 			);
 		net_config.add_request_response_protocol(vc_handshake_config);
@@ -232,9 +243,22 @@ pub fn new_full<
 			Some("rostro"),
 			vc_handshake_handler,
 		);
+		// Cert-issuer: keeps the shared cert + epoch fresh, signing with
+		// the GRANDPA key at most once per 24h epoch.
+		task_manager.spawn_handle().spawn(
+			"rostro-validator-channel-cert-issuer",
+			Some("rostro"),
+			crate::validator_channel::run_cert_issuer(
+				client.clone(),
+				keystore_container.keystore(),
+				identity,
+				validator_channel_cert.clone(),
+				validator_channel_epoch.clone(),
+			),
+		);
 		log::info!(
 			target: "rostro-validator-channel",
-			"validator-channel handshake server registered (we are a validator)",
+			"validator-channel handshake server + cert issuer registered (we are a validator)",
 		);
 	} else {
 		log::info!(
@@ -568,7 +592,7 @@ pub fn new_full<
 	// heartbeat send + peer-presence broadcast.
 	//
 	// **Always spawned**, regardless of validator status. When
-	// `local_validator_authority` is `None` the handshake-init
+	// `local_channel_identity` is `None` the handshake-init
 	// branch is skipped but the task still publishes peer-presence
 	// events that downstream tasks (attest_asker) depend on.
 	task_manager.spawn_handle().spawn(
@@ -578,7 +602,9 @@ pub fn new_full<
 			vc_notification_service,
 			network.clone(),
 			keystore_container.keystore(),
-			local_validator_authority.clone(),
+			local_channel_identity.clone(),
+			validator_channel_cert.clone(),
+			validator_channel_epoch.clone(),
 			validator_channel_sessions.clone(),
 			presence_tx,
 		),
