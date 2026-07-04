@@ -12736,6 +12736,7 @@ name = "rc-keystore"
 version = "40.0.0"
 dependencies = [
  "array-bytes 6.2.2",
+ "log",
  "parking_lot 0.12.3",
  "serde_json",
  "sp-application-crypto",

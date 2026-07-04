@@ -162,6 +162,36 @@ only, deployable to the live lab cluster via the proven set_code path
   observed organically on the lab chain (it reads live authority state
   the same way the channel does; the channel is now rotation-proven).
 
+### 3.1 Operational invariant: rotation keys must be node-*readable*
+
+Surfaced deploying spec 103 to the lab cluster 2026-07-04, and load-bearing
+for every privilege-dropped deployment (mainnet validators run the node as an
+unprivileged uid under the supervisor, distinct from whoever inserts keys).
+
+A validator arms itself for the new authority set **without a restart**: the
+GRANDPA client re-resolves its local voting key from the keystore on every
+set change (`local_authority_id` → `keystore.has_keys`), so a freshly
+registered key is picked up automatically at its activation boundary — *iff
+the node process can read the key file*. The failure mode is silent and
+asymmetric: `LocalKeystore::has_keys` opens the key file and its caller
+discards any error (`.ok()`), so a key file that **exists but is unreadable**
+by the node (e.g. inserted as root, mode 0600, while the node runs as another
+uid) is indistinguishable from an absent key. The node becomes a non-voter
+with no log line. On a set at or near its 2/3 threshold (the lab's 2-of-2 has
+zero slack) one silently-non-voting validator stalls finality at the
+handover block; larger sets with slack mask it, which is exactly why the P3
+star proof (5 validators, and run without privilege drop) never caught it.
+
+Invariant, therefore: **the rotation runbook inserts the new GRANDPA key
+readable by the node uid** — insert as that uid, or `chown` the key file to
+it before the activation boundary — and adds **no restart step**. Confirmed
+2026-07-04 by a 2-of-2 fast-lifecycle reproduction: a node-readable insert
+with no restart armed the voter at the set change and finality rode straight
+through. As defence-in-depth against the silent case, the keystore now emits
+a loud warning when a key file exists but cannot be opened (was swallowed);
+this is client-side, so it ships via the node-binary release path, not
+`set_code`.
+
 ## 4. Workstream 2: pq-finality-v0 (wire break, NOT testnet-gating)
 
 Separate worktree when workstream 1 is moving. **Scheme (recommended, final
