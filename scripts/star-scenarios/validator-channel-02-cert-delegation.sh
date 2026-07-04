@@ -5,8 +5,10 @@
 #
 # Proves the KEYSTORE-AUDIT F1 fix end-to-end: validator-channel
 # handshakes are authenticated by a per-epoch GRANDPA-signed delegation
-# cert + a channel key, NOT the GRANDPA key itself. 3 validators
-# (alice/bob/charlie) + 1 non-validator observer (frank).
+# cert + a channel key, NOT the GRANDPA key itself. 5 validators
+# (alice..eve — the full star-preset GRANDPA authority set; fewer
+# cannot finalize, see the note above the base-dir block) + 1
+# non-validator observer (frank).
 #
 # Assertions:
 #   1. Each validator issues a channel cert ("issued channel cert for
@@ -54,24 +56,34 @@ setup_node_cache() {
 	ln "$NODE_BIN" "$base/canonical-cache/gemini-node"
 }
 
+# ALL FIVE genesis validators must run. The star preset's GRANDPA
+# authority set is Alice..Eve (weight 5, supermajority threshold 4):
+# launching only 3 voters leaves every round mathematically
+# uncompletable — 3/5 prevotes never reach the 2/3 ghost threshold, no
+# precommit is ever cast, blocks produce but NOTHING FINALIZES. It also
+# drags block cadence to ~10-12s because Sassafras skips the absent
+# authorities' slots. Diagnosed 2026-07-03 after this scenario ran with
+# 3 validators against the 5-authority genesis.
 ALICE_BASE="$REPO_ROOT/.star/cert/alice"
 BOB_BASE="$REPO_ROOT/.star/cert/bob"
 CHARLIE_BASE="$REPO_ROOT/.star/cert/charlie"
+DAVE_BASE="$REPO_ROOT/.star/cert/dave"
+EVE_BASE="$REPO_ROOT/.star/cert/eve"
 FRANK_BASE="$REPO_ROOT/.star/cert/frank"
 # Fresh state each run so key injection + genesis are deterministic.
 rm -rf "$REPO_ROOT/.star/cert"
-for base in "$ALICE_BASE" "$BOB_BASE" "$CHARLIE_BASE" "$FRANK_BASE"; do
+for base in "$ALICE_BASE" "$BOB_BASE" "$CHARLIE_BASE" "$DAVE_BASE" "$EVE_BASE" "$FRANK_BASE"; do
 	setup_node_cache "$base"
 done
 
-echo "injecting Sassafras keys for 3 validators (skipping frank)..."
-for pair in "//Alice:$ALICE_BASE" "//Bob:$BOB_BASE" "//Charlie:$CHARLIE_BASE"; do
+echo "injecting Sassafras keys for 5 validators (skipping frank)..."
+for pair in "//Alice:$ALICE_BASE" "//Bob:$BOB_BASE" "//Charlie:$CHARLIE_BASE" "//Dave:$DAVE_BASE" "//Eve:$EVE_BASE"; do
 	suri="${pair%%:*}"; base="${pair##*:}"
 	"$NODE_BIN" insert-sassafras-key --suri "$suri" --base-path "$base" --chain-id gemini-star
 done
 
-echo "injecting GRANDPA Ed25519 keys for 3 validators (skipping frank)..."
-for pair in "//Alice:$ALICE_BASE" "//Bob:$BOB_BASE" "//Charlie:$CHARLIE_BASE"; do
+echo "injecting GRANDPA Ed25519 keys for 5 validators (skipping frank)..."
+for pair in "//Alice:$ALICE_BASE" "//Bob:$BOB_BASE" "//Charlie:$CHARLIE_BASE" "//Dave:$DAVE_BASE" "//Eve:$EVE_BASE"; do
 	suri="${pair%%:*}"; base="${pair##*:}"
 	"$NODE_BIN" key insert --suri "$suri" --key-type gran --scheme ed25519 --base-path "$base" --chain star
 done
@@ -140,6 +152,24 @@ start_with_supervisor charlie "$CHARLIE_BASE" \
 	--canonical-files-dir "$CHARLIE_BASE/canonical-cache" \
 	--charlie
 
+echo "starting dave (validator)..."
+start_with_supervisor dave "$DAVE_BASE" \
+	"${COMMON_VALIDATOR[@]}" --name dave-star --base-path "$DAVE_BASE" \
+	--node-key "0000000000000000000000000000000000000000000000000000000000000004" \
+	--port 30336 --rpc-port 9947 --prometheus-port 9618 \
+	--bootnodes "$BOOTNODES_MULTIADDR" \
+	--canonical-files-dir "$DAVE_BASE/canonical-cache" \
+	--dave
+
+echo "starting eve (validator)..."
+start_with_supervisor eve "$EVE_BASE" \
+	"${COMMON_VALIDATOR[@]}" --name eve-star --base-path "$EVE_BASE" \
+	--node-key "0000000000000000000000000000000000000000000000000000000000000005" \
+	--port 30337 --rpc-port 9948 --prometheus-port 9619 \
+	--bootnodes "$BOOTNODES_MULTIADDR" \
+	--canonical-files-dir "$EVE_BASE/canonical-cache" \
+	--eve
+
 echo "starting frank (NON-validator observer)..."
 start_with_supervisor frank "$FRANK_BASE" \
 	"${COMMON_OBSERVER[@]}" --name frank-observer --base-path "$FRANK_BASE" \
@@ -148,11 +178,11 @@ start_with_supervisor frank "$FRANK_BASE" \
 	--bootnodes "$BOOTNODES_MULTIADDR" \
 	--canonical-files-dir "$FRANK_BASE/canonical-cache"
 
-# Default 60s matches the original proven run; override upward
-# (STAR_WINDOW_SECS=180) on a loaded box where 12s effective block
-# cadence leaves GRANDPA short of its first finalized block by 60s —
-# observed 2026-07-03, reproduced with a pre-v3 control binary, so it
-# is box speed, not the channel work.
+# Default 60s. With all 5 genesis validators running, blocks come at
+# the real 6s cadence and the first finalized block lands well inside
+# the window. (The earlier "slow box" theory for missing finality was
+# wrong — the cause was running 3 of 5 genesis voters; see the note
+# above the base-dir block.) Override upward for genuinely slow boxes.
 STAR_WINDOW_SECS="${STAR_WINDOW_SECS:-60}"
 echo "waiting ${STAR_WINDOW_SECS}s for cert issuance + handshakes + heartbeats..."
 sleep "$STAR_WINDOW_SECS"
@@ -163,7 +193,7 @@ cleanup
 FAIL=0
 
 # (1) Each validator issued a channel cert.
-for name in alice bob charlie; do
+for name in alice bob charlie dave eve; do
 	log="$REPO_ROOT/.star/cert/$name/run.log"
 	if grep -qE "issued channel cert for epoch" "$log" 2>/dev/null; then
 		echo "OK [$name]: issued a channel cert (GRANDPA-key touch fired)"
@@ -175,7 +205,7 @@ for name in alice bob charlie; do
 done
 
 # (2) Each validator established sessions with >=2 distinct peers.
-for name in alice bob charlie; do
+for name in alice bob charlie dave eve; do
 	log="$REPO_ROOT/.star/cert/$name/run.log"
 	if ! grep -qE "established (initiator|responder) session" "$log" 2>/dev/null; then
 		echo "FAIL [$name]: no session established (v3 hybrid handshake path failed)"
@@ -209,7 +239,7 @@ fi
 
 # (4) At least one decrypted heartbeat flowed.
 ANY_DECRYPTED=0
-for name in alice bob charlie; do
+for name in alice bob charlie dave eve; do
 	if grep -q "decrypted message from" "$REPO_ROOT/.star/cert/$name/run.log" 2>/dev/null; then
 		ANY_DECRYPTED=1; break
 	fi
@@ -222,7 +252,7 @@ fi
 
 # (5) Finality not disrupted.
 ANY_FINALIZED=0
-for name in alice bob charlie; do
+for name in alice bob charlie dave eve; do
 	if grep -qE "finalized #[1-9]" "$REPO_ROOT/.star/cert/$name/run.log" 2>/dev/null; then
 		ANY_FINALIZED=1; break
 	fi
