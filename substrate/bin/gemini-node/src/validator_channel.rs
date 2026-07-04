@@ -6,13 +6,18 @@
 //!
 //! Two protocols on sc-network:
 //!
-//! * **`/rostro/validator-channel-handshake/1`** (request/response):
-//!   exchanges [`HandshakePayload`]s. Each side signs its X25519
-//!   ephemeral with its GRANDPA Ed25519 session key from the local
-//!   keystore. The receiver verifies the signature AND looks up the
-//!   claimed pubkey in the on-chain active-validator set via
+//! * **`/rostro/validator-channel-handshake/3`** (request/response):
+//!   exchanges [`HandshakePayload`]s carrying the v3 hybrid key
+//!   exchange — an X25519 ephemeral plus the ML-KEM-768 flight
+//!   (initiator: encapsulation key; responder: ciphertext). Each side
+//!   signs both halves with its channel key (delegated from the
+//!   GRANDPA key via [`ChannelCert`]). The receiver verifies the
+//!   signature AND looks up the cert's authority pubkey in the
+//!   on-chain active-validator set via
 //!   [`crate::active_authority_set`]. Both checks must pass before a
-//!   [`Session`] is established.
+//!   [`Session`] is established, keyed by the HYBRID secret
+//!   (docs/PQ-TRANSPORT.md): recorded channel traffic stays
+//!   confidential unless X25519 and ML-KEM both fall.
 //!
 //! * **`/rostro/validator-channel/1`** (notification): carries
 //!   encrypted [`WireMessage`]s once a Session is established.
@@ -52,7 +57,7 @@ use codec::{Decode, Encode};
 use futures::StreamExt;
 use gemini_runtime::AccountId;
 use parking_lot::Mutex;
-use rand_core::OsRng;
+use rand_core::{OsRng, RngCore};
 use rc_network::{
 	config::{NonReservedPeerMode, SetConfig},
 	peer_store::PeerStoreProvider,
@@ -65,9 +70,13 @@ use rc_network::{
 	types::ProtocolName,
 	IfDisconnected, NetworkBackend, PeerId,
 };
+use rostro_hybrid_kex::{
+	hybrid_shared_secret, mlkem_decapsulate, mlkem_encapsulate, mlkem_keypair_from_seed,
+	MlKemDecapKey, MLKEM768_SEED_BYTES,
+};
 use rostro_validator_channel::{
 	cert_preimage, handshake_preimage, handshake_shared_secret, verify_handshake, ChannelCert,
-	HandshakePayload, Session, WireMessage,
+	HandshakePayload, HybridKexMaterial, KexRole, Session, WireMessage,
 };
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
@@ -96,19 +105,26 @@ pub const CHANNEL_KEY_TYPE: KeyTypeId = KeyTypeId(*b"chnl");
 const CERT_REFRESH_POLL_SECS: u64 = 60;
 
 /// libp2p request-response protocol for the handshake exchange. Bumped
-/// to `/2` for the cert-carrying (v2) handshake — the `/1` form signed
-/// the ephemeral directly with the GRANDPA key and is gone. A hard
-/// cutover: a `/1` peer and a `/2` peer simply never negotiate a
-/// substream, which is the intended behavior (no mixed fleet).
-pub const HANDSHAKE_PROTOCOL_NAME: &str = "/rostro/validator-channel-handshake/2";
+/// to `/3` for the hybrid X25519+ML-KEM-768 handshake; `/2` was the
+/// cert-carrying classical form, `/1` signed with the GRANDPA key —
+/// both are gone. A hard cutover, as each bump before it: an old-`/N`
+/// peer and a `/3` peer simply never negotiate a substream, which is
+/// the intended behavior (no mixed fleet).
+pub const HANDSHAKE_PROTOCOL_NAME: &str = "/rostro/validator-channel-handshake/3";
 
 /// libp2p notification protocol for encrypted message exchange after
 /// a handshake has established a Session.
 pub const NOTIFICATION_PROTOCOL_NAME: &str = "/rostro/validator-channel/1";
 
 const INBOUND_QUEUE_CAPACITY: usize = 64;
-const MAX_HANDSHAKE_REQUEST_SIZE: u64 = 512;
-const MAX_HANDSHAKE_RESPONSE_SIZE: u64 = 512;
+// The v3 hybrid payloads are 1417 bytes (initiator, carrying the
+// ML-KEM-768 encapsulation key) / 1321 bytes (responder, carrying the
+// ciphertext) plus SCALE overhead. 2 KiB gives headroom without
+// admitting junk. An undersized cap here fails SILENTLY at the
+// request-response layer — if handshakes ever stop flowing after a
+// payload change, check these first.
+const MAX_HANDSHAKE_REQUEST_SIZE: u64 = 2048;
+const MAX_HANDSHAKE_RESPONSE_SIZE: u64 = 2048;
 const HANDSHAKE_TIMEOUT_SECS: u64 = 10;
 const HEARTBEAT_INTERVAL_SECS: u64 = 10;
 const MAX_NOTIFICATION_SIZE: u64 = 1024 * 1024;
@@ -148,10 +164,16 @@ pub type PeerPresenceSender = tokio::sync::broadcast::Sender<PeerPresenceEvent>;
 /// drained on disconnect.
 pub type SharedSessions = Arc<Mutex<HashMap<PeerId, Session>>>;
 
-/// In-flight ephemeral X25519 secrets for handshakes we've
-/// initiated. Removed when the response arrives (success or
+/// In-flight secrets for a handshake we've initiated: the X25519
+/// ephemeral and the ML-KEM-768 decapsulation key whose encapsulation
+/// key rode our request. Removed when the response arrives (success or
 /// failure).
-type PendingEphemerals = Arc<Mutex<HashMap<PeerId, X25519SecretKey>>>;
+struct PendingHandshake {
+	x25519_secret: X25519SecretKey,
+	mlkem_dk: MlKemDecapKey,
+}
+
+type PendingEphemerals = Arc<Mutex<HashMap<PeerId, PendingHandshake>>>;
 
 /// The current channel [`ChannelCert`], refreshed once per 24h epoch by
 /// [`run_cert_issuer`]. `None` until the issuer runs its first cycle;
@@ -328,7 +350,9 @@ pub async fn run_cert_issuer<C, Block>(
 }
 
 /// Build our own outbound/reply handshake payload: sign a fresh session
-/// ephemeral with the CHANNEL key and attach the current cert. Returns
+/// ephemeral plus our side's ML-KEM flight with the CHANNEL key and
+/// attach the current cert. The signature covers both exchange halves,
+/// so the PQ material cannot be stripped or swapped in-path. Returns
 /// `None` if we have no current cert yet (issuer hasn't run) or the
 /// keystore can't sign with the channel key.
 fn build_our_handshake_payload(
@@ -336,9 +360,11 @@ fn build_our_handshake_payload(
 	identity: &LocalChannelIdentity,
 	shared_cert: &SharedCert,
 	our_eph_pub: &X25519PublicKey,
+	kex: HybridKexMaterial,
 ) -> Option<HandshakePayload> {
 	let cert = shared_cert.lock().clone()?;
-	let preimage = handshake_preimage(&cert.channel_pubkey, cert.epoch, our_eph_pub.as_bytes());
+	let preimage =
+		handshake_preimage(&cert.channel_pubkey, cert.epoch, our_eph_pub.as_bytes(), &kex);
 	let sp_channel = sp_ed25519::Public::from(identity.channel_pubkey);
 	let sig = match keystore.ed25519_sign(CHANNEL_KEY_TYPE, &sp_channel, &preimage) {
 		Ok(Some(s)) => s,
@@ -347,6 +373,7 @@ fn build_our_handshake_payload(
 	Some(HandshakePayload {
 		cert,
 		ephemeral_x25519: *our_eph_pub.as_bytes(),
+		kex,
 		signature: sig.0,
 	})
 }
@@ -467,9 +494,10 @@ where
 		},
 	}
 
-	// Cert signature + epoch window + channel-key handshake signature.
+	// Cert signature + kex role + epoch window + channel-key handshake
+	// signature (covering both exchange halves).
 	let current_epoch = shared_epoch.load(Ordering::Relaxed);
-	if let Err(e) = verify_handshake(&req, current_epoch) {
+	if let Err(e) = verify_handshake(&req, current_epoch, KexRole::Initiator) {
 		log::warn!(
 			target: "rostro-validator-channel",
 			"handshake verification failed from {} ({:?}); rejecting",
@@ -479,24 +507,51 @@ where
 		return HandshakeReply::Reject;
 	}
 
+	// PQ half: encapsulate against the initiator's ML-KEM key. The role
+	// check above guarantees the InitiatorEk shape. A key that fails
+	// FIPS 203 validation is a malformed handshake — reject.
+	let HybridKexMaterial::InitiatorEk(ref peer_ek) = req.kex else {
+		unreachable!("verify_handshake enforced KexRole::Initiator");
+	};
+	let mut m = [0u8; 32];
+	OsRng.fill_bytes(&mut m);
+	let (ct, mlkem_ss) = match mlkem_encapsulate(peer_ek, &m) {
+		Ok(pair) => pair,
+		Err(e) => {
+			log::warn!(
+				target: "rostro-validator-channel",
+				"handshake from {} carried an invalid ML-KEM key ({:?}); rejecting",
+				peer,
+				e,
+			);
+			return HandshakeReply::Reject;
+		},
+	};
+
 	let our_eph_secret = X25519SecretKey::random_from_rng(OsRng);
 	let our_eph_pub = X25519PublicKey::from(&our_eph_secret);
-	let our_payload =
-		match build_our_handshake_payload(keystore, identity, shared_cert, &our_eph_pub) {
-			Some(p) => p,
-			None => {
-				log::warn!(
-					target: "rostro-validator-channel",
-					"no current channel cert / channel signing key; cannot respond to \
-					 handshake from {}",
-					peer,
-				);
-				return HandshakeReply::Reject;
-			},
-		};
+	let our_payload = match build_our_handshake_payload(
+		keystore,
+		identity,
+		shared_cert,
+		&our_eph_pub,
+		HybridKexMaterial::ResponderCt(ct),
+	) {
+		Some(p) => p,
+		None => {
+			log::warn!(
+				target: "rostro-validator-channel",
+				"no current channel cert / channel signing key; cannot respond to \
+				 handshake from {}",
+				peer,
+			);
+			return HandshakeReply::Reject;
+		},
+	};
 
 	let peer_eph_pub = X25519PublicKey::from(req.ephemeral_x25519);
-	let shared = handshake_shared_secret(&our_eph_secret, &peer_eph_pub);
+	let shared =
+		hybrid_shared_secret(&mlkem_ss, &handshake_shared_secret(&our_eph_secret, &peer_eph_pub));
 	let session = Session::from_handshake_responder(shared, our_eph_secret, peer_eph_pub);
 	sessions.lock().insert(peer, session);
 	log::info!(
@@ -598,13 +653,14 @@ async fn handle_handshake_outbound<N>(
 		},
 	};
 
-	// Verify the responder's cert + epoch window + channel-key
-	// signature. Active-set membership of the responder's authority key
-	// is NOT re-checked here: only a node already in our active set
-	// would hold a keystore GRANDPA key able to issue a verifying cert,
-	// and the initiator's own active-set filtering happens when peers
-	// are admitted. The cert signature is the binding that matters.
-	if let Err(e) = verify_handshake(&peer_payload, current_epoch) {
+	// Verify the responder's cert + kex role + epoch window +
+	// channel-key signature (covering both exchange halves). Active-set
+	// membership of the responder's authority key is NOT re-checked
+	// here: only a node already in our active set would hold a keystore
+	// GRANDPA key able to issue a verifying cert, and the initiator's
+	// own active-set filtering happens when peers are admitted. The
+	// cert signature is the binding that matters.
+	if let Err(e) = verify_handshake(&peer_payload, current_epoch, KexRole::Responder) {
 		log::warn!(
 			target: "rostro-validator-channel",
 			"responder {} handshake verification failed ({:?}); aborting",
@@ -615,12 +671,36 @@ async fn handle_handshake_outbound<N>(
 		return;
 	}
 
-	let our_eph_secret = match pending.lock().remove(&peer) {
-		Some(s) => s,
-		None => return,
+	let PendingHandshake { x25519_secret: our_eph_secret, mlkem_dk } =
+		match pending.lock().remove(&peer) {
+			Some(s) => s,
+			None => return,
+		};
+
+	// PQ half: decapsulate the responder's ciphertext with the key we
+	// generated for this handshake. A mangled ciphertext implicitly
+	// rejects into a garbage secret and the session dies at the first
+	// AEAD check, so there is no oracle here; an outright decode error
+	// aborts.
+	let HybridKexMaterial::ResponderCt(ref ct) = peer_payload.kex else {
+		unreachable!("verify_handshake enforced KexRole::Responder");
 	};
+	let mlkem_ss = match mlkem_decapsulate(&mlkem_dk, ct) {
+		Ok(ss) => ss,
+		Err(e) => {
+			log::warn!(
+				target: "rostro-validator-channel",
+				"decapsulation of responder {}'s ciphertext failed ({:?}); aborting",
+				peer,
+				e,
+			);
+			return;
+		},
+	};
+
 	let peer_eph_pub = X25519PublicKey::from(peer_payload.ephemeral_x25519);
-	let shared = handshake_shared_secret(&our_eph_secret, &peer_eph_pub);
+	let shared =
+		hybrid_shared_secret(&mlkem_ss, &handshake_shared_secret(&our_eph_secret, &peer_eph_pub));
 	let session = Session::from_handshake_initiator(shared, our_eph_secret, peer_eph_pub);
 	sessions.lock().insert(peer, session);
 	log::info!(
@@ -726,6 +806,12 @@ pub async fn run_notification_task<N>(
 
 						let our_eph_secret = X25519SecretKey::random_from_rng(OsRng);
 						let our_eph_pub = X25519PublicKey::from(&our_eph_secret);
+						// PQ half: fresh per-session ML-KEM-768 keypair;
+						// the encapsulation key rides the request, the
+						// decapsulation key waits in `pending`.
+						let mut mlkem_seed = [0u8; MLKEM768_SEED_BYTES];
+						OsRng.fill_bytes(&mut mlkem_seed);
+						let (mlkem_dk, mlkem_ek) = mlkem_keypair_from_seed(&mlkem_seed);
 						// Sign with the CHANNEL key + attach the current
 						// cert; the GRANDPA key is never used here.
 						let our_payload = match build_our_handshake_payload(
@@ -733,6 +819,7 @@ pub async fn run_notification_task<N>(
 							local_identity,
 							&shared_cert,
 							&our_eph_pub,
+							HybridKexMaterial::InitiatorEk(mlkem_ek),
 						) {
 							Some(p) => p,
 							None => {
@@ -744,7 +831,10 @@ pub async fn run_notification_task<N>(
 								continue;
 							},
 						};
-						pending.lock().insert(peer, our_eph_secret);
+						pending.lock().insert(
+							peer,
+							PendingHandshake { x25519_secret: our_eph_secret, mlkem_dk },
+						);
 
 						// Capture the current epoch for verifying the
 						// responder's reply cert; the round-trip is well
@@ -922,6 +1012,9 @@ mod tests {
 				signature: [0x55; 64],
 			},
 			ephemeral_x25519: [0x22; 32],
+			kex: HybridKexMaterial::ResponderCt(
+				[0x66; rostro_hybrid_kex::MLKEM768_CT_BYTES],
+			),
 			signature: [0x33; 64],
 		});
 		let reject = HandshakeReply::Reject;
@@ -933,6 +1026,37 @@ mod tests {
 			HandshakeReply::decode(&mut &reject.encode()[..]).unwrap(),
 			reject,
 		);
+	}
+
+	#[test]
+	fn handshake_payloads_fit_protocol_size_caps() {
+		// An undersized request-response cap fails SILENTLY (requests
+		// just never arrive), so pin the encoded wire sizes against the
+		// caps. The initiator flight (ML-KEM ek) is the larger one.
+		let cert = ChannelCert {
+			authority_pubkey: [0x11; 32],
+			channel_pubkey: [0x44; 32],
+			epoch: 7,
+			signature: [0x55; 64],
+		};
+		let request = HandshakePayload {
+			cert: cert.clone(),
+			ephemeral_x25519: [0x22; 32],
+			kex: HybridKexMaterial::InitiatorEk(
+				[0x77; rostro_hybrid_kex::MLKEM768_EK_BYTES],
+			),
+			signature: [0x33; 64],
+		};
+		let reply = HandshakeReply::Accept(HandshakePayload {
+			cert,
+			ephemeral_x25519: [0x22; 32],
+			kex: HybridKexMaterial::ResponderCt(
+				[0x66; rostro_hybrid_kex::MLKEM768_CT_BYTES],
+			),
+			signature: [0x33; 64],
+		});
+		assert!(request.encode().len() as u64 <= MAX_HANDSHAKE_REQUEST_SIZE);
+		assert!(reply.encode().len() as u64 <= MAX_HANDSHAKE_RESPONSE_SIZE);
 	}
 
 	// PeerId byte-comparison for initiation rule. We can't easily

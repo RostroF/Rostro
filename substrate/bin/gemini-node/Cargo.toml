@@ -132,6 +132,9 @@ rand = { workspace = true, default-features = true }
 # the OS RNG used during ephemeral keygen. (tokio is already a dep
 # above with default-features, which gives us rt + time.)
 rostro-validator-channel = { path = "../../utils/rostro-validator-channel" }
+# ML-KEM-768 encap/decap + the hybrid combine for the v3 handshake
+# (docs/PQ-TRANSPORT.md). Same crate the wire format's sizes come from.
+rostro-hybrid-kex = { workspace = true, default-features = true }
 x25519-dalek = { workspace = true, features = ["static_secrets"] }
 rand_core = { workspace = true, features = ["getrandom"] }
 

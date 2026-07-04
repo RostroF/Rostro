@@ -12,9 +12,11 @@
 #   1. Each validator issues a channel cert ("issued channel cert for
 #      epoch N") — the once-per-epoch GRANDPA-key touch fired.
 #   2. Each validator establishes encrypted sessions with >=2 distinct
-#      peers on /rostro/validator-channel-handshake/2. Sessions can only
-#      form if the cert + channel-key handshake verified, so this is the
-#      end-to-end proof of the v2 path.
+#      peers on /rostro/validator-channel-handshake/3 (hybrid
+#      X25519+ML-KEM-768, docs/PQ-TRANSPORT.md). Sessions can only form
+#      if the cert + channel-key handshake verified AND both sides
+#      derived the same hybrid secret, so this is the end-to-end proof
+#      of the v3 path.
 #   3. Frank (observer, no GRANDPA key) issues NO cert and establishes
 #      NO session — the active-set gate still holds.
 #   4. At least one decrypted heartbeat flows (notification path intact).
@@ -163,7 +165,7 @@ done
 for name in alice bob charlie; do
 	log="$REPO_ROOT/.star/cert/$name/run.log"
 	if ! grep -qE "established (initiator|responder) session" "$log" 2>/dev/null; then
-		echo "FAIL [$name]: no session established (v2 handshake path failed)"
+		echo "FAIL [$name]: no session established (v3 hybrid handshake path failed)"
 		grep "rostro-validator-channel" "$log" 2>/dev/null | tail -10 | sed "s/^/    /"
 		FAIL=1
 		continue
@@ -173,7 +175,7 @@ for name in alice bob charlie; do
 		echo "FAIL [$name]: only $count distinct session peers (expected 2)"
 		FAIL=1
 	else
-		echo "OK [$name]: established sessions with $count distinct peers on /2"
+		echo "OK [$name]: established sessions with $count distinct peers on /3"
 	fi
 done
 

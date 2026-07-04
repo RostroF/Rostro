@@ -452,33 +452,93 @@ pub fn verify_cert(cert: &ChannelCert) -> Result<(), CertError> {
 	Ok(())
 }
 
-// ───── X3DH-lite handshake payload (v2, cert-carrying) ──────────────────
+// ───── X3DH-lite handshake payload (v3, cert-carrying + hybrid PQ) ──────
 
 /// Domain-separation tag for the handshake signature preimage.
-/// `/v2` is the cert-carrying handshake — the `/v1` form signed the
-/// ephemeral directly with the GRANDPA key and no longer exists. The
-/// version byte is what makes a stray `/v1` signature un-verifiable
-/// here (cross-domain confusion resistance).
-pub const HANDSHAKE_DOMAIN: &[u8] = b"rostro/validator-channel/handshake/v2";
+/// `/v3` is the hybrid (X25519 + ML-KEM-768) handshake; `/v2` was the
+/// cert-carrying classical form and no longer exists, exactly as `/v1`
+/// (GRANDPA-signed) died before it. The version byte is what makes a
+/// stray older-version signature un-verifiable here (cross-domain
+/// confusion resistance).
+pub const HANDSHAKE_DOMAIN: &[u8] = b"rostro/validator-channel/handshake/v3";
 
-/// Wire-format handshake payload (v2). Sent on substream open by each
+/// Which side of a handshake a payload's key-exchange material belongs
+/// to. Bound into the signature preimage as one byte, and checked by
+/// [`verify_handshake`], so an initiator payload can never be replayed
+/// back as a response (reflection) or vice versa.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KexRole {
+	Initiator,
+	Responder,
+}
+
+/// The post-quantum half of the v3 hybrid key exchange. The classical
+/// half is `ephemeral_x25519`; this enum carries the ML-KEM-768 flight
+/// for the sender's role. Both are combined by the caller via
+/// [`rostro_hybrid_kex::hybrid_shared_secret`] — recorded traffic then
+/// stays confidential unless X25519 (Shor) AND ML-KEM (cryptanalysis)
+/// both fall. See docs/PQ-TRANSPORT.md.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub enum HybridKexMaterial {
+	/// Initiator → responder: a fresh per-session ML-KEM-768
+	/// encapsulation key. Ephemeral, never reused across sessions.
+	InitiatorEk([u8; rostro_hybrid_kex::MLKEM768_EK_BYTES]),
+	/// Responder → initiator: the ML-KEM-768 ciphertext encapsulated
+	/// against the initiator's encapsulation key.
+	ResponderCt([u8; rostro_hybrid_kex::MLKEM768_CT_BYTES]),
+}
+
+impl HybridKexMaterial {
+	/// The handshake role this material shape belongs to.
+	pub fn role(&self) -> KexRole {
+		match self {
+			HybridKexMaterial::InitiatorEk(_) => KexRole::Initiator,
+			HybridKexMaterial::ResponderCt(_) => KexRole::Responder,
+		}
+	}
+
+	/// One-byte role tag for the signature preimage.
+	fn role_byte(&self) -> u8 {
+		match self {
+			HybridKexMaterial::InitiatorEk(_) => 1,
+			HybridKexMaterial::ResponderCt(_) => 2,
+		}
+	}
+
+	/// The raw ML-KEM material bytes (ek or ct).
+	fn material(&self) -> &[u8] {
+		match self {
+			HybridKexMaterial::InitiatorEk(ek) => ek,
+			HybridKexMaterial::ResponderCt(ct) => ct,
+		}
+	}
+}
+
+/// Wire-format handshake payload (v3). Sent on substream open by each
 /// side. Carries:
 ///
 /// - **`cert`**: the sender's [`ChannelCert`] — its epoch-scoped
 ///   delegation from its on-chain authority key to the channel key
 ///   that signs this handshake.
-/// - **`ephemeral_x25519`**: this session's X25519 ephemeral, fed into
-///   the Double Ratchet initial DH. Rotates per session.
+/// - **`ephemeral_x25519`**: this session's X25519 ephemeral, the
+///   classical half of the hybrid exchange. Rotates per session.
+/// - **`kex`**: the post-quantum half — initiator's ML-KEM-768
+///   encapsulation key, or responder's ciphertext.
 /// - **`signature`**: Ed25519 signature, by `cert.channel_pubkey`'s
-///   private key, over [`handshake_preimage`]. Proves the sender
-///   controls the channel key the cert delegated to.
+///   private key, over [`handshake_preimage`]. Covers BOTH halves of
+///   the exchange (and the kex role byte): an in-path attacker cannot
+///   strip or substitute the PQ material without breaking the
+///   signature.
 ///
-/// Wire size: 136 (cert) + 32 + 64 = 232 bytes (plus SCALE overhead),
-/// within the node's 512-byte handshake request/response caps.
+/// Wire size: 136 (cert) + 32 + 1 + 1184 (ek) + 64 = 1417 bytes for the
+/// initiator flight, 1321 bytes with the responder's 1088-byte
+/// ciphertext (plus SCALE overhead) — within the node's 2 KiB handshake
+/// request/response caps.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct HandshakePayload {
 	pub cert: ChannelCert,
 	pub ephemeral_x25519: [u8; 32],
+	pub kex: HybridKexMaterial,
 	pub signature: [u8; 64],
 }
 
@@ -495,74 +555,98 @@ pub enum HandshakeError {
 	/// `cert.epoch` is neither the current epoch nor the immediately
 	/// preceding one — the cert is stale or forged-ahead.
 	EpochOutOfWindow,
+	/// The payload's [`HybridKexMaterial`] shape does not match the
+	/// role expected at this point in the exchange (initiator flight
+	/// must carry an encapsulation key, response must carry a
+	/// ciphertext).
+	KexRoleMismatch,
 }
 
-/// Build the canonical preimage that a v2 [`HandshakePayload`]'s
-/// signature covers. Binds the channel key, the cert epoch, and the
-/// session ephemeral together so a handshake signature is valid only
-/// for the exact `(channel_pubkey, epoch)` the cert authorizes.
-/// Layout:
+/// Build the canonical preimage that a v3 [`HandshakePayload`]'s
+/// signature covers. Binds the channel key, the cert epoch, and BOTH
+/// halves of the hybrid exchange (with the kex role byte) together, so
+/// a handshake signature is valid only for the exact
+/// `(channel_pubkey, epoch)` the cert authorizes and the PQ material
+/// cannot be stripped or substituted in-path. Layout:
 ///
 /// ```text
 /// HANDSHAKE_DOMAIN || channel_pubkey || epoch_le || ephemeral_x25519
+///   || kex_role_byte || kex_material
 /// ```
 pub fn handshake_preimage(
 	channel_pubkey: &[u8; 32],
 	epoch: u64,
 	ephemeral_x25519: &[u8; 32],
+	kex: &HybridKexMaterial,
 ) -> Vec<u8> {
-	let mut buf = Vec::with_capacity(HANDSHAKE_DOMAIN.len() + 32 + 8 + 32);
+	let material = kex.material();
+	let mut buf =
+		Vec::with_capacity(HANDSHAKE_DOMAIN.len() + 32 + 8 + 32 + 1 + material.len());
 	buf.extend_from_slice(HANDSHAKE_DOMAIN);
 	buf.extend_from_slice(channel_pubkey);
 	buf.extend_from_slice(&epoch.to_le_bytes());
 	buf.extend_from_slice(ephemeral_x25519);
+	buf.push(kex.role_byte());
+	buf.extend_from_slice(material);
 	buf
 }
 
-/// Build a signed v2 handshake payload: sign a fresh session ephemeral
-/// with the channel key, carrying the already-issued [`ChannelCert`].
-/// `channel_key` MUST be the key `cert.channel_pubkey` refers to.
+/// Build a signed v3 handshake payload: sign a fresh session ephemeral
+/// plus the ML-KEM flight with the channel key, carrying the
+/// already-issued [`ChannelCert`]. `channel_key` MUST be the key
+/// `cert.channel_pubkey` refers to.
 ///
 /// In gemini-node the signing is done via the keystore; this helper is
 /// the canonical reference + test path.
 ///
-/// Caller is responsible for generating a fresh ephemeral X25519 per
-/// session.
+/// Caller is responsible for generating a fresh ephemeral X25519 AND
+/// fresh ML-KEM material per session.
 #[cfg(feature = "std")]
 pub fn sign_handshake(
 	ephemeral_pub: &X25519PublicKey,
+	kex: HybridKexMaterial,
 	cert: &ChannelCert,
 	channel_key: &ed25519_zebra::SigningKey,
 ) -> HandshakePayload {
 	let ephemeral_bytes = *ephemeral_pub.as_bytes();
 	let preimage =
-		handshake_preimage(&cert.channel_pubkey, cert.epoch, &ephemeral_bytes);
+		handshake_preimage(&cert.channel_pubkey, cert.epoch, &ephemeral_bytes, &kex);
 	let sig: ed25519_zebra::Signature = channel_key.sign(&preimage);
 	HandshakePayload {
 		cert: cert.clone(),
 		ephemeral_x25519: ephemeral_bytes,
+		kex,
 		signature: sig.into(),
 	}
 }
 
-/// Verify a v2 [`HandshakePayload`] against the chain's `current_epoch`.
+/// Verify a v3 [`HandshakePayload`] against the chain's `current_epoch`.
 ///
 /// Checks, in order:
 /// 1. the embedded [`ChannelCert`] signature ([`verify_cert`]);
-/// 2. the epoch window: `cert.epoch ∈ {current_epoch, current_epoch-1}`;
-/// 3. the handshake signature under `cert.channel_pubkey`.
+/// 2. the kex material shape matches `expected_role` (reflection
+///    resistance — belt to the preimage role byte's suspenders);
+/// 3. the epoch window: `cert.epoch ∈ {current_epoch, current_epoch-1}`;
+/// 4. the handshake signature under `cert.channel_pubkey`, covering
+///    both exchange halves.
 ///
 /// **Does NOT verify active-set membership** — the caller MUST confirm
 /// `payload.cert.authority_pubkey` is in the on-chain active validator
 /// set (that check needs chain state this crate does not have). Once
 /// membership passes and this returns `Ok(())`, the sender is
-/// authenticated and [`HandshakePayload::ephemeral_x25519`] can be fed
-/// into [`handshake_shared_secret`].
+/// authenticated; the caller then combines the X25519 output with the
+/// ML-KEM output via `rostro_hybrid_kex::hybrid_shared_secret` and
+/// feeds the result to the `Session` constructors.
 pub fn verify_handshake(
 	payload: &HandshakePayload,
 	current_epoch: u64,
+	expected_role: KexRole,
 ) -> Result<(), HandshakeError> {
 	verify_cert(&payload.cert).map_err(|_| HandshakeError::CertInvalid)?;
+
+	if payload.kex.role() != expected_role {
+		return Err(HandshakeError::KexRoleMismatch);
+	}
 
 	let epoch = payload.cert.epoch;
 	let in_window =
@@ -574,8 +658,12 @@ pub fn verify_handshake(
 	let vk = ed25519_zebra::VerificationKey::try_from(payload.cert.channel_pubkey)
 		.map_err(|_| HandshakeError::InvalidPubkey)?;
 	let sig = ed25519_zebra::Signature::from(payload.signature);
-	let preimage =
-		handshake_preimage(&payload.cert.channel_pubkey, epoch, &payload.ephemeral_x25519);
+	let preimage = handshake_preimage(
+		&payload.cert.channel_pubkey,
+		epoch,
+		&payload.ephemeral_x25519,
+		&payload.kex,
+	);
 	vk.verify(&sig, &preimage)
 		.map_err(|_| HandshakeError::SignatureInvalid)?;
 	Ok(())
@@ -798,6 +886,15 @@ mod tests {
 		(secret, public)
 	}
 
+	/// A fresh initiator-side ML-KEM flight for tests: the decapsulation
+	/// key stays local, the encapsulation key rides the handshake.
+	fn fresh_kex_initiator(
+		seed_byte: u8,
+	) -> (rostro_hybrid_kex::MlKemDecapKey, HybridKexMaterial) {
+		let (dk, ek) = rostro_hybrid_kex::mlkem_keypair_from_seed(&[seed_byte; 64]);
+		(dk, HybridKexMaterial::InitiatorEk(ek))
+	}
+
 	/// A validator identity for tests: an authority (GRANDPA) key, a
 	/// channel key, and a cert delegating the latter for `epoch`.
 	fn identity(
@@ -865,22 +962,46 @@ mod tests {
 
 	#[test]
 	fn handshake_preimage_layout_is_stable() {
-		let p = handshake_preimage(&[0xAA; 32], 0x1122334455667788, &[0xBB; 32]);
-		assert_eq!(p.len(), HANDSHAKE_DOMAIN.len() + 32 + 8 + 32);
+		let (_dk, kex) = fresh_kex_initiator(0x77);
+		let p = handshake_preimage(&[0xAA; 32], 0x1122334455667788, &[0xBB; 32], &kex);
+		let ek_len = rostro_hybrid_kex::MLKEM768_EK_BYTES;
+		assert_eq!(p.len(), HANDSHAKE_DOMAIN.len() + 32 + 8 + 32 + 1 + ek_len);
 		assert_eq!(&p[..HANDSHAKE_DOMAIN.len()], HANDSHAKE_DOMAIN);
 		let off = HANDSHAKE_DOMAIN.len();
 		assert_eq!(&p[off..off + 32], &[0xAA; 32]);
 		assert_eq!(&p[off + 32..off + 40], &0x1122334455667788u64.to_le_bytes());
 		assert_eq!(&p[off + 40..off + 72], &[0xBB; 32]);
+		assert_eq!(p[off + 72], 1); // initiator role byte
+		let HybridKexMaterial::InitiatorEk(ek) = &kex else { panic!() };
+		assert_eq!(&p[off + 73..], &ek[..]);
 	}
 
 	#[test]
 	fn handshake_scale_roundtrip() {
 		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE1);
-		let payload = sign_handshake(&pub_e, &cert, &channel);
+		let (_dk, kex) = fresh_kex_initiator(0x71);
+		let payload = sign_handshake(&pub_e, kex, &cert, &channel);
 		let bytes = payload.encode();
-		assert_eq!(bytes.len(), 232); // 136 cert + 32 ephemeral + 64 sig
+		// 136 cert + 32 ephemeral + 1 enum tag + 1184 ek + 64 sig.
+		assert_eq!(bytes.len(), 1417);
+		let decoded = HandshakePayload::decode(&mut &bytes[..]).unwrap();
+		assert_eq!(payload, decoded);
+	}
+
+	#[test]
+	fn handshake_responder_scale_roundtrip() {
+		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		let (_secret, pub_e) = fresh_ephemeral_pub(0xE1);
+		let (_dk, initiator_kex) = fresh_kex_initiator(0x71);
+		let HybridKexMaterial::InitiatorEk(ek) = initiator_kex else { panic!() };
+		let (ct, _ss) =
+			rostro_hybrid_kex::mlkem_encapsulate(&ek, &[0x99; 32]).expect("valid ek");
+		let payload =
+			sign_handshake(&pub_e, HybridKexMaterial::ResponderCt(ct), &cert, &channel);
+		let bytes = payload.encode();
+		// 136 cert + 32 ephemeral + 1 enum tag + 1088 ct + 64 sig.
+		assert_eq!(bytes.len(), 1321);
 		let decoded = HandshakePayload::decode(&mut &bytes[..]).unwrap();
 		assert_eq!(payload, decoded);
 	}
@@ -889,9 +1010,25 @@ mod tests {
 	fn handshake_sign_then_verify_passes() {
 		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE2);
-		let payload = sign_handshake(&pub_e, &cert, &channel);
-		verify_handshake(&payload, TEST_EPOCH)
+		let (_dk, kex) = fresh_kex_initiator(0x72);
+		let payload = sign_handshake(&pub_e, kex, &cert, &channel);
+		verify_handshake(&payload, TEST_EPOCH, KexRole::Initiator)
 			.expect("freshly signed handshake must verify at cert epoch");
+	}
+
+	#[test]
+	fn handshake_verify_rejects_role_mismatch() {
+		// Reflection guard: a valid initiator payload replayed where a
+		// responder payload is expected must fail on the role check,
+		// before any signature work.
+		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		let (_secret, pub_e) = fresh_ephemeral_pub(0xE2);
+		let (_dk, kex) = fresh_kex_initiator(0x72);
+		let payload = sign_handshake(&pub_e, kex, &cert, &channel);
+		assert_eq!(
+			verify_handshake(&payload, TEST_EPOCH, KexRole::Responder),
+			Err(HandshakeError::KexRoleMismatch),
+		);
 	}
 
 	#[test]
@@ -900,8 +1037,9 @@ mod tests {
 		// ride the epoch boundary.
 		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE2);
-		let payload = sign_handshake(&pub_e, &cert, &channel);
-		verify_handshake(&payload, TEST_EPOCH + 1)
+		let (_dk, kex) = fresh_kex_initiator(0x72);
+		let payload = sign_handshake(&pub_e, kex, &cert, &channel);
+		verify_handshake(&payload, TEST_EPOCH + 1, KexRole::Initiator)
 			.expect("cert from previous epoch must still verify");
 	}
 
@@ -910,9 +1048,10 @@ mod tests {
 		// Two epochs behind is out of the {current, current-1} window.
 		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE2);
-		let payload = sign_handshake(&pub_e, &cert, &channel);
+		let (_dk, kex) = fresh_kex_initiator(0x72);
+		let payload = sign_handshake(&pub_e, kex, &cert, &channel);
 		assert_eq!(
-			verify_handshake(&payload, TEST_EPOCH + 2),
+			verify_handshake(&payload, TEST_EPOCH + 2, KexRole::Initiator),
 			Err(HandshakeError::EpochOutOfWindow),
 		);
 	}
@@ -922,9 +1061,10 @@ mod tests {
 		// A cert forged ahead of the chain's current epoch is refused.
 		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE2);
-		let payload = sign_handshake(&pub_e, &cert, &channel);
+		let (_dk, kex) = fresh_kex_initiator(0x72);
+		let payload = sign_handshake(&pub_e, kex, &cert, &channel);
 		assert_eq!(
-			verify_handshake(&payload, TEST_EPOCH - 1),
+			verify_handshake(&payload, TEST_EPOCH - 1, KexRole::Initiator),
 			Err(HandshakeError::EpochOutOfWindow),
 		);
 	}
@@ -937,13 +1077,14 @@ mod tests {
 		let (_a, _channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let impostor = fixed_signing_key(0xC9);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE3);
-		let mut payload = sign_handshake(&pub_e, &cert, &impostor);
+		let (_dk, kex) = fresh_kex_initiator(0x73);
+		let mut payload = sign_handshake(&pub_e, kex, &cert, &impostor);
 		// sign_handshake stamped the impostor's sig but the cert still
 		// names 0xC0 as the channel key, so verification must fail on
 		// the handshake signature.
 		payload.cert = cert;
 		assert_eq!(
-			verify_handshake(&payload, TEST_EPOCH),
+			verify_handshake(&payload, TEST_EPOCH, KexRole::Initiator),
 			Err(HandshakeError::SignatureInvalid),
 		);
 	}
@@ -952,10 +1093,28 @@ mod tests {
 	fn handshake_verify_rejects_tampered_ephemeral() {
 		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE4);
-		let mut payload = sign_handshake(&pub_e, &cert, &channel);
+		let (_dk, kex) = fresh_kex_initiator(0x74);
+		let mut payload = sign_handshake(&pub_e, kex, &cert, &channel);
 		payload.ephemeral_x25519[0] ^= 0xFF;
 		assert_eq!(
-			verify_handshake(&payload, TEST_EPOCH),
+			verify_handshake(&payload, TEST_EPOCH, KexRole::Initiator),
+			Err(HandshakeError::SignatureInvalid),
+		);
+	}
+
+	#[test]
+	fn handshake_verify_rejects_tampered_kex_material() {
+		// An in-path attacker substituting its own ML-KEM key into an
+		// otherwise-valid handshake must break the signature: the PQ
+		// half cannot be stripped or swapped.
+		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
+		let (_secret, pub_e) = fresh_ephemeral_pub(0xE4);
+		let (_dk, kex) = fresh_kex_initiator(0x74);
+		let mut payload = sign_handshake(&pub_e, kex, &cert, &channel);
+		let HybridKexMaterial::InitiatorEk(ref mut ek) = payload.kex else { panic!() };
+		ek[0] ^= 0xFF;
+		assert_eq!(
+			verify_handshake(&payload, TEST_EPOCH, KexRole::Initiator),
 			Err(HandshakeError::SignatureInvalid),
 		);
 	}
@@ -964,10 +1123,11 @@ mod tests {
 	fn handshake_verify_rejects_tampered_signature() {
 		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE5);
-		let mut payload = sign_handshake(&pub_e, &cert, &channel);
+		let (_dk, kex) = fresh_kex_initiator(0x75);
+		let mut payload = sign_handshake(&pub_e, kex, &cert, &channel);
 		payload.signature[0] ^= 0xFF;
 		assert_eq!(
-			verify_handshake(&payload, TEST_EPOCH),
+			verify_handshake(&payload, TEST_EPOCH, KexRole::Initiator),
 			Err(HandshakeError::SignatureInvalid),
 		);
 	}
@@ -979,59 +1139,83 @@ mod tests {
 		let (_a, channel, mut cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		cert.signature[0] ^= 0xFF; // corrupt the authority's signature
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE6);
-		let payload = sign_handshake(&pub_e, &cert, &channel);
+		let (_dk, kex) = fresh_kex_initiator(0x76);
+		let payload = sign_handshake(&pub_e, kex, &cert, &channel);
 		assert_eq!(
-			verify_handshake(&payload, TEST_EPOCH),
+			verify_handshake(&payload, TEST_EPOCH, KexRole::Initiator),
 			Err(HandshakeError::CertInvalid),
 		);
 	}
 
 	#[test]
-	fn v1_style_signature_rejected_under_v2_domain() {
-		// Cross-domain confusion guard. Reconstruct the OLD v1 preimage
-		// (v1 domain || channel_pubkey || ephemeral, no epoch) and sign
-		// it with the channel key. It must not verify under the v2
-		// handshake, which expects the v2 domain + epoch binding.
-		const V1_DOMAIN: &[u8] = b"rostro/validator-channel/handshake/v1";
+	fn v2_style_signature_rejected_under_v3_domain() {
+		// Cross-domain confusion guard. Reconstruct the OLD v2 preimage
+		// (v2 domain || channel_pubkey || epoch || ephemeral, no kex)
+		// and sign it with the channel key. It must not verify under the
+		// v3 handshake, which expects the v3 domain + kex binding.
+		const V2_DOMAIN: &[u8] = b"rostro/validator-channel/handshake/v2";
 		let (_a, channel, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_secret, pub_e) = fresh_ephemeral_pub(0xE7);
+		let (_dk, kex) = fresh_kex_initiator(0x77);
 		let ephemeral = *pub_e.as_bytes();
 
-		let mut v1_preimage = Vec::new();
-		v1_preimage.extend_from_slice(V1_DOMAIN);
-		v1_preimage.extend_from_slice(&cert.channel_pubkey);
-		v1_preimage.extend_from_slice(&ephemeral);
-		let v1_sig: ed25519_zebra::Signature = channel.sign(&v1_preimage);
+		let mut v2_preimage = Vec::new();
+		v2_preimage.extend_from_slice(V2_DOMAIN);
+		v2_preimage.extend_from_slice(&cert.channel_pubkey);
+		v2_preimage.extend_from_slice(&TEST_EPOCH.to_le_bytes());
+		v2_preimage.extend_from_slice(&ephemeral);
+		let v2_sig: ed25519_zebra::Signature = channel.sign(&v2_preimage);
 
 		let payload = HandshakePayload {
 			cert,
 			ephemeral_x25519: ephemeral,
-			signature: v1_sig.into(),
+			kex,
+			signature: v2_sig.into(),
 		};
 		assert_eq!(
-			verify_handshake(&payload, TEST_EPOCH),
+			verify_handshake(&payload, TEST_EPOCH, KexRole::Initiator),
 			Err(HandshakeError::SignatureInvalid),
 		);
 	}
 
 	#[test]
 	fn handshake_to_session_end_to_end() {
-		// Full simulation: both sides issue certs, build signed
-		// handshakes, each verifies the other's cert+handshake,
-		// computes the shared secret, initializes a Session, exchanges
-		// messages.
+		// Full v3 hybrid simulation, exactly as gemini-node drives it:
+		// both sides issue certs; Alice (initiator) sends her X25519
+		// ephemeral + ML-KEM encapsulation key; Bob (responder) verifies,
+		// encapsulates, and replies with his ephemeral + the ciphertext;
+		// both combine the two secrets into the hybrid handshake secret,
+		// initialize Sessions, and exchange messages.
 		let (_alice_auth, alice_channel, alice_cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let (_bob_auth, bob_channel, bob_cert) = identity(0xB0, 0xD0, TEST_EPOCH);
 
 		let (alice_eph_secret, alice_eph_pub) = fresh_ephemeral_pub(0xE10);
 		let (bob_eph_secret, bob_eph_pub) = fresh_ephemeral_pub(0xE20);
 
-		let alice_hs = sign_handshake(&alice_eph_pub, &alice_cert, &alice_channel);
-		let bob_hs = sign_handshake(&bob_eph_pub, &bob_cert, &bob_channel);
+		// Alice initiates: fresh ML-KEM keypair, ek rides the handshake.
+		let (alice_dk, alice_kex) = fresh_kex_initiator(0x7A);
+		let alice_hs = sign_handshake(&alice_eph_pub, alice_kex, &alice_cert, &alice_channel);
 
-		// Each side verifies the OTHER's handshake at the current epoch.
-		verify_handshake(&bob_hs, TEST_EPOCH).expect("alice verifies bob");
-		verify_handshake(&alice_hs, TEST_EPOCH).expect("bob verifies alice");
+		// Bob verifies the initiator flight, then encapsulates.
+		verify_handshake(&alice_hs, TEST_EPOCH, KexRole::Initiator)
+			.expect("bob verifies alice");
+		let HybridKexMaterial::InitiatorEk(alice_ek) = &alice_hs.kex else { panic!() };
+		let (ct, bob_mlkem_ss) =
+			rostro_hybrid_kex::mlkem_encapsulate(alice_ek, &[0x5A; 32]).expect("valid ek");
+		let bob_hs = sign_handshake(
+			&bob_eph_pub,
+			HybridKexMaterial::ResponderCt(ct),
+			&bob_cert,
+			&bob_channel,
+		);
+
+		// Alice verifies the responder flight, then decapsulates.
+		verify_handshake(&bob_hs, TEST_EPOCH, KexRole::Responder)
+			.expect("alice verifies bob");
+		let HybridKexMaterial::ResponderCt(ct) = &bob_hs.kex else { panic!() };
+		let alice_mlkem_ss =
+			rostro_hybrid_kex::mlkem_decapsulate(&alice_dk, ct).expect("valid ct");
+		assert_eq!(alice_mlkem_ss, bob_mlkem_ss);
 
 		// Active-set membership check on cert.authority_pubkey would
 		// happen here against the on-chain set; mocked out in this unit
@@ -1039,10 +1223,14 @@ mod tests {
 
 		let bob_eph_pub_rebuilt = X25519PublicKey::from(bob_hs.ephemeral_x25519);
 		let alice_eph_pub_rebuilt = X25519PublicKey::from(alice_hs.ephemeral_x25519);
-		let alice_shared =
-			handshake_shared_secret(&alice_eph_secret, &bob_eph_pub_rebuilt);
-		let bob_shared =
-			handshake_shared_secret(&bob_eph_secret, &alice_eph_pub_rebuilt);
+		let alice_shared = rostro_hybrid_kex::hybrid_shared_secret(
+			&alice_mlkem_ss,
+			&handshake_shared_secret(&alice_eph_secret, &bob_eph_pub_rebuilt),
+		);
+		let bob_shared = rostro_hybrid_kex::hybrid_shared_secret(
+			&bob_mlkem_ss,
+			&handshake_shared_secret(&bob_eph_secret, &alice_eph_pub_rebuilt),
+		);
 		assert_eq!(alice_shared, bob_shared);
 
 		let mut alice =
