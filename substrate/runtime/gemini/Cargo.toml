@@ -45,7 +45,7 @@ pallet-rostro-rpc-method-policy = { workspace = true }
 rns-types = { workspace = true }
 rostro-multi-key = { path = "../../utils/rostro-multi-key", default-features = false }
 pallet-sassafras = { workspace = true, features = ["construct-dummy-ring-context"] }
-pallet-session = { workspace = true }
+pallet-session = { workspace = true, features = ["historical"] }
 pallet-sudo = { workspace = true }
 pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }

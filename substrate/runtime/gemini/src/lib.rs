@@ -70,6 +70,7 @@ use sp_runtime::{
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, DispatchError,
 };
+use pallet_session::historical as pallet_session_historical;
 use rostro_multi_key::{RostroSignature, RostroSigner};
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
@@ -261,11 +262,14 @@ impl pallet_sassafras::Config for Runtime {
 }
 
 // ─── pallet_session ────────────────────────────────────────────────────────
-// Required as `pallet_grandpa::Config` supertrait. No periodic rotation —
-// the validator set is fixed for the testbed lifetime.
+// Sessions rotate every 4h. The validator SET stays fixed until NPoS staking
+// lands (the inner session manager below re-feeds the same set), but session
+// KEYS registered via `set_keys` activate at the next session boundary and
+// GRANDPA schedules the authority-set change (set_id advances every session).
+// docs/CONSENSUS-KEY-LIFECYCLE.md, workstream 1 P0.
 
 parameter_types! {
-	pub const SessionPeriod: BlockNumber = u32::MAX;
+	pub const SessionPeriod: BlockNumber = 4 * 60 * 60 / 6; // 4h of 6s blocks
 	pub const SessionOffset: BlockNumber = 0;
 }
 
@@ -275,13 +279,61 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = ConvertInto;
 	type ShouldEndSession = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
-	type SessionManager = ();
+	type SessionManager =
+		pallet_session::historical::NoteHistoricalRoot<Runtime, SameValidatorsEachSession>;
 	type SessionHandler = <opaque::SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = opaque::SessionKeys;
 	type DisablingStrategy = ();
 	type Currency = Balances;
 	type KeyDeposit = ConstU128<{ ROSTO / 10 }>;
 	type WeightInfo = ();
+}
+
+// Session-historical: stores a merkle root of each session's (validator,
+// session-keys) mapping so equivocation key-ownership proofs stay checkable
+// after the session that the offence occurred in has ended.
+impl pallet_session::historical::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type FullIdentification = ();
+	type FullIdentificationOf = UnitIdentificationOf;
+}
+
+/// Unit identification: no economic data to attach until NPoS staking lands.
+pub struct UnitIdentificationOf;
+impl sp_runtime::traits::Convert<AccountId, Option<()>> for UnitIdentificationOf {
+	fn convert(_: AccountId) -> Option<()> {
+		Some(())
+	}
+}
+
+/// Inner session manager for `NoteHistoricalRoot`: returns the unchanged
+/// validator set every session, so the historical trie root is regenerated
+/// from the keys actually active in that session — a rotated GRANDPA key
+/// stays provable for exactly the sessions it was live. Returning `Some`
+/// also marks every session `changed`, which is what makes GRANDPA schedule
+/// the authority-set change that activates rotated keys. Genesis returns
+/// `None` so `pallet_session` falls back to the genesis key owners
+/// (`Validators` storage is not yet populated while genesis is being built).
+pub struct SameValidatorsEachSession;
+impl pallet_session::SessionManager<AccountId> for SameValidatorsEachSession {
+	fn new_session(_new_index: u32) -> Option<Vec<AccountId>> {
+		Some(Session::validators())
+	}
+	fn new_session_genesis(_new_index: u32) -> Option<Vec<AccountId>> {
+		None
+	}
+	fn start_session(_start_index: u32) {}
+	fn end_session(_end_index: u32) {}
+}
+impl pallet_session::historical::SessionManager<AccountId, ()> for SameValidatorsEachSession {
+	fn new_session(_new_index: u32) -> Option<Vec<(AccountId, ())>> {
+		Some(Session::validators().into_iter().map(|v| (v, ())).collect())
+	}
+	fn new_session_genesis(_new_index: u32) -> Option<Vec<(AccountId, ())>> {
+		None
+	}
+	fn start_session(_start_index: u32) {}
+	fn end_session(_end_index: u32) {}
 }
 
 // ─── pallet_grandpa ────────────────────────────────────────────────────────
@@ -291,8 +343,12 @@ impl pallet_grandpa::Config for Runtime {
 	type WeightInfo = ();
 	type MaxAuthorities = ConstU32<32>;
 	type MaxNominators = ConstU32<0>;
-	type MaxSetIdSessionEntries = ConstU64<0>;
-	type KeyOwnerProof = sp_core::Void;
+	// set_id → session mappings retained for validating equivocation proofs
+	// against past authority sets. One entry per session: 2048 ≈ 341 days.
+	type MaxSetIdSessionEntries = ConstU64<2048>;
+	type KeyOwnerProof = sp_session::MembershipProof;
+	// P2 (docs/CONSENSUS-KEY-LIFECYCLE.md) wires this to a real offence
+	// sink; until then reports are structurally checkable but dropped.
 	type EquivocationReportSystem = ();
 }
 
@@ -962,6 +1018,13 @@ construct_runtime!(
 		// personhood layer mime_wrap is orthogonal to (HW
 		// attestation), bound only via the SS58 holder.
 		Personhood: pallet_rostro_personhood,
+
+		// Session-historical — per-session key-ownership trie roots
+		// (equivocation proofs against past sessions). Appended at the
+		// END on purpose: pallet indices are positional and this runtime
+		// is live; inserting next to Session would renumber every pallet
+		// after it and break encoded-call compatibility.
+		Historical: pallet_session_historical,
 	}
 );
 
@@ -1133,14 +1196,18 @@ impl_runtime_apis! {
 			>,
 			_key_owner_proof: sp_consensus_grandpa::OpaqueKeyOwnershipProof,
 		) -> Option<()> {
+			// P2 (docs/CONSENSUS-KEY-LIFECYCLE.md) wires the offence sink;
+			// proofs generated below are checkable once it lands.
 			None
 		}
 
 		fn generate_key_ownership_proof(
 			_set_id: sp_consensus_grandpa::SetId,
-			_authority_id: sp_consensus_grandpa::AuthorityId,
+			authority_id: sp_consensus_grandpa::AuthorityId,
 		) -> Option<sp_consensus_grandpa::OpaqueKeyOwnershipProof> {
-			None
+			Historical::prove((sp_consensus_grandpa::KEY_TYPE, authority_id))
+				.map(|p| p.encode())
+				.map(sp_consensus_grandpa::OpaqueKeyOwnershipProof::new)
 		}
 	}
 
