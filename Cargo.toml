@@ -309,6 +309,7 @@ members = [
 	"substrate/utils/rostro-client",
 	"substrate/utils/rostro-curve25519",
 	"substrate/utils/rostro-executor",
+	"substrate/utils/rostro-hybrid-kex",
 	"substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip",
 	"substrate/utils/rostro-node-identity",
 	"substrate/utils/rostro-node-sandbox",
@@ -610,6 +611,9 @@ merlin = { version = "3.0", default-features = false }
 metered = { version = "0.6.1", default-features = false, package = "prioritized-metered-channel" }
 milagro-bls = { version = "1.5.4", default-features = false, package = "snowbridge-milagro-bls" }
 mixnet = { version = "0.7.0" }
+# Vendored at substrate/external/ml-kem/ — see its VENDOR.md for sync policy.
+# KATs live in rostro-hybrid-kex (the crates.io tarball excludes upstream's).
+ml-kem = { path = "substrate/external/ml-kem", default-features = false, features = ["alloc", "zeroize"] }
 mmr-gadget = { path = "substrate/client/merkle-mountain-range", default-features = false }
 mmr-lib = { path = "substrate/utils/merkle-mountain-range", package = "polkadot-ckb-merkle-mountain-range-rostro", default-features = false }
 mmr-rpc = { path = "substrate/client/merkle-mountain-range/rpc", default-features = false }
@@ -704,6 +708,7 @@ zk-pki-tpm = { path = "substrate/utils/zkpki-tpm", default-features = false }
 rostro-curve25519 = { path = "substrate/utils/rostro-curve25519", default-features = false }
 rostro-executor = { path = "substrate/utils/rostro-executor", default-features = false }
 rostro-executor-fixture-storage-roundtrip = { path = "substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip", default-features = false }
+rostro-hybrid-kex = { path = "substrate/utils/rostro-hybrid-kex", default-features = false }
 rostro-node-sandbox = { path = "substrate/utils/rostro-node-sandbox", default-features = false }
 rostro-poseidon-air = { path = "substrate/utils/rostro-poseidon-air", default-features = false }
 rostro-poseidon-sponge-air = { path = "substrate/utils/rostro-poseidon-sponge-air", default-features = false }
@@ -1105,6 +1110,8 @@ hashbrown = { opt-level = 3 }
 hmac = { opt-level = 3 }
 integer-sqrt = { opt-level = 3 }
 libsecp256k1 = { opt-level = 3 }
+ml-kem = { opt-level = 3 }
+module-lattice = { opt-level = 3 }
 num-bigint = { opt-level = 3 }
 parking_lot = { opt-level = 3 }
 polkavm-linker = { opt-level = 3 }
