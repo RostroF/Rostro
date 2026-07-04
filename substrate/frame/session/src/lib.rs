@@ -287,6 +287,28 @@ impl<A> SessionManager<A> for () {
 	fn end_session(_: SessionIndex) {}
 }
 
+/// Note-and-veto hook invoked on every session-key registration, before the
+/// keys are stored. Runs inside the `set_keys` transaction: if the dispatch
+/// later fails, any state the hook wrote is rolled back with it.
+///
+/// Rostro surgical addition: `pallet-rostro-key-lineage` binds this to enforce
+/// the fresh-key primitive (a consensus key is accepted exactly once in chain
+/// history) and to record key provenance for the forced-rotation deadline and
+/// the retired-key canary offence (docs/CONSENSUS-KEY-LIFECYCLE.md, workstream
+/// 1 P1). This is the only seam that sees every registration path through
+/// `do_set_keys`; a call filter would miss internal callers.
+pub trait KeyProvenance<ValidatorId, Keys> {
+	/// Inspect (and optionally record) a key registration; return `Err` to
+	/// reject it.
+	fn note_set_keys(who: &ValidatorId, keys: &Keys) -> DispatchResult;
+}
+
+impl<V, K> KeyProvenance<V, K> for () {
+	fn note_set_keys(_who: &V, _keys: &K) -> DispatchResult {
+		Ok(())
+	}
+}
+
 /// Handler for session life cycle events.
 pub trait SessionHandler<ValidatorId> {
 	/// All the key type ids this session handler can process.
@@ -493,6 +515,10 @@ pub mod pallet {
 
 		/// `DisablingStragegy` controls how validators are disabled
 		type DisablingStrategy: DisablingStrategy<Self>;
+
+		/// Note-and-veto hook for session-key registrations. See
+		/// [`KeyProvenance`]. Use `()` for no vetting.
+		type KeyProvenance: KeyProvenance<Self::ValidatorId, Self::Keys>;
 
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
@@ -925,6 +951,8 @@ impl<T: Config> Pallet<T> {
 			.ok_or(Error::<T>::NoAssociatedValidatorId)?;
 
 		ensure!(frame_system::Pallet::<T>::can_inc_consumer(account), Error::<T>::NoAccount);
+
+		T::KeyProvenance::note_set_keys(&who, &keys)?;
 
 		let old_keys = Self::inner_set_keys(&who, keys)?;
 

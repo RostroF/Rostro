@@ -4739,11 +4739,13 @@ dependencies = [
  "pallet-authorship",
  "pallet-balances",
  "pallet-grandpa",
+ "pallet-offences",
  "pallet-rns-marketplace",
  "pallet-rns-registrar",
  "pallet-rns-resolvers",
  "pallet-rostro-bilateral-receipt",
  "pallet-rostro-canonical-files",
+ "pallet-rostro-key-lineage",
  "pallet-rostro-operator-state",
  "pallet-rostro-personhood",
  "pallet-rostro-rpc-method-policy",
@@ -10372,6 +10374,26 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-rostro-key-lineage"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "pallet-offences",
+ "pallet-session",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-consensus-grandpa",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-staking",
+ "sp-state-machine",
 ]
 
 [[package]]

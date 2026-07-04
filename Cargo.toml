@@ -172,6 +172,7 @@ members = [
 	"substrate/frame/pallet-rostro-personhood",
 	"substrate/frame/rostro-canonical-files",
 	"substrate/frame/rostro-governance",
+	"substrate/frame/rostro-key-lineage",
 	"substrate/frame/rostro-operator-state",
 	"substrate/frame/rostro-proof-anchor",
 	"substrate/frame/rostro-rpc-method-policy",
@@ -695,6 +696,7 @@ pallet-rns-resolvers = { path = "substrate/frame/rns-resolvers", default-feature
 pallet-rostro-bilateral-receipt = { path = "substrate/frame/rostro-bilateral-receipt", default-features = false }
 pallet-rostro-canonical-files = { path = "substrate/frame/rostro-canonical-files", default-features = false }
 pallet-rostro-governance = { path = "substrate/frame/rostro-governance", default-features = false }
+pallet-rostro-key-lineage = { path = "substrate/frame/rostro-key-lineage", default-features = false }
 pallet-rostro-operator-state = { path = "substrate/frame/rostro-operator-state", default-features = false }
 pallet-rostro-personhood = { path = "substrate/frame/pallet-rostro-personhood", default-features = false }
 zk-pki-client = { path = "substrate/utils/zkpki-client", default-features = false }

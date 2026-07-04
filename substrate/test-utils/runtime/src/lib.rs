@@ -522,6 +522,7 @@ parameter_types! {
 /// a new session and `SameAuthoritiesForever` keeps Babe pinned, the handler's callbacks
 /// never fire.
 impl pallet_session::Config for Runtime {
+	type KeyProvenance = ();
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
 	type ValidatorIdOf = IdentityValidator;

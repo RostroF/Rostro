@@ -157,6 +157,11 @@ substrate-build-script-utils = { workspace = true, default-features = true }
 [features]
 default = []
 
+# Forwarded to the runtime blob build (star scenarios only; see the
+# runtime's feature of the same name — never ship a lab-fast binary to a
+# real chain).
+lab-fast-lifecycle = ["gemini-runtime/lab-fast-lifecycle"]
+
 # Lab-only chat diagnostics. When OFF (the canonical release default),
 # every success-path chat auth/admission/delivery log statement is
 # `#[cfg]`-removed, so the canonical binary provably contains no such

@@ -125,6 +125,7 @@ parameter_types! {
 }
 
 impl pallet_session::Config for Runtime {
+	type KeyProvenance = ();
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
 	type SessionManager =
 		pallet_session::historical::NoteHistoricalRoot<Runtime, TestSessionManager>;
