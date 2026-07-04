@@ -12,9 +12,11 @@
 #   1. Each validator issues a channel cert ("issued channel cert for
 #      epoch N") — the once-per-epoch GRANDPA-key touch fired.
 #   2. Each validator establishes encrypted sessions with >=2 distinct
-#      peers on /rostro/validator-channel-handshake/2. Sessions can only
-#      form if the cert + channel-key handshake verified, so this is the
-#      end-to-end proof of the v2 path.
+#      peers on /rostro/validator-channel-handshake/3 (hybrid
+#      X25519+ML-KEM-768, docs/PQ-TRANSPORT.md). Sessions can only form
+#      if the cert + channel-key handshake verified AND both sides
+#      derived the same hybrid secret, so this is the end-to-end proof
+#      of the v3 path.
 #   3. Frank (observer, no GRANDPA key) issues NO cert and establishes
 #      NO session — the active-set gate still holds.
 #   4. At least one decrypted heartbeat flows (notification path intact).
@@ -96,10 +98,17 @@ COMMON_OBSERVER=(--chain star --no-mdns --rpc-cors=all)
 start_with_supervisor() {
 	local name="$1" base="$2"
 	shift 2
+	# Process substitution (not a pipeline) so $! is the NODE pid: with
+	# `node | tee | sed &`, $! is sed — cleanup then kills sed, the node
+	# survives its broken log pipe, and `wait` hangs forever while
+	# run.log sits truncated at the kill point. Killing the node instead
+	# lets tee drain the full log and exit on EOF.
 	if [[ "${ROSTRO_NO_SUPERVISOR:-0}" == "1" ]]; then
-		"$base/canonical-cache/gemini-node" "$@" 2>&1 | tee "$base/run.log" | sed "s/^/[$name] /" &
+		"$base/canonical-cache/gemini-node" "$@" \
+			> >(tee "$base/run.log" | sed "s/^/[$name] /") 2>&1 &
 	else
-		"$SUPERVISOR_BIN" --child "$base/canonical-cache/gemini-node" --canonical-dir "$base/canonical-cache" -- "$@" 2>&1 | tee "$base/run.log" | sed "s/^/[$name] /" &
+		"$SUPERVISOR_BIN" --child "$base/canonical-cache/gemini-node" --canonical-dir "$base/canonical-cache" -- "$@" \
+			> >(tee "$base/run.log" | sed "s/^/[$name] /") 2>&1 &
 	fi
 	PIDS+=($!)
 }
@@ -139,8 +148,14 @@ start_with_supervisor frank "$FRANK_BASE" \
 	--bootnodes "$BOOTNODES_MULTIADDR" \
 	--canonical-files-dir "$FRANK_BASE/canonical-cache"
 
-echo "waiting 60s for cert issuance + handshakes + heartbeats..."
-sleep 60
+# Default 60s matches the original proven run; override upward
+# (STAR_WINDOW_SECS=180) on a loaded box where 12s effective block
+# cadence leaves GRANDPA short of its first finalized block by 60s —
+# observed 2026-07-03, reproduced with a pre-v3 control binary, so it
+# is box speed, not the channel work.
+STAR_WINDOW_SECS="${STAR_WINDOW_SECS:-60}"
+echo "waiting ${STAR_WINDOW_SECS}s for cert issuance + handshakes + heartbeats..."
+sleep "$STAR_WINDOW_SECS"
 
 cleanup
 
@@ -163,7 +178,7 @@ done
 for name in alice bob charlie; do
 	log="$REPO_ROOT/.star/cert/$name/run.log"
 	if ! grep -qE "established (initiator|responder) session" "$log" 2>/dev/null; then
-		echo "FAIL [$name]: no session established (v2 handshake path failed)"
+		echo "FAIL [$name]: no session established (v3 hybrid handshake path failed)"
 		grep "rostro-validator-channel" "$log" 2>/dev/null | tail -10 | sed "s/^/    /"
 		FAIL=1
 		continue
@@ -173,7 +188,7 @@ for name in alice bob charlie; do
 		echo "FAIL [$name]: only $count distinct session peers (expected 2)"
 		FAIL=1
 	else
-		echo "OK [$name]: established sessions with $count distinct peers on /2"
+		echo "OK [$name]: established sessions with $count distinct peers on /3"
 	fi
 done
 
