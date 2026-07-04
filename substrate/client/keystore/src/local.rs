@@ -563,7 +563,23 @@ impl KeystoreInner {
 		};
 
 		if path.exists() {
-			let file = File::open(path)?;
+			let file = File::open(&path).map_err(|e| {
+				// The file exists (just checked) but could not be opened. This is
+				// almost always a permissions/ownership problem — e.g. a key
+				// inserted under a different uid, mode 0600, that this process
+				// cannot read. `has_keys` discards this error via `.ok()`, which
+				// otherwise makes an unreadable key indistinguishable from an
+				// absent one and can silently drop the node from a validator or
+				// GRANDPA voter set with no diagnostic anywhere. Log it loudly
+				// before propagating.
+				log::warn!(
+					target: "keystore",
+					"key file {} exists but could not be opened ({e}); the key will be \
+					 treated as absent — check the file's ownership and permissions",
+					path.display(),
+				);
+				e
+			})?;
 
 			serde_json::from_reader(&file).map_err(Into::into).map(Some)
 		} else {
