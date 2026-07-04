@@ -70,6 +70,7 @@ impl pallet_balances::Config for Test {
 }
 
 impl pallet_session::Config for Test {
+	type KeyProvenance = ();
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorId = u64;
 	type ValidatorIdOf = ConvertInto;

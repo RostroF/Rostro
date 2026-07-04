@@ -68,7 +68,7 @@ use sp_runtime::{
 		BlakeTwo256, Block as BlockT, ConvertInto, IdentifyAccount, NumberFor, Verify,
 	},
 	transaction_validity::{TransactionSource, TransactionValidity},
-	ApplyExtrinsicResult, DispatchError,
+	ApplyExtrinsicResult,
 };
 use pallet_session::historical as pallet_session_historical;
 use rostro_multi_key::{RostroSignature, RostroSigner};
@@ -79,7 +79,7 @@ use sp_version::RuntimeVersion;
 pub use frame_support::{
 	construct_runtime, derive_impl, parameter_types,
 	traits::{
-		ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, FindAuthor, KeyOwnerProofSystem,
+		ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, FindAuthor, Get, KeyOwnerProofSystem,
 		Randomness, VariantCountOf,
 	},
 	weights::{
@@ -263,10 +263,13 @@ impl pallet_sassafras::Config for Runtime {
 
 // ─── pallet_session ────────────────────────────────────────────────────────
 // Sessions rotate every 4h. The validator SET stays fixed until NPoS staking
-// lands (the inner session manager below re-feeds the same set), but session
+// lands (the key-lineage pallet re-feeds the roster each session), but session
 // KEYS registered via `set_keys` activate at the next session boundary and
 // GRANDPA schedules the authority-set change (set_id advances every session).
-// docs/CONSENSUS-KEY-LIFECYCLE.md, workstream 1 P0.
+// KeyLineage vets every `set_keys` (a GRANDPA key is accepted exactly once in
+// chain history) and enforces the forced-rotation deadline by excluding
+// non-compliant validators from the next set.
+// docs/CONSENSUS-KEY-LIFECYCLE.md, workstream 1 P0+P1.
 
 parameter_types! {
 	pub const SessionPeriod: BlockNumber = 4 * 60 * 60 / 6; // 4h of 6s blocks
@@ -279,14 +282,14 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = ConvertInto;
 	type ShouldEndSession = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
-	type SessionManager =
-		pallet_session::historical::NoteHistoricalRoot<Runtime, SameValidatorsEachSession>;
+	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Runtime, KeyLineage>;
 	type SessionHandler = <opaque::SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = opaque::SessionKeys;
 	type DisablingStrategy = ();
 	type Currency = Balances;
 	type KeyDeposit = ConstU128<{ ROSTO / 10 }>;
 	type WeightInfo = ();
+	type KeyProvenance = KeyLineage;
 }
 
 // Session-historical: stores a merkle root of each session's (validator,
@@ -306,34 +309,40 @@ impl sp_runtime::traits::Convert<AccountId, Option<()>> for UnitIdentificationOf
 	}
 }
 
-/// Inner session manager for `NoteHistoricalRoot`: returns the unchanged
-/// validator set every session, so the historical trie root is regenerated
-/// from the keys actually active in that session — a rotated GRANDPA key
-/// stays provable for exactly the sessions it was live. Returning `Some`
-/// also marks every session `changed`, which is what makes GRANDPA schedule
-/// the authority-set change that activates rotated keys. Genesis returns
-/// `None` so `pallet_session` falls back to the genesis key owners
-/// (`Validators` storage is not yet populated while genesis is being built).
-pub struct SameValidatorsEachSession;
-impl pallet_session::SessionManager<AccountId> for SameValidatorsEachSession {
-	fn new_session(_new_index: u32) -> Option<Vec<AccountId>> {
-		Some(Session::validators())
+// ─── pallet_rostro_key_lineage ─────────────────────────────────────────────
+// Permanent GRANDPA-key lineage + fresh-key primitive + forced-rotation
+// deadline. As the inner session manager under `NoteHistoricalRoot` it
+// re-feeds the (filtered) roster every session, so the historical trie root
+// is regenerated from the keys actually active in that session — a rotated
+// GRANDPA key stays provable for exactly the sessions it was live — and every
+// session is marked `changed`, which is what makes GRANDPA schedule the
+// authority-set change that activates rotated keys.
+
+/// Era clock for key lineage: the zkpki 24h membership epoch, so "era" means
+/// one thing chain-wide.
+pub struct MembershipEpochEra;
+impl Get<u32> for MembershipEpochEra {
+	fn get() -> u32 {
+		zk_pki_pallet::Pallet::<Runtime>::current_epoch()
 	}
-	fn new_session_genesis(_new_index: u32) -> Option<Vec<AccountId>> {
-		None
-	}
-	fn start_session(_start_index: u32) {}
-	fn end_session(_end_index: u32) {}
 }
-impl pallet_session::historical::SessionManager<AccountId, ()> for SameValidatorsEachSession {
-	fn new_session(_new_index: u32) -> Option<Vec<(AccountId, ())>> {
-		Some(Session::validators().into_iter().map(|v| (v, ())).collect())
+
+/// Live GRANDPA set id for lineage lifecycle points.
+pub struct GrandpaCurrentSetId;
+impl Get<u64> for GrandpaCurrentSetId {
+	fn get() -> u64 {
+		Grandpa::current_set_id()
 	}
-	fn new_session_genesis(_new_index: u32) -> Option<Vec<(AccountId, ())>> {
-		None
-	}
-	fn start_session(_start_index: u32) {}
-	fn end_session(_end_index: u32) {}
+}
+
+impl pallet_rostro_key_lineage::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type CurrentEra = MembershipEpochEra;
+	type CurrentSetId = GrandpaCurrentSetId;
+	// Forced-rotation deadline K = 7 eras (7 days): a next-session GRANDPA
+	// key strictly older than this excludes its validator from the next set.
+	type MaxKeyAgeEras = ConstU32<7>;
+	type MaxValidators = ConstU32<32>;
 }
 
 // ─── pallet_grandpa ────────────────────────────────────────────────────────
@@ -1025,6 +1034,12 @@ construct_runtime!(
 		// is live; inserting next to Session would renumber every pallet
 		// after it and break encoded-call compatibility.
 		Historical: pallet_session_historical,
+
+		// GRANDPA-key lineage: fresh-key primitive, permanent key records,
+		// forced-rotation deadline (docs/CONSENSUS-KEY-LIFECYCLE.md, P1).
+		// Appended at the END: pallet indices are positional and this
+		// runtime is live.
+		KeyLineage: pallet_rostro_key_lineage,
 	}
 );
 

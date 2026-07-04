@@ -46,6 +46,7 @@ rns-types = { workspace = true }
 rostro-multi-key = { path = "../../utils/rostro-multi-key", default-features = false }
 pallet-sassafras = { workspace = true, features = ["construct-dummy-ring-context"] }
 pallet-session = { workspace = true, features = ["historical"] }
+pallet-rostro-key-lineage = { workspace = true }
 pallet-sudo = { workspace = true }
 pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
@@ -117,6 +118,7 @@ std = [
 	"rns-types/std",
 	"rostro-multi-key/std",
 	"pallet-sassafras/std",
+	"pallet-rostro-key-lineage/std",
 	"pallet-session/std",
 	"pallet-sudo/std",
 	"pallet-timestamp/std",

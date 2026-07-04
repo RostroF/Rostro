@@ -97,6 +97,7 @@ impl pallet_session::SessionHandler<AccountId> for TestSessionHandler {
 }
 
 impl pallet_session::Config for Test {
+	type KeyProvenance = ();
 	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Test, Staking>;
 	type Keys = SessionKeys;
 	type ShouldEndSession = pallet_session::PeriodicSessions<(), ()>;

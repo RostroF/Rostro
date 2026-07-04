@@ -169,6 +169,7 @@ parameter_types! {
 }
 
 impl pallet_session::Config for Test {
+	type KeyProvenance = ();
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorId = u64;
 	type ValidatorIdOf = sp_runtime::traits::ConvertInto;

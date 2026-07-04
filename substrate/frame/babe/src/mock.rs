@@ -92,6 +92,7 @@ impl_opaque_keys! {
 }
 
 impl pallet_session::Config for Test {
+	type KeyProvenance = ();
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
 	type ValidatorIdOf = sp_runtime::traits::ConvertInto;
