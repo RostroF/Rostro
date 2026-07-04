@@ -254,6 +254,9 @@ pub mod pallet {
 		ValidatorHealed { validator: T::ValidatorId },
 		/// The fixed roster was captured from the live session validator set.
 		RosterCaptured { count: u32 },
+		/// The roster was set by root (live-chain bootstrap; see
+		/// [`Pallet::force_roster`]).
+		RosterForced { count: u32 },
 		/// Enforcement would have emptied the validator set; the previous
 		/// set was kept instead. This is an operator-visible alarm, not a
 		/// pardon: exclusion resumes as soon as at least one validator is
@@ -296,6 +299,9 @@ pub mod pallet {
 		DuplicateEvidence,
 		/// The offence sink rejected the report.
 		ReportRejected,
+		/// `force_roster` with an empty list; an empty roster would plan an
+		/// empty authority set.
+		EmptyRoster,
 	}
 
 	#[pallet::call]
@@ -365,6 +371,28 @@ pub mod pallet {
 			});
 
 			Ok(if newly_disabling { Pays::No.into() } else { Pays::Yes.into() })
+		}
+
+		/// Root-only roster bootstrap for a live chain whose genesis predates
+		/// session-owned validators (pre-spec-103 chains seeded GRANDPA
+		/// authorities directly, leaving `pallet_session` empty — on such a
+		/// chain the lazy roster capture has nothing to capture and rotation
+		/// is inert). Ops order matters: every listed validator must have
+		/// registered session keys via `set_keys` BEFORE this call takes
+		/// effect at the next rotation — roster members without registered
+		/// keys are excluded from planning, so forcing a roster ahead of the
+		/// registrations would shrink the authority set to whoever has keys.
+		#[pallet::call_index(1)]
+		#[pallet::weight(T::DbWeight::get().reads_writes(0, 1))]
+		pub fn force_roster(
+			origin: OriginFor<T>,
+			validators: BoundedVec<T::ValidatorId, T::MaxValidators>,
+		) -> DispatchResult {
+			ensure_root(origin)?;
+			ensure!(!validators.is_empty(), Error::<T>::EmptyRoster);
+			Roster::<T>::put(&validators);
+			Self::deposit_event(Event::RosterForced { count: validators.len() as u32 });
+			Ok(())
 		}
 	}
 }

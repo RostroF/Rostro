@@ -191,8 +191,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	authoring_version: 1,
 	// Bumped per forkless set_code upgrade — Substrate requires strict
 	// increase. 101 = first live upgrade (dev chain, 2026-07-02);
-	// 102 = first 3-node lab-cluster upgrade (2026-07-02).
-	spec_version: 102,
+	// 102 = first 3-node lab-cluster upgrade (2026-07-02);
+	// 103 = consensus-key lifecycle workstream 1 (session rotation,
+	// key lineage, offences; docs/CONSENSUS-KEY-LIFECYCLE.md).
+	spec_version: 103,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -271,8 +273,21 @@ impl pallet_sassafras::Config for Runtime {
 // non-compliant validators from the next set.
 // docs/CONSENSUS-KEY-LIFECYCLE.md, workstream 1 P0+P1.
 
+#[cfg(not(feature = "lab-fast-lifecycle"))]
 parameter_types! {
 	pub const SessionPeriod: BlockNumber = 4 * 60 * 60 / 6; // 4h of 6s blocks
+	pub const SessionOffset: BlockNumber = 0;
+}
+
+// Scenario-only compression of the key lifecycle (star proofs; see
+// scripts/star-scenarios/). 25-block sessions make a rotation observable in
+// minutes instead of hours. NEVER ship a lab-fast binary to the lab cluster
+// or beyond: it changes consensus timing without changing spec_version, so
+// it would fork any chain whose peers run the canonical build. The star
+// scenarios run their own genesis with every node built the same way.
+#[cfg(feature = "lab-fast-lifecycle")]
+parameter_types! {
+	pub const SessionPeriod: BlockNumber = 25;
 	pub const SessionOffset: BlockNumber = 0;
 }
 
@@ -319,11 +334,22 @@ impl sp_runtime::traits::Convert<AccountId, Option<()>> for UnitIdentificationOf
 // authority-set change that activates rotated keys.
 
 /// Era clock for key lineage: the zkpki 24h membership epoch, so "era" means
-/// one thing chain-wide.
+/// one thing chain-wide. Under `lab-fast-lifecycle` (star scenarios only)
+/// the lineage era runs off a compressed 25-block clock instead, so the
+/// K=7-era forced-rotation deadline is provable inside a scenario window;
+/// the zkpki epoch itself is untouched (chat freshness keeps its real
+/// clock).
 pub struct MembershipEpochEra;
 impl Get<u32> for MembershipEpochEra {
 	fn get() -> u32 {
-		zk_pki_pallet::Pallet::<Runtime>::current_epoch()
+		#[cfg(feature = "lab-fast-lifecycle")]
+		{
+			(frame_system::Pallet::<Runtime>::block_number() / 25) as u32
+		}
+		#[cfg(not(feature = "lab-fast-lifecycle"))]
+		{
+			zk_pki_pallet::Pallet::<Runtime>::current_epoch()
+		}
 	}
 }
 

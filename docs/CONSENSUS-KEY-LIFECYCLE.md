@@ -136,12 +136,31 @@ only, deployable to the live lab cluster via the proven set_code path
   lineage-retired key over a GRANDPA-domain preimage scoped after
   retirement). Testnet consequence = disable + permanent record; sink shaped
   so staking slashing plugs in later.
-- **P3 — star proof + deploy.** Live key rotation across a session boundary
-  with finality riding through the set_id bump; canary offence submitted and
-  accepted; deadline-miss disable observed; channel-cert + spend-committee
-  re-checked under a changed set (both read live state and should be
-  rotation-safe; verify, don't assume); then set_code to the lab chain as
-  spec 103.
+- **P3 — star proof + deploy. PROVEN on the live 5-node star 2026-07-03**
+  (`scripts/star-scenarios/session-rotation-01-lifecycle.sh`, full PASS,
+  finalized #266 at teardown): live rotation with finality riding through
+  the set_id bump (lineage recorded retirement at set 1, successor active
+  at set 2); canary evidence from a leaked retired key accepted from a
+  non-validator reporter, owner disabled with reason Offence and excluded
+  from the next set; healing via fresh `set_keys` re-entry; deadline-miss
+  exclusion at the era boundary (eve, reason DeadlineMissed, key retired
+  on drop-out) with finality continuing on 4 authorities; validator
+  channel certs + heartbeats flowing across every set change. Two
+  bootstrap gaps found and fixed on the way: (a) the star/dev/local
+  genesis never populated `pallet_session`, so GRANDPA authorities now
+  flow through session genesis (`on_genesis_session` initializes
+  pallet_grandpa) — without this, rotation was structurally inert on any
+  chain from these specs; (b) live chains whose genesis predates session
+  ownership bootstrap via root-only `force_roster` (register fresh keys
+  FIRST, then force the roster — see
+  rostro-testnet-lab/playbooks/07-session-rotation-bootstrap.sh). The
+  proof ran under the scenario-only `lab-fast-lifecycle` runtime feature
+  (25-block sessions/eras); production constants are untouched. Spec 103
+  set_code to the lab chain lands the machinery in a safe holding state
+  (empty roster = genesis authorities persist) until the 07 bootstrap
+  runs. Spend-committee behaviour under a rotated set remains to be
+  observed organically on the lab chain (it reads live authority state
+  the same way the channel does; the channel is now rotation-proven).
 
 ## 4. Workstream 2: pq-finality-v0 (wire break, NOT testnet-gating)
 

@@ -392,3 +392,41 @@ fn canary_duplicate_rejected_and_refund_not_repeatable() {
 		assert_eq!(pallet_offences::Reports::<Test>::iter().count(), 2);
 	});
 }
+
+// ─── P3: roster bootstrap ───────────────────────────────────────────────────
+
+#[test]
+fn force_roster_is_root_only_and_reshapes_planning() {
+	new_test_ext().execute_with(|| {
+		advance_session();
+		assert_eq!(Roster::<Test>::get().into_inner(), vec![1, 2, 3, 4]);
+
+		assert_noop!(
+			KeyLineage::force_roster(RuntimeOrigin::signed(1), vec![1, 2].try_into().unwrap()),
+			sp_runtime::DispatchError::BadOrigin
+		);
+		assert_noop!(
+			KeyLineage::force_roster(RuntimeOrigin::root(), vec![].try_into().unwrap()),
+			Error::<Test>::EmptyRoster
+		);
+
+		// Root shrinks the roster; planning follows it (the bootstrap shape:
+		// on a live chain this call comes AFTER all members registered keys).
+		assert_ok!(KeyLineage::force_roster(
+			RuntimeOrigin::root(),
+			vec![1, 2].try_into().unwrap()
+		));
+		advance_session();
+		advance_session();
+		assert_eq!(Session::validators(), vec![1, 2]);
+
+		// And can grow it back.
+		assert_ok!(KeyLineage::force_roster(
+			RuntimeOrigin::root(),
+			vec![1, 2, 3, 4].try_into().unwrap()
+		));
+		advance_session();
+		advance_session();
+		assert_eq!(Session::validators(), vec![1, 2, 3, 4]);
+	});
+}

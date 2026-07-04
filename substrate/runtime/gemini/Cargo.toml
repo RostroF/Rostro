@@ -94,6 +94,11 @@ sp-version = { workspace = true }
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
 
 [features]
+# Scenario-only lifecycle compression for star proofs: 25-block sessions +
+# 25-block lineage eras. Forwarded into the RISC-V runtime blob by the
+# builder's feature propagation. Never ship a lab-fast binary to a real
+# chain (consensus timing changes without a spec bump).
+lab-fast-lifecycle = []
 default = ["std"]
 std = [
 	"codec/std",
