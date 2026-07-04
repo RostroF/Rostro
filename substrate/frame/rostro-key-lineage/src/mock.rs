@@ -30,6 +30,7 @@ frame_support::construct_runtime!(
 		Balances: pallet_balances,
 		Session: pallet_session,
 		Historical: pallet_session_historical,
+		Offences: pallet_offences,
 		KeyLineage: pallet_rostro_key_lineage,
 	}
 );
@@ -125,12 +126,19 @@ pub fn current_mock_set_id() -> u64 {
 	SET_ID.with(|s| s.get())
 }
 
+impl pallet_offences::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type IdentificationTuple = pallet_session_historical::IdentificationTuple<Self>;
+	type OnOffenceHandler = KeyLineage;
+}
+
 impl pallet_rostro_key_lineage::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type CurrentEra = MockEra;
 	type CurrentSetId = MockSetId;
 	type MaxKeyAgeEras = ConstU32<7>;
 	type MaxValidators = ConstU32<32>;
+	type ReportCanary = Offences;
 }
 
 /// Deterministic ed25519 GRANDPA key for test seed `n`.

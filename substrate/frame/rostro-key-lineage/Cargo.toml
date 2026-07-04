@@ -30,6 +30,7 @@ sp-staking = { workspace = true }
 
 [dev-dependencies]
 pallet-balances = { workspace = true, features = ["std"] }
+pallet-offences = { workspace = true, features = ["std"] }
 sp-core = { workspace = true, features = ["std"] }
 sp-io = { workspace = true, features = ["std"] }
 sp-state-machine = { workspace = true, features = ["std"] }

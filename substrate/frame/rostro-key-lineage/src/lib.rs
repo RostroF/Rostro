@@ -42,13 +42,25 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_support::{dispatch::DispatchResult, ensure, traits::Get, BoundedVec};
+use frame_support::{
+	dispatch::DispatchResult, ensure, traits::Get, weights::Weight, BoundedVec,
+};
 use scale_info::TypeInfo;
-use sp_consensus_grandpa::AuthorityId;
-use sp_runtime::traits::{Convert, OpaqueKeys};
-use sp_staking::SessionIndex;
+use sp_consensus_grandpa::{AuthorityId, AuthoritySignature};
+use sp_runtime::{
+	traits::{Convert, OpaqueKeys},
+	Perbill, RuntimeAppPublic,
+};
+use sp_staking::{
+	offence::{Kind, Offence, OffenceDetails, OffenceError, OnOffenceHandler, ReportOffence},
+	SessionIndex,
+};
+
+/// The offender type reported to the offence sink: the historical
+/// identification tuple, same shape GRANDPA equivocations use.
+pub type IdentificationTuple<T> = pallet_session::historical::IdentificationTuple<T>;
 
 pub use pallet::*;
 
@@ -102,6 +114,52 @@ pub enum DisableReason {
 	Offence,
 }
 
+/// The retired-key canary offence: a signature by a lineage-retired GRANDPA
+/// key over a GRANDPA-domain preimage scoped to a set id *after* the key's
+/// retirement. No honest process can produce one — the chain's own lineage
+/// proves the key should never sign in that scope again — so the signature
+/// itself is the complete evidence, submittable by anyone. Testnet
+/// consequence is disable + permanent record; `slash_fraction` is the seam
+/// where staking economics plug in later.
+#[derive(Clone, PartialEq, Eq, Encode, Decode, TypeInfo, Debug)]
+pub struct RetiredKeyOffence<Offender> {
+	/// Session at which the evidence was accepted (the offence is timeless;
+	/// this anchors the report for the offence store).
+	pub session_index: SessionIndex,
+	/// Validator-set size at acceptance, for slash-fraction arithmetic.
+	pub validator_set_count: u32,
+	/// The owner of the retired key.
+	pub offender: Offender,
+	/// The GRANDPA set id the forged preimage was scoped to.
+	pub set_id: u64,
+	/// The GRANDPA round the forged preimage was scoped to.
+	pub round: u64,
+}
+
+impl<Offender: Clone> Offence<Offender> for RetiredKeyOffence<Offender> {
+	const ID: Kind = *b"key-lineage:cnry";
+	type TimeSlot = (u64, u64);
+
+	fn offenders(&self) -> Vec<Offender> {
+		vec![self.offender.clone()]
+	}
+	fn session_index(&self) -> SessionIndex {
+		self.session_index
+	}
+	fn validator_set_count(&self) -> u32 {
+		self.validator_set_count
+	}
+	fn time_slot(&self) -> Self::TimeSlot {
+		(self.set_id, self.round)
+	}
+	fn slash_fraction(&self, _offenders_count: u32) -> Perbill {
+		// Testnet: no staking, no economics — the consequence is
+		// disable-and-record via the offence handler. When NPoS lands this
+		// becomes a real fraction (a leaked juror credential is severe).
+		Perbill::zero()
+	}
+}
+
 /// Exclusion record. Removed (with the permanent history kept in events,
 /// key records and offence reports) when the validator heals by registering
 /// a fresh key.
@@ -116,6 +174,7 @@ pub struct DisableRecord {
 pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
+	use frame_system::pallet_prelude::*;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -145,6 +204,15 @@ pub mod pallet {
 		/// Roster capacity; matches the GRANDPA `MaxAuthorities` bound.
 		#[pallet::constant]
 		type MaxValidators: Get<u32>;
+
+		/// Where accepted retired-key canary evidence is reported
+		/// (`pallet_offences` in the runtime; its handler routes back into
+		/// this pallet's `OnOffenceHandler` for disable-and-record).
+		type ReportCanary: ReportOffence<
+			Self::AccountId,
+			IdentificationTuple<Self>,
+			RetiredKeyOffence<IdentificationTuple<Self>>,
+		>;
 	}
 
 	/// Permanent lineage, keyed by GRANDPA key. Entries are never removed.
@@ -191,6 +259,17 @@ pub mod pallet {
 		/// pardon: exclusion resumes as soon as at least one validator is
 		/// compliant.
 		EnforcementFloorHit,
+		/// Valid retired-key canary evidence was accepted: `key` (owned by
+		/// `validator`, retired as of `retired_set_id`) signed a
+		/// GRANDPA-domain preimage scoped to the later `set_id`. The key is
+		/// compromised.
+		RetiredKeyEvidenceAccepted {
+			validator: T::ValidatorId,
+			key: AuthorityId,
+			retired_set_id: u64,
+			set_id: u64,
+			round: u64,
+		},
 	}
 
 	#[pallet::error]
@@ -200,6 +279,93 @@ pub mod pallet {
 		/// The GRANDPA key has already been seen on this chain. Keys are
 		/// accepted exactly once in chain history; generate a fresh one.
 		GrandpaKeyAlreadySeen,
+		/// No lineage record for this key.
+		UnknownKey,
+		/// The key is not retired; a signature from a live key is not canary
+		/// evidence (equivocation reporting covers live-key misbehaviour).
+		KeyNotRetired,
+		/// The preimage's set id does not postdate the key's retirement, so
+		/// the signature could be a legitimately signed historical vote.
+		ScopeNotAfterRetirement,
+		/// Empty preimage.
+		EmptyPreimage,
+		/// The signature does not verify for this key over the GRANDPA
+		/// signing domain `preimage ++ round ++ set_id`.
+		BadSignature,
+		/// This (key, set_id, round) evidence was already reported.
+		DuplicateEvidence,
+		/// The offence sink rejected the report.
+		ReportRejected,
+	}
+
+	#[pallet::call]
+	impl<T: Config> Pallet<T> {
+		/// Report a signature made by a lineage-retired GRANDPA key over a
+		/// GRANDPA-domain preimage scoped after the key's retirement.
+		/// Submittable by anyone; the signature is the entire proof. The
+		/// signed payload is checked against GRANDPA's signing domain:
+		/// `message ++ round.encode() ++ set_id.encode()` (the
+		/// `localized_payload` format), with `message` supplied raw so any
+		/// GRANDPA-domain artifact qualifies, not only well-formed votes.
+		///
+		/// Fees are refunded when the evidence newly disables the offender,
+		/// so watchers need no balance beyond the existential deposit; the
+		/// refund is not repeatable for an already-disabled offender, which
+		/// caps free-execution spam from a single stolen key.
+		#[pallet::call_index(0)]
+		#[pallet::weight(
+			Weight::from_parts(150_000_000, 0)
+				.saturating_add(T::DbWeight::get().reads_writes(4, 2))
+		)]
+		pub fn report_retired_key_signature(
+			origin: OriginFor<T>,
+			key: AuthorityId,
+			round: u64,
+			set_id: u64,
+			message: BoundedVec<u8, ConstU32<4096>>,
+			signature: AuthoritySignature,
+		) -> DispatchResultWithPostInfo {
+			let reporter = ensure_signed(origin)?;
+
+			ensure!(!message.is_empty(), Error::<T>::EmptyPreimage);
+			let record = Keys::<T>::get(&key).ok_or(Error::<T>::UnknownKey)?;
+			let retired = record.retired.clone().ok_or(Error::<T>::KeyNotRetired)?;
+			ensure!(set_id > retired.set_id, Error::<T>::ScopeNotAfterRetirement);
+
+			// GRANDPA signing domain (sp_consensus_grandpa::localized_payload).
+			let mut payload = message.into_inner();
+			round.using_encoded(|b| payload.extend_from_slice(b));
+			set_id.using_encoded(|b| payload.extend_from_slice(b));
+			ensure!(key.verify(&payload, &signature), Error::<T>::BadSignature);
+
+			let full = T::FullIdentificationOf::convert(record.owner.clone())
+				// Cannot fail with unit identification; validate the handoff
+				// anyway rather than assume.
+				.ok_or(Error::<T>::ReportRejected)?;
+			let newly_disabling = !Disabled::<T>::contains_key(&record.owner);
+
+			let offence = RetiredKeyOffence {
+				session_index: pallet_session::Pallet::<T>::current_index(),
+				validator_set_count: pallet_session::Pallet::<T>::validators().len() as u32,
+				offender: (record.owner.clone(), full),
+				set_id,
+				round,
+			};
+			T::ReportCanary::report_offence(vec![reporter], offence).map_err(|e| match e {
+				OffenceError::DuplicateReport => Error::<T>::DuplicateEvidence,
+				OffenceError::Other(_) => Error::<T>::ReportRejected,
+			})?;
+
+			Self::deposit_event(Event::RetiredKeyEvidenceAccepted {
+				validator: record.owner,
+				key,
+				retired_set_id: retired.set_id,
+				set_id,
+				round,
+			});
+
+			Ok(if newly_disabling { Pays::No.into() } else { Pays::Yes.into() })
+		}
 	}
 }
 
@@ -456,6 +622,28 @@ impl<T: Config> pallet_session::SessionManager<T::ValidatorId> for Pallet<T> {
 	}
 	fn start_session(_start_index: SessionIndex) {}
 	fn end_session(_end_index: SessionIndex) {}
+}
+
+/// The offence sink's consequence: disable-and-record, for every offence
+/// kind routed here (GRANDPA equivocation and the retired-key canary alike).
+/// The permanent record lives in `pallet_offences::Reports` plus this
+/// pallet's events and key records; the exclusion itself heals on a fresh
+/// `set_keys`. Slash fractions are accepted but unused until NPoS staking
+/// supplies economics.
+impl<T: Config>
+	OnOffenceHandler<T::AccountId, IdentificationTuple<T>, Weight> for Pallet<T>
+{
+	fn on_offence(
+		offenders: &[OffenceDetails<T::AccountId, IdentificationTuple<T>>],
+		_slash_fraction: &[Perbill],
+		_session: SessionIndex,
+	) -> Weight {
+		for details in offenders {
+			let (validator, _full) = &details.offender;
+			Self::disable_for_offence(validator);
+		}
+		T::DbWeight::get().reads_writes(1, 2).saturating_mul(offenders.len() as u64)
+	}
 }
 
 impl<T: Config>

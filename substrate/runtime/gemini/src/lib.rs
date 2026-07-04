@@ -343,6 +343,19 @@ impl pallet_rostro_key_lineage::Config for Runtime {
 	// key strictly older than this excludes its validator from the next set.
 	type MaxKeyAgeEras = ConstU32<7>;
 	type MaxValidators = ConstU32<32>;
+	type ReportCanary = Offences;
+}
+
+// ─── pallet_offences ───────────────────────────────────────────────────────
+// The offence sink for GRANDPA equivocations and retired-key canary reports.
+// Reports are stored permanently; the consequence is routed to KeyLineage
+// (disable-and-record, heal on fresh keys). Slash fractions flow through the
+// same seam and start meaning something when NPoS staking lands.
+
+impl pallet_offences::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type IdentificationTuple = pallet_session_historical::IdentificationTuple<Self>;
+	type OnOffenceHandler = KeyLineage;
 }
 
 // ─── pallet_grandpa ────────────────────────────────────────────────────────
@@ -356,9 +369,15 @@ impl pallet_grandpa::Config for Runtime {
 	// against past authority sets. One entry per session: 2048 ≈ 341 days.
 	type MaxSetIdSessionEntries = ConstU64<2048>;
 	type KeyOwnerProof = sp_session::MembershipProof;
-	// P2 (docs/CONSENSUS-KEY-LIFECYCLE.md) wires this to a real offence
-	// sink; until then reports are structurally checkable but dropped.
-	type EquivocationReportSystem = ();
+	// Equivocation reports flow into pallet_offences and from there to
+	// KeyLineage's disable-and-record handler. Report validity window: the
+	// proof must land within ~3 sessions of the offence.
+	type EquivocationReportSystem =
+		pallet_grandpa::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+}
+
+parameter_types! {
+	pub ReportLongevity: u64 = 3 * SessionPeriod::get() as u64;
 }
 
 // ─── pallet_authorship ─────────────────────────────────────────────────────
@@ -1040,6 +1059,11 @@ construct_runtime!(
 		// Appended at the END: pallet indices are positional and this
 		// runtime is live.
 		KeyLineage: pallet_rostro_key_lineage,
+
+		// Offence sink: permanent reports for equivocation + retired-key
+		// canary, consequence routed to KeyLineage (P2). Positional append,
+		// same as above.
+		Offences: pallet_offences,
 	}
 );
 
@@ -1205,15 +1229,14 @@ impl_runtime_apis! {
 		}
 
 		fn submit_report_equivocation_unsigned_extrinsic(
-			_equivocation_proof: sp_consensus_grandpa::EquivocationProof<
+			equivocation_proof: sp_consensus_grandpa::EquivocationProof<
 				<Block as BlockT>::Hash,
 				NumberFor<Block>,
 			>,
-			_key_owner_proof: sp_consensus_grandpa::OpaqueKeyOwnershipProof,
+			key_owner_proof: sp_consensus_grandpa::OpaqueKeyOwnershipProof,
 		) -> Option<()> {
-			// P2 (docs/CONSENSUS-KEY-LIFECYCLE.md) wires the offence sink;
-			// proofs generated below are checkable once it lands.
-			None
+			let key_owner_proof = key_owner_proof.decode()?;
+			Grandpa::submit_unsigned_equivocation_report(equivocation_proof, key_owner_proof)
 		}
 
 		fn generate_key_ownership_proof(

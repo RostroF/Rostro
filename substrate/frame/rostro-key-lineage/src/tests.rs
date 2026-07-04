@@ -225,3 +225,170 @@ fn set_keys_proof_still_enforced() {
 		assert_ok!(set_keys(1, 60));
 	});
 }
+
+// ─── P2: retired-key canary ─────────────────────────────────────────────────
+
+use codec::Encode;
+use frame_support::pallet_prelude::Pays;
+use sp_consensus_grandpa::{AuthorityId, AuthoritySignature};
+use sp_core::Pair as _;
+
+/// Signature by key `seed` over the GRANDPA signing domain
+/// `message ++ round ++ set_id` (the `localized_payload` layout).
+fn grandpa_domain_signature(
+	seed: u8,
+	message: &[u8],
+	round: u64,
+	set_id: u64,
+) -> (AuthorityId, AuthoritySignature) {
+	let (pair, public) = gran_key(seed);
+	let mut payload = message.to_vec();
+	payload.extend(round.encode());
+	payload.extend(set_id.encode());
+	(public, pair.sign(&payload).into())
+}
+
+fn report(
+	reporter: AccountId,
+	key: AuthorityId,
+	round: u64,
+	set_id: u64,
+	message: &[u8],
+	signature: AuthoritySignature,
+) -> frame_support::dispatch::DispatchResultWithPostInfo {
+	KeyLineage::report_retired_key_signature(
+		RuntimeOrigin::signed(reporter),
+		key,
+		round,
+		set_id,
+		message.to_vec().try_into().unwrap(),
+		signature,
+	)
+}
+
+/// Rotate validator 1 off its genesis key and return the retired key's
+/// recorded last-served set id.
+fn retire_genesis_key_of_v1() -> u64 {
+	advance_session(); // lineage capture
+	assert_ok!(set_keys(1, 21));
+	advance_session();
+	advance_session();
+	LineageKeys::<Test>::get(&gran_key(1).1)
+		.unwrap()
+		.retired
+		.expect("genesis key of 1 must be retired")
+		.set_id
+}
+
+#[test]
+fn retired_key_canary_disables_offender_end_to_end() {
+	new_test_ext().execute_with(|| {
+		let retired_set = retire_genesis_key_of_v1();
+
+		// The stolen retired key signs a GRANDPA-domain preimage scoped one
+		// set past its retirement. Any account may report; fees refunded.
+		let (key, sig) =
+			grandpa_domain_signature(1, b"forged-prevote", 42, retired_set + 1);
+		let post = report(9, key.clone(), 42, retired_set + 1, b"forged-prevote", sig)
+			.expect("valid canary evidence must be accepted");
+		assert_eq!(post.pays_fee, Pays::No);
+
+		// Evidence event carries the lineage context.
+		assert!(lineage_events().iter().any(|e| matches!(
+			e,
+			Event::RetiredKeyEvidenceAccepted { validator: 1, set_id, .. } if *set_id == retired_set + 1
+		)));
+
+		// Offence recorded permanently in the sink, offender disabled via
+		// the OnOffenceHandler round-trip through pallet_offences.
+		assert_eq!(pallet_offences::Reports::<Test>::iter().count(), 1);
+		assert_eq!(Disabled::<Test>::get(1).unwrap().reason, DisableReason::Offence);
+
+		// Exclusion lands at the next set; healing works as everywhere else.
+		advance_session();
+		advance_session();
+		assert_eq!(Session::validators(), vec![2, 3, 4]);
+		assert_ok!(set_keys(1, 31));
+		advance_session();
+		advance_session();
+		assert_eq!(Session::validators(), vec![1, 2, 3, 4]);
+		// The permanent record survives healing.
+		assert_eq!(pallet_offences::Reports::<Test>::iter().count(), 1);
+	});
+}
+
+#[test]
+fn canary_rejects_non_evidence() {
+	new_test_ext().execute_with(|| {
+		let retired_set = retire_genesis_key_of_v1();
+
+		// Scope at (not after) retirement: could be a legitimate old vote.
+		let (key, sig) = grandpa_domain_signature(1, b"old-vote", 7, retired_set);
+		assert_noop!(
+			report(9, key, 7, retired_set, b"old-vote", sig),
+			Error::<Test>::ScopeNotAfterRetirement
+		);
+
+		// A live key is not canary material.
+		let (live_key, live_sig) =
+			grandpa_domain_signature(2, b"whatever", 7, retired_set + 1);
+		assert_noop!(
+			report(9, live_key, 7, retired_set + 1, b"whatever", live_sig),
+			Error::<Test>::KeyNotRetired
+		);
+
+		// A key with no lineage record.
+		let (unknown_key, unknown_sig) =
+			grandpa_domain_signature(99, b"whatever", 7, retired_set + 1);
+		assert_noop!(
+			report(9, unknown_key, 7, retired_set + 1, b"whatever", unknown_sig),
+			Error::<Test>::UnknownKey
+		);
+
+		// Signature over a different payload than claimed.
+		let (key, sig) =
+			grandpa_domain_signature(1, b"signed-this", 7, retired_set + 1);
+		assert_noop!(
+			report(9, key, 7, retired_set + 1, b"claimed-that", sig),
+			Error::<Test>::BadSignature
+		);
+
+		// Correct payload, wrong signer.
+		let (_, foreign_sig) =
+			grandpa_domain_signature(3, b"forged", 7, retired_set + 1);
+		assert_noop!(
+			report(9, gran_key(1).1, 7, retired_set + 1, b"forged", foreign_sig),
+			Error::<Test>::BadSignature
+		);
+
+		// Nothing got disabled along the way.
+		assert!(Disabled::<Test>::iter().next().is_none());
+	});
+}
+
+#[test]
+fn canary_duplicate_rejected_and_refund_not_repeatable() {
+	new_test_ext().execute_with(|| {
+		let retired_set = retire_genesis_key_of_v1();
+
+		let (key, sig) = grandpa_domain_signature(1, b"forged", 1, retired_set + 1);
+		let post = report(9, key.clone(), 1, retired_set + 1, b"forged", sig.clone())
+			.expect("first report accepted");
+		assert_eq!(post.pays_fee, Pays::No);
+
+		// Identical evidence: duplicate.
+		assert_noop!(
+			report(8, key.clone(), 1, retired_set + 1, b"forged", sig),
+			Error::<Test>::DuplicateEvidence
+		);
+
+		// Fresh evidence from the same stolen key (different round) is still
+		// accepted — each is real evidence — but the offender is already
+		// disabled, so the fee refund is gone: no free-execution spam.
+		let (_, sig2) = grandpa_domain_signature(1, b"forged", 2, retired_set + 1);
+		let post2 = report(9, gran_key(1).1, 2, retired_set + 1, b"forged", sig2)
+			.expect("fresh evidence accepted");
+		assert_eq!(post2.pays_fee, Pays::Yes);
+		assert_eq!(pallet_offences::Reports::<Test>::iter().count(), 2);
+	});
+}
