@@ -68,10 +68,17 @@
 //! [`Session::to_state_bytes`] / [`Session::from_state_bytes`] —
 //! stored ENCRYPTED by the caller.
 //!
-//! New conversations bootstrap via **full X3DH** ([`x3dh_initiate`] /
-//! [`x3dh_respond`]): signed prekey from the RNS chat-identity record
-//! + optional one-time prekey from the recipient's published batch,
-//! making the very first message forward-secret before any reply.
+//! New conversations bootstrap via **full PQXDH** — hybrid
+//! post-quantum X3DH ([`x3dh_initiate`] / [`x3dh_respond`]): signed
+//! prekey (X25519) from the RNS chat-identity record + optional
+//! one-time prekey from the recipient's published batch + an
+//! identity-signed ML-KEM-768 KEM prekey (PQSPK). The initiator
+//! encapsulates against the PQSPK and folds the KEM shared secret into
+//! the bootstrap KDF, so the very first message is forward-secret AND
+//! confidential against retroactive (harvest-now-decrypt-later)
+//! decryption unless BOTH X25519 and ML-KEM fall. The whole Double
+//! Ratchet chains from this secret, so the property covers the entire
+//! conversation. See docs/PQ-CHAT.md.
 //!
 //! ## Protocol shape (simplified Double Ratchet)
 //!
@@ -644,8 +651,12 @@ pub fn verify_handshake(payload: &HandshakePayload) -> Result<(), HandshakeError
 
 // ───── Full X3DH (Phase 5: forward secrecy from message one) ──────────
 
-/// HKDF info string for the X3DH shared-secret derivation.
-pub const X3DH_INFO: &[u8] = b"rostro/chat-channel/x3dh/v1";
+/// HKDF info string for the PQXDH shared-secret derivation. Bumped
+/// from the classical `x3dh/v1`: the hybrid construction folds an
+/// ML-KEM leg into the ikm, so a classical initiation and a PQXDH
+/// initiation can never derive the same secret. Hard cutover — there
+/// is no chat mainnet, so no dual-path window (docs/PQ-CHAT.md).
+pub const PQXDH_INFO: &[u8] = b"rostro/chat-channel/pqxdh/v1";
 
 /// Signature domain for the signed prekey (SPK). The recipient's
 /// identity Ed25519 key signs `SPK_SIGNATURE_DOMAIN || spk_x25519`;
@@ -656,6 +667,14 @@ pub const SPK_SIGNATURE_DOMAIN: &[u8] = b"rostro/chat-channel/spk/v1";
 /// Signature domain for one-time prekeys (OPK): the identity key
 /// signs `OPK_SIGNATURE_DOMAIN || opk_id_le_bytes || opk_x25519`.
 pub const OPK_SIGNATURE_DOMAIN: &[u8] = b"rostro/chat-channel/opk/v1";
+
+/// Signature domain for the post-quantum signed prekey (PQSPK): the
+/// identity key signs `PQSPK_SIGNATURE_DOMAIN || pqspk_ek`. The KEM
+/// prekey MUST be identity-signed for the same reason the classical
+/// SPK is — an unsigned KEM prekey lets an active attacker swap in
+/// their own encapsulation key and the "post-quantum" leg protects the
+/// attacker's channel, not the user's.
+pub const PQSPK_SIGNATURE_DOMAIN: &[u8] = b"rostro/chat-channel/pqspk/v1";
 
 /// The recipient's published prekey material, as the SENDER sees it
 /// when starting a new conversation: identity key (from the RNS
@@ -676,6 +695,15 @@ pub struct PrekeyBundle {
 	pub spk_x25519: [u8; 32],
 	/// Identity signature over the SPK.
 	pub spk_signature: [u8; 64],
+	/// Post-quantum signed prekey: an ML-KEM-768 encapsulation key,
+	/// rotated alongside the SPK. The initiator encapsulates against
+	/// it; the resulting shared secret is folded into the PQXDH KDF so
+	/// the conversation survives retroactive decryption of the X25519
+	/// legs at Q-day (docs/PQ-CHAT.md). Published in the same RNS
+	/// chat-identity record as the SPK.
+	pub pqspk_ek: [u8; rostro_hybrid_kex::MLKEM768_EK_BYTES],
+	/// Identity signature over the PQSPK encapsulation key.
+	pub pqspk_signature: [u8; 64],
 	/// One-time prekey `(id, pubkey)`, if one was available. Absent
 	/// OPK degrades gracefully to SPK-only X3DH (first-message
 	/// forward secrecy still holds via DH3; replay protection of the
@@ -742,6 +770,41 @@ pub fn verify_spk(bundle: &PrekeyBundle) -> Result<(), HandshakeError> {
 	Ok(())
 }
 
+/// Canonical PQSPK signature preimage.
+pub fn pqspk_preimage(
+	pqspk_ek: &[u8; rostro_hybrid_kex::MLKEM768_EK_BYTES],
+) -> Vec<u8> {
+	let mut buf = Vec::with_capacity(PQSPK_SIGNATURE_DOMAIN.len() + pqspk_ek.len());
+	buf.extend_from_slice(PQSPK_SIGNATURE_DOMAIN);
+	buf.extend_from_slice(pqspk_ek);
+	buf
+}
+
+/// Sign a post-quantum signed-prekey (ML-KEM-768 encapsulation key)
+/// with the identity key.
+#[cfg(feature = "std")]
+pub fn sign_pqspk(
+	pqspk_ek: &[u8; rostro_hybrid_kex::MLKEM768_EK_BYTES],
+	identity_signing: &ed25519_zebra::SigningKey,
+) -> [u8; 64] {
+	let sig: ed25519_zebra::Signature =
+		identity_signing.sign(&pqspk_preimage(pqspk_ek));
+	sig.into()
+}
+
+/// Verify the bundle's PQSPK signature under its identity key. Callers
+/// MUST run this (in addition to [`verify_spk`]) before
+/// [`x3dh_initiate`]: an unsigned/forged KEM prekey defeats the whole
+/// point of the post-quantum leg.
+pub fn verify_pqspk(bundle: &PrekeyBundle) -> Result<(), HandshakeError> {
+	let vk = ed25519_zebra::VerificationKey::try_from(bundle.identity_ed25519)
+		.map_err(|_| HandshakeError::InvalidPubkey)?;
+	let sig = ed25519_zebra::Signature::from(bundle.pqspk_signature);
+	vk.verify(&sig, &pqspk_preimage(&bundle.pqspk_ek))
+		.map_err(|_| HandshakeError::SignatureInvalid)?;
+	Ok(())
+}
+
 impl SignedOneTimePrekey {
 	/// Verify this OPK's signature under the publisher's identity key.
 	pub fn verify(&self, identity_ed25519: &[u8; 32]) -> Result<(), HandshakeError> {
@@ -764,6 +827,11 @@ pub struct X3dhInit {
 	pub initiator_identity_ed25519: [u8; 32],
 	pub ephemeral_x25519: [u8; 32],
 	pub opk_id: Option<u32>,
+	/// ML-KEM-768 ciphertext encapsulated against the responder's
+	/// PQSPK. The responder decapsulates it to recover the same KEM
+	/// shared secret the initiator folded into the PQXDH KDF. ~1088 B;
+	/// carried only by the first message of a conversation.
+	pub pq_ct: [u8; rostro_hybrid_kex::MLKEM768_CT_BYTES],
 }
 
 /// Initiator side of full X3DH. `bundle` must already be verified
@@ -777,22 +845,31 @@ pub struct X3dhInit {
 /// DH2 = DH(EK_A,  IK_B)    — fresh ephemeral → responder identity
 /// DH3 = DH(EK_A,  SPK_B)   — fresh ephemeral → responder prekey
 /// DH4 = DH(EK_A,  OPK_B)   — fresh ephemeral → one-time prekey (if any)
-/// SK  = HKDF(salt=0, ikm=0xFF×32 ‖ DH1‖DH2‖DH3[‖DH4], info=X3DH_INFO)
+/// KEM = ML-KEM-768.Encaps(PQSPK_B) — post-quantum leg, SS appended last
+/// SK  = HKDF(salt=0, ikm=0xFF×32 ‖ DH1‖DH2‖DH3[‖DH4]‖KEM_SS, info=PQXDH_INFO)
 /// ```
 ///
 /// DH3 makes the very first message forward-secret (EK_A is destroyed
 /// after the session initializes); DH4 additionally protects the
 /// initiation against SPK compromise + replay.
+///
+/// PQXDH: the returned secret additionally folds an ML-KEM-768 shared
+/// secret encapsulated against `bundle.pqspk_ek`, so the conversation
+/// is confidential against retroactive decryption of the X25519 legs
+/// unless ML-KEM *also* falls. Callers MUST have run [`verify_spk`]
+/// AND [`verify_pqspk`] on `bundle` first. Returns
+/// [`HandshakeError::InvalidPubkey`] if the PQSPK is not a valid
+/// ML-KEM-768 encapsulation key.
 pub fn x3dh_initiate<R>(
 	initiator_identity_secret: &X25519SecretKey,
 	initiator_identity_ed25519: [u8; 32],
 	bundle: &PrekeyBundle,
 	rng: &mut R,
-) -> (X3dhInit, [u8; 32], X25519SecretKey)
+) -> Result<(X3dhInit, [u8; 32], X25519SecretKey), HandshakeError>
 where
 	R: rand_core::RngCore + rand_core::CryptoRng,
 {
-	let ephemeral = X25519SecretKey::random_from_rng(rng);
+	let ephemeral = X25519SecretKey::random_from_rng(&mut *rng);
 	let spk_pub = X25519PublicKey::from(bundle.spk_x25519);
 	let ik_b = X25519PublicKey::from(bundle.identity_x25519);
 
@@ -803,14 +880,28 @@ where
 		.opk
 		.map(|(_, opk)| ephemeral.diffie_hellman(&X25519PublicKey::from(opk)));
 
-	let sk = x3dh_kdf(dh1.as_bytes(), dh2.as_bytes(), dh3.as_bytes(), dh4.as_ref().map(|d| d.as_bytes()));
+	// PQ leg: encapsulate against the responder's KEM prekey with fresh
+	// CSPRNG randomness.
+	let mut m = [0u8; 32];
+	rng.fill_bytes(&mut m);
+	let (pq_ct, pq_ss) = rostro_hybrid_kex::mlkem_encapsulate(&bundle.pqspk_ek, &m)
+		.map_err(|_| HandshakeError::InvalidPubkey)?;
+
+	let sk = pqxdh_kdf(
+		dh1.as_bytes(),
+		dh2.as_bytes(),
+		dh3.as_bytes(),
+		dh4.as_ref().map(|d| d.as_bytes()),
+		&pq_ss,
+	);
 
 	let init = X3dhInit {
 		initiator_identity_ed25519,
 		ephemeral_x25519: *X25519PublicKey::from(&ephemeral).as_bytes(),
 		opk_id: bundle.opk.map(|(id, _)| id),
+		pq_ct,
 	};
-	(init, sk, ephemeral)
+	Ok((init, sk, ephemeral))
 }
 
 /// Errors from [`x3dh_respond`].
@@ -821,18 +912,27 @@ pub enum X3dhError {
 	/// grabbed the same one). Recoverable: the initiator retries
 	/// without an OPK (SPK-only).
 	OpkUnavailable,
+	/// The PQ ciphertext failed to decapsulate outright (malformed
+	/// encoding). Note: a *tampered* ciphertext does NOT land here —
+	/// ML-KEM implicit rejection yields a deterministic garbage secret
+	/// and the first message then fails its AEAD, so there is no
+	/// decapsulation oracle. This variant is only the hard-decode case.
+	PqDecapFailed,
 }
 
-/// Responder side of full X3DH. `initiator_identity_x25519` is the
+/// Responder side of full PQXDH. `initiator_identity_x25519` is the
 /// caller-converted X25519 form of `init.initiator_identity_ed25519`
 /// (the caller verified the envelope signature under that Ed25519
-/// first). Feed the result to [`Session::from_handshake_responder`]
-/// with `sending_secret = spk_secret.clone()`,
+/// first). `pqspk_decap` is the ML-KEM-768 decapsulation key matching
+/// the PQSPK the responder published. Feed the result to
+/// [`Session::from_handshake_responder`] with
+/// `sending_secret = spk_secret.clone()`,
 /// `peer_initial_pub = init.ephemeral_x25519`.
 pub fn x3dh_respond(
 	responder_identity_secret: &X25519SecretKey,
 	spk_secret: &X25519SecretKey,
 	opk_secret: Option<&X25519SecretKey>,
+	pqspk_decap: &rostro_hybrid_kex::MlKemDecapKey,
 	initiator_identity_x25519: &X25519PublicKey,
 	init: &X3dhInit,
 ) -> Result<[u8; 32], X3dhError> {
@@ -848,19 +948,31 @@ pub fn x3dh_respond(
 		.filter(|_| init.opk_id.is_some())
 		.map(|opk| opk.diffie_hellman(&ek_a));
 
-	Ok(x3dh_kdf(dh1.as_bytes(), dh2.as_bytes(), dh3.as_bytes(), dh4.as_ref().map(|d| d.as_bytes())))
+	// PQ leg: decapsulate the initiator's ciphertext.
+	let pq_ss = rostro_hybrid_kex::mlkem_decapsulate(pqspk_decap, &init.pq_ct)
+		.map_err(|_| X3dhError::PqDecapFailed)?;
+
+	Ok(pqxdh_kdf(
+		dh1.as_bytes(),
+		dh2.as_bytes(),
+		dh3.as_bytes(),
+		dh4.as_ref().map(|d| d.as_bytes()),
+		&pq_ss,
+	))
 }
 
-/// X3DH KDF: 32 bytes of 0xFF (curve-domain pad, per the Signal
-/// spec) prepended to the concatenated DH outputs, HKDF'd under
-/// [`X3DH_INFO`].
-fn x3dh_kdf(
+/// PQXDH KDF: 32 bytes of 0xFF (curve-domain pad, per the Signal
+/// spec) prepended to the concatenated DH outputs, then the ML-KEM
+/// shared secret appended LAST (Signal PQXDH ordering), HKDF'd under
+/// [`PQXDH_INFO`].
+fn pqxdh_kdf(
 	dh1: &[u8; 32],
 	dh2: &[u8; 32],
 	dh3: &[u8; 32],
 	dh4: Option<&[u8; 32]>,
+	pq_ss: &[u8; 32],
 ) -> [u8; 32] {
-	let mut ikm = Vec::with_capacity(32 * 5);
+	let mut ikm = Vec::with_capacity(32 * 6);
 	ikm.extend_from_slice(&[0xFF; 32]);
 	ikm.extend_from_slice(dh1);
 	ikm.extend_from_slice(dh2);
@@ -868,9 +980,10 @@ fn x3dh_kdf(
 	if let Some(d4) = dh4 {
 		ikm.extend_from_slice(d4);
 	}
+	ikm.extend_from_slice(pq_ss);
 	let hk = Hkdf::<Sha256>::new(Some(&[0u8; 32]), &ikm);
 	let mut sk = [0u8; 32];
-	hk.expand(X3DH_INFO, &mut sk).expect("32 bytes within HKDF limit");
+	hk.expand(PQXDH_INFO, &mut sk).expect("32 bytes within HKDF limit");
 	ikm.zeroize();
 	sk
 }
@@ -1103,7 +1216,16 @@ mod tests {
 		assert_eq!(bob2.decrypt(&m3).unwrap(), b"and back");
 	}
 
-	// ───── Phase 5: full X3DH ───────────────────────────────────────
+	// ───── Phase 5: full PQXDH (hybrid X25519 + ML-KEM-768) ──────────
+
+	/// A responder's ML-KEM-768 signed prekey for tests: fixed seed so
+	/// the keypair is deterministic. Returns (decapsulation key,
+	/// encapsulation-key bytes).
+	fn test_pqspk(
+		seed_byte: u8,
+	) -> (rostro_hybrid_kex::MlKemDecapKey, [u8; rostro_hybrid_kex::MLKEM768_EK_BYTES]) {
+		rostro_hybrid_kex::mlkem_keypair_from_seed(&[seed_byte; 64])
+	}
 
 	fn x3dh_fixture(use_opk: bool) -> (Session, Session) {
 		let mut rng = ChaCha20Rng::seed_from_u64(0x3D);
@@ -1118,6 +1240,7 @@ mod tests {
 		let bob_spk_pub = X25519PublicKey::from(&bob_spk);
 		let bob_opk = X25519SecretKey::random_from_rng(&mut rng);
 		let bob_opk_pub = X25519PublicKey::from(&bob_opk);
+		let (bob_pqspk_decap, bob_pqspk_ek) = test_pqspk(0xB9);
 
 		// Alice's identity (initiator).
 		let alice_identity_signing = ed25519_zebra::SigningKey::new(&mut rng);
@@ -1131,21 +1254,26 @@ mod tests {
 			identity_x25519: *bob_ik_pub.as_bytes(),
 			spk_x25519: *bob_spk_pub.as_bytes(),
 			spk_signature: sign_spk(&bob_spk_pub, &bob_identity_signing),
+			pqspk_ek: bob_pqspk_ek,
+			pqspk_signature: sign_pqspk(&bob_pqspk_ek, &bob_identity_signing),
 			opk: use_opk.then_some((7, *bob_opk_pub.as_bytes())),
 		};
 		verify_spk(&bundle).expect("SPK signature verifies");
+		verify_pqspk(&bundle).expect("PQSPK signature verifies");
 
 		let (init, sk_a, ek_secret) =
-			x3dh_initiate(&alice_ik, alice_identity_ed, &bundle, &mut rng);
+			x3dh_initiate(&alice_ik, alice_identity_ed, &bundle, &mut rng)
+				.expect("initiator encapsulates");
 		let sk_b = x3dh_respond(
 			&bob_ik,
 			&bob_spk,
 			use_opk.then_some(&bob_opk),
+			&bob_pqspk_decap,
 			&alice_ik_pub,
 			&init,
 		)
 		.expect("responder derives");
-		assert_eq!(sk_a, sk_b, "X3DH shared secrets agree");
+		assert_eq!(sk_a, sk_b, "PQXDH shared secrets agree");
 
 		let alice =
 			Session::from_handshake_initiator(sk_a, ek_secret, bob_spk_pub);
@@ -1174,6 +1302,106 @@ mod tests {
 	}
 
 	#[test]
+	fn pqxdh_kem_leg_actually_contributes() {
+		// Same classical inputs + same ephemeral, but a DIFFERENT KEM
+		// prekey must yield a DIFFERENT PQXDH secret — proof the ML-KEM
+		// leg is folded in, not decorative.
+		let mut rng = ChaCha20Rng::seed_from_u64(0x71);
+		let bob_identity_signing = ed25519_zebra::SigningKey::new(&mut rng);
+		let bob_identity_ed: [u8; 32] =
+			ed25519_zebra::VerificationKey::from(&bob_identity_signing).into();
+		let bob_ik = X25519SecretKey::random_from_rng(&mut rng);
+		let bob_spk = X25519SecretKey::random_from_rng(&mut rng);
+		let bob_spk_pub = X25519PublicKey::from(&bob_spk);
+		let alice_ik = X25519SecretKey::random_from_rng(&mut rng);
+
+		let mk_bundle = |ek: [u8; rostro_hybrid_kex::MLKEM768_EK_BYTES]| PrekeyBundle {
+			identity_ed25519: bob_identity_ed,
+			identity_x25519: *X25519PublicKey::from(&bob_ik).as_bytes(),
+			spk_x25519: *bob_spk_pub.as_bytes(),
+			spk_signature: sign_spk(&bob_spk_pub, &bob_identity_signing),
+			pqspk_ek: ek,
+			pqspk_signature: sign_pqspk(&ek, &bob_identity_signing),
+			opk: None,
+		};
+		let (_, ek1) = test_pqspk(0x01);
+		let (_, ek2) = test_pqspk(0x02);
+		// Identical RNG stream on both sides → identical X25519 ephemeral
+		// AND identical KEM encapsulation randomness, so the ONLY
+		// difference is the KEM prekey.
+		let mut r1 = ChaCha20Rng::seed_from_u64(0x99);
+		let mut r2 = ChaCha20Rng::seed_from_u64(0x99);
+		let (_, sk1, _) = x3dh_initiate(&alice_ik, [0u8; 32], &mk_bundle(ek1), &mut r1).unwrap();
+		let (_, sk2, _) = x3dh_initiate(&alice_ik, [0u8; 32], &mk_bundle(ek2), &mut r2).unwrap();
+		assert_ne!(sk1, sk2, "different KEM prekey must change the secret");
+	}
+
+	#[test]
+	fn pqxdh_tampered_ciphertext_breaks_first_message() {
+		// A flipped bit in pq_ct implicitly rejects to a garbage KEM
+		// secret; the responder derives a different root and the first
+		// message fails its AEAD (no decap oracle). We assert the two
+		// sides DISAGREE, which is what makes decrypt fail downstream.
+		let mut rng = ChaCha20Rng::seed_from_u64(0x72);
+		let bob_identity_signing = ed25519_zebra::SigningKey::new(&mut rng);
+		let bob_identity_ed: [u8; 32] =
+			ed25519_zebra::VerificationKey::from(&bob_identity_signing).into();
+		let bob_ik = X25519SecretKey::random_from_rng(&mut rng);
+		let bob_ik_pub = X25519PublicKey::from(&bob_ik);
+		let bob_spk = X25519SecretKey::random_from_rng(&mut rng);
+		let bob_spk_pub = X25519PublicKey::from(&bob_spk);
+		let (bob_pqspk_decap, bob_pqspk_ek) = test_pqspk(0xD4);
+		let alice_ik = X25519SecretKey::random_from_rng(&mut rng);
+		let alice_ik_pub = X25519PublicKey::from(&alice_ik);
+
+		let bundle = PrekeyBundle {
+			identity_ed25519: bob_identity_ed,
+			identity_x25519: *bob_ik_pub.as_bytes(),
+			spk_x25519: *bob_spk_pub.as_bytes(),
+			spk_signature: sign_spk(&bob_spk_pub, &bob_identity_signing),
+			pqspk_ek: bob_pqspk_ek,
+			pqspk_signature: sign_pqspk(&bob_pqspk_ek, &bob_identity_signing),
+			opk: None,
+		};
+		let (mut init, sk_a, _) =
+			x3dh_initiate(&alice_ik, [9u8; 32], &bundle, &mut rng).unwrap();
+		init.pq_ct[0] ^= 0xFF; // tamper
+
+		let sk_b = x3dh_respond(
+			&bob_ik,
+			&bob_spk,
+			None,
+			&bob_pqspk_decap,
+			&alice_ik_pub,
+			&init,
+		)
+		.expect("implicit rejection is not an error");
+		assert_ne!(sk_a, sk_b, "tampered ciphertext must desync the secret");
+	}
+
+	#[test]
+	fn pqspk_signature_rejects_tamper() {
+		let mut rng = ChaCha20Rng::seed_from_u64(0x73);
+		let identity = ed25519_zebra::SigningKey::new(&mut rng);
+		let identity_ed: [u8; 32] = ed25519_zebra::VerificationKey::from(&identity).into();
+		let (_, ek) = test_pqspk(0xE5);
+		let ik_pub = X25519PublicKey::from(&X25519SecretKey::random_from_rng(&mut rng));
+		let spk_pub = X25519PublicKey::from(&X25519SecretKey::random_from_rng(&mut rng));
+		let mut bundle = PrekeyBundle {
+			identity_ed25519: identity_ed,
+			identity_x25519: *ik_pub.as_bytes(),
+			spk_x25519: *spk_pub.as_bytes(),
+			spk_signature: sign_spk(&spk_pub, &identity),
+			pqspk_ek: ek,
+			pqspk_signature: sign_pqspk(&ek, &identity),
+			opk: None,
+		};
+		verify_pqspk(&bundle).expect("genuine PQSPK verifies");
+		bundle.pqspk_ek[0] ^= 0xFF; // flip a byte of the signed KEM key
+		assert_eq!(verify_pqspk(&bundle), Err(HandshakeError::SignatureInvalid));
+	}
+
+	#[test]
 	fn x3dh_opk_changes_secret() {
 		// With vs without OPK must derive DIFFERENT secrets (DH4
 		// actually contributes).
@@ -1187,23 +1415,27 @@ mod tests {
 		let bob_opk = X25519SecretKey::random_from_rng(&mut rng);
 		let alice_ik = X25519SecretKey::random_from_rng(&mut rng);
 
+		let (_bob_pqspk_decap, bob_pqspk_ek) = test_pqspk(0xC3);
 		let mk_bundle = |opk: Option<(u32, [u8; 32])>| PrekeyBundle {
 			identity_ed25519: bob_identity_ed,
 			identity_x25519: *X25519PublicKey::from(&bob_ik).as_bytes(),
 			spk_x25519: *bob_spk_pub.as_bytes(),
 			spk_signature: sign_spk(&bob_spk_pub, &bob_identity_signing),
+			pqspk_ek: bob_pqspk_ek,
+			pqspk_signature: sign_pqspk(&bob_pqspk_ek, &bob_identity_signing),
 			opk,
 		};
 		let mut rng1 = ChaCha20Rng::seed_from_u64(0x55);
-		let mut rng2 = ChaCha20Rng::seed_from_u64(0x55); // same ephemeral
+		let mut rng2 = ChaCha20Rng::seed_from_u64(0x55); // same ephemeral + same KEM m
 		let (_, sk_with, _) = x3dh_initiate(
 			&alice_ik,
 			[0u8; 32],
 			&mk_bundle(Some((1, *X25519PublicKey::from(&bob_opk).as_bytes()))),
 			&mut rng1,
-		);
+		)
+		.unwrap();
 		let (_, sk_without, _) =
-			x3dh_initiate(&alice_ik, [0u8; 32], &mk_bundle(None), &mut rng2);
+			x3dh_initiate(&alice_ik, [0u8; 32], &mk_bundle(None), &mut rng2).unwrap();
 		assert_ne!(sk_with, sk_without);
 	}
 
@@ -1212,14 +1444,18 @@ mod tests {
 		let mut rng = ChaCha20Rng::seed_from_u64(0x3F);
 		let bob_ik = X25519SecretKey::random_from_rng(&mut rng);
 		let bob_spk = X25519SecretKey::random_from_rng(&mut rng);
+		let (bob_pqspk_decap, _bob_pqspk_ek) = test_pqspk(0xC7);
 		let init = X3dhInit {
 			initiator_identity_ed25519: [1u8; 32],
 			ephemeral_x25519: [2u8; 32],
 			opk_id: Some(9),
+			pq_ct: [0u8; rostro_hybrid_kex::MLKEM768_CT_BYTES],
 		};
 		let alice_pub = X25519PublicKey::from([3u8; 32]);
+		// OPK-availability is checked before the PQ decap, so this
+		// returns OpkUnavailable regardless of the (dummy) ciphertext.
 		assert_eq!(
-			x3dh_respond(&bob_ik, &bob_spk, None, &alice_pub, &init),
+			x3dh_respond(&bob_ik, &bob_spk, None, &bob_pqspk_decap, &alice_pub, &init),
 			Err(X3dhError::OpkUnavailable)
 		);
 	}

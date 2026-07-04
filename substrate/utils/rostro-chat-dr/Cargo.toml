@@ -20,6 +20,10 @@ hkdf = { workspace = true }
 sha2 = { workspace = true }
 zeroize = { workspace = true }
 ed25519-zebra = { workspace = true }
+# ML-KEM-768 sizes + encap/decap for the PQXDH signed prekey. Same
+# crate the validator channel uses, so the ML-KEM derivation cannot
+# drift between the two channels.
+rostro-hybrid-kex = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }
 
 [dev-dependencies]
@@ -34,4 +38,5 @@ std = [
 	"sha2/std",
 	"zeroize/std",
 	"ed25519-zebra/std",
+	"rostro-hybrid-kex/std",
 ]
