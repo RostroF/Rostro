@@ -1,6 +1,6 @@
 # Consensus key lifecycle: forced rotation, lineage, offences, and the PQ finality ratchet
 
-**Status:** spec, approved for build. Workstream 1 (session-rotation-v0) starts now; workstream 2 (pq-finality-v0) scoped, not started.
+**Status:** workstream 1 (session-rotation-v0) DONE — merged 5602fc6417, star-proven, lab on spec 103, rotation proven on production config 2026-07-04. Workstream 2 (pq-finality-v0) IN BUILD since 2026-07-05 (worktree `/home/coder/Rostro-pq-finality/`); scheme locked, Phase 0 (vendor + hybrid-sig leaf) landed.
 **Date:** 2026-07-03.
 **Context:** continuation of the GRANDPA-key thread: [[KEYSTORE-AUDIT]] → [[VALIDATOR-CHANNEL-CERT]] (landed 753c022f4c) → [[PQ-TRANSPORT]] (landed 27e4e56634). Motivating question from the user: why does a finality juror hold a never-expiring key, and why isn't rotation forced with the key history tracked so long-range attacks die?
 
@@ -194,17 +194,28 @@ this is client-side, so it ships via the node-binary release path, not
 
 ## 4. Workstream 2: pq-finality-v0 (wire break, NOT testnet-gating)
 
-Separate worktree when workstream 1 is moving. **Scheme (recommended, final
-call at P0): hybrid dual-signature per vote, ed25519 + SLH-DSA-128f** (FIPS
-205 final, RustCrypto `slh-dsa` vendorable per VENDOR.md exactly as `ml-kem`
-was). Rationale: stateless (no state-reuse grenade for operators, which
-matters until F4 hardware exists), same hybrid philosophy as
-[[PQ-TRANSPORT]] (classical security survives a lattice/hash-scheme break,
-PQ security survives Shor). Cost accepted: ~17 KB per vote signature, ~550 KB
-justifications at 32 authorities; signing is fast-variant (tens of ms),
-inside the round budget. The stateful XMSS-style KES alternative is ~6x
-smaller but carries the state grenade until the F4 watermark exists; fat and
-safe wins v0.
+Worktree `/home/coder/Rostro-pq-finality/`, branch `pq-finality-v0` off
+rostro-main 5daa9f4865. **Scheme LOCKED 2026-07-05: hybrid dual-signature
+per vote, ed25519 + SLH-DSA-SHA2-128f** (FIPS 205 final, RustCrypto
+`slh-dsa` 0.1.0 vendored per VENDOR.md exactly as `ml-kem` was).
+Rationale: stateless (no state-reuse grenade for operators, which matters
+until F4 hardware exists), same hybrid philosophy as [[PQ-TRANSPORT]]
+(classical security survives a lattice/hash-scheme break, PQ security
+survives Shor). Cost accepted: 17152-byte hybrid vote signature (64
+ed25519 + 17088 SLH-DSA), ~550 KB justifications at 32 authorities;
+signing is fast-variant (tens of ms), inside the round budget. The
+stateful XMSS-style KES alternative is ~6x smaller but carries the state
+grenade until the F4 watermark exists; fat and safe wins v0.
+
+Phase 0 LANDED: vendored `slh-dsa` 0.1.0 (one surgical Cargo.toml change —
+upstream's `signature 2.3.0-pre.4` pre-release pin can never co-resolve
+with stable `signature 2.x`, relaxed to `>=2.0, <3`; KATs prove behavior
+unchanged) + `substrate/utils/rostro-hybrid-sig`: both-must-verify hybrid
+leaf, FIPS 205 context string as the domain channel with the identical
+`M'` framing on the ed25519 half, deterministic signing (no RNG in the
+voter hot path), ed25519-strict-first verify order. NIST ACVP
+SLH-DSA-SHA2-128f vectors pinned in-crate (the vendored tarball's ACVP
+sample skips that set; provenance + filter procedure in the test file).
 
 Phases: vendor `slh-dsa` + KATs (mirror the ml-kem playbook, wire sizes
 pinned) → signing crate → grandpa client + primitives surgery (signature
