@@ -13963,7 +13963,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "x25519-dalek",
 ]
 
 [[package]]

@@ -35,7 +35,7 @@ use codec::{Decode, Encode};
 
 use crate::chunk::MAX_CHUNKS;
 use crate::descriptor::{ShareDescriptor, UnixTimestamp};
-use crate::verify::{ShareMacTag, MAC_TAG_LEN};
+use crate::verify::{ChunkChecksum, CHUNK_CHECKSUM_LEN};
 
 /// Hard cap on a single share's byte length. 4 MiB is generous for
 /// a chat message divided into a handful of shares — typical chat
@@ -51,12 +51,11 @@ pub struct StoreRequest {
 	/// Chunk bytes — opaque ciphertext fragment (a contiguous slice
 	/// of the encoded envelope).
 	pub share_bytes: Vec<u8>,
-	/// Per-chunk MAC tag, computed on the sender's device under the
-	/// per-conversation stripe-MAC key (see
-	/// [`crate::verify::mac_chunk`]). Relays do not verify the MAC
-	/// (they don't have the key, by design); only recipients verify
-	/// on assembly.
-	pub mac_tag: ShareMacTag,
+	/// Per-chunk descriptor-bound integrity checksum, computed on the
+	/// sender's device (see [`crate::verify::checksum_chunk`]).
+	/// Keyless — relays do not (and cannot meaningfully) verify it;
+	/// the recipient checks it on assembly to localize corruption.
+	pub checksum: ChunkChecksum,
 }
 
 /// Relay's reply to a [`StoreRequest`].
@@ -113,7 +112,7 @@ pub enum StoreInsertError {
 /// passes an `Arc<dyn ShareStore>` to the protocol handlers; the
 /// concrete impl (Phase B2) is the mlock'd in-memory store.
 pub trait ShareStore {
-	/// Insert a (descriptor, share_bytes, mac_tag) triple, keyed
+	/// Insert a (descriptor, share_bytes, checksum) triple, keyed
 	/// internally by `(descriptor.message_id, descriptor.share_index)`
 	/// and indexed for lookup by `descriptor.pickup_key`.
 	///
@@ -124,10 +123,10 @@ pub trait ShareStore {
 		&self,
 		descriptor: ShareDescriptor,
 		share_bytes: Vec<u8>,
-		mac_tag: ShareMacTag,
+		checksum: ChunkChecksum,
 	) -> Result<(), StoreInsertError>;
 
-	/// Return all `(descriptor, share_bytes, mac_tag)` triples
+	/// Return all `(descriptor, share_bytes, checksum)` triples
 	/// whose `descriptor.pickup_key == pickup_key`. Used by the
 	/// fetch path (`/rostro/chat-fetch/1`) to serve a recipient's
 	/// pickup query.
@@ -140,7 +139,7 @@ pub trait ShareStore {
 	fn get_by_pickup_key(
 		&self,
 		_pickup_key: &crate::descriptor::PickupKey,
-	) -> Vec<(ShareDescriptor, Vec<u8>, ShareMacTag)> {
+	) -> Vec<(ShareDescriptor, Vec<u8>, ChunkChecksum)> {
 		Vec::new()
 	}
 
@@ -208,9 +207,9 @@ pub trait ShareStore {
 ///
 /// **No signature verification here** — the share descriptor is a
 /// public artifact (it ends up in the DHT); per-message integrity
-/// is checked by the recipient via the share MAC, not at the
-/// relay. The relay treats shares as opaque transit, not trusted
-/// content.
+/// is checked by the recipient (via the envelope AEAD; the per-chunk
+/// checksum only localizes corruption), not at the relay. The relay
+/// treats shares as opaque transit, not trusted content.
 pub fn handle_store_request<S: ShareStore + ?Sized>(
 	store: &S,
 	request: &StoreRequest,
@@ -234,13 +233,13 @@ pub fn handle_store_request<S: ShareStore + ?Sized>(
 	if request.share_bytes.len() > MAX_SHARE_BYTES {
 		return StoreResponse::Rejected(StoreRejection::ShareTooLarge);
 	}
-	// MAC-tag length is structurally fixed by ShareMacTag = [u8; 32];
+	// Checksum length is structurally fixed by ChunkChecksum = [u8; 32];
 	// the encode/decode roundtrip enforces it. Belt-and-suspenders
 	// check the constant so a future type change can't silently
 	// invalidate this assumption.
-	debug_assert_eq!(MAC_TAG_LEN, 32);
+	debug_assert_eq!(CHUNK_CHECKSUM_LEN, 32);
 
-	match store.insert(d.clone(), request.share_bytes.clone(), request.mac_tag) {
+	match store.insert(d.clone(), request.share_bytes.clone(), request.checksum) {
 		Ok(()) => StoreResponse::Stored,
 		Err(StoreInsertError::DuplicateShare) => {
 			StoreResponse::Rejected(StoreRejection::DuplicateShare)
@@ -334,16 +333,16 @@ mod tests {
 	}
 
 	fn make_request(d: ShareDescriptor, bytes: Vec<u8>) -> StoreRequest {
-		// Filler tag: the store path never verifies MACs (relays hold
+		// Filler checksum: the store path never verifies them (relays hold
 		// no key); only the shape matters here.
-		let tag: ShareMacTag = [d.share_index; 32];
-		StoreRequest { descriptor: d, share_bytes: bytes, mac_tag: tag }
+		let tag: ChunkChecksum = [d.share_index; 32];
+		StoreRequest { descriptor: d, share_bytes: bytes, checksum: tag }
 	}
 
 	/// Stub HashMap-backed store for tests. Replaced by the
 	/// mlock'd ephemeral store in B2.
 	struct StubStore {
-		entries: RefCell<BTreeMap<(MessageId, u8), (ShareDescriptor, Vec<u8>, ShareMacTag)>>,
+		entries: RefCell<BTreeMap<(MessageId, u8), (ShareDescriptor, Vec<u8>, ChunkChecksum)>>,
 		capacity: usize,
 	}
 
@@ -358,7 +357,7 @@ mod tests {
 			&self,
 			descriptor: ShareDescriptor,
 			share_bytes: Vec<u8>,
-			mac_tag: ShareMacTag,
+			checksum: ChunkChecksum,
 		) -> Result<(), StoreInsertError> {
 			let mut e = self.entries.borrow_mut();
 			let key = (descriptor.message_id, descriptor.share_index);
@@ -368,14 +367,14 @@ mod tests {
 			if e.len() >= self.capacity {
 				return Err(StoreInsertError::StorageFull);
 			}
-			e.insert(key, (descriptor, share_bytes, mac_tag));
+			e.insert(key, (descriptor, share_bytes, checksum));
 			Ok(())
 		}
 
 		fn get_by_pickup_key(
 			&self,
 			pickup_key: &crate::descriptor::PickupKey,
-		) -> Vec<(ShareDescriptor, Vec<u8>, ShareMacTag)> {
+		) -> Vec<(ShareDescriptor, Vec<u8>, ChunkChecksum)> {
 			self.entries
 				.borrow()
 				.values()

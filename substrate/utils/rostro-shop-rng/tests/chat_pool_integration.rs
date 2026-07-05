@@ -12,7 +12,7 @@ use rostro_chat_primitives::descriptor::{
 	GroupId, MessageId, PickupKey, RelayPubkey, ShareDescriptor, UnixTimestamp,
 };
 use rostro_chat_primitives::store_protocol::ShareStore;
-use rostro_chat_primitives::verify::ShareMacTag;
+use rostro_chat_primitives::verify::ChunkChecksum;
 use rostro_shop_rng::{EntropySource, OsEntropy, RostroShopRng, StaticEntropy};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -38,7 +38,7 @@ fn insert_dummy(store: &EphemeralShareStore, mid_byte: u8, payload: Vec<u8>) {
 		expires_at_unix_ts: now + 3600,
 	};
 	// Filler tag: nothing in this pool test verifies MACs.
-	let tag: ShareMacTag = [0x5A; 32];
+	let tag: ChunkChecksum = [0x5A; 32];
 	store.insert(descriptor, payload, tag).expect("insert must succeed in fresh store");
 }
 

@@ -9,9 +9,9 @@
 //! (or test-harness CLIs) do all the chat-crypto on-device:
 //!
 //! - Build + sign + sealed-sender-encrypt the envelope locally
-//! - Chunk + MAC the encoded SealedEnvelope on-device and hand the
-//!   prepared batch to the node via `chat_send_prepared` (the node
-//!   splits nothing and holds no MAC key — it is pure routing)
+//! - Chunk + checksum the encoded SealedEnvelope on-device and hand
+//!   the prepared batch to the node via `chat_send_prepared` (the
+//!   node splits nothing and holds no key — it is pure routing)
 //! - On the recipient side, query the node via `chat_fetch_shares`,
 //!   reconstruct + unseal + verify ALL on-device
 //!
@@ -44,11 +44,11 @@
 //! - `chat_localStoreLen` — diagnostic; number of share entries
 //!   the node currently holds.
 //! - `chat_send_prepared(batch_hex, auth_*)` — accept a
-//!   client-prepared chunk batch (split + MAC'd on the sender's
+//!   client-prepared chunk batch (split + checksummed on the sender's
 //!   device; see docs/CHAT-SHARE-CHUNKING.md) and fan each chunk
 //!   out to its own replica set of bucket peers. The node is pure
 //!   routing: it validates shape, stamps its identity into the
-//!   descriptors, and holds no MAC key.
+//!   descriptors, and holds no key.
 //! - `chat_fetch_shares(pickup_key_hex, relay_peer_id_hex?)` —
 //!   return raw ciphertext chunks matching the given pickup_key.
 //!   Aggregates across bucket peers whenever the local view is
@@ -84,7 +84,7 @@ use rostro_chat_primitives::{
 	},
 	fetch_protocol::{FetchRequest, FetchResponse},
 	store_protocol::{ShareStore as _, StoreRejection, StoreRequest, StoreResponse},
-	verify::ShareMacTag,
+	verify::ChunkChecksum,
 };
 use rostro_chat_onion::{process_hop, OnionHop, OnionPacket};
 use rostro_node_identity::NodeSecret;
@@ -320,8 +320,8 @@ pub struct ChatShareDescriptorRpc {
 /// The client uses these to reconstruct messages locally:
 ///
 /// 1. Group by `descriptor.message_id_hex`
-/// 2. When all `total_shares` are present, verify each chunk's MAC and
-///    concatenate in index order (`combine_chunks_authenticated`)
+/// 2. When all `total_shares` are present, verify each chunk's checksum
+///    and concatenate in index order (`combine_chunks_verified`)
 /// 3. SCALE-decode the result as `SealedEnvelope`
 /// 4. Sealed-sender-unseal with the recipient's X25519 secret
 /// 5. SCALE-decode `UnsealedInner` and verify the sender signature
@@ -329,7 +329,7 @@ pub struct ChatShareDescriptorRpc {
 pub struct ChatFetchedShareRaw {
 	pub descriptor: ChatShareDescriptorRpc,
 	pub share_bytes_hex: String,
-	pub mac_tag_hex: String,
+	pub checksum_hex: String,
 }
 
 /// JSON-RPC response for `chat_authenticate` — the session handshake.
@@ -434,10 +434,9 @@ pub trait ChatRpcApi {
 
 	/// Accept a client-prepared chunk batch (the chunk cutover,
 	/// docs/CHAT-SHARE-CHUNKING.md): the SENDER DEVICE split the
-	/// sealed envelope into chunks, MAC'd each one under the
-	/// per-conversation stripe-MAC key, authored the descriptor
-	/// fields, and derived the pickup key. This node is pure
-	/// routing — it validates shape (it holds no MAC key), stamps
+	/// sealed envelope into chunks, checksummed each one, authored
+	/// the descriptor fields, and derived the pickup key. This node
+	/// is pure routing — it validates shape (it holds no key), stamps
 	/// its own identity into the descriptors, and pushes each chunk
 	/// to that chunk's own replica set of bucket peers.
 	///
@@ -1267,8 +1266,8 @@ impl OnionPeelCtx {
 				}
 				// Last hop: fan the client-prepared chunk batch out to the
 				// bucket peers (the sender is gone). The drop bytes ARE a
-				// SCALE-encoded `PreparedBatch` — split + MAC'd on the
-				// sender's device; this node holds no MAC key.
+				// SCALE-encoded `PreparedBatch` — split + checksummed on the
+				// sender's device; this node holds no key.
 				let batch = PreparedBatch::decode(&mut &drop[..]).map_err(|e| {
 					ErrorObject::owned::<()>(
 						-32000,
@@ -1382,7 +1381,7 @@ impl OnionPeelCtx {
 
 /// Shared distribution core: fan a client-prepared chunk batch out to
 /// the recipient bucket's peers over `/rostro/chat-chunk/1`. Pure
-/// routing — this node validates SHAPE only (it holds no MAC key, by
+/// routing — this node validates SHAPE only (it holds no key, by
 /// design), stamps its own identity into the descriptors, and pushes
 /// each chunk to that chunk's OWN replica set. One implementation for
 /// both entries (the onion peeler's `Deliver` arm on relay-2 and the
@@ -1418,7 +1417,8 @@ async fn distribute_prepared(
 	batch: PreparedBatch,
 ) -> RpcResult<ChatSendResult> {
 	// Shape + expiry validation at the handoff (reject known-invalid
-	// input before any fan-out). MACs are NOT checked — no key here.
+	// input before any fan-out). Checksums are NOT checked — that is
+	// the recipient's local corruption check, not the node's job.
 	let total = validate_prepared_batch(&batch, now_unix_seconds()).map_err(|e| {
 		invalid_param("batch", &format!("prepared batch rejected: {e:?}"))
 	})?;
@@ -1473,7 +1473,7 @@ async fn distribute_prepared(
 		let store_req = StoreRequest {
 			descriptor,
 			share_bytes: share.chunk_bytes.clone(),
-			mac_tag: share.mac_tag,
+			checksum: share.checksum,
 		};
 		let request_bytes = store_req.encode();
 
@@ -1786,7 +1786,7 @@ where
 				Ok((resp_bytes, _)) => {
 					if let Ok(resp) = FetchResponse::decode(&mut &resp_bytes[..]) {
 						for fs in resp.shares {
-							matched.push((fs.descriptor, fs.share_bytes, fs.mac_tag));
+							matched.push((fs.descriptor, fs.share_bytes, fs.checksum));
 						}
 					} else {
 						log::warn!(
@@ -1882,7 +1882,7 @@ where
 								#[cfg(feature = "chat-diagnostics")]
 								let n = resp.shares.len();
 								for fs in resp.shares {
-									matched.push((fs.descriptor, fs.share_bytes, fs.mac_tag));
+									matched.push((fs.descriptor, fs.share_bytes, fs.checksum));
 								}
 								#[cfg(feature = "chat-diagnostics")]
 								if n > 0 {
@@ -1917,7 +1917,7 @@ where
 		let mut seen: std::collections::HashSet<(MessageId, u8)> =
 			std::collections::HashSet::new();
 		let mut out: Vec<ChatFetchedShareRaw> = Vec::new();
-		for (descriptor, share_bytes, mac_tag) in matched {
+		for (descriptor, share_bytes, checksum) in matched {
 			let key = (descriptor.message_id, descriptor.share_index);
 			if !seen.insert(key) {
 				continue;
@@ -1932,7 +1932,7 @@ where
 					expires_at_unix_ts: descriptor.expires_at_unix_ts,
 				},
 				share_bytes_hex: hex::encode(&share_bytes),
-				mac_tag_hex: hex::encode(mac_tag),
+				checksum_hex: hex::encode(checksum),
 			});
 		}
 		// Stable ordering for determinism.
@@ -2075,7 +2075,7 @@ fn decode_hex32(hex_str: &str) -> Result<[u8; 32], String> {
 /// so fetch aggregation triggers on incompleteness, not only on an
 /// empty local view. Duplicates across sources are absorbed by the
 /// index set.
-fn matched_set_incomplete(matched: &[(ShareDescriptor, Vec<u8>, ShareMacTag)]) -> bool {
+fn matched_set_incomplete(matched: &[(ShareDescriptor, Vec<u8>, ChunkChecksum)]) -> bool {
 	use std::collections::HashSet;
 	let mut per_message: HashMap<MessageId, (u8, HashSet<ShareIndex>)> = HashMap::new();
 	for (d, _, _) in matched {

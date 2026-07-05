@@ -28,21 +28,29 @@
 //!
 //! ## Who does what
 //!
-//! - **Sender device** ([`prepare_batch`]): split, MAC each chunk
-//!   with the per-message key (derived from the per-conversation
-//!   stripe-MAC secret — see [`crate::verify`]), author the
-//!   descriptor fields. The device is the only party holding the MAC
-//!   key, so every relay downstream is reduced to
-//!   drop-or-deliver-intact.
+//! - **Sender device** ([`prepare_batch`]): split, checksum each
+//!   chunk (descriptor-bound, keyless — see [`crate::verify`]),
+//!   author the descriptor fields.
 //! - **Distributing node** ([`validate_prepared_batch`] then fan-out):
 //!   pure routing. Validates shape + expiry bounds, stamps its own
 //!   `relay_pubkey` into descriptors, pushes each chunk to its
-//!   replica set. Computes no MACs, holds no key, splits nothing.
-//! - **Recipient device** ([`combine_chunks_authenticated`]): verify
-//!   every chunk's MAC, concatenate in index order. Verification is
-//!   local-only and produces no wire traffic; remediation follows the
-//!   privacy rules in docs/CHAT-SHARE-CHUNKING.md §4.6 (retries ride
-//!   a NORMAL-shaped fetch; attribution never leaves the device).
+//!   replica set. Splits nothing, holds no key.
+//! - **Recipient device** ([`combine_chunks_verified`]): verify every
+//!   chunk's checksum (localizes accidental corruption), concatenate
+//!   in index order, then hand the reassembled envelope to the
+//!   sealed-sender AEAD — which is the actual authenticity gate.
+//!
+//! ## Checksum, not MAC
+//!
+//! The per-chunk checksum is a KEYLESS blake2 hash (see
+//! [`crate::verify::checksum_chunk`]): it detects and localizes
+//! accidental corruption (bit rot, truncation, a mislabelled index),
+//! nothing more. It is not relay-unforgeable and provides no
+//! authenticity — that is owned entirely by the envelope's AEAD +
+//! sender signature. Availability under a bad/missing chunk copy is
+//! the bucket-subscription replication scheme's job, NOT client-side
+//! recovery: a chunk whose checksum fails is simply unusable, and the
+//! recipient re-polls later. See docs/CHAT-SHARE-CHUNKING.md §4.3.
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
@@ -50,7 +58,7 @@ use codec::{Decode, Encode};
 use crate::descriptor::{
 	expiry_within_bounds_at, MessageId, PickupKey, ShareIndex, UnixTimestamp,
 };
-use crate::verify::{mac_chunk, verify_chunk_mac, ShareMacKey, ShareMacTag};
+use crate::verify::{checksum_chunk, verify_chunk_checksum, ChunkChecksum};
 
 /// Minimum number of chunks. `n=1` would hand a single relay the
 /// whole (AEAD-sealed) message; requiring ≥2 preserves the "no single
@@ -112,15 +120,15 @@ pub fn split_chunks(payload: &[u8], n: usize) -> Result<Vec<Vec<u8>>, ChunkError
 	Ok(chunks)
 }
 
-/// One client-prepared, MAC-tagged chunk, ready for a distributing
+/// One client-prepared, checksummed chunk, ready for a distributing
 /// node to wrap in a full `ShareDescriptor` (adding its own
 /// `relay_pubkey`) and push to storing relays.
 ///
-/// Everything here is sender-authored and covered by `mac_tag`
-/// (see [`crate::verify::mac_chunk`]) together with the batch-level
-/// `message_id` + `pickup_key` — a distributing node or storing relay
-/// that rewrites any field produces a MAC failure on the recipient's
-/// device.
+/// The `checksum` is a keyless descriptor-bound hash (see
+/// [`crate::verify::checksum_chunk`]) over these fields + the
+/// batch-level `message_id` + `pickup_key`. It localizes accidental
+/// corruption of any of them; it is NOT relay-unforgeable and is not
+/// an authenticity signal (that is the envelope AEAD's job).
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct PreparedShare {
 	/// Position of this chunk within the message (0-based).
@@ -134,12 +142,13 @@ pub struct PreparedShare {
 	pub expires_at_unix_ts: UnixTimestamp,
 	/// The contiguous slice of the SCALE-encoded envelope.
 	pub chunk_bytes: Vec<u8>,
-	/// v2 descriptor-bound MAC tag, computed on the sender's device.
-	pub mac_tag: ShareMacTag,
+	/// Descriptor-bound integrity checksum, computed on the sender's
+	/// device. Keyless — corruption detection, not authentication.
+	pub checksum: ChunkChecksum,
 }
 
 /// A full client-prepared message: the routing key, the message id,
-/// and every tagged chunk. This is:
+/// and every checksummed chunk. This is:
 ///
 /// - the **onion `Deliver` drop encoding** (the drop bytes ARE
 ///   `PreparedBatch::encode()`; the onion layer treats them as
@@ -151,27 +160,24 @@ pub struct PreparedBatch {
 	/// Sender-derived routing key (pairwise / group / dead-drop —
 	/// uniform blake2 outputs, indistinguishable to relays).
 	pub pickup_key: PickupKey,
-	/// The message id, also inside each chunk's MAC preimage.
+	/// The message id, also inside each chunk's checksum preimage.
 	pub message_id: MessageId,
-	/// The tagged chunks, in index order as produced by
+	/// The checksummed chunks, in index order as produced by
 	/// [`prepare_batch`]. Validators do not assume order
 	/// ([`validate_prepared_batch`] checks the index set).
 	pub shares: Vec<PreparedShare>,
 }
 
 /// Sender-device pipeline: split the encoded envelope into `n`
-/// chunks and MAC each one under `key` with the full v2 descriptor
-/// binding. The one shared implementation for dotwave and
-/// rostro-client (this crate is the Apache-2.0 seam both consume).
+/// chunks and checksum each one with the full descriptor binding.
+/// The one shared implementation for dotwave and rostro-client (this
+/// crate is the Apache-2.0 seam both consume).
 ///
-/// `key` is the per-message MAC key from
-/// [`crate::verify::derive_share_mac_key`]; `expires_at_unix_ts` is
-/// stamped by the sender (`now + CHAT_TTL_SECONDS` by convention)
-/// and bound into every tag.
+/// `expires_at_unix_ts` is stamped by the sender (`now +
+/// CHAT_TTL_SECONDS` by convention) and bound into every checksum.
 pub fn prepare_batch(
 	encoded_envelope: &[u8],
 	n: usize,
-	key: &ShareMacKey,
 	message_id: MessageId,
 	pickup_key: PickupKey,
 	expires_at_unix_ts: UnixTimestamp,
@@ -183,8 +189,7 @@ pub fn prepare_batch(
 		.enumerate()
 		.map(|(i, chunk_bytes)| {
 			let share_index = i as ShareIndex;
-			let mac_tag = mac_chunk(
-				key,
+			let checksum = checksum_chunk(
 				&message_id,
 				&pickup_key,
 				share_index,
@@ -197,7 +202,7 @@ pub fn prepare_batch(
 				total_shares: total,
 				expires_at_unix_ts,
 				chunk_bytes,
-				mac_tag,
+				checksum,
 			}
 		})
 		.collect();
@@ -234,8 +239,9 @@ pub enum BatchValidationError {
 }
 
 /// Validate a client-prepared batch at the distribution handoff.
-/// Shape + bounds only — the node CANNOT verify MACs (it has no key,
-/// by design) and does not try. Returns the validated `total_shares`.
+/// Shape + bounds only — the node does not verify checksums (they are
+/// the recipient's local corruption check) and does not try. Returns
+/// the validated `total_shares`.
 ///
 /// Checks: non-empty; consistent `total_shares` and expiry across
 /// shares; total within `[MIN_CHUNKS, MAX_CHUNKS]`; exactly `total`
@@ -298,66 +304,63 @@ pub fn validate_prepared_batch(
 	Ok(total)
 }
 
-/// One fetched chunk as presented to [`combine_chunks_authenticated`]:
-/// the descriptor fields AS FETCHED (a tampered field must be fed
-/// back exactly as received so the MAC check catches it), the bytes,
-/// and the claimed tag.
+/// One fetched chunk as presented to [`combine_chunks_verified`]:
+/// the descriptor fields AS FETCHED (a corrupted field must be fed
+/// back exactly as received so the checksum catches it), the bytes,
+/// and the claimed checksum.
 #[derive(Debug, Clone, Copy)]
 pub struct TaggedChunk<'a> {
 	pub share_index: ShareIndex,
 	pub total_shares: u8,
 	pub expires_at_unix_ts: UnixTimestamp,
 	pub bytes: &'a [u8],
-	pub tag: &'a ShareMacTag,
+	pub checksum: &'a ChunkChecksum,
 }
 
-/// Errors from [`combine_chunks_authenticated`].
+/// Errors from [`combine_chunks_verified`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChunkCombineError {
 	/// Empty input slice.
 	NoChunks,
-	/// MAC verification failed on the chunk at position `slice_index`
-	/// in the caller's input slice; `share_index` is its claimed
-	/// canonical position.
-	///
-	/// Remediation (privacy rules, docs/CHAT-SHARE-CHUNKING.md §4.6):
-	/// re-fetch via a NORMAL-shaped pickup query against a different
-	/// replica — never a per-chunk request — and keep the conclusion
-	/// about which relay served bad bytes on-device.
-	TamperedChunk { slice_index: usize, share_index: ShareIndex },
-	/// `total_shares` (after MAC verification, i.e. sender-authored)
-	/// is outside `[MIN_CHUNKS, MAX_CHUNKS]`.
+	/// The checksum failed on the chunk at position `slice_index` in
+	/// the caller's input slice; `share_index` is its claimed
+	/// canonical position. The chunk is corrupted (bit rot,
+	/// truncation, a mislabelled field — or an adversarial relay,
+	/// which this keyless checksum does NOT distinguish from noise).
+	/// The chunk is unusable; the recipient re-polls later
+	/// (availability is the bucket-subscription scheme's job).
+	CorruptChunk { slice_index: usize, share_index: ShareIndex },
+	/// `total_shares` is outside `[MIN_CHUNKS, MAX_CHUNKS]`.
 	TotalOutOfRange { got: u8 },
-	/// Two verified chunks disagree on `total_shares`. Cannot happen
-	/// from one honest sender batch; indicates mixed batches for the
-	/// same message id.
+	/// Two chunks disagree on `total_shares`. Cannot happen from one
+	/// honest sender batch; indicates mixed batches for the same
+	/// message id.
 	TotalMismatch { slice_index: usize },
-	/// The same `share_index` appears twice (both copies MAC-valid,
-	/// i.e. duplicates of the same honest chunk). Callers typically
-	/// dedupe on `(message_id, share_index)` before combining.
+	/// The same `share_index` appears twice. Callers typically dedupe
+	/// on `(message_id, share_index)` before combining.
 	DuplicateIndex { share_index: ShareIndex },
-	/// A verified chunk's index is outside `0..total_shares`.
+	/// A chunk's index is outside `0..total_shares`.
 	IndexOutOfRange { share_index: ShareIndex, total: u8 },
-	/// Fewer than `total_shares` distinct chunks present. Fetch more
-	/// replicas and retry.
+	/// Fewer than `total_shares` distinct chunks present. Re-poll.
 	IncompleteSet { present: usize, total: u8 },
 }
 
-/// Recipient-device reassembly: verify every chunk's v2 MAC under
-/// `key` + the message context, then concatenate in index order.
+/// Recipient-device reassembly: verify every chunk's checksum against
+/// the message context, then concatenate in index order.
 ///
-/// MAC verification runs FIRST, per chunk, using each chunk's fields
-/// exactly as fetched — so a relay-rewritten `total_shares` or
-/// `expires_at` surfaces as [`ChunkCombineError::TamperedChunk`] on
-/// that specific chunk (localization), not as a shape error. Shape
-/// checks (consistency, coverage, completeness) run on the verified
-/// survivors.
+/// The checksum runs FIRST, per chunk, using each chunk's fields
+/// exactly as fetched — so a corrupted `total_shares` or `expires_at`
+/// surfaces as [`ChunkCombineError::CorruptChunk`] on that specific
+/// chunk (localization), not as a shape error. Shape checks
+/// (consistency, coverage, completeness) run on the survivors.
 ///
-/// `message_id` comes off the fetched descriptors (it is also the
-/// grouping key); `pickup_key` is the key the recipient fetched
-/// under. Both are bound into every tag.
-pub fn combine_chunks_authenticated(
-	key: &ShareMacKey,
+/// The checksum is keyless — a pass means "not corrupted in
+/// transit," NOT "authentic." Authenticity is enforced downstream
+/// when the reassembled bytes are sealed-sender-unsealed and the
+/// sender signature verified. `message_id` comes off the fetched
+/// descriptors (also the grouping key); `pickup_key` is the key the
+/// recipient fetched under. Both are bound into every checksum.
+pub fn combine_chunks_verified(
 	message_id: &MessageId,
 	pickup_key: &PickupKey,
 	chunks: &[TaggedChunk<'_>],
@@ -366,21 +369,20 @@ pub fn combine_chunks_authenticated(
 		return Err(ChunkCombineError::NoChunks);
 	}
 
-	// 1. Authenticate every chunk (localizes tampering to a chunk).
+	// 1. Checksum every chunk (localizes corruption to a chunk).
 	for (i, c) in chunks.iter().enumerate() {
-		if verify_chunk_mac(
-			key,
+		if verify_chunk_checksum(
 			message_id,
 			pickup_key,
 			c.share_index,
 			c.total_shares,
 			c.expires_at_unix_ts,
 			c.bytes,
-			c.tag,
+			c.checksum,
 		)
 		.is_err()
 		{
-			return Err(ChunkCombineError::TamperedChunk {
+			return Err(ChunkCombineError::CorruptChunk {
 				slice_index: i,
 				share_index: c.share_index,
 			});
@@ -431,7 +433,6 @@ pub fn combine_chunks_authenticated(
 mod tests {
 	use super::*;
 	use crate::descriptor::CHAT_TTL_SECONDS;
-	use crate::verify::derive_share_mac_key;
 
 	const NOW: UnixTimestamp = 1_700_000_000;
 	const EXPIRY: UnixTimestamp = NOW + CHAT_TTL_SECONDS;
@@ -442,10 +443,6 @@ mod tests {
 	fn pickup() -> PickupKey {
 		PickupKey([0xBB; 32])
 	}
-	fn key() -> ShareMacKey {
-		derive_share_mac_key(&[0x42; 32], &mid())
-	}
-
 	fn tagged_refs(batch: &PreparedBatch) -> Vec<TaggedChunk<'_>> {
 		batch
 			.shares
@@ -455,7 +452,7 @@ mod tests {
 				total_shares: s.total_shares,
 				expires_at_unix_ts: s.expires_at_unix_ts,
 				bytes: &s.chunk_bytes,
-				tag: &s.mac_tag,
+				checksum: &s.checksum,
 			})
 			.collect()
 	}
@@ -546,12 +543,12 @@ mod tests {
 	fn prepare_combine_roundtrip() {
 		let payload: Vec<u8> = (0u8..=255).cycle().take(1024).collect();
 		let batch =
-			prepare_batch(&payload, 5, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&payload, 5, mid(), pickup(), EXPIRY).unwrap();
 		assert_eq!(batch.shares.len(), 5);
 		assert_eq!(validate_prepared_batch(&batch, NOW), Ok(5));
 
 		let recovered =
-			combine_chunks_authenticated(&key(), &mid(), &pickup(), &tagged_refs(&batch))
+			combine_chunks_verified(&mid(), &pickup(), &tagged_refs(&batch))
 				.unwrap();
 		assert_eq!(recovered, payload);
 	}
@@ -560,11 +557,11 @@ mod tests {
 	fn combine_is_order_independent() {
 		let payload = b"order independence across fetch merges".to_vec();
 		let batch =
-			prepare_batch(&payload, 4, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&payload, 4, mid(), pickup(), EXPIRY).unwrap();
 		let mut refs = tagged_refs(&batch);
 		refs.reverse();
 		let recovered =
-			combine_chunks_authenticated(&key(), &mid(), &pickup(), &refs).unwrap();
+			combine_chunks_verified(&mid(), &pickup(), &refs).unwrap();
 		assert_eq!(recovered, payload);
 	}
 
@@ -573,7 +570,7 @@ mod tests {
 		// The batch IS the wire format (onion drop + RPC payload).
 		let payload = vec![0xEE; 300];
 		let batch =
-			prepare_batch(&payload, 3, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&payload, 3, mid(), pickup(), EXPIRY).unwrap();
 		let bytes = batch.encode();
 		let decoded = PreparedBatch::decode(&mut &bytes[..]).unwrap();
 		assert_eq!(decoded, batch);
@@ -582,17 +579,17 @@ mod tests {
 	// ── combine: tamper localization ──────────────────────────────
 
 	#[test]
-	fn combine_localizes_tampered_bytes() {
+	fn combine_localizes_corrupt_bytes() {
 		let payload = vec![0x11; 500];
 		let mut batch =
-			prepare_batch(&payload, 5, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&payload, 5, mid(), pickup(), EXPIRY).unwrap();
 		batch.shares[3].chunk_bytes[0] ^= 0xFF;
-		match combine_chunks_authenticated(&key(), &mid(), &pickup(), &tagged_refs(&batch)) {
-			Err(ChunkCombineError::TamperedChunk { slice_index, share_index }) => {
+		match combine_chunks_verified(&mid(), &pickup(), &tagged_refs(&batch)) {
+			Err(ChunkCombineError::CorruptChunk { slice_index, share_index }) => {
 				assert_eq!(slice_index, 3);
 				assert_eq!(share_index, 3);
 			},
-			other => panic!("expected TamperedChunk at 3, got {other:?}"),
+			other => panic!("expected CorruptChunk at 3, got {other:?}"),
 		}
 	}
 
@@ -602,11 +599,11 @@ mod tests {
 		// tampering ON THAT CHUNK — the v2 descriptor binding.
 		let payload = vec![0x22; 500];
 		let mut batch =
-			prepare_batch(&payload, 5, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&payload, 5, mid(), pickup(), EXPIRY).unwrap();
 		batch.shares[1].expires_at_unix_ts -= 3600;
-		match combine_chunks_authenticated(&key(), &mid(), &pickup(), &tagged_refs(&batch)) {
-			Err(ChunkCombineError::TamperedChunk { slice_index: 1, share_index: 1 }) => {},
-			other => panic!("expected TamperedChunk at 1, got {other:?}"),
+		match combine_chunks_verified(&mid(), &pickup(), &tagged_refs(&batch)) {
+			Err(ChunkCombineError::CorruptChunk { slice_index: 1, share_index: 1 }) => {},
+			other => panic!("expected CorruptChunk at 1, got {other:?}"),
 		}
 	}
 
@@ -614,11 +611,11 @@ mod tests {
 	fn combine_localizes_rewritten_total() {
 		let payload = vec![0x33; 500];
 		let mut batch =
-			prepare_batch(&payload, 5, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&payload, 5, mid(), pickup(), EXPIRY).unwrap();
 		batch.shares[2].total_shares = 3;
-		match combine_chunks_authenticated(&key(), &mid(), &pickup(), &tagged_refs(&batch)) {
-			Err(ChunkCombineError::TamperedChunk { slice_index: 2, share_index: 2 }) => {},
-			other => panic!("expected TamperedChunk at 2, got {other:?}"),
+		match combine_chunks_verified(&mid(), &pickup(), &tagged_refs(&batch)) {
+			Err(ChunkCombineError::CorruptChunk { slice_index: 2, share_index: 2 }) => {},
+			other => panic!("expected CorruptChunk at 2, got {other:?}"),
 		}
 	}
 
@@ -627,12 +624,12 @@ mod tests {
 		// Chunk 1's bytes presented under index 0: MAC binds position.
 		let payload = vec![0x44; 500];
 		let batch =
-			prepare_batch(&payload, 3, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&payload, 3, mid(), pickup(), EXPIRY).unwrap();
 		let mut refs = tagged_refs(&batch);
 		refs[0] = TaggedChunk { share_index: 0, ..refs[1] };
-		match combine_chunks_authenticated(&key(), &mid(), &pickup(), &refs) {
-			Err(ChunkCombineError::TamperedChunk { slice_index: 0, .. }) => {},
-			other => panic!("expected TamperedChunk at 0, got {other:?}"),
+		match combine_chunks_verified(&mid(), &pickup(), &refs) {
+			Err(ChunkCombineError::CorruptChunk { slice_index: 0, .. }) => {},
+			other => panic!("expected CorruptChunk at 0, got {other:?}"),
 		}
 	}
 
@@ -642,15 +639,15 @@ mod tests {
 		// pickup_key fail wholesale — no cross-message replay.
 		let payload = vec![0x55; 200];
 		let batch =
-			prepare_batch(&payload, 3, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&payload, 3, mid(), pickup(), EXPIRY).unwrap();
 		let refs = tagged_refs(&batch);
 		assert!(matches!(
-			combine_chunks_authenticated(&key(), &MessageId([0x01; 32]), &pickup(), &refs),
-			Err(ChunkCombineError::TamperedChunk { .. }),
+			combine_chunks_verified(&MessageId([0x01; 32]), &pickup(), &refs),
+			Err(ChunkCombineError::CorruptChunk { .. }),
 		));
 		assert!(matches!(
-			combine_chunks_authenticated(&key(), &mid(), &PickupKey([0x01; 32]), &refs),
-			Err(ChunkCombineError::TamperedChunk { .. }),
+			combine_chunks_verified(&mid(), &PickupKey([0x01; 32]), &refs),
+			Err(ChunkCombineError::CorruptChunk { .. }),
 		));
 	}
 
@@ -659,7 +656,7 @@ mod tests {
 	#[test]
 	fn combine_rejects_empty() {
 		assert_eq!(
-			combine_chunks_authenticated(&key(), &mid(), &pickup(), &[]),
+			combine_chunks_verified(&mid(), &pickup(), &[]),
 			Err(ChunkCombineError::NoChunks),
 		);
 	}
@@ -668,11 +665,11 @@ mod tests {
 	fn combine_reports_incomplete_set() {
 		let payload = vec![0x66; 500];
 		let batch =
-			prepare_batch(&payload, 5, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&payload, 5, mid(), pickup(), EXPIRY).unwrap();
 		let refs: Vec<TaggedChunk<'_>> =
 			tagged_refs(&batch).into_iter().take(4).collect();
 		assert_eq!(
-			combine_chunks_authenticated(&key(), &mid(), &pickup(), &refs),
+			combine_chunks_verified(&mid(), &pickup(), &refs),
 			Err(ChunkCombineError::IncompleteSet { present: 4, total: 5 }),
 		);
 	}
@@ -681,11 +678,11 @@ mod tests {
 	fn combine_reports_duplicate_index() {
 		let payload = vec![0x77; 500];
 		let batch =
-			prepare_batch(&payload, 3, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&payload, 3, mid(), pickup(), EXPIRY).unwrap();
 		let mut refs = tagged_refs(&batch);
 		refs[2] = refs[0]; // honest duplicate of chunk 0
 		assert_eq!(
-			combine_chunks_authenticated(&key(), &mid(), &pickup(), &refs),
+			combine_chunks_verified(&mid(), &pickup(), &refs),
 			Err(ChunkCombineError::DuplicateIndex { share_index: 0 }),
 		);
 	}
@@ -694,7 +691,7 @@ mod tests {
 
 	#[test]
 	fn validate_accepts_honest_batch() {
-		let batch = prepare_batch(&vec![0x88; 400], 5, &key(), mid(), pickup(), EXPIRY)
+		let batch = prepare_batch(&vec![0x88; 400], 5, mid(), pickup(), EXPIRY)
 			.unwrap();
 		assert_eq!(validate_prepared_batch(&batch, NOW), Ok(5));
 	}
@@ -711,7 +708,7 @@ mod tests {
 	#[test]
 	fn validate_rejects_missing_share() {
 		let mut batch =
-			prepare_batch(&vec![0x99; 400], 5, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&vec![0x99; 400], 5, mid(), pickup(), EXPIRY).unwrap();
 		batch.shares.pop();
 		assert_eq!(
 			validate_prepared_batch(&batch, NOW),
@@ -722,7 +719,7 @@ mod tests {
 	#[test]
 	fn validate_rejects_duplicate_index() {
 		let mut batch =
-			prepare_batch(&vec![0xAB; 400], 3, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&vec![0xAB; 400], 3, mid(), pickup(), EXPIRY).unwrap();
 		batch.shares[2] = batch.shares[0].clone();
 		assert_eq!(
 			validate_prepared_batch(&batch, NOW),
@@ -733,7 +730,7 @@ mod tests {
 	#[test]
 	fn validate_rejects_index_out_of_range() {
 		let mut batch =
-			prepare_batch(&vec![0xAC; 400], 3, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&vec![0xAC; 400], 3, mid(), pickup(), EXPIRY).unwrap();
 		batch.shares[2].share_index = 7;
 		assert_eq!(
 			validate_prepared_batch(&batch, NOW),
@@ -744,7 +741,7 @@ mod tests {
 	#[test]
 	fn validate_rejects_total_mismatch() {
 		let mut batch =
-			prepare_batch(&vec![0xAD; 400], 3, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&vec![0xAD; 400], 3, mid(), pickup(), EXPIRY).unwrap();
 		batch.shares[1].total_shares = 4;
 		assert_eq!(
 			validate_prepared_batch(&batch, NOW),
@@ -755,7 +752,7 @@ mod tests {
 	#[test]
 	fn validate_rejects_expiry_mismatch() {
 		let mut batch =
-			prepare_batch(&vec![0xAE; 400], 3, &key(), mid(), pickup(), EXPIRY).unwrap();
+			prepare_batch(&vec![0xAE; 400], 3, mid(), pickup(), EXPIRY).unwrap();
 		batch.shares[1].expires_at_unix_ts += 1;
 		assert_eq!(
 			validate_prepared_batch(&batch, NOW),
@@ -766,7 +763,7 @@ mod tests {
 	#[test]
 	fn validate_rejects_stale_expiry() {
 		// Sender-stamped expiry far in the past fails receive bounds.
-		let batch = prepare_batch(&vec![0xAF; 400], 3, &key(), mid(), pickup(), NOW - 7200)
+		let batch = prepare_batch(&vec![0xAF; 400], 3, mid(), pickup(), NOW - 7200)
 			.unwrap();
 		assert!(matches!(
 			validate_prepared_batch(&batch, NOW),
@@ -779,7 +776,6 @@ mod tests {
 		let batch = prepare_batch(
 			&vec![0xB0; 400],
 			3,
-			&key(),
 			mid(),
 			pickup(),
 			NOW + CHAT_TTL_SECONDS + 100_000,

@@ -381,7 +381,7 @@ pub async fn run_anti_entropy_task<S>(
 											.insert(
 												fs.descriptor,
 												fs.share_bytes,
-												fs.mac_tag,
+												fs.checksum,
 											)
 											.is_ok()
 										{

@@ -6,7 +6,7 @@ edition.workspace = true
 license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
-description = "Test-harness CLI binary that exercises the Rostro chat layer end-to-end against a running gemini-node's JSON-RPC. Stands in for the future mobile-app SDK: holds the user's chat-identity Ed25519 keypair locally, builds + signs + sealed-sender-encrypts the envelope on-device, chunks + MACs it on-device (docs/CHAT-SHARE-CHUNKING.md), hex-encodes the prepared batch, and calls `chat_send_prepared`. On the receive side, calls `chat_fetch_shares`, groups + MAC-verifies + reassembles + unseals + verifies locally. The gemini-node sees only ciphertext + routing metadata, never plaintext or user keys."
+description = "Test-harness CLI binary that exercises the Rostro chat layer end-to-end against a running gemini-node's JSON-RPC. Stands in for the future mobile-app SDK: holds the user's chat-identity Ed25519 keypair locally, builds + signs + sealed-sender-encrypts the envelope on-device, chunks + checksums it on-device (docs/CHAT-SHARE-CHUNKING.md), hex-encodes the prepared batch, and calls `chat_send_prepared`. On the receive side, calls `chat_fetch_shares`, groups + checksum-verifies + reassembles + unseals + verifies locally. The gemini-node sees only ciphertext + routing metadata, never plaintext or user keys."
 publish = false
 
 [lints]
@@ -25,7 +25,6 @@ serde_json = { workspace = true, default-features = true }
 hex = { workspace = true, default-features = true }
 anyhow = { workspace = true, default-features = true }
 rand_core = { workspace = true, features = ["getrandom"] }
-x25519-dalek = { workspace = true, default-features = true }
 ed25519-zebra = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true, features = ["derive"] }
 log = { workspace = true, default-features = true }

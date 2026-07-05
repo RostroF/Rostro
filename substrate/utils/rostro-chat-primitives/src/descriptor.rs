@@ -210,7 +210,7 @@ pub struct ShareDescriptor {
 	pub share_index: ShareIndex,
 	/// Total share count for this message. Recipient collects all
 	/// `total_shares` before
-	/// [`crate::chunk::combine_chunks_authenticated`].
+	/// [`crate::chunk::combine_chunks_verified`].
 	pub total_shares: u8,
 	/// Domain-separated DHT lookup key. See [`PickupKey`].
 	pub pickup_key: PickupKey,

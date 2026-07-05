@@ -19,21 +19,21 @@
 //! (docs/CHAT-SHARE-CHUNKING.md): the SENDER DEVICE splits + MACs
 //! (`prepare_batch`), a distributing node validates shape only
 //! (`validate_prepared_batch` — it holds no MAC key), and the
-//! RECIPIENT DEVICE authenticates + reassembles
-//! (`combine_chunks_authenticated`).
+//! RECIPIENT DEVICE verifies + reassembles
+//! (`combine_chunks_verified`).
 
 use codec::{Decode, Encode};
 use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 use rostro_chat_primitives::{
 	chunk::{
-		combine_chunks_authenticated, prepare_batch, validate_prepared_batch,
+		combine_chunks_verified, prepare_batch, validate_prepared_batch,
 		ChunkCombineError, PreparedBatch, TaggedChunk,
 	},
 	descriptor::{
 		GroupId, MessageId, PickupKey, RelayPubkey, ShareDescriptor, CHAT_TTL_SECONDS,
 	},
 	envelope::{sign_inner, EnvelopeKind, SealedEnvelope, UnsealedInner},
-	verify::{derive_share_mac_key, derive_stripe_mac_secret, verify_sender},
+	verify::verify_sender,
 };
 
 const CHUNK_COUNT: usize = 5;
@@ -50,7 +50,7 @@ fn tagged_refs(batch: &PreparedBatch) -> Vec<TaggedChunk<'_>> {
 			total_shares: s.total_shares,
 			expires_at_unix_ts: s.expires_at_unix_ts,
 			bytes: &s.chunk_bytes,
-			tag: &s.mac_tag,
+			checksum: &s.checksum,
 		})
 		.collect()
 }
@@ -76,11 +76,6 @@ fn pairwise_dm_full_stack_roundtrip() {
 		&ed25519_zebra::SigningKey::from([0x22u8; 32]),
 	)
 	.into();
-
-	// Per-conversation shared secret (in real use, the X3DH/PQXDH-derived
-	// pairwise secret). Both devices hold it; nothing on the path does.
-	let conversation_secret: [u8; 32] = [0x33; 32];
-	let stripe_mac_secret = derive_stripe_mac_secret(&conversation_secret);
 
 	// The original plaintext message the sender wants to deliver.
 	let plaintext: &[u8] = b"hello from rostro chat layer";
@@ -110,15 +105,13 @@ fn pairwise_dm_full_stack_roundtrip() {
 	};
 	let envelope_encoded = envelope.encode();
 
-	// Step 6: chunk + MAC on the sender's device — the whole
+	// Step 6: chunk + checksum on the sender's device — the whole
 	// prepare-side pipeline in one call.
 	let pickup_key = PickupKey::for_pairwise(&recipient_pubkey);
-	let mac_key = derive_share_mac_key(&stripe_mac_secret, &message_id);
 	let expires_at = NOW_TS + CHAT_TTL_SECONDS;
 	let batch = prepare_batch(
 		&envelope_encoded,
 		CHUNK_COUNT,
-		&mac_key,
 		message_id,
 		pickup_key,
 		expires_at,
@@ -161,21 +154,14 @@ fn pairwise_dm_full_stack_roundtrip() {
 
 	// ── Recipient device ──────────────────────────────────────────
 
-	// Recipient derives the same MAC key from its copy of the
-	// conversation secret + the message_id read off the descriptors —
-	// BEFORE decrypting anything.
-	let recipient_mac_key =
-		derive_share_mac_key(&derive_stripe_mac_secret(&conversation_secret), &message_id);
-	assert_eq!(recipient_mac_key, mac_key);
-
-	// Verify MACs + concatenate.
-	let recovered_envelope_bytes = combine_chunks_authenticated(
-		&recipient_mac_key,
+	// Verify checksums + concatenate (keyless — the recipient needs
+	// nothing but the fetched descriptors + its own eventual AEAD key).
+	let recovered_envelope_bytes = combine_chunks_verified(
 		&message_id,
 		&pickup_key,
 		&tagged_refs(&batch_at_node),
 	)
-	.expect("auth-combine of honest chunks must succeed");
+	.expect("verified reassembly of honest chunks must succeed");
 	assert_eq!(recovered_envelope_bytes, envelope_encoded);
 
 	// Recipient decodes the SealedEnvelope.
@@ -214,9 +200,6 @@ fn pairwise_dm_full_stack_roundtrip() {
 fn group_message_full_stack_roundtrip() {
 	let mut rng = ChaCha20Rng::from_seed([0xCDu8; 32]);
 	let signing_key = ed25519_zebra::SigningKey::from([0x77u8; 32]);
-	// For the (future) group path the conversation secret is the MLS
-	// epoch secret — same derivation shape.
-	let stripe_mac_secret = derive_stripe_mac_secret(&[0x55; 32]);
 	let group_id = GroupId::generate(&mut rng);
 	let plaintext: &[u8] = b"group message: shipping at block 9000";
 
@@ -238,11 +221,9 @@ fn group_message_full_stack_roundtrip() {
 		"domain separation must keep pairwise and group pickup keys distinct",
 	);
 
-	let mac_key = derive_share_mac_key(&stripe_mac_secret, &message_id);
 	let batch = prepare_batch(
 		&envelope_encoded,
 		CHUNK_COUNT,
-		&mac_key,
 		message_id,
 		group_pickup,
 		NOW_TS + CHAT_TTL_SECONDS,
@@ -250,8 +231,7 @@ fn group_message_full_stack_roundtrip() {
 	.unwrap();
 
 	// Recipient roundtrip.
-	let recovered = combine_chunks_authenticated(
-		&mac_key,
+	let recovered = combine_chunks_verified(
 		&message_id,
 		&group_pickup,
 		&tagged_refs(&batch),
@@ -265,7 +245,7 @@ fn group_message_full_stack_roundtrip() {
 	assert_eq!(recovered_unsealed.inner_ciphertext, plaintext);
 }
 
-/// Tampered chunk is identified by position so the recipient can
+/// Corrupt chunk is identified by position so the recipient can
 /// re-fetch from another replica (via a NORMAL-shaped pickup query —
 /// see docs/CHAT-SHARE-CHUNKING.md §4.6) and keep the attribution
 /// on-device.
@@ -273,8 +253,7 @@ fn group_message_full_stack_roundtrip() {
 fn tampered_chunk_is_localized() {
 	let mut rng = ChaCha20Rng::from_seed([0xEFu8; 32]);
 	let signing_key = ed25519_zebra::SigningKey::from([0x44u8; 32]);
-	let stripe_mac_secret = derive_stripe_mac_secret(&[0x66; 32]);
-	let plaintext = b"tamper detection at the relay layer";
+	let plaintext = b"corruption detection at the relay layer";
 
 	let message_id = MessageId::generate(&mut rng);
 	let unsealed = sign_inner(plaintext.to_vec(), &message_id, &signing_key);
@@ -285,25 +264,23 @@ fn tampered_chunk_is_localized() {
 		message_id,
 	};
 	let pickup = PickupKey::for_pairwise(&[0x10; 32]);
-	let mac_key = derive_share_mac_key(&stripe_mac_secret, &message_id);
 	let mut batch = prepare_batch(
 		&envelope.encode(),
 		CHUNK_COUNT,
-		&mac_key,
 		message_id,
 		pickup,
 		NOW_TS + CHAT_TTL_SECONDS,
 	)
 	.unwrap();
 
-	// Simulate a malicious relay corrupting chunk 2's tag.
-	batch.shares[2].mac_tag[0] ^= 0xFF;
+	// Simulate bit rot / corruption of chunk 2's bytes.
+	batch.shares[2].chunk_bytes[0] ^= 0xFF;
 
-	match combine_chunks_authenticated(&mac_key, &message_id, &pickup, &tagged_refs(&batch)) {
-		Err(ChunkCombineError::TamperedChunk { slice_index, share_index }) => {
+	match combine_chunks_verified(&message_id, &pickup, &tagged_refs(&batch)) {
+		Err(ChunkCombineError::CorruptChunk { slice_index, share_index }) => {
 			assert_eq!(slice_index, 2);
 			assert_eq!(share_index, 2);
 		},
-		other => panic!("expected TamperedChunk at index 2, got {other:?}"),
+		other => panic!("expected CorruptChunk at index 2, got {other:?}"),
 	}
 }

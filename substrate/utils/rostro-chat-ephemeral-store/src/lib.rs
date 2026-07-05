@@ -59,7 +59,7 @@ use rostro_chat_primitives::descriptor::{
 	MessageId, PickupKey, ShareDescriptor, ShareIndex, UnixTimestamp,
 };
 use rostro_chat_primitives::store_protocol::{ShareStore, StoreInsertError};
-use rostro_chat_primitives::verify::ShareMacTag;
+use rostro_chat_primitives::verify::ChunkChecksum;
 
 pub mod locked_bytes;
 use locked_bytes::LockedBytes;
@@ -93,7 +93,7 @@ impl Default for StoreConfig {
 struct Entry {
 	descriptor: ShareDescriptor,
 	share_bytes: LockedBytes,
-	mac_tag: ShareMacTag,
+	checksum: ChunkChecksum,
 	/// Monotonic counter assigned at insertion. Breaks ties when
 	/// two entries share the same `expires_at_unix_ts` during
 	/// eviction.
@@ -309,7 +309,7 @@ impl EphemeralShareStore {
 			buf.extend_from_slice(&entry.descriptor.pickup_key.0);
 			buf.extend_from_slice(&entry.descriptor.expires_at_unix_ts.to_le_bytes());
 			buf.extend_from_slice(entry.share_bytes.as_slice());
-			buf.extend_from_slice(&entry.mac_tag);
+			buf.extend_from_slice(&entry.checksum);
 			buf.extend_from_slice(&entry.insertion_order.to_le_bytes());
 		}
 
@@ -344,7 +344,7 @@ impl ShareStore for EphemeralShareStore {
 		&self,
 		descriptor: ShareDescriptor,
 		share_bytes: Vec<u8>,
-		mac_tag: ShareMacTag,
+		checksum: ChunkChecksum,
 	) -> Result<(), StoreInsertError> {
 		let mut g = self.inner.write();
 
@@ -375,7 +375,7 @@ impl ShareStore for EphemeralShareStore {
 		let entry = Entry {
 			descriptor: descriptor.clone(),
 			share_bytes: locked,
-			mac_tag,
+			checksum,
 			insertion_order,
 		};
 
@@ -395,7 +395,7 @@ impl ShareStore for EphemeralShareStore {
 	fn get_by_pickup_key(
 		&self,
 		pickup_key: &PickupKey,
-	) -> Vec<(ShareDescriptor, Vec<u8>, ShareMacTag)> {
+	) -> Vec<(ShareDescriptor, Vec<u8>, ChunkChecksum)> {
 		let g = self.inner.read();
 		let keys = match g.by_pickup.get(pickup_key) {
 			Some(k) => k.clone(),
@@ -404,7 +404,7 @@ impl ShareStore for EphemeralShareStore {
 		keys.into_iter()
 			.filter_map(|pk| {
 				g.by_key.get(&pk).map(|e| {
-					(e.descriptor.clone(), e.share_bytes.as_slice().to_vec(), e.mac_tag)
+					(e.descriptor.clone(), e.share_bytes.as_slice().to_vec(), e.checksum)
 				})
 			})
 			.collect()
@@ -493,10 +493,10 @@ mod tests {
 		share_index: u8,
 		bytes: Vec<u8>,
 		expires_at_unix_ts: UnixTimestamp,
-	) -> (ShareDescriptor, Vec<u8>, ShareMacTag) {
+	) -> (ShareDescriptor, Vec<u8>, ChunkChecksum) {
 		let d = make_descriptor(message_id_byte, share_index, 5, expires_at_unix_ts);
 		// Filler tag: the store never verifies MACs (no key by design).
-		let tag: ShareMacTag = [share_index; 32];
+		let tag: ChunkChecksum = [share_index; 32];
 		(d, bytes, tag)
 	}
 
@@ -743,7 +743,7 @@ mod tests {
 		// the set behavior (not multiset).
 		let mut d3 = make_descriptor(0x71, 0, 5, NOW_TS + 100);
 		d3.pickup_key = PickupKey([0xFE; 32]);
-		let t3: ShareMacTag = [3; 32];
+		let t3: ChunkChecksum = [3; 32];
 		store.insert(d3, vec![3], t3).unwrap();
 
 		let mut keys = <EphemeralShareStore as ShareStore>::pickup_keys(&store);
@@ -791,7 +791,7 @@ mod tests {
 				pickup_key: pk,
 				expires_at_unix_ts: NOW_TS + 1000,
 			};
-			let tag: ShareMacTag = [share_index; 32];
+			let tag: ChunkChecksum = [share_index; 32];
 			store.insert(d, vec![1, 2, 3], tag).unwrap();
 		}
 
@@ -828,7 +828,7 @@ mod tests {
 			pickup_key: pk,
 			expires_at_unix_ts: NOW_TS + 1000,
 		};
-		let tag: ShareMacTag = [0xEE; 32];
+		let tag: ChunkChecksum = [0xEE; 32];
 		store.insert(d, vec![1], tag).unwrap();
 		assert_eq!(store.len(), 1);
 
@@ -863,7 +863,7 @@ mod tests {
 				pickup_key: pk,
 				expires_at_unix_ts: NOW_TS + 100,
 			};
-			let tag: ShareMacTag = [share_index; 32];
+			let tag: ChunkChecksum = [share_index; 32];
 			store.insert(d, vec![1], tag).unwrap();
 		}
 		insert(&store, PickupKey([0x03; 32]), 0xA0, 0);

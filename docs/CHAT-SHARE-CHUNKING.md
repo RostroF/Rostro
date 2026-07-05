@@ -119,43 +119,77 @@ map pickup_key → bucket, fan prepared shares out to bucket peers. It no
 longer computes MACs (it has no key), assembles descriptors, or touches
 an RNG for splitting.
 
-### 4.3 MAC v2: real key, descriptor-bound
+### 4.3 Per-chunk integrity checksum (keyless, descriptor-bound) — [as-built]
 
-**Key derivation.** Per-conversation stripe-MAC secret, derived once at
-session establishment from the same shared secret that roots the
-conversation (X3DH today, PQXDH when P3 lands), domain-separated:
+**Decision (2026-07-04):** the per-chunk integrity field is a **keyless
+checksum**, not a keyed MAC. This section supersedes the original
+"MAC v2, real key" design; the reasoning is recorded here because it is
+the crux the whole workstream turned on.
+
+**Why keyless.** A relay-unforgeable MAC needs a key the recipient can
+derive *before reassembly* and relays cannot. In dotwave's actual model
+there is no such key available uniformly: the chat is sealed-sender
+dead-drops with no persistent session (Double Ratchet was reverted —
+the "name ratchet" of rotating throwaway names + return addresses is
+what provides forward secrecy and cover, see §3), so the only shared
+secret is the sealed-sender ECDH, and its ephemeral lives *inside* the
+chunked envelope (chicken-and-egg). The candidate fixes each had a
+cost — a per-message MAC ephemeral re-anchors keying to the durable
+identity key (against the name-ratchet direction); a label-derived key
+covers only standing callsigns. More fundamentally, a keyed MAC would
+not buy content security anyway: the envelope's sealed-sender AEAD +
+sender Ed25519 signature already make content authenticity unforgeable
+end-to-end, so a tampered chunk can only ever cause **denial**, never
+accepted-forged content. A per-chunk MAC's entire value is
+availability + diagnostics, and **availability is owned by the
+bucket-subscription replication scheme**, not by client-side recovery.
+
+So the field is exactly what it can honestly be: a checksum.
 
 ```
-stripe_mac_secret = blake2_256("rostro/chat/stripe-mac-secret/v1"
-                               || conversation_shared_secret)
-per_message_key   = blake2_256("rostro/chat/share-mac-key/v2"
-                               || stripe_mac_secret || message_id)
+checksum = blake2_256("rostro/chat/chunk-checksum/v1"
+                      || message_id || pickup_key
+                      || share_index || total_shares
+                      || expires_at_be || chunk_bytes)
 ```
 
-Both ends can derive this **before** decrypting anything (message_id
-comes from the descriptor at fetch time; the conversation secret is
-held per-contact). Forward secrecy is irrelevant here (integrity only),
-so a static per-conversation secret is correct. The group path (MLS,
-not yet wired) feeds its epoch secret into the same shape; the derive
-function stays secret-source-agnostic as today.
+**What it does:** detects and *localizes* accidental corruption — bit
+rot in a relay's RAM, a truncated transfer, a mislabelled index/total/
+expiry/pickup (all bound into the preimage). A mismatch tells the
+recipient which chunk is unusable; it re-polls later (the bucket scheme
+supplies a good copy). **What it does NOT do:** it is keyless, so any
+relay can recompute a valid checksum over substituted bytes — it is no
+defence against an adversarial relay and is **not a security boundary**.
+It is named `checksum` (type `ChunkChecksum`, fns `checksum_chunk` /
+`verify_chunk_checksum`, error `ChecksumError::Mismatch`) precisely so
+no future reader mistakes a passing checksum for authentication — the
+last two placeholder "MACs" (the zero-key stripe MAC) were exactly that
+mistake. `relay_pubkey` stays outside the preimage: it is the
+distributing node's self-identity stamp, filled per-relay, not
+sender-authored.
 
-**Tag preimage v2** binds the descriptor, not just bytes+index:
+**Deferred upgrade (if attribution is ever wanted).** A real,
+relay-unforgeable MAC can return later WITHOUT re-anchoring to identity
+keys or changing the wire preimage shape: the per-turn return-address
+mint (which already seals a fresh `return_pickup` inside the previous
+message's content) also mints a per-conversation `stripe_mac_secret`
+and seals it the same way. MAC keying then rides the existing rotation
+machinery — no session, no contact lookup at fetch time, identity keys
+touched at most on the opener (already identity-addressed). The
+descriptor-bound preimage above is forward-compatible: only the key
+source would change (keyless → rotation-minted). Not now; the bucket
+scheme + AEAD cover v0.
 
-```
-tag = blake2_256("rostro/chat/share-mac/v2" || key
-                 || message_id || pickup_key
-                 || share_index || total_shares
-                 || expires_at_be || chunk_bytes)
-```
+### 4.3a No client-side bad-copy recovery — [as-built]
 
-Rationale: the client authors both descriptor and tag, so binding is
-free, and it closes the peeling-node tampering surface. v1's
-bytes+index preimage would let a malicious peeler rewrite `expires_at`
-(TTL-shortening = censorship that looks like expiry) or `total_shares`
-undetected. With v2 the entire path from the sender's device to the
-recipient's device is reduced to drop-or-deliver-intact. `relay_pubkey`
-stays outside the preimage: it is the distributing node's self-identity
-stamp, not sender-asserted data.
+The recipient does **not** keep alternative chunk copies or
+trial-decrypt combinations. A chunk whose checksum fails, or a message
+missing a chunk, is simply skipped and re-polled later. Availability
+under a bad or missing copy is the **bucket-subscription replication
+scheme's** responsibility (guards subscribe to buckets; replicas
+propagate; a later poll resolves to a good copy). This keeps the client
+simple and keeps the checksum honest — it localizes, it does not
+recover.
 
 ### 4.4 Distribution: per-chunk disjoint replica sets
 
@@ -186,23 +220,27 @@ indistinguishable from any other fetch.
 
 ### 4.6 Recipient verification + remediation rules
 
-dotwave replaces `combine_xor` with authenticated reassembly: derive
-per-message key, verify every chunk's v2 tag, concatenate in index
-order, then proceed to the existing unseal/verify_sender pipeline.
+dotwave replaces `combine_xor` with verified reassembly
+(`combine_chunks_verified`): checksum every chunk, concatenate in index
+order, then proceed to the existing unseal/verify_sender pipeline
+(which is the authenticity gate).
 
-Privacy constraints on what happens after a MAC failure (these are part
-of the spec, not implementation detail):
+Privacy constraints on what happens after a checksum failure or an
+incomplete set (part of the spec, not implementation detail):
 
-1. **Retries ride the normal fetch shape.** On TamperedChunk or
-   incomplete set, re-fetch is a standard pickup_key fetch against
-   another peer, never a distinctive "give me chunk 3 of message X"
-   request. A relay that corrupts chunks must gain no oracle telling it
-   a live recipient fetched and cared.
-2. **Attribution never leaves the device.** MAC failure conclusions
-   ("relay Y served bad bytes") feed at most a local relay-preference
-   list. No reporting, no on-chain complaint, no gossip: a public
-   accusation about message X announces the accuser is X's recipient.
-   (v0 ships without even the local preference list; see §8.)
+1. **Retries ride the normal fetch shape.** On `CorruptChunk` or
+   incomplete set, re-poll is a standard pickup_key fetch, never a
+   distinctive "give me chunk 3 of message X" request. A relay that
+   corrupts chunks gains no oracle telling it a live recipient fetched
+   and cared. (The recipient does not even retry eagerly — it re-polls
+   on its normal cadence; §4.3a.)
+2. **No attribution leaves the device.** The keyless checksum cannot
+   attribute corruption to a relay anyway (it does not distinguish
+   adversary from bit rot), and the client keeps no relay-preference
+   list. Availability is the bucket scheme's job. Should the deferred
+   real MAC land (§4.3), any attribution it enables stays on-device: a
+   public accusation about message X announces the accuser is X's
+   recipient.
 
 ### 4.7 Wire and API changes (hard cutover, no grace windows)
 
@@ -214,15 +252,15 @@ pre-testnet wire break on an off-chain protocol.
 
 | Surface | Change |
 | --- | --- |
-| `rostro-chat-primitives::chunk` (new) | `split_chunks`, `prepare_batch` (sender-device split+MAC pipeline), `PreparedShare`/`PreparedBatch` wire types, `validate_prepared_batch` (node handoff), `combine_chunks_authenticated`; `stripe.rs` deleted |
-| `verify.rs` | v2 domains + descriptor-bound preimage (`mac_chunk`/`verify_chunk_mac`) + `derive_stripe_mac_secret`; v1 share-MAC fns deleted |
-| `rostro-chat-onion` | **[as-built]** `OnionDeliverPayload` DELETED outright — the `Deliver` drop bytes ARE `PreparedBatch::encode()` and the onion crate stays payload-agnostic (no new dep). Onion-forward protocol `/2` → `/3`; `total_shares` removed from `OnionForwardRequest` + guard digest (domain → `onion-forward/v2`) since chunk counts ride inside the MAC-bound batch |
-| Store protocol | `StoreRequest` shape unchanged (descriptor + bytes + tag); `/rostro/chat-stripe/1` → `/rostro/chat-chunk/1` (name says what it carries); node module renamed `chat_stripe_protocol.rs` → `chat_chunk_protocol.rs` |
+| `rostro-chat-primitives::chunk` (new) | `split_chunks`, `prepare_batch` (sender-device split+checksum pipeline), `PreparedShare`/`PreparedBatch` wire types, `validate_prepared_batch` (node handoff), `combine_chunks_verified`; `stripe.rs` deleted |
+| `verify.rs` | **[as-built]** KEYLESS checksum: `checksum_chunk` / `verify_chunk_checksum` over the descriptor-bound preimage, `ChunkChecksum` / `CHUNK_CHECKSUM_LEN` / `CHUNK_CHECKSUM_DOMAIN`, `ChecksumError::Mismatch`. The keyed-MAC machinery (`ShareMacKey`, `mac_chunk`, `derive_stripe_mac_secret`, `derive_share_mac_key`, the v2 domains) is DELETED, not just the v1 fns — see §4.3 |
+| `rostro-chat-onion` | **[as-built]** `OnionDeliverPayload` DELETED outright — the `Deliver` drop bytes ARE `PreparedBatch::encode()` and the onion crate stays payload-agnostic (no new dep). Onion-forward protocol `/2` → `/3`; `total_shares` removed from `OnionForwardRequest` + guard digest (domain → `onion-forward/v2`) since chunk counts ride inside the batch |
+| Store protocol | `StoreRequest` shape unchanged (descriptor + bytes + checksum; the field was renamed `mac_tag` → `checksum`, SCALE-positional so wire-compatible); `/rostro/chat-stripe/1` → `/rostro/chat-chunk/1`; node module renamed `chat_stripe_protocol.rs` → `chat_chunk_protocol.rs` |
 | `chat_send_envelope` RPC | Replaced by `chat_send_prepared(batch_hex, auth_*)` — a single SCALE blob, so the cert-auth signature covers the EXACT batch bytes; envelope-accepting form deleted (no two verifiers of one input). `chat_send_onion` loses its `total_shares` param |
-| `chat_fetch_shares` RPC | Same client shape; **[as-built]** aggregation trigger is now "any matched message incomplete", not "local view empty" (required under disjoint sets), with early stop on completeness; `MAX_FALLBACK_FETCH_PEERS` 3 → 8 |
+| `chat_fetch_shares` RPC | Same client shape; **[as-built]** aggregation trigger is "any matched message incomplete" (for COMPLETENESS under disjoint sets, not bad-copy recovery — §4.3a), early stop on completeness; `MAX_FALLBACK_FETCH_PEERS` 3 → 8. Response DTO field `mac_tag_hex` → `checksum_hex` |
 | gemini-node | `stripe_and_distribute` (and its `send_envelope` inline copy) → ONE free fn `distribute_prepared`; zero-key MAC code deleted; disjoint replica partitioning (`peers[(i·R + j) % peer_count]` over an OsRng shuffle); success criterion is now "every chunk landed on ≥1 replica", not raw store-success count |
-| `rostro-chat-cli` | **[as-built]** Tier-0 harness cut over: on-device `prepare_batch` on send, authenticated reassembly on fetch. Conversation secret = static-static X25519 between the two chat identities; `fetch` gains `--peer-pubkey` (see §8.4 resolution) |
-| dotwave `rust_core` | (P2, pending) chunk+MAC on send (all three: direct, onion, dead-drop paths), authenticated reassembly on fetch, stripe-MAC secret in session state |
+| `rostro-chat-cli` | **[as-built]** Tier-0 harness cut over: on-device `prepare_batch` on send, verified reassembly on fetch. KEYLESS — no conversation secret, no `--peer-pubkey` (the earlier ECDH-keyed version is superseded by §4.3) |
+| dotwave `rust_core` | (P2) chunk+checksum on send (all three: direct, onion, dead-drop paths), verified reassembly on fetch. No session/key state needed (keyless) |
 | bucket.rs docs | "Buckets are not shards" prose updated to chunk terminology |
 
 **[as-built] Deferred to P3:** the `scripts/chat-scenarios/*` shell
@@ -233,8 +271,11 @@ anyway).
 ## 5. What gets deleted
 
 `split_xor`, `combine_xor`, `combine_xor_authenticated`, `MIN_SHARES`/
-`MAX_SHARES` (replaced by chunk-count bounds), the v1 MAC domains, the
-zero-key call sites, and `stripe.rs` wholesale. The rostro-chat-mls
+`MAX_SHARES` (replaced by chunk-count bounds), ALL keyed-MAC machinery
+(both the v1 zero-key sites AND the interim v2 keyed design —
+`ShareMacKey`, `mac_chunk`, `derive_stripe_mac_secret`,
+`derive_share_mac_key`, every `share-mac*` domain), and `stripe.rs`
+wholesale. The rostro-chat-mls
 `full_crypto_stack` test is rewritten against the chunk pipeline (test
 was right about the flow, wrong primitive underneath; commit message
 will say so).
@@ -299,14 +340,31 @@ canonical-gated by then).
 2. **Fixed N=5 chunks.** ADOPTED; revisit only with measured traffic.
 3. **Local relay-preference list: DEFERRED** post-cutover;
    retry-another-peer covers v0.
-4. **Dead-drop first-contact edge — sharpened during P1, confirm in
-   P2:** the recipient must know WHICH conversation secret to derive
-   the MAC key from before combining. In dotwave the dead-drop label
-   identifies the conversation (label ↔ contact mapping is device
-   state), so the secret is known pre-combine; the raw pairwise
-   pickup key is shared across senders, so there the client tries its
-   per-contact secrets against the tags (small set, local-only). The
-   Tier-0 CLI harness sidesteps this by taking `--peer-pubkey` and
-   deriving a static-static X25519 conversation secret. P2 must
-   confirm the first-message dead-drop bootstrap holds a shared
-   secret on both ends (PQXDH P3b/P3c input).
+4. **Dead-drop first-contact keying — RESOLVED 2026-07-04 by going
+   keyless (§4.3).** The question was "which conversation secret keys
+   the per-chunk MAC, given the recipient may not know the sender at
+   fetch time." Answer: none — the integrity field is a keyless
+   checksum, so there is no keying to bootstrap. Content authenticity
+   is the sealed-sender AEAD (which already handles first contact),
+   and availability is the bucket scheme. The deferred real MAC, if
+   ever wanted, keys off the rotation-minted `stripe_mac_secret`
+   sealed inside the previous turn (§4.3), which sidesteps first
+   contact the same way the return-address rotation already does.
+5. **Bad-copy / missing-chunk recovery — RESOLVED 2026-07-04: not the
+   client's job (§4.3a).** Guards subscribe to buckets and the
+   bucket-subscription replication scheme supplies good copies; the
+   client checksums, localizes, and re-polls, but keeps no alternative
+   copies and does no trial-decrypt.
+
+## 9. Addressing invariant (load-bearing; §3)
+
+Routing keys are the ONLY identity-derived wire artifact, and only for
+the opener. After first contact the name ratchet (rotating throwaway
+RNS names + per-turn random return addresses) means no durable
+identity key anchors accumulating linkable traffic — this is the cover
+that Double Ratchet's removal was compensated by. No future change to
+the checksum, keying, or fetch path may re-anchor addressing (or the
+integrity field's keying) to durable identity keys without explicitly
+revisiting this invariant. The keyless checksum honors it by
+construction (it uses no keys at all); the deferred real MAC honors it
+by keying off the rotation mint, never the identity key.

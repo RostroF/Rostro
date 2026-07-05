@@ -13,13 +13,14 @@
 //!
 //! - [`chunk`]: contiguous chunk split/combine + client-prepared
 //!   share types. Sender's device splits the sealed envelope into N
-//!   chunks summing to 1× the message size, MACs each one
-//!   (descriptor-bound, v2), and ships a [`chunk::PreparedBatch`];
-//!   the recipient reassembles with
-//!   [`chunk::combine_chunks_authenticated`]. Confidentiality
-//!   against relays rides the envelope AEAD (a ciphertext slice is
-//!   indistinguishable from noise); see docs/CHAT-SHARE-CHUNKING.md
-//!   for why this replaced the XOR stripe.
+//!   chunks summing to 1× the message size, attaches a keyless
+//!   descriptor-bound checksum to each (corruption detection, not
+//!   authentication), and ships a [`chunk::PreparedBatch`]; the
+//!   recipient reassembles with [`chunk::combine_chunks_verified`].
+//!   Confidentiality AND authenticity against relays ride the
+//!   envelope AEAD (a ciphertext slice is indistinguishable from
+//!   noise); see docs/CHAT-SHARE-CHUNKING.md for why this replaced
+//!   the XOR stripe.
 //! - [`descriptor`]: Share descriptor + 256-bit ID types
 //!   (`MessageId`, `GroupId`, `RecipientHash`) + block-anchored TTL
 //!   helpers. SCALE-encoded wire types, `no_std`-compatible.
