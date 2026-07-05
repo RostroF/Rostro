@@ -11,11 +11,15 @@
 //!
 //! ## What's in this crate
 //!
-//! - [`stripe`]: XOR-stripe split/combine for relay-side ciphertext
-//!   privacy. Sender splits ciphertext into N shares such that any
-//!   single relay holds noise rather than partial ciphertext; recipient
-//!   reconstructs by XORing all N together. Information-theoretic
-//!   confidentiality against `<N` colluders.
+//! - [`chunk`]: contiguous chunk split/combine + client-prepared
+//!   share types. Sender's device splits the sealed envelope into N
+//!   chunks summing to 1× the message size, MACs each one
+//!   (descriptor-bound, v2), and ships a [`chunk::PreparedBatch`];
+//!   the recipient reassembles with
+//!   [`chunk::combine_chunks_authenticated`]. Confidentiality
+//!   against relays rides the envelope AEAD (a ciphertext slice is
+//!   indistinguishable from noise); see docs/CHAT-SHARE-CHUNKING.md
+//!   for why this replaced the XOR stripe.
 //! - [`descriptor`]: Share descriptor + 256-bit ID types
 //!   (`MessageId`, `GroupId`, `RecipientHash`) + block-anchored TTL
 //!   helpers. SCALE-encoded wire types, `no_std`-compatible.
@@ -37,7 +41,7 @@
 //!   group-encrypted ciphertexts.
 //! - **Double Ratchet** (pairwise session state) consumes [`envelope`]
 //!   types for pairwise DMs.
-//! - **libp2p binding** in `gemini-node` carries [`stripe`] shares over
+//! - **libp2p binding** in `gemini-node` carries [`chunk`] shares over
 //!   protocol streams + publishes [`descriptor`] entries to the DHT.
 //!
 //! Keeping these primitives transport-agnostic means they're testable
@@ -58,11 +62,11 @@ extern crate alloc;
 pub mod admission;
 pub mod anti_entropy;
 pub mod bucket;
+pub mod chunk;
 pub mod descriptor;
 pub mod dht_publication;
 pub mod envelope;
 pub mod fetch_protocol;
 pub mod identity_key;
 pub mod store_protocol;
-pub mod stripe;
 pub mod verify;

@@ -311,7 +311,7 @@ sp_api::decl_runtime_apis! {
         ///
         /// Use case: the gemini-node chat layer's JSON-RPC entry
         /// point verifies an end-user's HW-attested signature over
-        /// a challenge before accepting `chat_send_envelope`. It
+        /// a challenge before accepting `chat_send_prepared`. It
         /// needs the cert's `device_pubkey` to verify and the
         /// cert's `bound_account` as the authenticated identity.
         /// `cert_status` doesn't expose either; this method does.

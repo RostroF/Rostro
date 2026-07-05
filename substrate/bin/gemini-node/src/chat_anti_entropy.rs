@@ -45,7 +45,7 @@
 //! [`run_anti_entropy_server`] accepts inbound `AeRequest`s,
 //! computes the local digest for the requested bucket, and
 //! responds Match or Mismatch+entries. Channel-split admission
-//! gates the substream open just like chat-stripe / chat-fetch
+//! gates the substream open just like chat-chunk / chat-fetch
 //! — validators are rejected because they shouldn't be carrying
 //! chat-bucket data anyway.
 
@@ -79,7 +79,7 @@ use crate::chat_fetch_protocol::CHAT_FETCH_PROTOCOL_NAME;
 use crate::chat_gossip_protocol::LocalSubscriptionState;
 use crate::validator_channel::SharedSessions;
 
-/// libp2p protocol name. Distinct from `/rostro/chat-stripe/1`,
+/// libp2p protocol name. Distinct from `/rostro/chat-chunk/1`,
 /// `/rostro/chat-fetch/1`, `/rostro/chat-gossip/1`.
 pub const CHAT_ANTI_ENTROPY_PROTOCOL_NAME: &str = "/rostro/chat-anti-entropy/1";
 

@@ -10,12 +10,12 @@
 //! the global pickup-key keyspace so each gossip-channel node can
 //! choose to carry traffic for only a subset of buckets.
 //!
-//! **Buckets are not the same as XOR shards.** A single chat message
-//! is still split into N XOR-stripe shares
-//! ([`crate::stripe::split_xor`], default N=5); all shares of one
+//! **Buckets are not the same as chunks.** A single chat message is
+//! still split into N contiguous chunks
+//! ([`crate::chunk::split_chunks`], default N=5); all chunks of one
 //! message share the same pickup_key and therefore live in the same
-//! bucket. The bucket layer routes those shares to nodes; the shard
-//! layer is the on-wire stripe-and-reassemble primitive.
+//! bucket. The bucket layer routes those chunks to nodes; the chunk
+//! layer is the on-wire split-and-reassemble primitive.
 //!
 //! ## Subscription model
 //!

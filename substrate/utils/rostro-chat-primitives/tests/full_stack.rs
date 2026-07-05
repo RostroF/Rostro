@@ -3,33 +3,57 @@
 
 //! End-to-end integration test for the rostro-chat-primitives crate.
 //!
-//! Exercises the full sender → wire → recipient flow that this
-//! crate's primitives compose into. No real encryption (this crate
-//! defines wire types, not crypto layers); the test uses raw bytes
-//! in place of Sealed Sender outer-AEAD and MLS/DR inner-AEAD to
-//! demonstrate that the primitives glue together correctly.
+//! Exercises the full sender-device → wire → recipient-device flow
+//! that this crate's primitives compose into. No real encryption
+//! (this crate defines wire types, not crypto layers); the test uses
+//! raw bytes in place of Sealed Sender outer-AEAD and MLS/DR
+//! inner-AEAD to demonstrate that the primitives glue together
+//! correctly.
 //!
 //! Real production usage layers in:
 //!   - MLS or Double Ratchet for `inner_ciphertext` AEAD
 //!   - Sealed Sender outer ECDH+AEAD for `outer_ciphertext`
-//!   - libp2p transport for share delivery + DHT publication
+//!   - the onion path + libp2p transport for batch delivery
 //!
-//! Those layers are out of this crate's scope; the integration test
-//! demonstrates that the wire types and verification primitives
-//! correctly carry data between sender and recipient given those
-//! upper-layer crypto operations.
+//! The flow under test is the chunk cutover shape
+//! (docs/CHAT-SHARE-CHUNKING.md): the SENDER DEVICE splits + MACs
+//! (`prepare_batch`), a distributing node validates shape only
+//! (`validate_prepared_batch` — it holds no MAC key), and the
+//! RECIPIENT DEVICE authenticates + reassembles
+//! (`combine_chunks_authenticated`).
 
+use codec::{Decode, Encode};
 use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 use rostro_chat_primitives::{
-	descriptor::{MessageId, ShareDescriptor, ShareIndex, CHAT_TTL_SECONDS},
-	descriptor::{GroupId, PickupKey, RelayPubkey},
+	chunk::{
+		combine_chunks_authenticated, prepare_batch, validate_prepared_batch,
+		ChunkCombineError, PreparedBatch, TaggedChunk,
+	},
+	descriptor::{
+		GroupId, MessageId, PickupKey, RelayPubkey, ShareDescriptor, CHAT_TTL_SECONDS,
+	},
 	envelope::{sign_inner, EnvelopeKind, SealedEnvelope, UnsealedInner},
-	stripe::{combine_xor_authenticated, split_xor},
-	verify::{derive_share_mac_key, mac_share, verify_sender, ShareMacTag},
+	verify::{derive_share_mac_key, derive_stripe_mac_secret, verify_sender},
 };
-use codec::{Decode, Encode};
 
-const SHARE_COUNT: usize = 5;
+const CHUNK_COUNT: usize = 5;
+const NOW_TS: u64 = 1_700_000_000;
+
+/// Recipient-side view of a batch: the `TaggedChunk` refs a client
+/// builds from fetched shares (descriptor fields AS FETCHED).
+fn tagged_refs(batch: &PreparedBatch) -> Vec<TaggedChunk<'_>> {
+	batch
+		.shares
+		.iter()
+		.map(|s| TaggedChunk {
+			share_index: s.share_index,
+			total_shares: s.total_shares,
+			expires_at_unix_ts: s.expires_at_unix_ts,
+			bytes: &s.chunk_bytes,
+			tag: &s.mac_tag,
+		})
+		.collect()
+}
 
 /// Full sender → wire → recipient roundtrip for a pairwise DM.
 ///
@@ -40,11 +64,11 @@ const SHARE_COUNT: usize = 5;
 /// flow is identical.
 #[test]
 fn pairwise_dm_full_stack_roundtrip() {
-	// ── Sender side ───────────────────────────────────────────────
+	// ── Sender device ─────────────────────────────────────────────
 
 	let mut rng = ChaCha20Rng::from_seed([0xABu8; 32]);
 
-	// Sender's identity (libp2p Ed25519 node key).
+	// Sender's identity (Ed25519).
 	let signing_key = ed25519_zebra::SigningKey::from([0x11u8; 32]);
 
 	// Recipient's identity (just need the pubkey for pickup-key derivation).
@@ -53,10 +77,10 @@ fn pairwise_dm_full_stack_roundtrip() {
 	)
 	.into();
 
-	// Shared symmetric secret between sender and recipient (in real
-	// use, derived from the DR pairwise session). For test purposes
-	// we just pick a fixed value both sides know.
-	let session_secret: [u8; 32] = [0x33; 32];
+	// Per-conversation shared secret (in real use, the X3DH/PQXDH-derived
+	// pairwise secret). Both devices hold it; nothing on the path does.
+	let conversation_secret: [u8; 32] = [0x33; 32];
+	let stripe_mac_secret = derive_stripe_mac_secret(&conversation_secret);
 
 	// The original plaintext message the sender wants to deliver.
 	let plaintext: &[u8] = b"hello from rostro chat layer";
@@ -86,55 +110,72 @@ fn pairwise_dm_full_stack_roundtrip() {
 	};
 	let envelope_encoded = envelope.encode();
 
-	// Step 6: stripe-split the encoded envelope into N shares.
-	let share_bytes = split_xor(&envelope_encoded, SHARE_COUNT, &mut rng).unwrap();
-	assert_eq!(share_bytes.len(), SHARE_COUNT);
-
-	// Step 7: derive the per-message MAC key + tag each share.
-	let mac_key = derive_share_mac_key(&session_secret, &message_id);
-	let share_tags: Vec<ShareMacTag> = share_bytes
-		.iter()
-		.enumerate()
-		.map(|(i, s)| mac_share(&mac_key, s, i as ShareIndex))
-		.collect();
-
-	// Step 8: build descriptors that would go to the DHT. (We don't
-	// exercise the DHT in this test; just verify the descriptor shape
-	// round-trips through SCALE.)
+	// Step 6: chunk + MAC on the sender's device — the whole
+	// prepare-side pipeline in one call.
 	let pickup_key = PickupKey::for_pairwise(&recipient_pubkey);
-	let descriptors: Vec<ShareDescriptor> = (0..SHARE_COUNT)
-		.map(|i| ShareDescriptor {
-			relay_pubkey: RelayPubkey([0x44; 32]), // would be the per-share relay's key
-			message_id,
-			share_index: i as ShareIndex,
-			total_shares: SHARE_COUNT as u8,
-			pickup_key,
-			expires_at_unix_ts: 1_700_000_000 + CHAT_TTL_SECONDS,
+	let mac_key = derive_share_mac_key(&stripe_mac_secret, &message_id);
+	let expires_at = NOW_TS + CHAT_TTL_SECONDS;
+	let batch = prepare_batch(
+		&envelope_encoded,
+		CHUNK_COUNT,
+		&mac_key,
+		message_id,
+		pickup_key,
+		expires_at,
+	)
+	.unwrap();
+	assert_eq!(batch.shares.len(), CHUNK_COUNT);
+
+	// The batch is the wire artifact (onion drop / RPC payload): the
+	// chunks SUM to the envelope size — no N× expansion.
+	let chunk_total: usize = batch.shares.iter().map(|s| s.chunk_bytes.len()).sum();
+	assert_eq!(chunk_total, envelope_encoded.len());
+	let wire = batch.encode();
+	let batch_at_node = PreparedBatch::decode(&mut &wire[..]).unwrap();
+	assert_eq!(batch_at_node, batch);
+
+	// ── Distributing node (pure routing, no key) ──────────────────
+
+	// Shape validation at the handoff, then descriptor assembly: the
+	// node stamps its own relay_pubkey around the client's fields.
+	let total = validate_prepared_batch(&batch_at_node, NOW_TS).unwrap();
+	assert_eq!(total as usize, CHUNK_COUNT);
+	let descriptors: Vec<ShareDescriptor> = batch_at_node
+		.shares
+		.iter()
+		.map(|s| ShareDescriptor {
+			relay_pubkey: RelayPubkey([0x44; 32]), // the distributing node's key
+			message_id: batch_at_node.message_id,
+			share_index: s.share_index,
+			total_shares: s.total_shares,
+			pickup_key: batch_at_node.pickup_key,
+			expires_at_unix_ts: s.expires_at_unix_ts,
 		})
 		.collect();
 
-	// Descriptors SCALE-roundtrip.
+	// Descriptors SCALE-roundtrip (they travel to storing relays).
 	for d in &descriptors {
 		let bytes = d.encode();
 		assert_eq!(ShareDescriptor::decode(&mut &bytes[..]).unwrap(), *d);
 	}
 
-	// ── Wire (no-op in test; in production: libp2p + DHT) ─────────
+	// ── Recipient device ──────────────────────────────────────────
 
-	// ── Recipient side ────────────────────────────────────────────
+	// Recipient derives the same MAC key from its copy of the
+	// conversation secret + the message_id read off the descriptors —
+	// BEFORE decrypting anything.
+	let recipient_mac_key =
+		derive_share_mac_key(&derive_stripe_mac_secret(&conversation_secret), &message_id);
+	assert_eq!(recipient_mac_key, mac_key);
 
-	// Recipient assembles (share_index, share_bytes, tag) triples
-	// after fetching from each relay.
-	let triples: Vec<(ShareIndex, &[u8], &ShareMacTag)> = share_bytes
-		.iter()
-		.zip(share_tags.iter())
-		.enumerate()
-		.map(|(i, (b, t))| (i as ShareIndex, b.as_slice(), t))
-		.collect();
-
-	// Recipient verifies MACs + XOR-combines.
-	let recovered_envelope_bytes = combine_xor_authenticated(&mac_key, &triples)
-		.expect("auth-combine of honest shares must succeed");
+	// Verify MACs + concatenate.
+	let recovered_envelope_bytes = combine_chunks_authenticated(
+		&recipient_mac_key,
+		&message_id,
+		&pickup_key,
+		&tagged_refs(&batch_at_node),
+	)
+	.expect("auth-combine of honest chunks must succeed");
 	assert_eq!(recovered_envelope_bytes, envelope_encoded);
 
 	// Recipient decodes the SealedEnvelope.
@@ -173,7 +214,9 @@ fn pairwise_dm_full_stack_roundtrip() {
 fn group_message_full_stack_roundtrip() {
 	let mut rng = ChaCha20Rng::from_seed([0xCDu8; 32]);
 	let signing_key = ed25519_zebra::SigningKey::from([0x77u8; 32]);
-	let session_secret: [u8; 32] = [0x55; 32];
+	// For the (future) group path the conversation secret is the MLS
+	// epoch secret — same derivation shape.
+	let stripe_mac_secret = derive_stripe_mac_secret(&[0x55; 32]);
 	let group_id = GroupId::generate(&mut rng);
 	let plaintext: &[u8] = b"group message: shipping at block 9000";
 
@@ -187,14 +230,6 @@ fn group_message_full_stack_roundtrip() {
 	};
 	let envelope_encoded = envelope.encode();
 
-	let share_bytes = split_xor(&envelope_encoded, SHARE_COUNT, &mut rng).unwrap();
-	let mac_key = derive_share_mac_key(&session_secret, &message_id);
-	let share_tags: Vec<ShareMacTag> = share_bytes
-		.iter()
-		.enumerate()
-		.map(|(i, s)| mac_share(&mac_key, s, i as ShareIndex))
-		.collect();
-
 	// Pickup key for the group differs from any pairwise pickup key.
 	let group_pickup = PickupKey::for_group(&group_id);
 	let pairwise_pickup_with_same_bytes = PickupKey::for_pairwise(&group_id.0);
@@ -203,14 +238,25 @@ fn group_message_full_stack_roundtrip() {
 		"domain separation must keep pairwise and group pickup keys distinct",
 	);
 
+	let mac_key = derive_share_mac_key(&stripe_mac_secret, &message_id);
+	let batch = prepare_batch(
+		&envelope_encoded,
+		CHUNK_COUNT,
+		&mac_key,
+		message_id,
+		group_pickup,
+		NOW_TS + CHAT_TTL_SECONDS,
+	)
+	.unwrap();
+
 	// Recipient roundtrip.
-	let triples: Vec<(ShareIndex, &[u8], &ShareMacTag)> = share_bytes
-		.iter()
-		.zip(share_tags.iter())
-		.enumerate()
-		.map(|(i, (b, t))| (i as ShareIndex, b.as_slice(), t))
-		.collect();
-	let recovered = combine_xor_authenticated(&mac_key, &triples).unwrap();
+	let recovered = combine_chunks_authenticated(
+		&mac_key,
+		&message_id,
+		&group_pickup,
+		&tagged_refs(&batch),
+	)
+	.unwrap();
 	let recovered_envelope = SealedEnvelope::decode(&mut &recovered[..]).unwrap();
 	assert_eq!(recovered_envelope.kind, EnvelopeKind::Group(group_id));
 	let recovered_unsealed =
@@ -219,13 +265,15 @@ fn group_message_full_stack_roundtrip() {
 	assert_eq!(recovered_unsealed.inner_ciphertext, plaintext);
 }
 
-/// Tampered share is identified by position so the recipient can
-/// re-fetch *just that share* from a different relay.
+/// Tampered chunk is identified by position so the recipient can
+/// re-fetch from another replica (via a NORMAL-shaped pickup query —
+/// see docs/CHAT-SHARE-CHUNKING.md §4.6) and keep the attribution
+/// on-device.
 #[test]
-fn tampered_share_is_localized() {
+fn tampered_chunk_is_localized() {
 	let mut rng = ChaCha20Rng::from_seed([0xEFu8; 32]);
 	let signing_key = ed25519_zebra::SigningKey::from([0x44u8; 32]);
-	let session_secret: [u8; 32] = [0x66; 32];
+	let stripe_mac_secret = derive_stripe_mac_secret(&[0x66; 32]);
 	let plaintext = b"tamper detection at the relay layer";
 
 	let message_id = MessageId::generate(&mut rng);
@@ -236,34 +284,26 @@ fn tampered_share_is_localized() {
 		ephemeral_pubkey: [0; 32],
 		message_id,
 	};
-	let envelope_encoded = envelope.encode();
+	let pickup = PickupKey::for_pairwise(&[0x10; 32]);
+	let mac_key = derive_share_mac_key(&stripe_mac_secret, &message_id);
+	let mut batch = prepare_batch(
+		&envelope.encode(),
+		CHUNK_COUNT,
+		&mac_key,
+		message_id,
+		pickup,
+		NOW_TS + CHAT_TTL_SECONDS,
+	)
+	.unwrap();
 
-	let share_bytes = split_xor(&envelope_encoded, SHARE_COUNT, &mut rng).unwrap();
-	let mac_key = derive_share_mac_key(&session_secret, &message_id);
-	let mut share_tags: Vec<ShareMacTag> = share_bytes
-		.iter()
-		.enumerate()
-		.map(|(i, s)| mac_share(&mac_key, s, i as ShareIndex))
-		.collect();
+	// Simulate a malicious relay corrupting chunk 2's tag.
+	batch.shares[2].mac_tag[0] ^= 0xFF;
 
-	// Simulate a malicious relay corrupting share at index 2's tag.
-	share_tags[2][0] ^= 0xFF;
-
-	let triples: Vec<(ShareIndex, &[u8], &ShareMacTag)> = share_bytes
-		.iter()
-		.zip(share_tags.iter())
-		.enumerate()
-		.map(|(i, (b, t))| (i as ShareIndex, b.as_slice(), t))
-		.collect();
-
-	match combine_xor_authenticated(&mac_key, &triples) {
-		Err(rostro_chat_primitives::stripe::AuthCombineError::TamperedShare {
-			slice_index,
-			share_index,
-		}) => {
+	match combine_chunks_authenticated(&mac_key, &message_id, &pickup, &tagged_refs(&batch)) {
+		Err(ChunkCombineError::TamperedChunk { slice_index, share_index }) => {
 			assert_eq!(slice_index, 2);
 			assert_eq!(share_index, 2);
 		},
-		other => panic!("expected TamperedShare at index 2, got {:?}", other),
+		other => panic!("expected TamperedChunk at index 2, got {other:?}"),
 	}
 }

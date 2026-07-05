@@ -398,7 +398,7 @@ pub fn new_full<
 	// Phase B6b: ephemeral chat-share store + the two libp2p
 	// request-response protocols that read/write it.
 	//
-	//   * `/rostro/chat-stripe/1` — senders deposit XOR-stripe
+	//   * `/rostro/chat-chunk/1` — distributors deposit prepared chunk
 	//     shares for the recipient's pickup key
 	//   * `/rostro/chat-fetch/1` — recipients query for shares
 	//     stored under their pickup key
@@ -415,7 +415,7 @@ pub fn new_full<
 		rostro_chat_ephemeral_store::EphemeralShareStore::with_default_config(),
 	);
 
-	// Privacy-critical retention bound: a dead-drop / stripe share
+	// Privacy-critical retention bound: a dead-drop / chunk share
 	// must not outlive its TTL in RAM. `sweep_expired` deletes entries
 	// whose wall-clock expiry has passed; without this task the only
 	// reclaim paths are 64 MiB capacity pressure and node restart, so
@@ -445,16 +445,16 @@ pub fn new_full<
 		);
 	}
 
-	let (chat_stripe_config, chat_stripe_handler) =
-		crate::chat_stripe_protocol::build_chat_stripe_protocol::<N, _, _>(
+	let (chat_chunk_config, chat_chunk_handler) =
+		crate::chat_chunk_protocol::build_chat_chunk_protocol::<N, _, _>(
 			chat_share_store.clone(),
 			validator_channel_sessions.clone(),
 		);
-	net_config.add_request_response_protocol(chat_stripe_config);
+	net_config.add_request_response_protocol(chat_chunk_config);
 	task_manager.spawn_handle().spawn(
-		"rostro-chat-stripe-server",
+		"rostro-chat-chunk-server",
 		Some("rostro"),
-		chat_stripe_handler,
+		chat_chunk_handler,
 	);
 
 	let (chat_fetch_config, chat_fetch_handler) =
@@ -516,7 +516,7 @@ pub fn new_full<
 
 	// Phase 4 slice 2: register the onion-forward protocol config now
 	// (before build_network). Its handler is spawned later — unlike the
-	// other chat handlers it makes OUTBOUND stripe requests on Deliver,
+	// other chat handlers it makes OUTBOUND store requests on Deliver,
 	// so it needs the post-build_network NetworkService handle.
 	let (chat_onion_forward_config, chat_onion_forward_rx) =
 		crate::chat_onion_forward_protocol::build_chat_onion_forward_config::<N, _>();
@@ -524,8 +524,8 @@ pub fn new_full<
 
 	log::info!(
 		target: "rostro-chat",
-		"chat-stripe + chat-fetch protocols registered on `{}` / `{}`",
-		crate::chat_stripe_protocol::CHAT_STRIPE_PROTOCOL_NAME,
+		"chat-chunk + chat-fetch protocols registered on `{}` / `{}`",
+		crate::chat_chunk_protocol::CHAT_CHUNK_PROTOCOL_NAME,
 		crate::chat_fetch_protocol::CHAT_FETCH_PROTOCOL_NAME,
 	);
 
@@ -835,7 +835,7 @@ pub fn new_full<
 	// Phase 4 slice 2: spawn the onion-forward handler (relay-2 side). It
 	// owns its own OnionPeelCtx built from this node's key — peels a
 	// forwarded onion and, on Deliver, injects the recipient message into
-	// the stripe path. Only spawned when this node has a persistent
+	// the chunk path. Only spawned when this node has a persistent
 	// identity (onion relaying requires the node key).
 	if let Some(onion_seed) = chat_node_seed {
 		// chat-spend-witness Phase 4a: recorder side of

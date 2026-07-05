@@ -469,7 +469,6 @@ impl ShareStore for EphemeralShareStore {
 mod tests {
 	use super::*;
 	use rostro_chat_primitives::descriptor::{GroupId, RelayPubkey};
-	use rostro_chat_primitives::verify::mac_share;
 
 	const NOW_TS: UnixTimestamp = 1_700_000_000;
 
@@ -496,7 +495,8 @@ mod tests {
 		expires_at_unix_ts: UnixTimestamp,
 	) -> (ShareDescriptor, Vec<u8>, ShareMacTag) {
 		let d = make_descriptor(message_id_byte, share_index, 5, expires_at_unix_ts);
-		let tag = mac_share(&[0u8; 32], &bytes, share_index);
+		// Filler tag: the store never verifies MACs (no key by design).
+		let tag: ShareMacTag = [share_index; 32];
 		(d, bytes, tag)
 	}
 
@@ -743,7 +743,7 @@ mod tests {
 		// the set behavior (not multiset).
 		let mut d3 = make_descriptor(0x71, 0, 5, NOW_TS + 100);
 		d3.pickup_key = PickupKey([0xFE; 32]);
-		let t3 = mac_share(&[0u8; 32], &[3], 0);
+		let t3: ShareMacTag = [3; 32];
 		store.insert(d3, vec![3], t3).unwrap();
 
 		let mut keys = <EphemeralShareStore as ShareStore>::pickup_keys(&store);
@@ -791,7 +791,7 @@ mod tests {
 				pickup_key: pk,
 				expires_at_unix_ts: NOW_TS + 1000,
 			};
-			let tag = mac_share(&[0u8; 32], &[1, 2, 3], share_index);
+			let tag: ShareMacTag = [share_index; 32];
 			store.insert(d, vec![1, 2, 3], tag).unwrap();
 		}
 
@@ -828,7 +828,7 @@ mod tests {
 			pickup_key: pk,
 			expires_at_unix_ts: NOW_TS + 1000,
 		};
-		let tag = mac_share(&[0u8; 32], &[1], 0);
+		let tag: ShareMacTag = [0xEE; 32];
 		store.insert(d, vec![1], tag).unwrap();
 		assert_eq!(store.len(), 1);
 
@@ -863,7 +863,7 @@ mod tests {
 				pickup_key: pk,
 				expires_at_unix_ts: NOW_TS + 100,
 			};
-			let tag = mac_share(&[0u8; 32], &[1], share_index);
+			let tag: ShareMacTag = [share_index; 32];
 			store.insert(d, vec![1], tag).unwrap();
 		}
 		insert(&store, PickupKey([0x03; 32]), 0xA0, 0);

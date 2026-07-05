@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Rostro Foundation contributors
 
 //! Share-storage protocol primitives (server-side of
-//! `/rostro/chat-stripe/1`).
+//! `/rostro/chat-chunk/1`).
 //!
 //! Sender fans out a [`StoreRequest`] per share to N distinct
 //! relays. Each relay validates the descriptor + tag, inserts into
@@ -33,8 +33,8 @@
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 
+use crate::chunk::MAX_CHUNKS;
 use crate::descriptor::{ShareDescriptor, UnixTimestamp};
-use crate::stripe::MAX_SHARES;
 use crate::verify::{ShareMacTag, MAC_TAG_LEN};
 
 /// Hard cap on a single share's byte length. 4 MiB is generous for
@@ -48,12 +48,14 @@ pub const MAX_SHARE_BYTES: usize = 4 * 1024 * 1024;
 pub struct StoreRequest {
 	/// Public descriptor for this share (DHT-publishable).
 	pub descriptor: ShareDescriptor,
-	/// XOR-stripe share bytes — opaque ciphertext fragment.
+	/// Chunk bytes — opaque ciphertext fragment (a contiguous slice
+	/// of the encoded envelope).
 	pub share_bytes: Vec<u8>,
-	/// Per-share MAC tag, keyed by the sender+recipient session
-	/// secret (see [`crate::verify::mac_share`]). Relays do not
-	/// verify the MAC (they don't have the key); only recipients
-	/// verify on assembly.
+	/// Per-chunk MAC tag, computed on the sender's device under the
+	/// per-conversation stripe-MAC key (see
+	/// [`crate::verify::mac_chunk`]). Relays do not verify the MAC
+	/// (they don't have the key, by design); only recipients verify
+	/// on assembly.
 	pub mac_tag: ShareMacTag,
 }
 
@@ -83,8 +85,8 @@ pub enum StoreRejection {
 	/// `descriptor.total_shares > MAX_TOTAL_SHARES` — beyond the
 	/// protocol's per-message share cap.
 	TotalSharesTooLarge,
-	/// `descriptor.total_shares < 2` — degenerate "stripe" with
-	/// only one share, which provides no relay-side confidentiality.
+	/// `descriptor.total_shares < 2` — degenerate single-chunk
+	/// message, which would hand one relay the whole ciphertext.
 	TotalSharesTooSmall,
 	/// `share_bytes.len() > MAX_SHARE_BYTES` — payload exceeds the
 	/// protocol's per-share size cap.
@@ -220,7 +222,7 @@ pub fn handle_store_request<S: ShareStore + ?Sized>(
 	if !d.expiry_within_bounds(now_unix_ts) {
 		return StoreResponse::Rejected(StoreRejection::DescriptorExpired);
 	}
-	if (d.total_shares as usize) > MAX_SHARES {
+	if (d.total_shares as usize) > MAX_CHUNKS {
 		return StoreResponse::Rejected(StoreRejection::TotalSharesTooLarge);
 	}
 	if (d.total_shares as usize) < 2 {
@@ -307,7 +309,6 @@ mod tests {
 		GroupId, MessageId, PickupKey, RelayPubkey, CHAT_TTL_SECONDS,
 		MAX_TTL_SLOP_SECONDS, PAST_GRACE_SECONDS,
 	};
-	use crate::verify::mac_share;
 	use alloc::collections::BTreeMap;
 	use alloc::sync::Arc;
 	use core::cell::RefCell;
@@ -333,7 +334,9 @@ mod tests {
 	}
 
 	fn make_request(d: ShareDescriptor, bytes: Vec<u8>) -> StoreRequest {
-		let tag = mac_share(&[0u8; 32], &bytes, d.share_index);
+		// Filler tag: the store path never verifies MACs (relays hold
+		// no key); only the shape matters here.
+		let tag: ShareMacTag = [d.share_index; 32];
 		StoreRequest { descriptor: d, share_bytes: bytes, mac_tag: tag }
 	}
 
@@ -445,9 +448,9 @@ mod tests {
 	#[test]
 	fn rejects_total_shares_too_large() {
 		let store = StubStore::new(100);
-		// total_shares > MAX_SHARES (64).
+		// total_shares > MAX_CHUNKS (64).
 		let mut d = make_descriptor(0, 5, NOW_TS + CHAT_TTL_SECONDS);
-		d.total_shares = (MAX_SHARES as u8).saturating_add(1);
+		d.total_shares = (MAX_CHUNKS as u8).saturating_add(1);
 		let req = make_request(d, alloc::vec![1]);
 		assert_eq!(
 			handle_store_request(&store, &req, NOW_TS),

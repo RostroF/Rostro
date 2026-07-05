@@ -60,7 +60,8 @@ pub struct FetchedShare {
 	/// Descriptor as originally stored (relay_pubkey, message_id,
 	/// share_index, total_shares, pickup_key, expires_at_unix_ts).
 	pub descriptor: ShareDescriptor,
-	/// XOR-stripe share bytes.
+	/// Chunk bytes — an opaque contiguous slice of the encoded
+	/// envelope.
 	pub share_bytes: Vec<u8>,
 	/// Per-share MAC tag — recipient verifies on assembly.
 	pub mac_tag: ShareMacTag,
@@ -79,8 +80,8 @@ pub struct FetchResponse {
 /// truncates to [`MAX_FETCH_RESPONSE_SHARES`], returns the response.
 ///
 /// The recipient is expected to verify the MAC on each returned
-/// share before XOR-combining (see
-/// [`crate::stripe::combine_xor_authenticated`]). This handler does
+/// chunk before reassembly (see
+/// [`crate::chunk::combine_chunks_authenticated`]). This handler does
 /// NOT verify MACs — the relay doesn't have the MAC key, and the
 /// recipient is the only party authorized to authenticate the data.
 pub fn handle_fetch_request<S: ShareStore + ?Sized>(
@@ -155,7 +156,6 @@ mod tests {
 		CHAT_TTL_SECONDS,
 	};
 	use crate::store_protocol::{StoreInsertError, ShareStore as ShareStoreTrait};
-	use crate::verify::mac_share;
 	use alloc::collections::BTreeMap;
 	use alloc::sync::Arc;
 	use core::cell::RefCell;
@@ -219,7 +219,9 @@ mod tests {
 
 	fn insert_share(store: &StubStore, mid: u8, idx: u8, pickup: u8, body: Vec<u8>) {
 		let d = make_descriptor(mid, idx, pickup);
-		let t = mac_share(&[0u8; 32], &body, idx);
+		// Filler tag: the fetch path never verifies MACs (relays hold
+		// no key); only the shape matters here.
+		let t: ShareMacTag = [idx; 32];
 		store.insert(d, body, t).unwrap();
 	}
 
