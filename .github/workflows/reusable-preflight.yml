@@ -113,7 +113,7 @@ jobs:
       COMMIT_SHA_SHORT: ${{ steps.set_vars.outputs.COMMIT_SHA_SHORT }}
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       #
       # Set changes
@@ -127,7 +127,7 @@ jobs:
 
       - name: Set changes
         id: set_changes
-        uses: tj-actions/changed-files@8cba46e29c11878d930bca7870bb54394d3e8b21 #v47.0.2
+        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 #v47.0.6
         with:
           files_yaml: |
             rust:
@@ -207,7 +207,7 @@ jobs:
     container:
       image: ${{ needs.preflight.outputs.IMAGE }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Info rust
         run: |
