@@ -1,3 +1,7 @@
+// Rostro vendor change (see VENDOR.md): explicit alloc imports for
+// unconditional no_std.
+#[cfg(feature = "alloc")]
+use alloc::{vec, vec::Vec};
 use hybrid_array::{Array, ArraySize};
 use typenum::generic_const_mappings::U;
 use typenum::Unsigned;

@@ -1,3 +1,7 @@
+// Rostro vendor change (see VENDOR.md): explicit alloc imports for
+// unconditional no_std.
+#[cfg(feature = "alloc")]
+use alloc::{vec, vec::Vec};
 use core::fmt::Debug;
 
 use hybrid_array::{Array, ArraySize};

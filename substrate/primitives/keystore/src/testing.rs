@@ -27,7 +27,7 @@ use sp_core::{
 };
 use sp_core::{
 	crypto::{ByteArray, KeyTypeId, Pair, VrfSecret},
-	ecdsa, ed25519, sr25519,
+	ecdsa, ed25519, rostro_hybrid, sr25519,
 };
 
 use parking_lot::RwLock;
@@ -201,6 +201,27 @@ impl Keystore for MemoryKeystore {
 		msg: &[u8],
 	) -> Result<Option<ed25519::Signature>, Error> {
 		self.sign::<ed25519::Pair>(key_type, public, msg)
+	}
+
+	fn rostro_hybrid_public_keys(&self, key_type: KeyTypeId) -> Vec<rostro_hybrid::Public> {
+		self.public_keys::<rostro_hybrid::Pair>(key_type)
+	}
+
+	fn rostro_hybrid_generate_new(
+		&self,
+		key_type: KeyTypeId,
+		seed: Option<&str>,
+	) -> Result<rostro_hybrid::Public, Error> {
+		self.generate_new::<rostro_hybrid::Pair>(key_type, seed)
+	}
+
+	fn rostro_hybrid_sign(
+		&self,
+		key_type: KeyTypeId,
+		public: &rostro_hybrid::Public,
+		msg: &[u8],
+	) -> Result<Option<rostro_hybrid::Signature>, Error> {
+		self.sign::<rostro_hybrid::Pair>(key_type, public, msg)
 	}
 
 	fn ecdsa_public_keys(&self, key_type: KeyTypeId) -> Vec<ecdsa::Public> {

@@ -148,6 +148,22 @@ fn bad_lengths_rejected() {
 }
 
 #[test]
+fn from_seed_deterministic_and_functional() {
+	let seed = [7u8; SEED_BYTES];
+	let a = HybridSigningKey::from_seed(&seed);
+	let b = HybridSigningKey::from_seed(&seed);
+	assert_eq!(a.to_vec(), b.to_vec());
+	assert_eq!(a.verifying_key().to_vec(), b.verifying_key().to_vec());
+
+	let c = HybridSigningKey::from_seed(&[8u8; SEED_BYTES]);
+	assert_ne!(a.verifying_key().to_vec(), c.verifying_key().to_vec());
+
+	let msg = b"seeded";
+	let sig = a.sign(FINALITY_VOTE_DOMAIN, msg).unwrap();
+	b.verifying_key().verify(FINALITY_VOTE_DOMAIN, msg, &sig).unwrap();
+}
+
+#[test]
 fn wrong_key_rejected() {
 	let (sk, _) = keypair();
 	let (_, other_vk) = keypair();

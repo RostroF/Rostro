@@ -56,6 +56,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use ed25519_dalek::Signer as _;
+use hkdf::Hkdf;
+use sha2::Sha256;
 use slh_dsa::Sha2_128f;
 
 /// ed25519 public-key length in bytes (RFC 8032).
@@ -77,6 +79,12 @@ pub const HYBRID_PK_BYTES: usize = ED25519_PK_BYTES + SLH_PK_BYTES;
 pub const HYBRID_SIG_BYTES: usize = ED25519_SIG_BYTES + SLH_SIG_BYTES;
 /// Hybrid secret key wire length: ed25519 seed || SLH-DSA sk.
 pub const HYBRID_SK_BYTES: usize = ED25519_SK_BYTES + SLH_SK_BYTES;
+/// Master-seed length for deterministic keygen ([`HybridSigningKey::from_seed`]).
+pub const SEED_BYTES: usize = 32;
+
+/// HKDF salt for the one-seed keygen expansion. Versioned: changing the
+/// expansion is a new suffix, never a silent re-derivation.
+const KEYGEN_SALT: &[u8] = b"rostro/hybrid-sig/keygen/v1";
 
 /// Domain for GRANDPA finality votes. The era/round/set_id scoping rides
 /// inside the vote preimage built by the caller; the domain pins the
@@ -138,6 +146,26 @@ impl HybridSigningKey {
 		Self {
 			ed: ed25519_dalek::SigningKey::generate(rng),
 			slh: slh_dsa::SigningKey::new(rng),
+		}
+	}
+
+	/// Deterministic keygen from one 32-byte master seed: HKDF-SHA256
+	/// expands the seed into the ed25519 seed and the three FIPS 205
+	/// keygen seeds (sk_seed, sk_prf, pk_seed), so keystores, chain-spec
+	/// seeding, and hard derivation stay one-seed exactly like the
+	/// classical schemes.
+	pub fn from_seed(seed: &[u8; SEED_BYTES]) -> Self {
+		let hk = Hkdf::<Sha256>::new(Some(KEYGEN_SALT), seed);
+		let mut okm = [0u8; ED25519_SK_BYTES + 3 * 16];
+		hk.expand(KEYGEN_SALT, &mut okm)
+			.expect("80-byte expansion is far below the HKDF-SHA256 limit; qed");
+		let ed_seed: [u8; ED25519_SK_BYTES] =
+			okm[..ED25519_SK_BYTES].try_into().expect("slice length fixed above; qed");
+		let (sk_seed, rest) = okm[ED25519_SK_BYTES..].split_at(16);
+		let (sk_prf, pk_seed) = rest.split_at(16);
+		Self {
+			ed: ed25519_dalek::SigningKey::from_bytes(&ed_seed),
+			slh: slh_dsa::SigningKey::slh_keygen_internal(sk_seed, sk_prf, pk_seed),
 		}
 	}
 

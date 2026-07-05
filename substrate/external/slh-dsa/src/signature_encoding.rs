@@ -1,3 +1,7 @@
+// Rostro vendor change (see VENDOR.md): explicit alloc imports for
+// unconditional no_std.
+#[cfg(feature = "alloc")]
+use alloc::{vec, vec::Vec};
 use crate::hashes::{
     Sha2_128f, Sha2_128s, Sha2_192f, Sha2_192s, Sha2_256f, Sha2_256s, Shake128f, Shake192f,
     Shake192s, Shake256f, Shake256s,

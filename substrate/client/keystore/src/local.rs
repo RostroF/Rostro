@@ -22,7 +22,7 @@ use parking_lot::RwLock;
 use sp_application_crypto::{AppCrypto, AppPair, IsWrappedBy};
 use sp_core::{
 	crypto::{ByteArray, ExposeSecret, KeyTypeId, Pair as CorePair, SecretString, VrfSecret},
-	ecdsa, ed25519, sr25519,
+	ecdsa, ed25519, rostro_hybrid, sr25519,
 };
 use sp_keystore::{Error as TraitError, Keystore, KeystorePtr};
 use std::{
@@ -250,6 +250,27 @@ impl Keystore for LocalKeystore {
 		msg: &[u8],
 	) -> std::result::Result<Option<ed25519::Signature>, TraitError> {
 		self.sign::<ed25519::Pair>(key_type, public, msg)
+	}
+
+	fn rostro_hybrid_public_keys(&self, key_type: KeyTypeId) -> Vec<rostro_hybrid::Public> {
+		self.public_keys::<rostro_hybrid::Pair>(key_type)
+	}
+
+	fn rostro_hybrid_generate_new(
+		&self,
+		key_type: KeyTypeId,
+		seed: Option<&str>,
+	) -> std::result::Result<rostro_hybrid::Public, TraitError> {
+		self.generate_new::<rostro_hybrid::Pair>(key_type, seed)
+	}
+
+	fn rostro_hybrid_sign(
+		&self,
+		key_type: KeyTypeId,
+		public: &rostro_hybrid::Public,
+		msg: &[u8],
+	) -> std::result::Result<Option<rostro_hybrid::Signature>, TraitError> {
+		self.sign::<rostro_hybrid::Pair>(key_type, public, msg)
 	}
 
 	fn ecdsa_public_keys(&self, key_type: KeyTypeId) -> Vec<ecdsa::Public> {
@@ -824,6 +845,42 @@ mod tests {
 			.unwrap();
 
 		assert_eq!(key_pair.public(), store_key_pair.public());
+	}
+
+	#[test]
+	fn rostro_hybrid_keystore_roundtrip() {
+		use sp_core::testing::ROSTRO_HYBRID;
+
+		let temp_dir = TempDir::new().unwrap();
+		let store = LocalKeystore::open(temp_dir.path(), None).unwrap();
+
+		// Generate persisted (no-seed) hybrid key.
+		let public = store.rostro_hybrid_generate_new(ROSTRO_HYBRID, None).unwrap();
+		assert_eq!(store.rostro_hybrid_public_keys(ROSTRO_HYBRID), vec![public]);
+
+		// Sign through the keystore trait; verify with the sp-core scheme.
+		let msg = b"hybrid vote payload";
+		let sig = store.rostro_hybrid_sign(ROSTRO_HYBRID, &public, msg).unwrap().unwrap();
+		assert!(sp_core::rostro_hybrid::Pair::verify(&sig, msg, &public));
+
+		// Unknown key → None, not an error.
+		let other = sp_core::rostro_hybrid::Pair::generate().0.public();
+		assert!(store.rostro_hybrid_sign(ROSTRO_HYBRID, &other, msg).unwrap().is_none());
+
+		// The key survives a keystore reopen (fresh scan of the same dir),
+		// and the reopened store signs identically (both components are
+		// deterministic).
+		drop(store);
+		let reopened = LocalKeystore::open(temp_dir.path(), None).unwrap();
+		assert_eq!(reopened.rostro_hybrid_public_keys(ROSTRO_HYBRID), vec![public]);
+		let sig2 = reopened.rostro_hybrid_sign(ROSTRO_HYBRID, &public, msg).unwrap().unwrap();
+		assert_eq!(sig, sig2);
+
+		// Seed-derived generation matches direct pair construction
+		// (the chain-spec //-path flow).
+		let seeded = reopened.rostro_hybrid_generate_new(ROSTRO_HYBRID, Some("//Alice")).unwrap();
+		let direct = sp_core::rostro_hybrid::Pair::from_string("//Alice", None).unwrap();
+		assert_eq!(seeded, direct.public());
 	}
 
 	#[test]

@@ -1,4 +1,9 @@
-#![cfg_attr(not(feature = "alloc"), no_std)]
+// Rostro vendor change: upstream gated `no_std` on the ABSENCE of the
+// `alloc` feature, so enabling `alloc` linked `std` — backwards, and fatal
+// for a runtime (RISC-V no_std) dependency. Made `no_std` unconditional
+// with an explicit `alloc` crate; alloc-gated items now import from
+// `alloc::` directly. See VENDOR.md.
+#![no_std]
 #![doc = include_str!("../README.md")]
 #![warn(clippy::pedantic)] // Be pedantic by default
 //#![allow(non_snake_case)] // Allow notation matching the spec
@@ -6,6 +11,7 @@
 #![allow(clippy::similar_names)] // TODO: Consider resolving these
 #![allow(clippy::clone_on_copy)] // Be explicit about moving data
 #![deny(missing_docs)] // Require all public interfaces to be documented
+
 
 //! # Usage
 //! This crate implements the Stateless Hash-based Digital Signature Algorithm (SLH-DSA) based on the finalized
@@ -45,6 +51,13 @@
 //!
 //! assert!(vk_deserialized.verify(message, &sig).is_ok())
 //! ```
+
+// Rostro vendor change (see VENDOR.md): alloc/std crate declarations for
+// unconditional no_std.
+#[cfg(feature = "alloc")]
+extern crate alloc;
+#[cfg(test)]
+extern crate std;
 
 pub use signature;
 

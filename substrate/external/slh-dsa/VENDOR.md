@@ -46,9 +46,8 @@ shipped with; they are frozen by the lock like everything else.
 
 ## Local modifications
 
-`src/` and `tests/` are byte-identical to the crates.io tarball. One
-surgical change to `Cargo.toml` (marked in-file with "Rostro vendor
-change"):
+`tests/` is byte-identical to the crates.io tarball. Two surgical changes
+(all marked in-file with "Rostro vendor change"):
 
 1. `signature` version requirement `"2.3.0-pre.4"` → `">=2.0, <3"`.
    Upstream shipped 0.1.0 pinned to a pre-release of the `signature`
@@ -60,6 +59,16 @@ change"):
    `Error`) are all present and identical in stable 2.x; behavior is
    pinned by the ACVP + SPHINCS+ reference KATs, which must pass
    unchanged against the relaxed resolution.
+2. `no_std` gate inverted upstream: `src/lib.rs` had
+   `#![cfg_attr(not(feature = "alloc"), no_std)]`, i.e. enabling `alloc`
+   linked `std` — fatal for the RISC-V runtime build, which needs
+   alloc-without-std. Changed to unconditional `#![no_std]` with
+   `extern crate alloc` (alloc-gated) + `extern crate std` (test-gated),
+   and added `use alloc::{vec, vec::Vec}` imports (alloc-gated, marked)
+   to the seven files whose alloc-gated items reference `Vec`/`vec!`:
+   `signature_encoding.rs`, `wots.rs`, `xmss.rs`, `hypertree.rs`,
+   `fors.rs`, `signing_key.rs`, `verifying_key.rs`. No logic touched;
+   behavior re-pinned by the full KAT surface after the change.
 
 Stripped (registry packaging artifacts only, not source):
 `.cargo_vcs_info.json`, `Cargo.toml.orig`.

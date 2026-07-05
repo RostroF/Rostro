@@ -27,6 +27,8 @@ pub const SR25519: KeyTypeId = KeyTypeId(*b"sr25");
 pub const ECDSA: KeyTypeId = KeyTypeId(*b"ecds");
 /// Key type for generic Bandersnatch key.
 pub const BANDERSNATCH: KeyTypeId = KeyTypeId(*b"band");
+/// Key type for generic Rostro hybrid (ed25519 + SLH-DSA) key.
+pub const ROSTRO_HYBRID: KeyTypeId = KeyTypeId(*b"rhyb");
 /// Key type for generic BLS12-377 key.
 pub const BLS377: KeyTypeId = KeyTypeId(*b"bls7");
 /// Key type for generic BLS12-381 key.

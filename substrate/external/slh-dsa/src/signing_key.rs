@@ -1,3 +1,7 @@
+// Rostro vendor change (see VENDOR.md): explicit alloc imports for
+// unconditional no_std.
+#[cfg(feature = "alloc")]
+use alloc::{vec, vec::Vec};
 use crate::address::{ForsTree, WotsHash};
 use crate::signature_encoding::Signature;
 use crate::util::split_digest;
