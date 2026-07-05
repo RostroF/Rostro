@@ -19,11 +19,17 @@
 //! - `pickup-key --pubkey <hex>` — compute a pickup key from a
 //!   chat-identity Ed25519 pubkey. Utility for scripts.
 //! - `send --node-rpc <url> --sender-seed <hex> --recipient-pubkey <hex> --message <text>`
-//!   — build + sign + sealed-sender-seal an envelope locally, then
-//!   call `chat_send_envelope` against the named gemini-node.
+//!   — build + sign + sealed-sender-seal an envelope locally, chunk +
+//!   checksum it on-device (`prepare_batch`), then call
+//!   `chat_send_prepared` against the named gemini-node.
 //! - `fetch --node-rpc <url> --recipient-seed <hex> [--relay-peer <peer_id>]`
-//!   — call `chat_fetch_shares`, group + combine + unseal + verify
-//!   locally, print recovered plaintexts.
+//!   — call `chat_fetch_shares`, group + checksum-verify + reassemble
+//!   + unseal + verify locally, print recovered plaintexts.
+//!
+//! The per-chunk checksum is keyless (corruption detection +
+//! localization; docs/CHAT-SHARE-CHUNKING.md §4.3), so reassembly
+//! needs nothing but the fetched descriptors. Authenticity is the
+//! sealed-sender AEAD + sender signature, verified after reassembly.
 
 use std::collections::HashMap;
 
@@ -35,11 +41,11 @@ use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use rand_core::{OsRng, RngCore};
 use rostro_chat_primitives::{
-	descriptor::{MessageId, PickupKey},
+	chunk::{combine_chunks_verified, prepare_batch, TaggedChunk},
+	descriptor::{MessageId, PickupKey, CHAT_TTL_SECONDS},
 	envelope::{sign_inner, EnvelopeKind, SealedEnvelope, UnsealedInner},
 	identity_key::{ed25519_seed_to_x25519_secret, ed25519_to_x25519_pubkey},
-	stripe::combine_xor,
-	verify::verify_sender,
+	verify::{verify_sender, ChunkChecksum},
 };
 use rostro_chat_sealed_sender::{seal as ss_seal, unseal as ss_unseal, SealedOutput};
 
@@ -62,7 +68,6 @@ struct ChatShareDescriptorRpc {
 	total_shares: u8,
 	#[allow(dead_code)]
 	pickup_key_hex: String,
-	#[allow(dead_code)]
 	expires_at_unix_ts: u64,
 }
 
@@ -70,8 +75,7 @@ struct ChatShareDescriptorRpc {
 struct ChatFetchedShareRaw {
 	descriptor: ChatShareDescriptorRpc,
 	share_bytes_hex: String,
-	#[allow(dead_code)]
-	mac_tag_hex: String,
+	checksum_hex: String,
 }
 
 // ── CLI ─────────────────────────────────────────────────────────────
@@ -104,8 +108,9 @@ enum Cmd {
 	},
 
 	/// Build + sign + sealed-sender-seal a chat envelope locally,
-	/// then call `chat_send_envelope` on the named gemini-node.
-	/// The node sees only the encrypted envelope + routing metadata.
+	/// chunk + MAC it on-device, then call `chat_send_prepared` on
+	/// the named gemini-node. The node sees only ciphertext chunks +
+	/// routing metadata — it holds no MAC key and does no splitting.
 	Send {
 		/// JSON-RPC URL of the gemini-node to dispatch through.
 		/// Typically `http://127.0.0.1:9944` for a locally-running
@@ -128,15 +133,14 @@ enum Cmd {
 		#[arg(long)]
 		message: String,
 
-		/// Number of XOR-stripe shares the node should split the
-		/// envelope into.
+		/// Number of chunks to split the envelope into (client-side).
 		#[arg(long, default_value_t = 5)]
-		total_shares: u8,
+		total_chunks: u8,
 	},
 
 	/// Call `chat_fetch_shares` on the named gemini-node, then
-	/// reconstruct + unseal + verify any complete message stripes
-	/// locally. Prints recovered plaintexts.
+	/// MAC-verify + reassemble + unseal + verify any complete
+	/// messages locally. Prints recovered plaintexts.
 	Fetch {
 		/// JSON-RPC URL of the gemini-node to query.
 		#[arg(long)]
@@ -209,7 +213,7 @@ async fn cmd_send(
 	sender_seed_hex: &str,
 	recipient_pubkey_hex: &str,
 	message: &str,
-	total_shares: u8,
+	total_chunks: u8,
 ) -> Result<()> {
 	let sender_seed = decode_hex32(sender_seed_hex)?;
 	let recipient_ed = decode_hex32(recipient_pubkey_hex)?;
@@ -244,36 +248,43 @@ async fn cmd_send(
 		message_id,
 	};
 	let envelope_bytes = envelope.encode();
-	let envelope_hex = hex::encode(&envelope_bytes);
+
+	// Chunk + checksum on-device (the prepare-side of the chunk
+	// cutover). Keyless — nothing to derive.
+	let pickup_key = PickupKey::for_pairwise(&recipient_x);
+	let now_unix = std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map(|d| d.as_secs())
+		.unwrap_or(0);
+	let batch = prepare_batch(
+		&envelope_bytes,
+		total_chunks as usize,
+		message_id,
+		pickup_key,
+		now_unix + CHAT_TTL_SECONDS,
+	)
+	.map_err(|e| anyhow!("prepare_batch failed: {e:?}"))?;
+	let batch_hex = hex::encode(batch.encode());
 
 	// Call the node via JSON-RPC.
 	let client = HttpClientBuilder::default()
 		.build(node_rpc)
 		.with_context(|| format!("connecting to {node_rpc}"))?;
 	// v0.1 demo path: no HW-attested chat-auth cert available, so
-	// the three auth-* parameters are sent as `null`. The node
-	// will log a warning and accept; production deployments are
-	// expected to reject the unauthenticated path. When the mobile
-	// app integrates HW-attested signing, it will pass real values
-	// here (cert thumbprint + timestamp + signature over
-	// blake2_256(CHAT_AUTH_DOMAIN || envelope_bytes || ts_be)).
+	// the three auth-* parameters are sent as `null`; a Phase-2
+	// cert-gated node rejects this (the dotwave app passes real
+	// values: cert thumbprint + timestamp + signature over
+	// blake2_256(CHAT_AUTH_DOMAIN || batch_bytes || ts_be)).
 	let auth_thumbprint: Option<String> = None;
 	let auth_timestamp: Option<u64> = None;
 	let auth_sig: Option<String> = None;
 	let result: ChatSendResult = client
 		.request(
-			"chat_send_envelope",
-			rpc_params![
-				hex::encode(recipient_ed),
-				envelope_hex,
-				total_shares,
-				auth_thumbprint,
-				auth_timestamp,
-				auth_sig
-			],
+			"chat_send_prepared",
+			rpc_params![batch_hex, auth_thumbprint, auth_timestamp, auth_sig],
 		)
 		.await
-		.context("chat_send_envelope RPC failed")?;
+		.context("chat_send_prepared RPC failed")?;
 
 	println!("sent.");
 	println!("  message_id_hex:           {}", result.message_id_hex);
@@ -293,6 +304,7 @@ async fn cmd_fetch(
 	let (recipient_ed, _recipient_x_pub, pickup_bytes) =
 		identity_from_seed(&recipient_seed)?;
 	let recipient_x_secret = ed25519_seed_to_x25519_secret(&recipient_seed);
+	let pickup_key = PickupKey(pickup_bytes);
 
 	// Call chat_fetch_shares.
 	let client = HttpClientBuilder::default()
@@ -311,32 +323,61 @@ async fn cmd_fetch(
 		return Ok(());
 	}
 
-	// Group by message_id_hex; track total_shares for each.
-	let mut by_message: HashMap<String, (u8, Vec<(u8, Vec<u8>)>)> = HashMap::new();
+	// Group by message_id_hex, keeping the fetched descriptor fields
+	// (index, total, expires) + tag per chunk — the MAC binds them
+	// all, so they must be fed to verification exactly as fetched.
+	// Dedupe on (message_id, share_index): with per-chunk replica
+	// sets, aggregation may return the same chunk from two relays.
+	type FetchedChunk = (u8, u8, u64, Vec<u8>, ChunkChecksum);
+	let mut by_message: HashMap<String, Vec<FetchedChunk>> = HashMap::new();
 	for s in shares {
 		let mid = s.descriptor.message_id_hex.clone();
 		let bytes = hex::decode(s.share_bytes_hex.trim_start_matches("0x"))
 			.context("share_bytes_hex not valid hex")?;
-		let entry = by_message
-			.entry(mid)
-			.or_insert((s.descriptor.total_shares, Vec::new()));
-		entry.1.push((s.descriptor.share_index, bytes));
+		let checksum_bytes = decode_hex32(&s.checksum_hex).context("checksum_hex")?;
+		let entry = by_message.entry(mid).or_default();
+		if entry.iter().any(|(idx, ..)| *idx == s.descriptor.share_index) {
+			continue;
+		}
+		entry.push((
+			s.descriptor.share_index,
+			s.descriptor.total_shares,
+			s.descriptor.expires_at_unix_ts,
+			bytes,
+			checksum_bytes,
+		));
 	}
 
 	let mut printed_any = false;
-	for (mid_hex, (total, mut share_list)) in by_message {
-		if share_list.len() != total as usize {
-			eprintln!(
-				"message {mid_hex}: incomplete ({} of {} shares); skipping",
-				share_list.len(),
-				total,
-			);
-			continue;
-		}
-		share_list.sort_by_key(|(idx, _)| *idx);
-		let share_refs: Vec<&[u8]> = share_list.iter().map(|(_, b)| b.as_slice()).collect();
-		let envelope_bytes = combine_xor(&share_refs)
-			.map_err(|e| anyhow!("combine_xor failed: {e:?}"))?;
+	for (mid_hex, chunk_list) in by_message {
+		let message_id = MessageId(match decode_hex32(&mid_hex) {
+			Ok(b) => b,
+			Err(e) => {
+				eprintln!("message {mid_hex}: bad message_id ({e}); skipping");
+				continue;
+			},
+		});
+		let refs: Vec<TaggedChunk<'_>> = chunk_list
+			.iter()
+			.map(|(idx, total, expires, bytes, checksum)| TaggedChunk {
+				share_index: *idx,
+				total_shares: *total,
+				expires_at_unix_ts: *expires,
+				bytes,
+				checksum,
+			})
+			.collect();
+		let envelope_bytes =
+			match combine_chunks_verified(&message_id, &pickup_key, &refs) {
+				Ok(b) => b,
+				Err(e) => {
+					// IncompleteSet (re-poll — availability is the
+					// bucket scheme's job) or CorruptChunk (localized;
+					// re-poll later for a clean copy).
+					eprintln!("message {mid_hex}: reassembly failed ({e:?}); skipping");
+					continue;
+				},
+			};
 		let envelope = SealedEnvelope::decode(&mut &envelope_bytes[..])
 			.context("decode SealedEnvelope failed")?;
 
@@ -403,8 +444,8 @@ async fn main() -> Result<()> {
 			sender_seed,
 			recipient_pubkey,
 			message,
-			total_shares,
-		} => cmd_send(&node_rpc, &sender_seed, &recipient_pubkey, &message, total_shares)
+			total_chunks,
+		} => cmd_send(&node_rpc, &sender_seed, &recipient_pubkey, &message, total_chunks)
 			.await,
 		Cmd::Fetch { node_rpc, recipient_seed, relay_peer } => {
 			cmd_fetch(&node_rpc, &recipient_seed, relay_peer.as_deref()).await

@@ -32,7 +32,7 @@ use codec::{Decode, Encode};
 
 use crate::descriptor::{PickupKey, ShareDescriptor};
 use crate::store_protocol::ShareStore;
-use crate::verify::ShareMacTag;
+use crate::verify::ChunkChecksum;
 
 /// Hard cap on the number of shares returned in a single fetch
 /// response. Bounds response size + handler workload. With
@@ -60,10 +60,11 @@ pub struct FetchedShare {
 	/// Descriptor as originally stored (relay_pubkey, message_id,
 	/// share_index, total_shares, pickup_key, expires_at_unix_ts).
 	pub descriptor: ShareDescriptor,
-	/// XOR-stripe share bytes.
+	/// Chunk bytes — an opaque contiguous slice of the encoded
+	/// envelope.
 	pub share_bytes: Vec<u8>,
-	/// Per-share MAC tag — recipient verifies on assembly.
-	pub mac_tag: ShareMacTag,
+	/// Per-chunk integrity checksum — recipient checks on assembly.
+	pub checksum: ChunkChecksum,
 }
 
 /// On-the-wire fetch response. Carries up to
@@ -78,11 +79,10 @@ pub struct FetchResponse {
 /// Server-side handler. Looks up matching shares in `store`,
 /// truncates to [`MAX_FETCH_RESPONSE_SHARES`], returns the response.
 ///
-/// The recipient is expected to verify the MAC on each returned
-/// share before XOR-combining (see
-/// [`crate::stripe::combine_xor_authenticated`]). This handler does
-/// NOT verify MACs — the relay doesn't have the MAC key, and the
-/// recipient is the only party authorized to authenticate the data.
+/// The recipient checks each returned chunk's checksum on reassembly
+/// (see [`crate::chunk::combine_chunks_verified`]) to localize
+/// corruption; authenticity is the envelope AEAD's job. This handler
+/// does neither — the relay is opaque transit.
 pub fn handle_fetch_request<S: ShareStore + ?Sized>(
 	store: &S,
 	request: &FetchRequest,
@@ -93,10 +93,10 @@ pub fn handle_fetch_request<S: ShareStore + ?Sized>(
 	}
 	let shares = matches
 		.into_iter()
-		.map(|(descriptor, share_bytes, mac_tag)| FetchedShare {
+		.map(|(descriptor, share_bytes, checksum)| FetchedShare {
 			descriptor,
 			share_bytes,
-			mac_tag,
+			checksum,
 		})
 		.collect();
 	FetchResponse { shares }
@@ -155,7 +155,6 @@ mod tests {
 		CHAT_TTL_SECONDS,
 	};
 	use crate::store_protocol::{StoreInsertError, ShareStore as ShareStoreTrait};
-	use crate::verify::mac_share;
 	use alloc::collections::BTreeMap;
 	use alloc::sync::Arc;
 	use core::cell::RefCell;
@@ -179,7 +178,7 @@ mod tests {
 
 	struct StubStore {
 		entries:
-			RefCell<BTreeMap<(MessageId, u8), (ShareDescriptor, Vec<u8>, ShareMacTag)>>,
+			RefCell<BTreeMap<(MessageId, u8), (ShareDescriptor, Vec<u8>, ChunkChecksum)>>,
 	}
 
 	impl StubStore {
@@ -193,21 +192,21 @@ mod tests {
 			&self,
 			descriptor: ShareDescriptor,
 			share_bytes: Vec<u8>,
-			mac_tag: ShareMacTag,
+			checksum: ChunkChecksum,
 		) -> Result<(), StoreInsertError> {
 			let mut e = self.entries.borrow_mut();
 			let key = (descriptor.message_id, descriptor.share_index);
 			if e.contains_key(&key) {
 				return Err(StoreInsertError::DuplicateShare);
 			}
-			e.insert(key, (descriptor, share_bytes, mac_tag));
+			e.insert(key, (descriptor, share_bytes, checksum));
 			Ok(())
 		}
 
 		fn get_by_pickup_key(
 			&self,
 			pickup_key: &PickupKey,
-		) -> Vec<(ShareDescriptor, Vec<u8>, ShareMacTag)> {
+		) -> Vec<(ShareDescriptor, Vec<u8>, ChunkChecksum)> {
 			self.entries
 				.borrow()
 				.values()
@@ -219,7 +218,9 @@ mod tests {
 
 	fn insert_share(store: &StubStore, mid: u8, idx: u8, pickup: u8, body: Vec<u8>) {
 		let d = make_descriptor(mid, idx, pickup);
-		let t = mac_share(&[0u8; 32], &body, idx);
+		// Filler checksum: the fetch path never verifies them (relays hold
+		// no key); only the shape matters here.
+		let t: ChunkChecksum = [idx; 32];
 		store.insert(d, body, t).unwrap();
 	}
 
@@ -306,7 +307,7 @@ mod tests {
 		let s = FetchedShare {
 			descriptor: make_descriptor(0x01, 0, 0x99),
 			share_bytes: alloc::vec![1, 2, 3, 4],
-			mac_tag: [0xAB; 32],
+			checksum: [0xAB; 32],
 		};
 		let bytes = s.encode();
 		assert_eq!(FetchedShare::decode(&mut &bytes[..]).unwrap(), s);
@@ -326,12 +327,12 @@ mod tests {
 				FetchedShare {
 					descriptor: make_descriptor(0x01, 0, 0x99),
 					share_bytes: alloc::vec![1, 2, 3],
-					mac_tag: [0xAA; 32],
+					checksum: [0xAA; 32],
 				},
 				FetchedShare {
 					descriptor: make_descriptor(0x02, 1, 0x99),
 					share_bytes: alloc::vec![4, 5, 6, 7],
-					mac_tag: [0xBB; 32],
+					checksum: [0xBB; 32],
 				},
 			],
 		};
@@ -404,7 +405,7 @@ mod tests {
 				&self,
 				_: ShareDescriptor,
 				_: Vec<u8>,
-				_: ShareMacTag,
+				_: ChunkChecksum,
 			) -> Result<(), StoreInsertError> {
 				Ok(())
 			}

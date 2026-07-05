@@ -74,8 +74,8 @@ use sp_crypto_hashing::blake2_256;
 /// human time horizon.
 pub type UnixTimestamp = u64;
 
-/// Position of a share within a striped message. `u8` accommodates
-/// every legitimate N up to [`crate::stripe::MAX_SHARES`].
+/// Position of a share within a chunked message. `u8` accommodates
+/// every legitimate N up to [`crate::chunk::MAX_CHUNKS`].
 pub type ShareIndex = u8;
 
 /// Default chat-message TTL in seconds. 259_200 seconds = 3 days.
@@ -209,7 +209,8 @@ pub struct ShareDescriptor {
 	/// Position of this share within the message's N shares.
 	pub share_index: ShareIndex,
 	/// Total share count for this message. Recipient collects all
-	/// `total_shares` before [`crate::stripe::combine_xor`].
+	/// `total_shares` before
+	/// [`crate::chunk::combine_chunks_verified`].
 	pub total_shares: u8,
 	/// Domain-separated DHT lookup key. See [`PickupKey`].
 	pub pickup_key: PickupKey,
@@ -237,18 +238,30 @@ impl ShareDescriptor {
 	///
 	/// Both bounds are local arithmetic; no chain involvement.
 	pub fn expiry_within_bounds(&self, now_unix_ts: UnixTimestamp) -> bool {
-		let max_future = now_unix_ts
-			.saturating_add(CHAT_TTL_SECONDS)
-			.saturating_add(MAX_TTL_SLOP_SECONDS);
-		if self.expires_at_unix_ts > max_future {
-			return false;
-		}
-		let min_acceptable = now_unix_ts.saturating_sub(PAST_GRACE_SECONDS);
-		if self.expires_at_unix_ts < min_acceptable {
-			return false;
-		}
-		true
+		expiry_within_bounds_at(self.expires_at_unix_ts, now_unix_ts)
 	}
+}
+
+/// Free-function form of [`ShareDescriptor::expiry_within_bounds`],
+/// for callers validating a sender-stamped expiry before a full
+/// descriptor exists (e.g. a client-prepared chunk batch at the
+/// distribution handoff — see [`crate::chunk::validate_prepared_batch`]).
+/// One implementation so the two call sites can never drift.
+pub fn expiry_within_bounds_at(
+	expires_at_unix_ts: UnixTimestamp,
+	now_unix_ts: UnixTimestamp,
+) -> bool {
+	let max_future = now_unix_ts
+		.saturating_add(CHAT_TTL_SECONDS)
+		.saturating_add(MAX_TTL_SLOP_SECONDS);
+	if expires_at_unix_ts > max_future {
+		return false;
+	}
+	let min_acceptable = now_unix_ts.saturating_sub(PAST_GRACE_SECONDS);
+	if expires_at_unix_ts < min_acceptable {
+		return false;
+	}
+	true
 }
 
 #[cfg(test)]

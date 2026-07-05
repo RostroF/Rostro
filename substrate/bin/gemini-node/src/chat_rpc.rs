@@ -9,10 +9,9 @@
 //! (or test-harness CLIs) do all the chat-crypto on-device:
 //!
 //! - Build + sign + sealed-sender-encrypt the envelope locally
-//! - Stripe-split it locally (the node does the stripe so the
-//!   client RPC stays a single call — this is the only "trust the
-//!   sender's own node" step in the design)
-//! - Hand the encoded SealedEnvelope to the node via `chat_send_envelope`
+//! - Chunk + checksum the encoded SealedEnvelope on-device and hand
+//!   the prepared batch to the node via `chat_send_prepared` (the
+//!   node splits nothing and holds no key — it is pure routing)
 //! - On the recipient side, query the node via `chat_fetch_shares`,
 //!   reconstruct + unseal + verify ALL on-device
 //!
@@ -44,15 +43,17 @@
 //!   target a specific node as a relay.
 //! - `chat_localStoreLen` — diagnostic; number of share entries
 //!   the node currently holds.
-//! - `chat_send_envelope(recipient_chat_pubkey_hex, envelope_hex, total_shares)`
-//!   — accept a pre-built SealedEnvelope (encrypted on the
-//!   sender's device), XOR-stripe it into `total_shares` shares,
-//!   MAC each share, deposit to the local share store keyed by
-//!   the recipient's derived pickup_key.
+//! - `chat_send_prepared(batch_hex, auth_*)` — accept a
+//!   client-prepared chunk batch (split + checksummed on the sender's
+//!   device; see docs/CHAT-SHARE-CHUNKING.md) and fan each chunk
+//!   out to its own replica set of bucket peers. The node is pure
+//!   routing: it validates shape, stamps its identity into the
+//!   descriptors, and holds no key.
 //! - `chat_fetch_shares(pickup_key_hex, relay_peer_id_hex?)` —
-//!   return raw ciphertext shares matching the given pickup_key.
-//!   When `relay_peer_id_hex` is set, ALSO query that remote
-//!   node via `/rostro/chat-fetch/1` and merge results.
+//!   return raw ciphertext chunks matching the given pickup_key.
+//!   Aggregates across bucket peers whenever the local view is
+//!   missing chunks (with per-chunk replica sets no single relay
+//!   is expected to hold a whole message).
 
 use async_trait::async_trait;
 use jsonrpsee::{
@@ -77,18 +78,15 @@ use rostro_chat_membership_auth::{
 };
 use rostro_chat_primitives::{
 	bucket::bucket_for_pickup_key,
+	chunk::{validate_prepared_batch, PreparedBatch},
 	descriptor::{
 		MessageId, PickupKey, RelayPubkey, ShareDescriptor, ShareIndex, UnixTimestamp,
-		CHAT_TTL_SECONDS,
 	},
-	envelope::{EnvelopeKind, SealedEnvelope},
 	fetch_protocol::{FetchRequest, FetchResponse},
-	identity_key::ed25519_to_x25519_pubkey,
 	store_protocol::{ShareStore as _, StoreRejection, StoreRequest, StoreResponse},
-	stripe::{split_xor, MAX_SHARES},
-	verify::mac_share,
+	verify::ChunkChecksum,
 };
-use rostro_chat_onion::{process_hop, OnionDeliverPayload, OnionHop, OnionPacket};
+use rostro_chat_onion::{process_hop, OnionHop, OnionPacket};
 use rostro_node_identity::NodeSecret;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
@@ -107,7 +105,7 @@ use crate::chat_onion_forward_protocol::{
 	onion_forward_digest, OnionForwardRequest, OnionForwardResponse,
 	CHAT_ONION_FORWARD_PROTOCOL_NAME, RELAY_UNAVAILABLE_CODE,
 };
-use crate::chat_stripe_protocol::CHAT_STRIPE_PROTOCOL_NAME;
+use crate::chat_chunk_protocol::CHAT_CHUNK_PROTOCOL_NAME;
 
 /// Local-clock helper. Returns the host's current Unix timestamp in
 /// seconds. Used to stamp `expires_at_unix_ts` on outbound share
@@ -125,10 +123,12 @@ fn now_unix_seconds() -> UnixTimestamp {
 /// Domain-separation tag for the chat-auth challenge signed by the
 /// caller's HW-attested device key. The signed message is:
 ///
-///     blake2_256(CHAT_AUTH_DOMAIN || envelope_bytes || timestamp_be_bytes)
+///     blake2_256(CHAT_AUTH_DOMAIN || payload_bytes || timestamp_be_bytes)
 ///
-/// Binding both `envelope_bytes` and `timestamp_be_bytes` prevents
-/// (a) replay of the signature with a different envelope and
+/// where `payload_bytes` is the prepared-batch bytes (direct send)
+/// or the onion packet bytes (onion send). Binding both the payload
+/// and `timestamp_be_bytes` prevents
+/// (a) replay of the signature with a different payload and
 /// (b) replay of the signature later (subject to the
 /// `CHAT_AUTH_TIMESTAMP_WINDOW_SECS` skew check at the receiver).
 pub const CHAT_AUTH_DOMAIN: &[u8] = b"rostro/chat/auth/v1";
@@ -242,24 +242,26 @@ impl SessionStore {
 
 use crate::chat_fetch_protocol::CHAT_FETCH_PROTOCOL_NAME;
 
-/// Default number of XOR-stripe shares per send. Clients can override.
-pub const DEFAULT_TOTAL_SHARES: usize = 5;
-
-/// Replication factor for push gossip: each shard is pushed to up
-/// to this many bucket-subscribed peers. If fewer than
-/// `REPLICATION_FACTOR` peers subscribe to the message's bucket,
-/// push goes to whoever's available (degraded redundancy logged).
-/// If zero peers subscribe, the send is rejected
-/// (old-tenant-mail behavior — there's nowhere to deliver).
-pub const REPLICATION_FACTOR: usize = 5;
+/// Replication factor for push gossip: each CHUNK is pushed to up
+/// to this many bucket-subscribed peers, and different chunks go to
+/// DISJOINT peer sets when the bucket has enough peers
+/// (docs/CHAT-SHARE-CHUNKING.md §4.4). Per-message relay cost is
+/// ~message_size × CHUNK_REPLICATION; message loss probability is
+/// ~N·p^R for per-relay unavailability p. If fewer peers subscribe
+/// than a chunk's set needs, push goes to whoever's available
+/// (degraded redundancy; overlap accepted on small networks). If
+/// zero peers subscribe, the send is rejected (old-tenant-mail
+/// behavior — there's nowhere to deliver).
+pub const CHUNK_REPLICATION: usize = 3;
 
 /// Maximum number of bucket peers to query when `chat_fetch_shares`
-/// hits a local-store miss and needs to fall back to the network.
-/// Each query is an outbound `/rostro/chat-fetch/1` request to a
-/// peer subscribed to the message's pickup-key bucket. The first
-/// few peers are typically enough to assemble (one bucket peer
-/// usually holds the full replicated set after a push).
-pub const MAX_FALLBACK_FETCH_PEERS: usize = 3;
+/// needs to aggregate from the network. Each query is an outbound
+/// `/rostro/chat-fetch/1` request to a peer subscribed to the
+/// pickup-key bucket. With per-chunk DISJOINT replica sets, chunks
+/// of one message live on up to `total × CHUNK_REPLICATION` peers,
+/// so aggregation stops early once every matched message is
+/// complete rather than always burning the full budget.
+pub const MAX_FALLBACK_FETCH_PEERS: usize = 8;
 
 /// JSON-RPC response for `chat_nodeInfo`. Diagnostic — tells demo
 /// scripts where this node lives for routing.
@@ -287,14 +289,15 @@ pub struct ChatMySubscription {
 	pub version: u32,
 }
 
-/// JSON-RPC response for `chat_send_envelope`.
+/// JSON-RPC response for `chat_send_prepared` / `chat_send_onion`.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ChatSendResult {
-	/// Hex-encoded MessageId extracted from the SealedEnvelope the
-	/// client supplied. Returned so clients can correlate
-	/// successful sends with their own outgoing-message logs.
+	/// Hex-encoded MessageId from the client-prepared batch.
+	/// Returned so clients can correlate successful sends with
+	/// their own outgoing-message logs.
 	pub message_id_hex: String,
-	/// Number of shares the node split the envelope into.
+	/// Number of chunks the batch carried (each landed on at least
+	/// one replica).
 	pub share_count: u32,
 	/// Recipient's domain-separated pickup key (hex). Useful for
 	/// scripts verifying that fetch uses the same key.
@@ -313,11 +316,12 @@ pub struct ChatShareDescriptorRpc {
 	pub expires_at_unix_ts: u64,
 }
 
-/// JSON-RPC response: one stored share returned by `chat_fetch_shares`.
+/// JSON-RPC response: one stored chunk returned by `chat_fetch_shares`.
 /// The client uses these to reconstruct messages locally:
 ///
 /// 1. Group by `descriptor.message_id_hex`
-/// 2. When all `total_shares` are present, XOR-combine `share_bytes_hex`
+/// 2. When all `total_shares` are present, verify each chunk's checksum
+///    and concatenate in index order (`combine_chunks_verified`)
 /// 3. SCALE-decode the result as `SealedEnvelope`
 /// 4. Sealed-sender-unseal with the recipient's X25519 secret
 /// 5. SCALE-decode `UnsealedInner` and verify the sender signature
@@ -325,7 +329,7 @@ pub struct ChatShareDescriptorRpc {
 pub struct ChatFetchedShareRaw {
 	pub descriptor: ChatShareDescriptorRpc,
 	pub share_bytes_hex: String,
-	pub mac_tag_hex: String,
+	pub checksum_hex: String,
 }
 
 /// JSON-RPC response for `chat_authenticate` — the session handshake.
@@ -428,21 +432,19 @@ pub trait ChatRpcApi {
 	#[method(name = "chat_localStoreLen")]
 	fn local_store_len(&self) -> RpcResult<u64>;
 
-	/// Accept a pre-built, pre-sealed SealedEnvelope from a client,
-	/// XOR-stripe-split it into `total_shares` shares, MAC each
-	/// share, deposit to the local share store keyed by the
-	/// recipient's derived pickup key.
+	/// Accept a client-prepared chunk batch (the chunk cutover,
+	/// docs/CHAT-SHARE-CHUNKING.md): the SENDER DEVICE split the
+	/// sealed envelope into chunks, checksummed each one, authored
+	/// the descriptor fields, and derived the pickup key. This node
+	/// is pure routing — it validates shape (it holds no key), stamps
+	/// its own identity into the descriptors, and pushes each chunk
+	/// to that chunk's own replica set of bucket peers.
 	///
 	/// Parameters:
-	///   * `recipient_chat_pubkey_hex` — recipient's 32-byte
-	///     Ed25519 chat-identity pubkey, hex-encoded. Used to
-	///     derive the pickup key for share-store indexing.
-	///   * `envelope_hex` — SCALE-encoded `SealedEnvelope` bytes,
-	///     hex-encoded. The client built + signed + sealed this
-	///     on-device; the node treats `outer_ciphertext` as opaque.
-	///   * `total_shares` — number of XOR-stripe shares. Range
-	///     [2, MAX_SHARES]. Defaults to [`DEFAULT_TOTAL_SHARES`]
-	///     when 0 is passed.
+	///   * `batch_hex` — SCALE-encoded
+	///     `rostro_chat_primitives::chunk::PreparedBatch` bytes,
+	///     hex-encoded. Carries pickup_key + message_id + the
+	///     tagged chunks.
 	///   * `auth_cert_thumbprint_hex` — caller's zkpki cert
 	///     thumbprint (32 bytes, hex). Identifies the cert whose
 	///     HW-attested device key signed `auth_sig_hex`.
@@ -450,9 +452,10 @@ pub trait ChatRpcApi {
 	///     timestamp at signing. Must be within
 	///     [`CHAT_AUTH_TIMESTAMP_WINDOW_SECS`] of the node's clock.
 	///   * `auth_sig_hex` — signature over
-	///     `blake2_256(CHAT_AUTH_DOMAIN || envelope_bytes ||
+	///     `blake2_256(CHAT_AUTH_DOMAIN || batch_bytes ||
 	///     auth_timestamp_be_bytes)` produced by the cert's
-	///     hardware-attested device key.
+	///     hardware-attested device key — i.e. over the EXACT bytes
+	///     passed as `batch_hex`.
 	///
 	/// All three auth-* parameters are required together. The node
 	/// looks up the cert via the zkpki runtime API, requires
@@ -466,12 +469,10 @@ pub trait ChatRpcApi {
 	/// compatibility, but absence is REJECTED (Phase 2 cert-gated
 	/// send): there is no unauthenticated path. Every drop must carry
 	/// a valid signature under an Active zkpki cert.
-	#[method(name = "chat_send_envelope")]
-	async fn send_envelope(
+	#[method(name = "chat_send_prepared")]
+	async fn send_prepared(
 		&self,
-		recipient_chat_pubkey_hex: String,
-		envelope_hex: String,
-		total_shares: u8,
+		batch_hex: String,
 		auth_cert_thumbprint_hex: Option<String>,
 		auth_timestamp_secs: Option<u64>,
 		auth_sig_hex: Option<String>,
@@ -481,9 +482,9 @@ pub trait ChatRpcApi {
 	/// anonymity). The node peels the one layer addressed to it — using
 	/// its own node key in the isolated peeler, never in the secret-free
 	/// routing layer — and then either:
-	///   * `Deliver` → injects the recipient-sealed envelope into the
-	///     normal stripe-and-distribute path (this node is the last hop;
-	///     the sender is already gone), or
+	///   * `Deliver` → fans the client-prepared chunk batch out to the
+	///     bucket peers (this node is the last hop; the sender is
+	///     already gone), or
 	///   * `Forward` → hands the inner blob to the next hop (slice 2).
 	///
 	/// Cert-auth (Phase 2) is verified over the onion packet bytes — the
@@ -491,8 +492,8 @@ pub trait ChatRpcApi {
 	///
 	/// Parameters:
 	///   * `onion_packet_hex` — the SCALE-encoded `OnionPacket` sealed to
-	///     this node's identity (hex).
-	///   * `total_shares` — stripe count for the eventual distribution.
+	///     this node's identity (hex). The innermost `Deliver` drop is a
+	///     SCALE-encoded `PreparedBatch` (chunk counts ride inside it).
 	///   * `auth_*` — full per-drop cert auth (the renewal/fallback path).
 	///   * `session_cert_thumbprint_hex` + `session_sig_hex` — the cheap
 	///     session path: within a live session, the drop is admitted by an
@@ -508,7 +509,6 @@ pub trait ChatRpcApi {
 	async fn send_onion(
 		&self,
 		onion_packet_hex: String,
-		total_shares: u8,
 		auth_cert_thumbprint_hex: Option<String>,
 		auth_timestamp_secs: Option<u64>,
 		auth_sig_hex: Option<String>,
@@ -719,11 +719,14 @@ where
 	}
 
 	/// Verify a caller's chat-auth credentials against the zkpki
-	/// runtime API. Returns the authenticated `AccountId` on
-	/// success or a structured error on any failure.
+	/// runtime API. `payload_bytes` is whatever the caller signed
+	/// (the prepared-batch bytes for `chat_send_prepared`, the onion
+	/// packet bytes for `chat_send_onion`). Returns the
+	/// authenticated `AccountId` on success or a structured error on
+	/// any failure.
 	fn verify_chat_auth(
 		&self,
-		envelope_bytes: &[u8],
+		payload_bytes: &[u8],
 		thumbprint_hex: &str,
 		timestamp_secs: u64,
 		sig_hex: &str,
@@ -788,10 +791,10 @@ where
 		// 5. Reconstruct the signed message + verify against the
 		//    cert's HW-attested device pubkey.
 		let mut to_sign = Vec::with_capacity(
-			CHAT_AUTH_DOMAIN.len() + envelope_bytes.len() + 8,
+			CHAT_AUTH_DOMAIN.len() + payload_bytes.len() + 8,
 		);
 		to_sign.extend_from_slice(CHAT_AUTH_DOMAIN);
-		to_sign.extend_from_slice(envelope_bytes);
+		to_sign.extend_from_slice(payload_bytes);
 		to_sign.extend_from_slice(&timestamp_secs.to_be_bytes());
 		let digest = blake2_256(&to_sign);
 		if !info.device_pubkey.verify_signature(&digest, &sig_bytes) {
@@ -1232,15 +1235,14 @@ impl OnionPeelCtx {
 	}
 
 	/// Peel this node's layer — the ONE key-using step — and act on the
-	/// result. `Deliver` → inject the recipient MESSAGE into the stripe
-	/// path; `Forward` → (slice 2) send the inner onion DIRECTLY to
-	/// `next_hop`, never through stripe. Caller-agnostic: the guard RPC
-	/// does cert-auth before calling this; the relay-2 forward handler
-	/// gates on canonical-peer status. Holds no user secret.
+	/// result. `Deliver` → fan the client-prepared chunk batch out to
+	/// bucket peers; `Forward` → (slice 2) send the inner onion DIRECTLY
+	/// to `next_hop`, never through the chunk path. Caller-agnostic: the
+	/// guard RPC does cert-auth before calling this; the relay-2 forward
+	/// handler gates on canonical-peer status. Holds no user secret.
 	pub(crate) async fn peel_and_dispatch(
 		&self,
 		packet: &OnionPacket,
-		total_shares: u8,
 		mode: PeelMode,
 	) -> RpcResult<ChatSendResult> {
 		let hop = process_hop(&self.node_secret, packet).map_err(|e| {
@@ -1262,29 +1264,29 @@ impl OnionPeelCtx {
 						None,
 					));
 				}
-				// Last hop: inject the recipient-sealed envelope into the
-				// normal stripe-and-distribute path (the sender is gone).
-				let payload = OnionDeliverPayload::decode(&mut &drop[..]).map_err(|e| {
+				// Last hop: fan the client-prepared chunk batch out to the
+				// bucket peers (the sender is gone). The drop bytes ARE a
+				// SCALE-encoded `PreparedBatch` — split + checksummed on the
+				// sender's device; this node holds no key.
+				let batch = PreparedBatch::decode(&mut &drop[..]).map_err(|e| {
 					ErrorObject::owned::<()>(
 						-32000,
-						format!("onion deliver payload decode: {e}"),
+						format!("onion deliver batch decode: {e}"),
 						None,
 					)
 				})?;
 				// The sender pre-derived the pickup key (for_pairwise for a
-				// normal DM, for_deaddrop for a dead drop). The relay is dumb
-				// infra: it shards by these opaque bytes and cannot tell the
-				// two apart. No key validation, conversion, or hashing here.
-				let recipient_pickup = PickupKey(payload.pickup_key);
-				let envelope =
-					SealedEnvelope::decode(&mut &payload.envelope_bytes[..]).map_err(|e| {
-						ErrorObject::owned::<()>(
-							-32000,
-							format!("onion deliver envelope decode: {e}"),
-							None,
-						)
-					})?;
-				self.stripe_and_distribute(envelope, recipient_pickup, total_shares).await
+				// normal DM, for_deaddrop for a dead drop) inside the batch.
+				// The relay is dumb infra: it routes by these opaque bytes
+				// and cannot tell the two apart. No key validation,
+				// conversion, or hashing here.
+				distribute_prepared(
+					self.node_pubkey_ed25519,
+					&self.bucket_cache,
+					&self.network,
+					batch,
+				)
+				.await
 			}
 			OnionHop::Forward { next_hop, inner } => {
 				// Direct node-to-node hop. INVARIANT: the onion is
@@ -1327,16 +1329,15 @@ impl OnionPeelCtx {
 						None,
 					));
 				}
-				// 1a: forward-leg accountability. Sign (total_shares ‖ inner) with
+				// 1a: forward-leg accountability. Sign the inner packet with
 				// THIS guard's node key. relay-2 recovers our identity from the
 				// authenticated connection and verifies this before peeling; a
 				// bad/absent signature is a reputation-docked rejection there. The
 				// signature is the guard's OWN node key — never sender material.
 				let packet_bytes = inner.encode();
-				let guard_sig = self
-					.node_secret
-					.sign(&onion_forward_digest(total_shares, &packet_bytes));
-				let request = OnionForwardRequest { total_shares, packet_bytes, guard_sig };
+				let guard_sig =
+					self.node_secret.sign(&onion_forward_digest(&packet_bytes));
+				let request = OnionForwardRequest { packet_bytes, guard_sig };
 				let (resp_bytes, _) = self
 					.network
 					.request(
@@ -1376,167 +1377,202 @@ impl OnionPeelCtx {
 			}
 		}
 	}
+}
 
-	/// Shared distribution core: stripe-split a recipient-sealed
-	/// envelope and push the shards to the recipient bucket's peers over
-	/// `/rostro/chat-stripe/1`. Pure routing — holds no secret.
-	///
-	/// Used by the onion peeler's `Deliver` path (relay-2 re-inserts a
-	/// peeled envelope into the normal distribution; the sender is
-	/// already gone). `send_envelope` inlines the same logic today; the
-	/// two converge on this helper once the onion path is fabric-proven.
-	///
-	/// INVARIANT — MESSAGE-ONLY, never an onion. Callers must pass a
-	/// fully-peeled **recipient message** (the `SealedEnvelope` carried by
-	/// an `OnionHop::Deliver` drop, or a direct `send_envelope`). An onion
-	/// in flight (an `OnionPacket`, e.g. an `OnionHop::Forward { inner }`)
-	/// must **never** reach this path: onions are forwarded directly
-	/// node-to-node, never sharded/bucketed. Sharding an onion to move it
-	/// between hops — peel → shard → forward → peel → shard again — is the
-	/// exact failure this separation prevents. The `OnionPacket` vs
-	/// `SealedEnvelope` type split enforces it; this note guards against a
-	/// future caller decoding an onion into an envelope to slip it through.
-	/// See docs/DOTWAVE-CHAT-METADATA-ANONYMITY.md, "Resolved structure".
-	async fn stripe_and_distribute(
-		&self,
-		envelope: SealedEnvelope,
-		recipient_pickup: PickupKey,
-		total_shares: u8,
-	) -> RpcResult<ChatSendResult> {
-		if !matches!(envelope.kind, EnvelopeKind::Pairwise) {
-			return Err(invalid_param(
-				"envelope",
-				"only Pairwise envelopes are supported in v0.1",
-			));
-		}
+/// Shared distribution core: fan a client-prepared chunk batch out to
+/// the recipient bucket's peers over `/rostro/chat-chunk/1`. Pure
+/// routing — this node validates SHAPE only (it holds no key, by
+/// design), stamps its own identity into the descriptors, and pushes
+/// each chunk to that chunk's OWN replica set. One implementation for
+/// both entries (the onion peeler's `Deliver` arm on relay-2 and the
+/// direct `chat_send_prepared` RPC), so the two can never drift.
+///
+/// INVARIANT — MESSAGE-ONLY, never an onion. Callers must pass a
+/// fully-peeled **recipient batch** (the `PreparedBatch` carried by an
+/// `OnionHop::Deliver` drop, or a direct `chat_send_prepared`). An
+/// onion in flight (an `OnionPacket`, e.g. an `OnionHop::Forward {
+/// inner }`) must **never** reach this path: onions are forwarded
+/// directly node-to-node, never chunked/bucketed. Chunking an onion to
+/// move it between hops — peel → chunk → forward → peel → chunk again
+/// — is the exact failure this separation prevents. The `OnionPacket`
+/// vs `PreparedBatch` type split enforces it; this note guards against
+/// a future caller decoding an onion into a batch to slip it through.
+/// See docs/DOTWAVE-CHAT-METADATA-ANONYMITY.md, "Resolved structure".
+///
+/// ## Per-chunk disjoint replica sets
+///
+/// The shuffled bucket-peer list is partitioned so chunk `i`'s
+/// replicas are `peers[(i·R + j) % peer_count]` for `j in 0..R`
+/// (R = [`CHUNK_REPLICATION`]): fully disjoint when the bucket has
+/// ≥ total×R peers, minimal round-robin overlap when it doesn't
+/// (degraded on small networks — the envelope AEAD still protects
+/// content; docs/CHAT-SHARE-CHUNKING.md §4.4). Within one chunk's set
+/// the peers are always distinct. This is the fix for the deployed
+/// stripe bug where EVERY share went to the SAME peer set, handing
+/// each replica the whole message.
+async fn distribute_prepared(
+	node_pubkey_ed25519: [u8; 32],
+	bucket_cache: &BucketCache,
+	network: &Arc<dyn NetworkService>,
+	batch: PreparedBatch,
+) -> RpcResult<ChatSendResult> {
+	// Shape + expiry validation at the handoff (reject known-invalid
+	// input before any fan-out). Checksums are NOT checked — that is
+	// the recipient's local corruption check, not the node's job.
+	let total = validate_prepared_batch(&batch, now_unix_seconds()).map_err(|e| {
+		invalid_param("batch", &format!("prepared batch rejected: {e:?}"))
+	})?;
+	let n_chunks = total as usize;
 
-		let n_shares = if total_shares == 0 {
-			DEFAULT_TOTAL_SHARES
-		} else {
-			let n = total_shares as usize;
-			if n < 2 || n > MAX_SHARES {
-				return Err(invalid_param(
-					"total_shares",
-					&format!("must be 0 (default) or in [2, {MAX_SHARES}]"),
-				));
-			}
-			n
+	// Pick bucket peers for the batch's bucket. Reject the send if
+	// zero peers subscribe (old-tenant-mail behavior — there's
+	// nowhere to deliver).
+	let bucket = bucket_for_pickup_key(&batch.pickup_key);
+	let mut bucket_peers = bucket_cache.peers_for_bucket(bucket);
+	if bucket_peers.is_empty() {
+		return Err(ErrorObject::owned::<()>(
+			-32000,
+			format!(
+				"no bucket peers available for bucket {bucket} — try a \
+				 different RPC node, or wait for peers to advertise their \
+				 bucket subscriptions on /rostro/chat-gossip/1",
+			),
+			None,
+		));
+	}
+
+	// Shuffle with OsRng — predictable selection would let an observer
+	// game which peers receive which chunks — then partition into
+	// per-chunk replica sets by index arithmetic over the shuffle.
+	let mut rng = OsRng;
+	let peer_n = bucket_peers.len();
+	for i in (1..peer_n).rev() {
+		let j = (rng.next_u64() as usize) % (i + 1);
+		bucket_peers.swap(i, j);
+	}
+	let n_replicas = CHUNK_REPLICATION.min(peer_n);
+
+	let mut stored_total: usize = 0;
+	let mut rejected_total: usize = 0;
+	let mut transport_failed_total: usize = 0;
+	// A message is deliverable iff EVERY chunk landed somewhere; count
+	// chunks with ≥1 Stored rather than raw store successes (the old
+	// stripe criterion would accept chunk 0 stored five times while
+	// chunk 3 landed nowhere).
+	let mut chunks_landed: usize = 0;
+
+	for (ci, share) in batch.shares.iter().enumerate() {
+		let descriptor = ShareDescriptor {
+			relay_pubkey: RelayPubkey(node_pubkey_ed25519),
+			message_id: batch.message_id,
+			share_index: share.share_index,
+			total_shares: share.total_shares,
+			pickup_key: batch.pickup_key,
+			expires_at_unix_ts: share.expires_at_unix_ts,
 		};
+		let store_req = StoreRequest {
+			descriptor,
+			share_bytes: share.chunk_bytes.clone(),
+			checksum: share.checksum,
+		};
+		let request_bytes = store_req.encode();
 
-		let encoded = envelope.encode();
-		let message_id = envelope.message_id;
-		let mut rng = OsRng;
-		let shares = split_xor(&encoded, n_shares, &mut rng).map_err(|e| {
-			ErrorObject::owned::<()>(-32000, format!("split_xor failed: {e:?}"), None)
-		})?;
-
-		let bucket = bucket_for_pickup_key(&recipient_pickup);
-		let mut bucket_peers = self.bucket_cache.peers_for_bucket(bucket);
-		if bucket_peers.is_empty() {
-			return Err(ErrorObject::owned::<()>(
-				-32000,
-				format!(
-					"no bucket peers available for bucket {bucket} — try a \
-					 different RPC node, or wait for peers to advertise their \
-					 bucket subscriptions on /rostro/chat-gossip/1",
-				),
-				None,
-			));
-		}
-
-		// Shuffle so each shard goes to up to REPLICATION_FACTOR random
-		// bucket peers (non-deterministic — predictable selection would
-		// let an observer game which peers receive which shards).
-		use rand_core::RngCore;
-		let peer_n = bucket_peers.len();
-		for i in (1..peer_n).rev() {
-			let j = (rng.next_u64() as usize) % (i + 1);
-			bucket_peers.swap(i, j);
-		}
-		let n_replicas = REPLICATION_FACTOR.min(bucket_peers.len());
-		let selected_peers: Vec<rc_network::PeerId> =
-			bucket_peers.into_iter().take(n_replicas).collect();
-
-		let mac_key = [0u8; 32];
-		let total_u8 = n_shares as u8;
-		let expires_at = now_unix_seconds().saturating_add(CHAT_TTL_SECONDS);
-
-		let mut stored_total: usize = 0;
-		let mut rejected_total: usize = 0;
-		let mut transport_failed_total: usize = 0;
-
-		for (i, share_bytes) in shares.into_iter().enumerate() {
-			let share_index = i as ShareIndex;
-			let mac_tag = mac_share(&mac_key, &share_bytes, share_index);
-			let descriptor = ShareDescriptor {
-				relay_pubkey: RelayPubkey(self.node_pubkey_ed25519),
-				message_id,
-				share_index,
-				total_shares: total_u8,
-				pickup_key: recipient_pickup,
-				expires_at_unix_ts: expires_at,
-			};
-			let store_req =
-				StoreRequest { descriptor, share_bytes: share_bytes.clone(), mac_tag };
-			let request_bytes = store_req.encode();
-
-			for peer in &selected_peers {
-				match self
-					.network
-					.request(
-						*peer,
-						ProtocolName::from(CHAT_STRIPE_PROTOCOL_NAME),
-						request_bytes.clone(),
-						None,
-						IfDisconnected::TryConnect,
-					)
-					.await
-				{
-					Ok((resp_bytes, _)) => match StoreResponse::decode(&mut &resp_bytes[..]) {
-						Ok(StoreResponse::Stored) => stored_total += 1,
-						Ok(StoreResponse::Rejected(reason)) => {
-							rejected_total += 1;
-							// DuplicateShare on a retry is fine — count as Stored.
-							if matches!(reason, StoreRejection::DuplicateShare) {
-								stored_total += 1;
-								rejected_total -= 1;
-							}
-						}
-						Err(_) => transport_failed_total += 1,
-					},
-					Err(_) => transport_failed_total += 1,
+		let mut this_chunk_stored: usize = 0;
+		for j in 0..n_replicas {
+			// Consecutive residues mod peer_n: distinct within the
+			// set (n_replicas ≤ peer_n), disjoint across chunks when
+			// peer_n ≥ n_chunks × n_replicas.
+			let peer = bucket_peers[(ci * n_replicas + j) % peer_n];
+			match network
+				.request(
+					peer,
+					ProtocolName::from(CHAT_CHUNK_PROTOCOL_NAME),
+					request_bytes.clone(),
+					None,
+					IfDisconnected::TryConnect,
+				)
+				.await
+			{
+				Ok((resp_bytes, _)) => match StoreResponse::decode(&mut &resp_bytes[..]) {
+					Ok(StoreResponse::Stored) => {
+						stored_total += 1;
+						this_chunk_stored += 1;
+					}
+					Ok(StoreResponse::Rejected(StoreRejection::DuplicateShare)) => {
+						// Duplicate on a retry is fine — the chunk is there.
+						stored_total += 1;
+						this_chunk_stored += 1;
+					}
+					Ok(StoreResponse::Rejected(reason)) => {
+						rejected_total += 1;
+						// No message_id: a chunk-placement rejection must
+						// not link the chunk to its message on a persisted
+						// log line (GUARD-PRIVACY-AUDIT G2). share_index +
+						// peer + reason are operational.
+						log::debug!(
+							target: "rostro-chat-rpc",
+							"push chunk {} to {} rejected: {:?}",
+							share.share_index,
+							peer,
+							reason,
+						);
+					}
+					Err(_) => {
+						transport_failed_total += 1;
+						log::debug!(
+							target: "rostro-chat-rpc",
+							"push to {}: undecodable StoreResponse",
+							peer,
+						);
+					}
+				},
+				Err(e) => {
+					transport_failed_total += 1;
+					// No message_id (GUARD-PRIVACY-AUDIT G2).
+					log::debug!(
+						target: "rostro-chat-rpc",
+						"push chunk {} to {} transport failed: {:?}",
+						share.share_index,
+						peer,
+						e,
+					);
 				}
 			}
 		}
-
-		// No message_id: even the lab build must not link a distribute
-		// outcome to its message (GUARD-PRIVACY-AUDIT G3). Aggregate
-		// shard counts are operational.
-		#[cfg(feature = "chat-diagnostics")]
-		log::info!(
-			target: "rostro-chat-rpc",
-			"chat distribute: shards={n_shares} stored={stored_total} \
-			 rejected={rejected_total} transport_failed={transport_failed_total}",
-		);
-
-		if stored_total < n_shares {
-			return Err(ErrorObject::owned::<()>(
-				-32000,
-				format!(
-					"only {stored_total} of {n_shares} shards landed (need {n_shares} \
-					 for recipient assembly); {rejected_total} rejected, \
-					 {transport_failed_total} transport-failed",
-				),
-				None,
-			));
+		if this_chunk_stored > 0 {
+			chunks_landed += 1;
 		}
-
-		Ok(ChatSendResult {
-			message_id_hex: hex::encode(message_id.0),
-			share_count: n_shares as u32,
-			recipient_pickup_key_hex: hex::encode(recipient_pickup.0),
-		})
 	}
+
+	// No message_id: even the lab build must not link a distribute
+	// outcome to its message (GUARD-PRIVACY-AUDIT G3). Aggregate
+	// chunk counts are operational.
+	#[cfg(feature = "chat-diagnostics")]
+	log::info!(
+		target: "rostro-chat-rpc",
+		"chat distribute: chunks={n_chunks} landed={chunks_landed} \
+		 stored={stored_total} rejected={rejected_total} \
+		 transport_failed={transport_failed_total}",
+	);
+
+	if chunks_landed < n_chunks {
+		return Err(ErrorObject::owned::<()>(
+			-32000,
+			format!(
+				"only {chunks_landed} of {n_chunks} chunks landed on at least \
+				 one replica (every chunk is required for recipient assembly); \
+				 {stored_total} stores succeeded, {rejected_total} rejected, \
+				 {transport_failed_total} transport-failed",
+			),
+			None,
+		));
+	}
+
+	Ok(ChatSendResult {
+		message_id_hex: hex::encode(batch.message_id.0),
+		share_count: n_chunks as u32,
+		recipient_pickup_key_hex: hex::encode(batch.pickup_key.0),
+	})
 }
 
 #[async_trait]
@@ -1574,53 +1610,34 @@ where
 		}
 	}
 
-	async fn send_envelope(
+	async fn send_prepared(
 		&self,
-		recipient_chat_pubkey_hex: String,
-		envelope_hex: String,
-		total_shares: u8,
+		batch_hex: String,
 		auth_cert_thumbprint_hex: Option<String>,
 		auth_timestamp_secs: Option<u64>,
 		auth_sig_hex: Option<String>,
 	) -> RpcResult<ChatSendResult> {
-		// Decode + sanity-check inputs.
-		let recipient_ed25519 = decode_hex32(&recipient_chat_pubkey_hex)
-			.map_err(|e| invalid_param("recipient_chat_pubkey_hex", &e))?;
-		let recipient_x25519 =
-			ed25519_to_x25519_pubkey(&recipient_ed25519).ok_or_else(|| {
-				ErrorObject::owned::<()>(
-					-32602,
-					"recipient_chat_pubkey_hex doesn't decode as a valid \
-					 Edwards point — cannot derive pickup key",
-					None,
-				)
-			})?;
-		let recipient_pickup = PickupKey::for_pairwise(&recipient_x25519);
+		let batch_bytes = hex::decode(batch_hex.trim_start_matches("0x"))
+			.map_err(|e| invalid_param("batch_hex", &format!("invalid hex: {e}")))?;
 
-		let envelope_bytes = hex::decode(envelope_hex.trim_start_matches("0x"))
-			.map_err(|e| invalid_param("envelope_hex", &format!("invalid hex: {e}")))?;
-		let envelope = SealedEnvelope::decode(&mut &envelope_bytes[..]).map_err(|e| {
-			invalid_param("envelope_hex", &format!("SCALE-decode failed: {e}"))
-		})?;
-
-		// Chat-auth verification (Phase 2: cert-gated send). All
-		// three auth-* parameters are required; there is no
-		// unauthenticated path.
+		// Chat-auth verification (Phase 2: cert-gated send) over the
+		// EXACT batch bytes. All three auth-* parameters are required;
+		// there is no unauthenticated path.
 		match (auth_cert_thumbprint_hex, auth_timestamp_secs, auth_sig_hex) {
 			(Some(tp), Some(ts), Some(sig)) => {
 				// The `?` is the auth gate; the account it returns must
 				// not persist on a log line (GUARD-PRIVACY-AUDIT G3).
-				self.verify_chat_auth(&envelope_bytes, &tp, ts, &sig)?;
+				self.verify_chat_auth(&batch_bytes, &tp, ts, &sig)?;
 				#[cfg(feature = "chat-diagnostics")]
 				log::debug!(
 					target: "rostro-chat-rpc",
-					"chat_send_envelope authenticated via cert session",
+					"chat_send_prepared authenticated via cert session",
 				);
 			}
 			_ => {
 				return Err(invalid_param(
 					"auth_*",
-					"chat_send_envelope requires cert auth: all three of \
+					"chat_send_prepared requires cert auth: all three of \
 					 auth_cert_thumbprint_hex, auth_timestamp_secs, \
 					 auth_sig_hex must be present, signed by an Active \
 					 zkpki cert's device key",
@@ -1628,208 +1645,22 @@ where
 			}
 		}
 
-		// v0.1 ships pairwise only; group flows take a different path.
-		if !matches!(envelope.kind, EnvelopeKind::Pairwise) {
-			return Err(invalid_param(
-				"envelope_hex",
-				"only Pairwise envelopes are supported in v0.1",
-			));
-		}
-
-		let n_shares = if total_shares == 0 {
-			DEFAULT_TOTAL_SHARES
-		} else {
-			let n = total_shares as usize;
-			if n < 2 || n > MAX_SHARES {
-				return Err(invalid_param(
-					"total_shares",
-					&format!("must be 0 (default) or in [2, {MAX_SHARES}]"),
-				));
-			}
-			n
-		};
-
-		// Stripe-split the encoded envelope.
-		let encoded = envelope.encode();
-		let message_id = envelope.message_id;
-		let mut rng = OsRng;
-		let shares = split_xor(&encoded, n_shares, &mut rng).map_err(|e| {
-			ErrorObject::owned::<()>(-32000, format!("split_xor failed: {e:?}"), None)
+		let batch = PreparedBatch::decode(&mut &batch_bytes[..]).map_err(|e| {
+			invalid_param("batch_hex", &format!("SCALE-decode failed: {e}"))
 		})?;
 
-		// Pick bucket peers for the message's bucket. Reject the
-		// send if zero peers subscribe (old-tenant-mail behavior
-		// per design discussion — there's nowhere to deliver).
-		let bucket = bucket_for_pickup_key(&recipient_pickup);
-		let mut bucket_peers = self.bucket_cache.peers_for_bucket(bucket);
-		if bucket_peers.is_empty() {
-			return Err(ErrorObject::owned::<()>(
-				-32000,
-				format!(
-					"no bucket peers available for bucket {bucket} — try a \
-					 different RPC node, or wait for peers to advertise \
-					 their bucket subscriptions on /rostro/chat-gossip/1",
-				),
-				None,
-			));
-		}
-
-		// Shuffle for replication picks (each shard goes to up to
-		// REPLICATION_FACTOR random bucket peers). OsRng for
-		// non-deterministic selection — predictable selection
-		// would let an observer game which peers receive which
-		// shards.
-		use rand_core::RngCore;
-		fn shuffle_in_place(v: &mut Vec<rc_network::PeerId>, rng: &mut OsRng) {
-			let n = v.len();
-			for i in (1..n).rev() {
-				let j = (rng.next_u64() as usize) % (i + 1);
-				v.swap(i, j);
-			}
-		}
-		shuffle_in_place(&mut bucket_peers, &mut rng);
-		let n_replicas = REPLICATION_FACTOR.min(bucket_peers.len());
-		let selected_peers: Vec<rc_network::PeerId> =
-			bucket_peers.into_iter().take(n_replicas).collect();
-
-		// MAC each share with the v0.1 zero key (per-message
-		// session-secret derivation lands with the DR pairwise
-		// wrapper — placeholder, same as the prior demo).
-		let mac_key = [0u8; 32];
-		let total_u8 = n_shares as u8;
-		let expires_at = now_unix_seconds().saturating_add(CHAT_TTL_SECONDS);
-
-		// Push each shard to every selected peer. Outbound
-		// /rostro/chat-stripe/1 request-response. Aggregate
-		// success counts so we can surface degraded redundancy.
-		let mut stored_total: usize = 0;
-		let mut rejected_total: usize = 0;
-		let mut transport_failed_total: usize = 0;
-
-		for (i, share_bytes) in shares.into_iter().enumerate() {
-			let share_index = i as ShareIndex;
-			let mac_tag = mac_share(&mac_key, &share_bytes, share_index);
-			let descriptor = ShareDescriptor {
-				relay_pubkey: RelayPubkey(self.node_pubkey_ed25519),
-				message_id,
-				share_index,
-				total_shares: total_u8,
-				pickup_key: recipient_pickup,
-				expires_at_unix_ts: expires_at,
-			};
-			let store_req = StoreRequest {
-				descriptor,
-				share_bytes: share_bytes.clone(),
-				mac_tag,
-			};
-			let request_bytes = store_req.encode();
-
-			for peer in &selected_peers {
-				match self
-					.network
-					.request(
-						*peer,
-						ProtocolName::from(CHAT_STRIPE_PROTOCOL_NAME),
-						request_bytes.clone(),
-						None,
-						IfDisconnected::TryConnect,
-					)
-					.await
-				{
-					Ok((resp_bytes, _)) => {
-						match StoreResponse::decode(&mut &resp_bytes[..]) {
-							Ok(StoreResponse::Stored) => {
-								stored_total += 1;
-							}
-							Ok(StoreResponse::Rejected(reason)) => {
-								rejected_total += 1;
-								// No message_id: a shard-placement rejection must
-								// not link the shard to its message on a
-								// persisted log line (GUARD-PRIVACY-AUDIT G2).
-								// share_index + peer + reason are operational.
-								log::debug!(
-									target: "rostro-chat-rpc",
-									"push shard {} to {} rejected: {:?}",
-									share_index,
-									peer,
-									reason,
-								);
-								// DuplicateShare on a retry is fine — count
-								// it as Stored so we don't over-flag.
-								if matches!(reason, StoreRejection::DuplicateShare) {
-									stored_total += 1;
-									rejected_total -= 1;
-								}
-							}
-							Err(_) => {
-								transport_failed_total += 1;
-								log::debug!(
-									target: "rostro-chat-rpc",
-									"push to {}: undecodable StoreResponse",
-									peer,
-								);
-							}
-						}
-					}
-					Err(e) => {
-						transport_failed_total += 1;
-						// No message_id (GUARD-PRIVACY-AUDIT G2).
-						log::debug!(
-							target: "rostro-chat-rpc",
-							"push shard {} to {} transport failed: {:?}",
-							share_index,
-							peer,
-							e,
-						);
-					}
-				}
-			}
-		}
-
-		// Aggregate. n_shares × n_replicas requests issued; the
-		// minimum we need for "send succeeded" is that each shard
-		// landed somewhere — at least n_shares total Stored
-		// responses. If we got fewer, the send is degraded;
-		// callers see a structured warning in the response shape.
-		// No message_id (GUARD-PRIVACY-AUDIT G3).
-		#[cfg(feature = "chat-diagnostics")]
-		let total_attempts = n_shares * n_replicas;
-		#[cfg(feature = "chat-diagnostics")]
-		log::info!(
-			target: "rostro-chat-rpc",
-			"chat_send_envelope: shards={} replicas={} attempts={} stored={} rejected={} transport_failed={}",
-			n_shares,
-			n_replicas,
-			total_attempts,
-			stored_total,
-			rejected_total,
-			transport_failed_total,
-		);
-
-		if stored_total < n_shares {
-			return Err(ErrorObject::owned::<()>(
-				-32000,
-				format!(
-					"chat_send_envelope: only {stored_total} of {n_shares} shards \
-					 landed (need at least {n_shares} for recipient assembly); \
-					 {rejected_total} rejected, {transport_failed_total} \
-					 transport-failed",
-				),
-				None,
-			));
-		}
-
-		Ok(ChatSendResult {
-			message_id_hex: hex::encode(message_id.0),
-			share_count: n_shares as u32,
-			recipient_pickup_key_hex: hex::encode(recipient_pickup.0),
-		})
+		distribute_prepared(
+			self.node_pubkey_ed25519,
+			&self.bucket_cache,
+			&self.network,
+			batch,
+		)
+		.await
 	}
 
 	async fn send_onion(
 		&self,
 		onion_packet_hex: String,
-		total_shares: u8,
 		auth_cert_thumbprint_hex: Option<String>,
 		auth_timestamp_secs: Option<u64>,
 		auth_sig_hex: Option<String>,
@@ -1915,7 +1746,7 @@ where
 		// `PeelMode::GuardEntry`: the guard MUST forward to relay-2; a `Deliver`
 		// peeled here (a 1-hop onion) is rejected, since the guard must never be
 		// the final hop and see sender+recipient together (1c).
-		ctx.peel_and_dispatch(&packet, total_shares, PeelMode::GuardEntry).await
+		ctx.peel_and_dispatch(&packet, PeelMode::GuardEntry).await
 	}
 
 	async fn fetch_shares(
@@ -1955,7 +1786,7 @@ where
 				Ok((resp_bytes, _)) => {
 					if let Ok(resp) = FetchResponse::decode(&mut &resp_bytes[..]) {
 						for fs in resp.shares {
-							matched.push((fs.descriptor, fs.share_bytes, fs.mac_tag));
+							matched.push((fs.descriptor, fs.share_bytes, fs.checksum));
 						}
 					} else {
 						log::warn!(
@@ -1975,22 +1806,20 @@ where
 			}
 		}
 
-		// Bucket-peer auto-fallback. If after the local store + any
-		// explicit-peer lookup we still don't have shards for this
-		// pickup key, query bucket peers from the BucketCache. This
-		// makes the "hit any RPC node" property hold for fetch:
-		// recipients don't have to know which RPC node received the
-		// push — any node will resolve via fallback when it doesn't
-		// have the shards locally.
+		// Bucket-peer aggregation. If after the local store + any
+		// explicit-peer lookup the view is empty OR any message is
+		// missing chunks, query bucket peers from the BucketCache and
+		// merge. This makes the "hit any RPC node" property hold for
+		// fetch — and it is REQUIRED under per-chunk disjoint replica
+		// sets: chunks of one message deliberately land on different
+		// relays, so a single store (including our own) holding a
+		// complete message is the exception, not the rule.
 		//
-		// Why "still empty" not "always": when the local store has
-		// shards, the recipient's gateway IS a bucket peer and push
-		// reached it; no fallback needed. When local is empty, the
-		// gateway either (a) doesn't subscribe to the bucket or (b)
-		// subscribes but didn't receive the push (e.g., entry node
-		// that pushed elsewhere). Either way, a small set of
-		// bucket-peer queries assembles what's needed.
-		if matched.is_empty() {
+		// Why "incomplete" and not "always": once every matched
+		// message has all its chunks there is nothing left to gather,
+		// and the loop below also stops early on completeness for the
+		// same reason.
+		if matched.is_empty() || matched_set_incomplete(&matched) {
 			use rostro_chat_primitives::bucket::bucket_for_pickup_key;
 
 			let bucket = bucket_for_pickup_key(&pickup);
@@ -2029,6 +1858,11 @@ where
 			let fetch_req_bytes = fetch_req.encode();
 
 			for peer in to_query {
+				// Stop as soon as every matched message is complete —
+				// don't burn the whole peer budget on nothing.
+				if !matched.is_empty() && !matched_set_incomplete(&matched) {
+					break;
+				}
 				match self
 					.network
 					.request(
@@ -2048,7 +1882,7 @@ where
 								#[cfg(feature = "chat-diagnostics")]
 								let n = resp.shares.len();
 								for fs in resp.shares {
-									matched.push((fs.descriptor, fs.share_bytes, fs.mac_tag));
+									matched.push((fs.descriptor, fs.share_bytes, fs.checksum));
 								}
 								#[cfg(feature = "chat-diagnostics")]
 								if n > 0 {
@@ -2083,7 +1917,7 @@ where
 		let mut seen: std::collections::HashSet<(MessageId, u8)> =
 			std::collections::HashSet::new();
 		let mut out: Vec<ChatFetchedShareRaw> = Vec::new();
-		for (descriptor, share_bytes, mac_tag) in matched {
+		for (descriptor, share_bytes, checksum) in matched {
 			let key = (descriptor.message_id, descriptor.share_index);
 			if !seen.insert(key) {
 				continue;
@@ -2098,7 +1932,7 @@ where
 					expires_at_unix_ts: descriptor.expires_at_unix_ts,
 				},
 				share_bytes_hex: hex::encode(&share_bytes),
-				mac_tag_hex: hex::encode(mac_tag),
+				checksum_hex: hex::encode(checksum),
 			});
 		}
 		// Stable ordering for determinism.
@@ -2234,6 +2068,27 @@ fn decode_hex32(hex_str: &str) -> Result<[u8; 32], String> {
 	Ok(out)
 }
 
+/// `true` if any message in the matched share set is still missing
+/// chunks (fewer distinct `share_index` values than its
+/// `total_shares` claims). With per-chunk DISJOINT replica sets a
+/// single relay holding SOME chunks of a message is the NORMAL case,
+/// so fetch aggregation triggers on incompleteness, not only on an
+/// empty local view. Duplicates across sources are absorbed by the
+/// index set.
+fn matched_set_incomplete(matched: &[(ShareDescriptor, Vec<u8>, ChunkChecksum)]) -> bool {
+	use std::collections::HashSet;
+	let mut per_message: HashMap<MessageId, (u8, HashSet<ShareIndex>)> = HashMap::new();
+	for (d, _, _) in matched {
+		let entry = per_message
+			.entry(d.message_id)
+			.or_insert_with(|| (d.total_shares, HashSet::new()));
+		entry.1.insert(d.share_index);
+	}
+	per_message
+		.values()
+		.any(|(total, have)| have.len() < *total as usize)
+}
+
 /// Parse a libp2p `PeerId` from its multibase string form
 /// (`12D3KooW...`).
 fn parse_peer_id(s: &str) -> Result<PeerId, String> {
@@ -2249,11 +2104,3 @@ fn invalid_param(name: &str, why: &str) -> ErrorObject<'static> {
 fn auth_err(why: &str) -> ErrorObject<'static> {
 	ErrorObject::owned::<()>(-32000, why.to_string(), None)
 }
-
-// Suppress unused warning on RngCore when total_shares branch
-// uses split_xor path only; OsRng is imported for the RNG itself.
-const _: fn() = || {
-	let mut r = OsRng;
-	let mut buf = [0u8; 4];
-	r.fill_bytes(&mut buf);
-};

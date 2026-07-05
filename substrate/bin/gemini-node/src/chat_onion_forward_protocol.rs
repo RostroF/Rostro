@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
-//! `rc-network` adapter for `/rostro/chat-onion-forward/1` — the
+//! `rc-network` adapter for `/rostro/chat-onion-forward/3` — the
 //! node-to-node hop that carries a metadata-anonymity onion from the
 //! guard to relay-2 (Phase 4, slice 2).
 //!
@@ -9,11 +9,11 @@
 //!
 //! An onion is **transport, not a message**. It is passed DIRECTLY from
 //! one node to the next, peeled one layer per hop, and only the FINAL
-//! peeled message ever enters the bucket/stripe messaging layer. This
+//! peeled message ever enters the bucket/chunk messaging layer. This
 //! protocol is that direct hop: the guard, after peeling its own layer,
 //! sends the still-sealed `inner` packet here; relay-2 receives it,
-//! peels its layer, and (because it is the last hop) injects the
-//! recipient **message** into the normal stripe-and-distribute path.
+//! peels its layer, and (because it is the last hop) fans the
+//! recipient's prepared chunk batch out to the bucket peers.
 //!
 //! The onion is **never** sharded to forward it — that is the precise
 //! failure the peeler/messaging split exists to prevent. See
@@ -64,8 +64,11 @@ use crate::validator_channel::SharedSessions;
 /// libp2p protocol name. Versioned suffix bumped on an incompatible
 /// wire change. Distinct from the other `/rostro/chat-*` protocols.
 /// Bumped to `/2` when the guard attestation (`guard_sig`) was added to
-/// [`OnionForwardRequest`] — a hard cutover, no `/1` coexistence.
-pub const CHAT_ONION_FORWARD_PROTOCOL_NAME: &str = "/rostro/chat-onion-forward/2";
+/// [`OnionForwardRequest`]; bumped to `/3` at the chunk cutover
+/// (docs/CHAT-SHARE-CHUNKING.md), when `total_shares` left the request
+/// (chunk counts ride inside the sender-prepared batch) — hard
+/// cutovers, no coexistence.
+pub const CHAT_ONION_FORWARD_PROTOCOL_NAME: &str = "/rostro/chat-onion-forward/3";
 
 /// JSON-RPC error code `chat_send_onion` returns when the sender's chosen
 /// relay-2 is not a live chat-fabric member (1b liveness pre-check). Distinct
@@ -76,16 +79,17 @@ pub const RELAY_UNAVAILABLE_CODE: i32 = -32050;
 
 /// Domain separator for the guard's forward-leg attestation signature, bound
 /// into the signed digest so a guard's onion-forward signature can never be
-/// confused with one it produced for any other purpose.
-pub const ONION_FWD_DOMAIN: &[u8] = b"rostro/chat/onion-forward/v1";
+/// confused with one it produced for any other purpose. `/v2`: the chunk
+/// cutover removed `total_shares` from the digest (chunk counts ride inside
+/// the sender-prepared batch, MAC-bound end-to-end).
+pub const ONION_FWD_DOMAIN: &[u8] = b"rostro/chat/onion-forward/v2";
 
 /// The digest the guard signs and relay-2 verifies for forward-leg
-/// accountability (1a): `blake2_256(ONION_FWD_DOMAIN ‖ total_shares ‖
-/// packet_bytes)`. One shared helper so the two sides can never drift.
-pub fn onion_forward_digest(total_shares: u8, packet_bytes: &[u8]) -> [u8; 32] {
-	let mut buf = Vec::with_capacity(ONION_FWD_DOMAIN.len() + 1 + packet_bytes.len());
+/// accountability (1a): `blake2_256(ONION_FWD_DOMAIN ‖ packet_bytes)`.
+/// One shared helper so the two sides can never drift.
+pub fn onion_forward_digest(packet_bytes: &[u8]) -> [u8; 32] {
+	let mut buf = Vec::with_capacity(ONION_FWD_DOMAIN.len() + packet_bytes.len());
 	buf.extend_from_slice(ONION_FWD_DOMAIN);
-	buf.push(total_shares);
 	buf.extend_from_slice(packet_bytes);
 	blake2_256(&buf)
 }
@@ -112,26 +116,25 @@ const MAX_REQUEST_SIZE: u64 = 64 * 1024;
 /// hex strings or a rejection message; 4 KiB covers error text.
 const MAX_RESPONSE_SIZE: u64 = 4 * 1024;
 
-/// Request timeout. Relay-2 peels AND runs the full stripe fan-out
+/// Request timeout. Relay-2 peels AND runs the full chunk fan-out
 /// synchronously before responding, so this is necessarily larger than
-/// a single stripe request. (Synchronous result propagation is a v1
+/// a single store request. (Synchronous result propagation is a v1
 /// choice — it returns the real delivery outcome to the guard, at the
 /// cost of holding the forward request open during relay-2's fan-out.)
 const REQUEST_TIMEOUT_SECS: u64 = 120;
 
-/// The forward request: the still-sealed inner onion packet plus the
-/// share count to use when relay-2 reaches the final `Deliver`. The
+/// The forward request: the still-sealed inner onion packet. The
 /// packet is SCALE-encoded `OnionPacket` bytes; relay-2 decodes and
-/// peels it. The request carries NO sender material — the guard's outer
-/// layer (with the sender's ephemeral) never reaches relay-2.
+/// peels it (the innermost `Deliver` drop is a sender-prepared chunk
+/// batch, chunk counts included). The request carries NO sender
+/// material — the guard's outer layer (with the sender's ephemeral)
+/// never reaches relay-2.
 #[derive(Encode, Decode)]
 pub struct OnionForwardRequest {
-	/// Share count to use at the final `Deliver` (0 = node default).
-	pub total_shares: u8,
 	/// SCALE-encoded inner `OnionPacket` (sealed to relay-2).
 	pub packet_bytes: Vec<u8>,
 	/// The forwarding guard's ed25519 signature over
-	/// `onion_forward_digest(total_shares, packet_bytes)` (1a). relay-2
+	/// `onion_forward_digest(packet_bytes)` (1a). relay-2
 	/// recovers the guard's pubkey from the AUTHENTICATED sending peer and
 	/// verifies this BEFORE peeling, making every forwarded onion attributable
 	/// to a specific node identity (reputation-ejectable on abuse). This is the
@@ -146,13 +149,13 @@ pub struct OnionForwardRequest {
 /// only known after relay-2 peels the inner layer.
 #[derive(Encode, Decode)]
 pub enum OnionForwardResponse {
-	/// relay-2 peeled to `Deliver` and the message was striped.
+	/// relay-2 peeled to `Deliver` and the chunks were distributed.
 	Delivered {
 		message_id_hex: String,
 		share_count: u32,
 		recipient_pickup_key_hex: String,
 	},
-	/// relay-2 refused or failed (gate, decode, peel, or stripe).
+	/// relay-2 refused or failed (gate, decode, peel, or distribute).
 	/// `code`/`message` mirror the underlying jsonrpsee error so the
 	/// guard can relay it transparently to the sender.
 	Rejected { code: i32, message: String },
@@ -161,7 +164,7 @@ pub enum OnionForwardResponse {
 /// Build the protocol config + return the inbound `rx`. The config must
 /// be registered into `net_config` BEFORE `build_network`; the handler
 /// future (which needs the post-`build_network` `NetworkService` handle
-/// for the outbound stripe fan-out) is spawned separately via
+/// for the outbound chunk fan-out) is spawned separately via
 /// [`run_onion_forward_handler`].
 pub fn build_chat_onion_forward_config<N, Block>(
 ) -> (N::RequestResponseProtocolConfig, async_channel::Receiver<IncomingRequest>)
@@ -185,8 +188,8 @@ where
 /// be a canonical-gated relay and not an active validator), verify the
 /// guard attestation (1a), decode the inner packet, then peel-and-dispatch
 /// it with `PeelMode::FinalRelay` (relay-2 must DELIVER — the 2-hop cap).
-/// The peeler injects the recipient message into the existing stripe path;
-/// the delivery outcome — and any reputation penalty for a misbehaving
+/// The peeler fans the recipient batch out to the bucket peers; the
+/// delivery outcome — and any reputation penalty for a misbehaving
 /// guard — is relayed back via the response.
 pub async fn run_onion_forward_handler(
 	peel_ctx: Arc<OnionPeelCtx>,
@@ -255,9 +258,9 @@ async fn handle_forward(
 	// 1a: verify the guard's forward-leg attestation BEFORE peeling. A guard
 	// that signs nothing, signs the wrong bytes, or is not an ed25519 peer is a
 	// misbehaving forwarder — reject and reputation-dock the (authenticated)
-	// peer. The signature binds total_shares + the exact inner packet to the
-	// signing node, so every accepted forward is attributable and ejectable.
-	let digest = onion_forward_digest(req.total_shares, &req.packet_bytes);
+	// peer. The signature binds the exact inner packet to the signing node,
+	// so every accepted forward is attributable and ejectable.
+	let digest = onion_forward_digest(&req.packet_bytes);
 	let attested = guard_id.map_or(false, |id| id.verify(&digest, &req.guard_sig));
 	if !attested {
 		return (
@@ -286,7 +289,7 @@ async fn handle_forward(
 	// A peel/deliver error here is NOT reputation-penalised — the inner layer is
 	// sealed to relay-2, so the guard could not have inspected it; a bad inner
 	// is the sender's construction, not the forwarding guard's fault.
-	match peel_ctx.peel_and_dispatch(&packet, req.total_shares, PeelMode::FinalRelay).await {
+	match peel_ctx.peel_and_dispatch(&packet, PeelMode::FinalRelay).await {
 		Ok(r) => (
 			OnionForwardResponse::Delivered {
 				message_id_hex: r.message_id_hex,
@@ -315,39 +318,31 @@ mod tests {
 		// tamper of the signed fields breaks verification.
 		let guard = NodeSecret::from_seed([0x42; 32]);
 		let id = guard.identity();
-		let total_shares = 5u8;
 		let packet_bytes = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
 
-		let sig = guard.sign(&onion_forward_digest(total_shares, &packet_bytes));
+		let sig = guard.sign(&onion_forward_digest(&packet_bytes));
 
 		// Honest forward verifies.
-		assert!(id.verify(&onion_forward_digest(total_shares, &packet_bytes), &sig));
-
-		// Tampering total_shares breaks attribution.
-		assert!(!id.verify(&onion_forward_digest(total_shares + 1, &packet_bytes), &sig));
+		assert!(id.verify(&onion_forward_digest(&packet_bytes), &sig));
 
 		// Tampering the inner packet breaks attribution.
 		let mut tampered = packet_bytes.clone();
 		tampered[0] ^= 0xFF;
-		assert!(!id.verify(&onion_forward_digest(total_shares, &tampered), &sig));
+		assert!(!id.verify(&onion_forward_digest(&tampered), &sig));
 
 		// A DIFFERENT node cannot pass this signature off as its own — the
 		// forward is bound to the signing identity (ejectable attribution), and
 		// `guard_id = None` (non-ed25519 peer) likewise fails by construction.
 		let other = NodeSecret::from_seed([0x43; 32]);
-		assert!(!other.identity().verify(&onion_forward_digest(total_shares, &packet_bytes), &sig));
+		assert!(!other.identity().verify(&onion_forward_digest(&packet_bytes), &sig));
 	}
 
 	#[test]
 	fn digest_is_domain_separated() {
 		// The signed digest is domain-separated, so a guard's onion-forward
 		// signature can't be replayed as a signature over raw bytes.
-		let total_shares = 3u8;
 		let packet_bytes = vec![9u8; 16];
-		let d = onion_forward_digest(total_shares, &packet_bytes);
-
-		let mut raw = vec![total_shares];
-		raw.extend_from_slice(&packet_bytes);
-		assert_ne!(d, blake2_256(&raw));
+		let d = onion_forward_digest(&packet_bytes);
+		assert_ne!(d, blake2_256(&packet_bytes));
 	}
 }

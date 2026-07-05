@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Rostro Foundation contributors
 
-//! `rc-network` adapter for `/rostro/chat-stripe/1`.
+//! `rc-network` adapter for `/rostro/chat-chunk/1` — storing relays
+//! accepting client-prepared chunks (docs/CHAT-SHARE-CHUNKING.md).
 //!
-//! Phase B6 of the MLS-chat plan — sender → relay binding. Pulls
+//! Successor to `/rostro/chat-stripe/1` (chunk cutover; the store
+//! wire shape is unchanged but the payload semantics are contiguous
+//! chunks, so the name now says what it carries). Pulls
 //! `IncomingRequest`s off the rc-network channel, dispatches to
 //! [`rostro_chat_primitives::store_protocol::process_store_request_bytes`]
 //! (Apache-2.0 byte-shim that handles SCALE decode + validation +
@@ -51,13 +54,16 @@ fn now_unix_seconds() -> u64 {
 /// libp2p protocol name. Versioned suffix bumped if the wire
 /// format changes incompatibly. Distinct from
 /// `/rostro/validator-channel/*` and `/rostro/canonical-fetch-*`.
-pub const CHAT_STRIPE_PROTOCOL_NAME: &str = "/rostro/chat-stripe/1";
+/// Renamed from `/rostro/chat-stripe/1` at the chunk cutover — a
+/// hard cutover, no coexistence (chat shares are 3-day-TTL RAM
+/// entries; in-flight shares at rollout are lost by design).
+pub const CHAT_CHUNK_PROTOCOL_NAME: &str = "/rostro/chat-chunk/1";
 
 /// Inbound queue capacity. Matches the existing canonical-fetch
 /// + attest handler conventions.
 const INBOUND_QUEUE_CAPACITY: usize = 64;
 
-/// Maximum request payload size. A share body can be up to
+/// Maximum request payload size. A chunk body can be up to
 /// [`rostro_chat_primitives::store_protocol::MAX_SHARE_BYTES`]
 /// (4 MiB); SCALE-encoding plus descriptor + MAC tag adds at most
 /// a few hundred bytes.
@@ -68,7 +74,7 @@ const MAX_REQUEST_SIZE: u64 =
 /// bytes; 64 bytes leaves headroom for future fields.
 const MAX_RESPONSE_SIZE: u64 = 64;
 
-/// Request timeout. Generous because a 4 MiB share over a slow
+/// Request timeout. Generous because a 4 MiB chunk over a slow
 /// link can take a while.
 const REQUEST_TIMEOUT_SECS: u64 = 30;
 
@@ -80,7 +86,7 @@ const REQUEST_TIMEOUT_SECS: u64 = 30;
 /// the validator-channel handshake server; the handler consults it
 /// to enforce the channel-split invariant (validators rejected from
 /// chat substreams).
-pub fn build_chat_stripe_protocol<N, S, Block>(
+pub fn build_chat_chunk_protocol<N, S, Block>(
 	store: Arc<S>,
 	validator_sessions: SharedSessions,
 ) -> (N::RequestResponseProtocolConfig, impl std::future::Future<Output = ()>)
@@ -92,7 +98,7 @@ where
 	let (tx, rx) = async_channel::bounded::<IncomingRequest>(INBOUND_QUEUE_CAPACITY);
 
 	let config = N::request_response_config(
-		ProtocolName::from(CHAT_STRIPE_PROTOCOL_NAME),
+		ProtocolName::from(CHAT_CHUNK_PROTOCOL_NAME),
 		Vec::new(),
 		MAX_REQUEST_SIZE,
 		MAX_RESPONSE_SIZE,
@@ -118,7 +124,7 @@ async fn run_handler<S>(
 		// Admission: reject peers known to be active validators.
 		if !is_chat_admitted(&validator_sessions, &peer) {
 			log::debug!(
-				target: "rostro-chat-stripe",
+				target: "rostro-chat-chunk",
 				"rejecting store request from {} — peer holds a validator-channel \
 				 session (channel-split invariant)",
 				peer,
@@ -139,13 +145,13 @@ async fn run_handler<S>(
 			// binary (GUARD-PRIVACY-AUDIT G3).
 			#[cfg(feature = "chat-diagnostics")]
 			log::trace!(
-				target: "rostro-chat-stripe",
+				target: "rostro-chat-chunk",
 				"processed store request from {}",
 				peer,
 			);
 		} else {
 			log::debug!(
-				target: "rostro-chat-stripe",
+				target: "rostro-chat-chunk",
 				"malformed store request from {}",
 				peer,
 			);
