@@ -187,3 +187,64 @@ justification (constant size, dovetails with the execution-proof
 direction), or ML-DSA-65 (~2.3x smaller than 128s but re-couples finality
 to the transport/keyring lattice family). Deferred decision; 128s is the
 right floor for hash-based assumption diversity.
+
+## 6. Validator-count ceiling under the network caps (128s)
+
+The binding constraint is the GRANDPA **notification protocol cap**, and
+the largest message on it is the **catch-up** — it aggregates a round's
+prevotes AND precommits (`finality_grandpa::CatchUp` = `Vec<SignedPrevote>`
++ `Vec<SignedPrecommit>`), so at full participation it is **2N**
+signatures. Each signed-vote entry is 8020 B (36 B vote target + 7920 B
+hybrid signature + 64 B hybrid id). Therefore:
+
+```
+catch-up bytes ≈ 2 · N · 8020
+N_max(cap) ≈ cap / 16040
+```
+
+| Notification cap | Max validators (catch-up bound) | justification at that N |
+|---|---|---|
+| **4 MiB (current, D7)** | **~261** | 2.0 MiB |
+| 8 MiB | ~522 | 4.0 MiB |
+| 12 MiB | ~784 | 6.0 MiB |
+| 16 MiB | ~1045 | 8.0 MiB |
+| 32 MiB | ~2091 | 16.0 MiB |
+
+Secondary ceilings (not the tightest, but hard): the warp-proof fragment
+cap (8 MiB) bounds a single justification (N·8020) → **~1045 validators**;
+the libp2p response cap `MAX_RESPONSE_SIZE` (16 MiB) → ~2091.
+
+Concretely: the **current 4 MiB cap tops out at ~260 validators.** For the
+~700 mainnet target, a catch-up is ~10.7 MiB and a justification ~5.4 MiB,
+so the notification cap must go to **~12 MiB** (warp cap OK). For ~1000,
+catch-up ~15.3 MiB and justification ~7.6 MiB → notification cap ~16 MiB
+and the warp cap needs a nudge too. So **~1000 validators is roughly the
+architectural ceiling** with cap bumps alone; beyond that needs committee
+finality or recursive-proof compression (§5).
+
+## 7. Version decision: 128s is v1; v2 is a post-Q-day contingency
+
+**128s ships as the v1 finality-vote scheme.** The whole design is a
+hybrid (ed25519 + SLH-DSA), both-must-verify, precisely so that no single
+cryptographic break forces a scramble:
+
+- **If SPHINCS+/hash-based falls first** (unexpected — its only surface is
+  SHA-2 preimage resistance, the most conservative assumption in the PQ
+  portfolio), the ed25519 half still holds pre-Q-day, and v2 swaps the PQ
+  component to a lattice scheme (ML-DSA-65) — which also happens to be
+  ~2.3x smaller, easing the §6 ceiling.
+- **If Dilithium/lattice falls first** (the live cryptanalysis target;
+  SIKE and Rainbow, both NIST finalists, fell classically in 2022), then
+  our choice of hash-based for finality is vindicated and v1 needs no
+  change — while the *transport* (ML-KEM) and *account keyring* (ML-DSA)
+  threads, which ARE lattice, are the ones that would pivot. Finality
+  being on a different family than everything else is the whole point of
+  the monoculture argument (§5 / PQ-TRANSPORT).
+
+Either way we are hedged: the family that breaks first tells us which
+layers to migrate, and the hybrid construction buys the migration window.
+v2 is a contingency to be triggered by cryptanalysis, not a scheduled
+milestone. The `app_crypto!(rostro_hybrid, GRANDPA)` seam + the
+`rostro-hybrid-sig` leaf make a component swap a bounded change (one
+parameter or one scheme, re-pin wire sizes, fresh KATs — as this very
+128f→128s re-cut demonstrated end to end).
