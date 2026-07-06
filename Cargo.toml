@@ -28,8 +28,6 @@ members = [
 	"substrate/client/consensus/aura",
 	"substrate/client/consensus/babe",
 	"substrate/client/consensus/babe/rpc",
-	"substrate/client/consensus/beefy",
-	"substrate/client/consensus/beefy/rpc",
 	"substrate/client/consensus/common",
 	"substrate/client/consensus/epochs",
 	"substrate/client/consensus/grandpa",
@@ -102,8 +100,6 @@ members = [
 	"substrate/frame/bags-list/fuzzer",
 	"substrate/frame/bags-list/remote-tests",
 	"substrate/frame/balances",
-	"substrate/frame/beefy",
-	"substrate/frame/beefy-mmr",
 	"substrate/frame/benchmarking",
 	"substrate/frame/benchmarking/pov",
 	"substrate/frame/collective",
@@ -229,7 +225,6 @@ members = [
 	"substrate/primitives/blockchain",
 	"substrate/primitives/consensus/aura",
 	"substrate/primitives/consensus/babe",
-	"substrate/primitives/consensus/beefy",
 	"substrate/primitives/consensus/common",
 	"substrate/primitives/consensus/grandpa",
 	"substrate/primitives/consensus/pow",
@@ -651,8 +646,6 @@ pallet-babe = { path = "substrate/frame/babe", default-features = false }
 pallet-bags-list = { path = "substrate/frame/bags-list", default-features = false }
 pallet-bags-list-remote-tests = { path = "substrate/frame/bags-list/remote-tests" }
 pallet-balances = { path = "substrate/frame/balances", default-features = false }
-pallet-beefy = { path = "substrate/frame/beefy", default-features = false }
-pallet-beefy-mmr = { path = "substrate/frame/beefy-mmr", default-features = false }
 pallet-collective = { path = "substrate/frame/collective", default-features = false }
 pallet-default-config-example = { path = "substrate/frame/examples/default-config", default-features = false }
 pallet-delegated-staking = { path = "substrate/frame/delegated-staking", default-features = false }
@@ -860,8 +853,6 @@ rc-consensus = { path = "substrate/client/consensus/common", default-features = 
 rc-consensus-aura = { path = "substrate/client/consensus/aura", default-features = false }
 rc-consensus-babe = { path = "substrate/client/consensus/babe", default-features = false }
 rc-consensus-babe-rpc = { path = "substrate/client/consensus/babe/rpc", default-features = false }
-rc-consensus-beefy = { path = "substrate/client/consensus/beefy", default-features = false }
-rc-consensus-beefy-rpc = { path = "substrate/client/consensus/beefy/rpc", default-features = false }
 rc-consensus-epochs = { path = "substrate/client/consensus/epochs", default-features = false }
 rc-consensus-grandpa = { path = "substrate/client/consensus/grandpa", default-features = false }
 rc-consensus-grandpa-rpc = { path = "substrate/client/consensus/grandpa/rpc", default-features = false }
@@ -948,7 +939,6 @@ sp-blockchain = { path = "substrate/primitives/blockchain", default-features = f
 sp-consensus = { path = "substrate/primitives/consensus/common", default-features = false }
 sp-consensus-aura = { path = "substrate/primitives/consensus/aura", default-features = false }
 sp-consensus-babe = { path = "substrate/primitives/consensus/babe", default-features = false }
-sp-consensus-beefy = { path = "substrate/primitives/consensus/beefy", default-features = false }
 sp-consensus-grandpa = { path = "substrate/primitives/consensus/grandpa", default-features = false }
 sp-consensus-pow = { path = "substrate/primitives/consensus/pow", default-features = false }
 sp-consensus-sassafras = { path = "substrate/primitives/consensus/sassafras", default-features = false }

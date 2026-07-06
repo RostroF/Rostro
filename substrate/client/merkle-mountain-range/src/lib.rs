@@ -49,7 +49,7 @@ use rc_client_api::{Backend, BlockchainEvents, FinalityNotification, FinalityNot
 use rc_offchain::OffchainDb;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::{HeaderBackend, HeaderMetadata};
-use sp_consensus_beefy::MmrRootHash;
+use sp_core::H256 as MmrRootHash;
 use sp_mmr_primitives::{utils, LeafIndex, MmrApi};
 use sp_runtime::traits::{Block, Header, NumberFor};
 use std::{marker::PhantomData, sync::Arc};
