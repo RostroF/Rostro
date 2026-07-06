@@ -19,6 +19,8 @@ publish = false
 anyhow = "1"
 codec = { package = "parity-scale-codec", version = "3", features = ["derive"] }
 ed25519-dalek = "2"
+rostro-hybrid-sig = { path = "../../../substrate/utils/rostro-hybrid-sig" }
+sp-core = { path = "../../../substrate/primitives/core", default-features = false, features = ["std"] }
 hex = "0.4"
 serde_json = "1"
 subxt = "0.44"

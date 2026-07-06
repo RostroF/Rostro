@@ -1,0 +1,30 @@
+[package]
+name = "rostro-hybrid-sig"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "ed25519 + SLH-DSA-SHA2-128f hybrid signature for Rostro finality votes. Both components sign the same domain-framed preimage and BOTH must verify: forging a vote requires breaking ed25519 (Shor at Q-day) and the hash-based SLH-DSA simultaneously. Stateless on purpose — no key-evolution state for operators to corrupt. Also home of the NIST ACVP SLH-DSA-SHA2-128f known-answer tests for the vendored slh-dsa crate, whose in-crate ACVP sample skips that parameter set."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+ed25519-dalek = { workspace = true, features = ["rand_core"] }
+hkdf = { workspace = true }
+rand_core = { workspace = true }
+sha2 = { workspace = true }
+slh-dsa = { workspace = true }
+
+[dev-dependencies]
+hex = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+default = ["std"]
+std = ["ed25519-dalek/std", "sha2/std"]

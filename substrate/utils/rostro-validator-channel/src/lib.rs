@@ -339,38 +339,50 @@ pub fn handshake_shared_secret(
 // The validator channel no longer signs handshakes with the GRANDPA
 // consensus key. Instead each validator holds a keystore-resident
 // *channel key* (ed25519, key type `chnl`, never registered on-chain)
-// and the GRANDPA key signs a [`ChannelCert`] binding that channel key
+// and the consensus key signs a [`ChannelCert`] binding that channel key
 // to the validator's on-chain authority identity, once per 24h epoch.
 // Handshakes then sign with the channel key. Net effect: the
 // internet-facing channel code never touches the slashable consensus
 // key; that key is used exactly once per epoch, for cert issuance.
 // See docs/VALIDATOR-CHANNEL-CERT.md.
+//
+// PQ cutover (docs/PQ-FINALITY.md D5): the on-chain authority identity
+// is now the 64-byte HYBRID key (ed25519 32 || SLH-DSA-SHA2-128f 32).
+// The cert stays 64-byte-signed: it is signed by the ed25519 COMPONENT
+// of the hybrid key, keeping the handshake inside its 512-byte budget.
+// Transport authentication is active-attack-only exposure (lowest
+// urgency of the PQ program); a PQ cert is a named follow-up.
 
 /// Domain-separation tag for the [`ChannelCert`] signature preimage.
 /// Distinct from [`HANDSHAKE_DOMAIN`] so a cert signature can never be
 /// replayed as a handshake signature or vice versa.
-pub const CERT_DOMAIN: &[u8] = b"rostro/validator-channel/cert/v1";
+// `/v2`: the authority identity in the preimage became the 64-byte
+/// hybrid key (`/v1` bound a 32-byte ed25519 authority and died with it).
+pub const CERT_DOMAIN: &[u8] = b"rostro/validator-channel/cert/v2";
 
 /// A GRANDPA-signed delegation from a validator's on-chain authority
 /// key to its keystore-resident channel key, scoped to one epoch.
 ///
-/// - **`authority_pubkey`**: the validator's GRANDPA Ed25519 session
-///   key — its on-chain identity. The verifier confirms this is in the
-///   active validator set (caller-side; this crate cannot see chain
-///   state) AND that it signed this cert.
+/// - **`authority_pubkey`**: the validator's hybrid GRANDPA session key
+///   (ed25519 component || SLH-DSA component) — its on-chain identity.
+///   The verifier confirms this is in the active validator set
+///   (caller-side; this crate cannot see chain state) AND that its
+///   ed25519 COMPONENT signed this cert. This crate never verifies the
+///   SLH-DSA component — set membership of the full 64 bytes is what
+///   binds the cert to the on-chain identity.
 /// - **`channel_pubkey`**: the delegated channel Ed25519 key. Persistent
 ///   across epochs; the cert (not the key) is what rotates.
 /// - **`epoch`**: the 24h epoch this cert authorizes. A cert issued for
 ///   epoch `E` is accepted during epochs `E` and `E+1` (a validity
 ///   overlap that rides out epoch-boundary races); enforced in
 ///   [`verify_handshake`].
-/// - **`signature`**: Ed25519 signature by `authority_pubkey` over
-///   [`cert_preimage`].
+/// - **`signature`**: Ed25519 signature by the ed25519 component of
+///   `authority_pubkey` (its first 32 bytes) over [`cert_preimage`].
 ///
-/// Wire size: 32 + 32 + 8 + 64 = 136 bytes (plus SCALE overhead).
+/// Wire size: 64 + 32 + 8 + 64 = 168 bytes (plus SCALE overhead).
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct ChannelCert {
-	pub authority_pubkey: [u8; 32],
+	pub authority_pubkey: [u8; 64],
 	pub channel_pubkey: [u8; 32],
 	pub epoch: u64,
 	pub signature: [u8; 64],
@@ -379,7 +391,7 @@ pub struct ChannelCert {
 /// Outcome of [`verify_cert`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CertError {
-	/// `authority_pubkey` is not a valid Ed25519 point.
+	/// The ed25519 component of `authority_pubkey` is not a valid point.
 	InvalidAuthorityKey,
 	/// `channel_pubkey` is not a valid Ed25519 point.
 	InvalidChannelKey,
@@ -394,11 +406,11 @@ pub enum CertError {
 /// CERT_DOMAIN || authority_pubkey || channel_pubkey || epoch_le
 /// ```
 pub fn cert_preimage(
-	authority_pubkey: &[u8; 32],
+	authority_pubkey: &[u8; 64],
 	channel_pubkey: &[u8; 32],
 	epoch: u64,
 ) -> Vec<u8> {
-	let mut buf = Vec::with_capacity(CERT_DOMAIN.len() + 32 + 32 + 8);
+	let mut buf = Vec::with_capacity(CERT_DOMAIN.len() + 64 + 32 + 8);
 	buf.extend_from_slice(CERT_DOMAIN);
 	buf.extend_from_slice(authority_pubkey);
 	buf.extend_from_slice(channel_pubkey);
@@ -413,16 +425,22 @@ pub fn cert_preimage(
 /// this helper is the canonical reference + test path.
 #[cfg(feature = "std")]
 pub fn sign_cert(
+	authority_pubkey: &[u8; 64],
 	channel_pubkey: &[u8; 32],
 	epoch: u64,
-	authority_key: &ed25519_zebra::SigningKey,
+	authority_ed25519_component: &ed25519_zebra::SigningKey,
 ) -> ChannelCert {
-	let authority_pubkey: [u8; 32] =
-		ed25519_zebra::VerificationKey::from(authority_key).into();
-	let preimage = cert_preimage(&authority_pubkey, channel_pubkey, epoch);
-	let sig: ed25519_zebra::Signature = authority_key.sign(&preimage);
+	let component_pk: [u8; 32] =
+		ed25519_zebra::VerificationKey::from(authority_ed25519_component).into();
+	debug_assert_eq!(
+		&component_pk[..],
+		&authority_pubkey[..32],
+		"signing key must be the authority's ed25519 component"
+	);
+	let preimage = cert_preimage(authority_pubkey, channel_pubkey, epoch);
+	let sig: ed25519_zebra::Signature = authority_ed25519_component.sign(&preimage);
 	ChannelCert {
-		authority_pubkey,
+		authority_pubkey: *authority_pubkey,
 		channel_pubkey: *channel_pubkey,
 		epoch,
 		signature: sig.into(),
@@ -437,7 +455,10 @@ pub fn sign_cert(
 /// window; the caller must still confirm `authority_pubkey` is in the
 /// on-chain active validator set.
 pub fn verify_cert(cert: &ChannelCert) -> Result<(), CertError> {
-	let vk = ed25519_zebra::VerificationKey::try_from(cert.authority_pubkey)
+	let component: [u8; 32] = cert.authority_pubkey[..32]
+		.try_into()
+		.expect("slicing 32 from a 64-byte array; qed");
+	let vk = ed25519_zebra::VerificationKey::try_from(component)
 		.map_err(|_| CertError::InvalidAuthorityKey)?;
 	// Reject a malformed channel key here so a bad cert fails at the
 	// cert layer with a precise error rather than later at the
@@ -455,12 +476,12 @@ pub fn verify_cert(cert: &ChannelCert) -> Result<(), CertError> {
 // ───── X3DH-lite handshake payload (v3, cert-carrying + hybrid PQ) ──────
 
 /// Domain-separation tag for the handshake signature preimage.
-/// `/v3` is the hybrid (X25519 + ML-KEM-768) handshake; `/v2` was the
-/// cert-carrying classical form and no longer exists, exactly as `/v1`
-/// (GRANDPA-signed) died before it. The version byte is what makes a
-/// stray older-version signature un-verifiable here (cross-domain
-/// confusion resistance).
-pub const HANDSHAKE_DOMAIN: &[u8] = b"rostro/validator-channel/handshake/v3";
+/// `/v4` carries the 64-byte hybrid authority id in the cert; `/v3` was
+/// the hybrid-KEX form with a 32-byte ed25519 authority, `/v2` the
+/// classical cert-carrying form, `/v1` GRANDPA-signed — each died at its
+/// cutover. The version byte is what makes a stray older-version
+/// signature un-verifiable here (cross-domain confusion resistance).
+pub const HANDSHAKE_DOMAIN: &[u8] = b"rostro/validator-channel/handshake/v4";
 
 /// Which side of a handshake a payload's key-exchange material belongs
 /// to. Bound into the signature preimage as one byte, and checked by
@@ -530,8 +551,8 @@ impl HybridKexMaterial {
 ///   strip or substitute the PQ material without breaking the
 ///   signature.
 ///
-/// Wire size: 136 (cert) + 32 + 1 + 1184 (ek) + 64 = 1417 bytes for the
-/// initiator flight, 1321 bytes with the responder's 1088-byte
+/// Wire size: 168 (cert) + 32 + 1 + 1184 (ek) + 64 = 1449 bytes for the
+/// initiator flight, 1353 bytes with the responder's 1088-byte
 /// ciphertext (plus SCALE overhead) — within the node's 2 KiB handshake
 /// request/response caps.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
@@ -879,6 +900,17 @@ mod tests {
 		ed25519_zebra::VerificationKey::from(key).into()
 	}
 
+	/// A 64-byte hybrid authority id for tests: ed25519 component from
+	/// `key`, SLH-DSA component synthesized (this crate never verifies
+	/// it; set membership upstream does).
+	fn hybrid_authority_pubkey(key: &ed25519_zebra::SigningKey) -> [u8; 64] {
+		let pk = pubkey_of(key);
+		let mut out = [0u8; 64];
+		out[..32].copy_from_slice(&pk);
+		out[32..].copy_from_slice(&pk);
+		out
+	}
+
 	fn fresh_ephemeral_pub(rng_seed: u64) -> (X25519SecretKey, X25519PublicKey) {
 		let mut rng = ChaCha20Rng::seed_from_u64(rng_seed);
 		let secret = X25519SecretKey::random_from_rng(&mut rng);
@@ -904,28 +936,29 @@ mod tests {
 	) -> (ed25519_zebra::SigningKey, ed25519_zebra::SigningKey, ChannelCert) {
 		let authority = fixed_signing_key(authority_seed);
 		let channel = fixed_signing_key(channel_seed);
-		let cert = sign_cert(&pubkey_of(&channel), epoch, &authority);
+		let cert =
+			sign_cert(&hybrid_authority_pubkey(&authority), &pubkey_of(&channel), epoch, &authority);
 		(authority, channel, cert)
 	}
 
 	#[test]
 	fn cert_preimage_layout_is_stable() {
-		let p = cert_preimage(&[0xAA; 32], &[0xBB; 32], 0x0102030405060708);
-		assert_eq!(p.len(), CERT_DOMAIN.len() + 32 + 32 + 8);
+		let p = cert_preimage(&[0xAA; 64], &[0xBB; 32], 0x0102030405060708);
+		assert_eq!(p.len(), CERT_DOMAIN.len() + 64 + 32 + 8);
 		assert_eq!(&p[..CERT_DOMAIN.len()], CERT_DOMAIN);
 		let off = CERT_DOMAIN.len();
-		assert_eq!(&p[off..off + 32], &[0xAA; 32]);
-		assert_eq!(&p[off + 32..off + 64], &[0xBB; 32]);
-		assert_eq!(&p[off + 64..off + 72], &0x0102030405060708u64.to_le_bytes());
+		assert_eq!(&p[off..off + 64], &[0xAA; 64]);
+		assert_eq!(&p[off + 64..off + 96], &[0xBB; 32]);
+		assert_eq!(&p[off + 96..off + 104], &0x0102030405060708u64.to_le_bytes());
 	}
 
 	#[test]
 	fn cert_scale_roundtrip() {
 		let (_a, _c, cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		let bytes = cert.encode();
-		// Pin the wire size: 32 + 32 + 8 + 64 = 136 (+ no SCALE prefix
+		// Pin the wire size: 64 + 32 + 8 + 64 = 168 (+ no SCALE prefix
 		// for fixed-size fields).
-		assert_eq!(bytes.len(), 136);
+		assert_eq!(bytes.len(), 168);
 		let decoded = ChannelCert::decode(&mut &bytes[..]).unwrap();
 		assert_eq!(cert, decoded);
 	}
@@ -956,7 +989,7 @@ mod tests {
 	fn cert_verify_rejects_foreign_authority() {
 		let (_a, _c, mut cert) = identity(0xA0, 0xC0, TEST_EPOCH);
 		// Claim a different authority issued this cert.
-		cert.authority_pubkey = pubkey_of(&fixed_signing_key(0xA1));
+		cert.authority_pubkey = hybrid_authority_pubkey(&fixed_signing_key(0xA1));
 		assert_eq!(verify_cert(&cert), Err(CertError::SignatureInvalid));
 	}
 
@@ -983,8 +1016,8 @@ mod tests {
 		let (_dk, kex) = fresh_kex_initiator(0x71);
 		let payload = sign_handshake(&pub_e, kex, &cert, &channel);
 		let bytes = payload.encode();
-		// 136 cert + 32 ephemeral + 1 enum tag + 1184 ek + 64 sig.
-		assert_eq!(bytes.len(), 1417);
+		// 168 cert + 32 ephemeral + 1 enum tag + 1184 ek + 64 sig.
+		assert_eq!(bytes.len(), 1449);
 		let decoded = HandshakePayload::decode(&mut &bytes[..]).unwrap();
 		assert_eq!(payload, decoded);
 	}
@@ -1000,8 +1033,8 @@ mod tests {
 		let payload =
 			sign_handshake(&pub_e, HybridKexMaterial::ResponderCt(ct), &cert, &channel);
 		let bytes = payload.encode();
-		// 136 cert + 32 ephemeral + 1 enum tag + 1088 ct + 64 sig.
-		assert_eq!(bytes.len(), 1321);
+		// 168 cert + 32 ephemeral + 1 enum tag + 1088 ct + 64 sig.
+		assert_eq!(bytes.len(), 1353);
 		let decoded = HandshakePayload::decode(&mut &bytes[..]).unwrap();
 		assert_eq!(payload, decoded);
 	}

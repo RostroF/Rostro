@@ -148,7 +148,11 @@ pub mod ecdsa_crypto {
 				signature.as_inner_ref().as_ref(),
 				&msg_hash,
 			) {
-				Ok(raw_pubkey) => raw_pubkey.as_ref() == AsRef::<[u8]>::as_ref(self),
+				// `as_slice` not `as_ref`: hybrid-array (via the vendored
+				// slh-dsa in sp-core's graph) adds a blanket
+				// `AsRef<Array<..>> for [T; N]` that makes `as_ref()` on a
+				// fixed array ambiguous.
+				Ok(raw_pubkey) => raw_pubkey.as_slice() == AsRef::<[u8]>::as_ref(self),
 				_ => false,
 			}
 		}

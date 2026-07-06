@@ -260,6 +260,20 @@ pub fn new_full<
 			target: "rostro-validator-channel",
 			"validator-channel handshake server + cert issuer registered (we are a validator)",
 		);
+
+		// Retired-key reaper: the destruction half of the key double
+		// ratchet. Destroys local GRANDPA keys the FINALIZED chain has
+		// permanently retired, provided a live successor key exists.
+		task_manager.spawn_handle().spawn(
+			"rostro-retired-key-reaper",
+			Some("rostro"),
+			crate::retired_key_reaper::run_retired_key_reaper(
+				client.clone(),
+				keystore_container.keystore(),
+				config.keystore.path().map(|p| p.to_path_buf()),
+				std::sync::Arc::new(crate::retired_key_reaper::NoSealHook),
+			),
+		);
 	} else {
 		log::info!(
 			target: "rostro-validator-channel",

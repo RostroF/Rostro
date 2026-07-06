@@ -102,7 +102,7 @@ use sp_core::{
 	offchain::{
 		HttpError, HttpRequestId, HttpRequestStatus, OpaqueNetworkState, StorageKind, Timestamp,
 	},
-	sr25519,
+	rostro_hybrid, sr25519,
 	storage::StateVersion,
 	LogLevelFilter, OpaquePeerId, RuntimeInterfaceLogLevel, H256,
 };
@@ -917,6 +917,55 @@ pub trait Crypto {
 		self.extension::<KeystoreExt>()
 			.expect("No `keystore` associated for the current context!")
 			.ed25519_sign(id, pub_key, msg)
+			.ok()
+			.flatten()
+	}
+
+	/// Returns all Rostro hybrid (ed25519 + SLH-DSA-SHA2-128f) public keys
+	/// for the given key id from the keystore.
+	fn rostro_hybrid_public_keys(
+		&mut self,
+		id: PassPointerAndReadCopy<KeyTypeId, 4>,
+	) -> AllocateAndReturnByCodec<Vec<rostro_hybrid::Public>> {
+		self.extension::<KeystoreExt>()
+			.expect("No `keystore` associated for the current context!")
+			.rostro_hybrid_public_keys(id)
+	}
+
+	/// Generate a Rostro hybrid key for the given key type using an optional
+	/// `seed` and store it in the keystore.
+	///
+	/// The `seed` needs to be a valid utf8.
+	///
+	/// Returns the public key.
+	fn rostro_hybrid_generate(
+		&mut self,
+		id: PassPointerAndReadCopy<KeyTypeId, 4>,
+		seed: PassFatPointerAndDecode<Option<Vec<u8>>>,
+	) -> AllocateAndReturnPointer<rostro_hybrid::Public, 64> {
+		let seed = seed.as_ref().map(|s| core::str::from_utf8(s).expect("Seed is valid utf8!"));
+		self.extension::<KeystoreExt>()
+			.expect("No `keystore` associated for the current context!")
+			.rostro_hybrid_generate_new(id, seed)
+			.expect("`rostro_hybrid_generate` failed")
+	}
+
+	/// Sign the given `msg` with the Rostro hybrid key that corresponds to
+	/// the given public key and key type in the keystore.
+	///
+	/// Returns the signature. NOTE: there is deliberately NO host-side
+	/// hybrid verify — verification is pure in-runtime
+	/// (docs/PQ-FINALITY.md D6), so verification behavior is fixed by the
+	/// runtime blob, not the node build.
+	fn rostro_hybrid_sign(
+		&mut self,
+		id: PassPointerAndReadCopy<KeyTypeId, 4>,
+		pub_key: PassPointerAndRead<&rostro_hybrid::Public, 64>,
+		msg: PassFatPointerAndRead<&[u8]>,
+	) -> AllocateAndReturnByCodec<Option<rostro_hybrid::Signature>> {
+		self.extension::<KeystoreExt>()
+			.expect("No `keystore` associated for the current context!")
+			.rostro_hybrid_sign(id, pub_key, msg)
 			.ok()
 			.flatten()
 	}

@@ -59,6 +59,8 @@ libsecp256k1 = { features = ["static-context"], workspace = true }
 merlin = { workspace = true }
 schnorrkel = { features = ["preaudit_deprecated"], workspace = true }
 sp-crypto-hashing = { workspace = true }
+# Rostro hybrid consensus signature (ed25519 + SLH-DSA-SHA2-128f) leaf.
+rostro-hybrid-sig = { workspace = true }
 # k256 crate, better portability, intended to be used in substrate-runtimes (no-std)
 k256 = { features = ["alloc", "ecdsa"], workspace = true }
 # secp256k1 crate, better performance, intended to be used on host side (std)
@@ -93,6 +95,7 @@ std = [
 	"codec/std",
 	"ed25519-zebra/std",
 	"full_crypto",
+	"rostro-hybrid-sig/std",
 	"futures/std",
 	"futures/thread-pool",
 	"hash-db/std",

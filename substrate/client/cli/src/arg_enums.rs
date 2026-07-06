@@ -147,6 +147,8 @@ pub enum CryptoScheme {
 	Sr25519,
 	/// Use ecdsa.
 	Ecdsa,
+	/// Use the Rostro hybrid consensus scheme (ed25519 + SLH-DSA-SHA2-128f).
+	RostroHybrid,
 }
 
 /// The type of the output format.

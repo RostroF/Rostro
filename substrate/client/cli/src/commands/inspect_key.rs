@@ -75,6 +75,11 @@ pub struct InspectKeyCmd {
 impl InspectKeyCmd {
 	/// Run the command
 	pub fn run(&self) -> Result<(), Error> {
+		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
+			return Err(crate::Error::Input(
+				"the rostro-hybrid consensus scheme is supported by `key insert` only".into(),
+			));
+		}
 		let uri = utils::read_uri(self.uri.as_ref())?;
 		let password = self.keystore_params.read_password()?;
 

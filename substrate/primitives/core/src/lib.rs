@@ -76,6 +76,7 @@ pub mod crypto_bytes;
 pub mod ecdsa;
 pub mod ed25519;
 pub mod paired_crypto;
+pub mod rostro_hybrid;
 pub mod sr25519;
 
 #[cfg(feature = "bls-experimental")]

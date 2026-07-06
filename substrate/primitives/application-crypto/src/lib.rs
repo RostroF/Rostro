@@ -52,6 +52,7 @@ pub mod ecdsa;
 #[cfg(feature = "bls-experimental")]
 pub mod ecdsa_bls381;
 pub mod ed25519;
+pub mod rostro_hybrid;
 pub mod sr25519;
 mod traits;
 

@@ -53,6 +53,11 @@ pub struct GenerateCmd {
 impl GenerateCmd {
 	/// Run the command
 	pub fn run(&self) -> Result<(), Error> {
+		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
+			return Err(crate::Error::Input(
+				"the rostro-hybrid consensus scheme is supported by `key insert` only".into(),
+			));
+		}
 		let words = match self.words {
 			Some(words_count) if [12, 15, 18, 21, 24].contains(&words_count) => Ok(words_count),
 			Some(_) => Err(Error::Input(

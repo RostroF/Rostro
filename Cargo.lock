@@ -48,9 +48,9 @@ dependencies = [
 
 [[package]]
 name = "aes"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac1f845298e95f983ff1944b728ae08b8cebab80d684f0a832ed0fc74dfa27e2"
+checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
 dependencies = [
  "cfg-if",
  "cipher 0.4.4",
@@ -92,7 +92,7 @@ dependencies = [
  "getrandom 0.2.17",
  "once_cell",
  "version_check",
- "zerocopy 0.7.32",
+ "zerocopy 0.7.35",
 ]
 
 [[package]]
@@ -1478,7 +1478,7 @@ version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
- "hybrid-array",
+ "hybrid-array 0.4.13",
 ]
 
 [[package]]
@@ -2628,7 +2628,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
 dependencies = [
  "getrandom 0.4.2",
- "hybrid-array",
+ "hybrid-array 0.4.13",
  "rand_core 0.10.1",
 ]
 
@@ -4672,6 +4672,7 @@ dependencies = [
  "log",
  "pallet-rns-registrar",
  "pallet-rostro-canonical-files",
+ "pallet-rostro-key-lineage",
  "pallet-rostro-rpc-method-policy",
  "pallet-sassafras",
  "pallet-transaction-payment",
@@ -5588,6 +5589,15 @@ name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
+
+[[package]]
+name = "hybrid-array"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2d35805454dc9f8662a98d6d61886ffe26bd465f5960e0e55345c70d5c0d2a9"
+dependencies = [
+ "typenum",
+]
 
 [[package]]
 name = "hybrid-array"
@@ -7780,7 +7790,7 @@ dependencies = [
  "getrandom 0.4.2",
  "hex",
  "hex-literal 1.1.0",
- "hybrid-array",
+ "hybrid-array 0.4.13",
  "kem",
  "module-lattice",
  "num-rational",
@@ -7863,7 +7873,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c61b87c9683ab7cb1c6871d261ad5479b6b10ceb52c4352aaca3b5d35a8febe"
 dependencies = [
  "ctutils",
- "hybrid-array",
+ "hybrid-array 0.4.13",
  "num-traits",
  "zeroize",
 ]
@@ -10399,6 +10409,7 @@ dependencies = [
  "pallet-session",
  "parity-scale-codec",
  "scale-info",
+ "sp-api",
  "sp-consensus-grandpa",
  "sp-core",
  "sp-io",
@@ -11833,6 +11844,17 @@ dependencies = [
  "env_logger 0.8.4",
  "log",
  "rand 0.8.5",
+]
+
+[[package]]
+name = "quickcheck_macros"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9a28b8493dd664c8b171dd944da82d933f7d456b829bfb236738e1fe06c5ba4"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -14290,6 +14312,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-hybrid-sig"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "hkdf",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "slh-dsa",
+]
+
+[[package]]
 name = "rostro-kzg-srs"
 version = "0.1.0"
 dependencies = [
@@ -15774,6 +15811,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "slh-dsa"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "cipher 0.4.4",
+ "criterion 0.5.1",
+ "ctr",
+ "digest 0.10.7",
+ "hex",
+ "hex-literal 0.4.1",
+ "hmac 0.12.1",
+ "hybrid-array 0.2.3",
+ "num-bigint",
+ "paste",
+ "proptest",
+ "quickcheck",
+ "quickcheck_macros",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3 0.10.8",
+ "signature",
+ "typenum",
+ "zerocopy 0.7.35",
+]
+
+[[package]]
 name = "slice-group-by"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -16341,6 +16407,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "rand 0.8.5",
  "regex",
+ "rostro-hybrid-sig",
  "scale-info",
  "schnorrkel 0.11.4",
  "secp256k1 0.28.2",
@@ -21018,11 +21085,12 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.7.32"
+version = "0.7.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74d4d3961e53fa4c9a25a8637fc2bfaf2595b3d3ae34875568a5cf64787716be"
+checksum = "1b9b4fd18abc82b8136838da5d50bae7bdea537c574d8dc1a34ed098d6c166f0"
 dependencies = [
- "zerocopy-derive 0.7.32",
+ "byteorder",
+ "zerocopy-derive 0.7.35",
 ]
 
 [[package]]
@@ -21036,9 +21104,9 @@ dependencies = [
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.7.32"
+version = "0.7.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ce1b18ccd8e73a9321186f97e46f9f04b778851177567b1975109d26a08d2a6"
+checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
 dependencies = [
  "proc-macro2",
  "quote",

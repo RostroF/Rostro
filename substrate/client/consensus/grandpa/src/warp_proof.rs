@@ -396,7 +396,7 @@ mod tests {
 	use sp_blockchain::HeaderBackend;
 	use sp_consensus::BlockOrigin;
 	use sp_consensus_grandpa::GRANDPA_ENGINE_ID;
-	use sp_keyring::Ed25519Keyring;
+	use sp_keyring::RostroHybridKeyring;
 	use std::sync::Arc;
 	use substrate_test_runtime_client::{
 		BlockBuilderExt, ClientBlockImportExt, ClientExt, DefaultTestClientBuilderExt,
@@ -410,10 +410,10 @@ mod tests {
 		let backend = builder.backend();
 		let client = Arc::new(builder.build());
 
-		let available_authorities = Ed25519Keyring::iter().collect::<Vec<_>>();
-		let genesis_authorities = vec![(Ed25519Keyring::Alice.public().into(), 1)];
+		let available_authorities = RostroHybridKeyring::iter().collect::<Vec<_>>();
+		let genesis_authorities = vec![(RostroHybridKeyring::Alice.public().into(), 1)];
 
-		let mut current_authorities = vec![Ed25519Keyring::Alice];
+		let mut current_authorities = vec![RostroHybridKeyring::Alice];
 		let mut current_set_id = 0;
 		let mut authority_set_changes = Vec::new();
 

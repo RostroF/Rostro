@@ -50,6 +50,11 @@ pub struct VerifyCmd {
 impl VerifyCmd {
 	/// Run the command
 	pub fn run(&self) -> error::Result<()> {
+		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
+			return Err(crate::Error::Input(
+				"the rostro-hybrid consensus scheme is supported by `key insert` only".into(),
+			));
+		}
 		self.verify(|| std::io::stdin().lock())
 	}
 

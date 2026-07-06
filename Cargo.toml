@@ -311,6 +311,7 @@ members = [
 	"substrate/utils/rostro-curve25519",
 	"substrate/utils/rostro-executor",
 	"substrate/utils/rostro-hybrid-kex",
+	"substrate/utils/rostro-hybrid-sig",
 	"substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip",
 	"substrate/utils/rostro-node-identity",
 	"substrate/utils/rostro-node-sandbox",
@@ -711,6 +712,7 @@ rostro-curve25519 = { path = "substrate/utils/rostro-curve25519", default-featur
 rostro-executor = { path = "substrate/utils/rostro-executor", default-features = false }
 rostro-executor-fixture-storage-roundtrip = { path = "substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip", default-features = false }
 rostro-hybrid-kex = { path = "substrate/utils/rostro-hybrid-kex", default-features = false }
+rostro-hybrid-sig = { path = "substrate/utils/rostro-hybrid-sig", default-features = false }
 rostro-node-sandbox = { path = "substrate/utils/rostro-node-sandbox", default-features = false }
 rostro-poseidon-air = { path = "substrate/utils/rostro-poseidon-air", default-features = false }
 rostro-poseidon-sponge-air = { path = "substrate/utils/rostro-poseidon-sponge-air", default-features = false }
@@ -921,6 +923,9 @@ sha2 = { version = "0.10.7", default-features = false }
 sha3 = { version = "0.10.0", default-features = false }
 shlex = { version = "1.3.0" }
 simple-mermaid = { version = "0.1.1" }
+# Vendored at substrate/external/slh-dsa/ — see its VENDOR.md for sync policy.
+# SHA2-128f ACVP KATs live in rostro-hybrid-sig (in-crate ACVP sample skips that set).
+slh-dsa = { path = "substrate/external/slh-dsa", default-features = false, features = ["alloc"] }
 slotmap = { version = "1.0" }
 smallvec = { version = "1.11.0", default-features = false }
 soketto = { version = "0.8.0" }
@@ -1114,6 +1119,7 @@ integer-sqrt = { opt-level = 3 }
 libsecp256k1 = { opt-level = 3 }
 ml-kem = { opt-level = 3 }
 module-lattice = { opt-level = 3 }
+slh-dsa = { opt-level = 3 }
 num-bigint = { opt-level = 3 }
 parking_lot = { opt-level = 3 }
 polkavm-linker = { opt-level = 3 }

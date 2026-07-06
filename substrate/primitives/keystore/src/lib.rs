@@ -30,7 +30,7 @@ use sp_core::bandersnatch;
 use sp_core::{bls381, ecdsa_bls381};
 use sp_core::{
 	crypto::{ByteArray, CryptoTypeId, KeyTypeId},
-	ecdsa, ed25519, sr25519,
+	ecdsa, ed25519, rostro_hybrid, sr25519,
 };
 
 use alloc::{string::String, sync::Arc, vec::Vec};
@@ -145,6 +145,46 @@ pub trait Keystore: Send + Sync {
 		&self,
 		key_type: KeyTypeId,
 		public: &ed25519::Public,
+		msg: &[u8],
+	) -> Result<Option<ed25519::Signature>, Error>;
+
+	/// Returns all Rostro hybrid (ed25519 + SLH-DSA-SHA2-128f) public keys
+	/// for the given key type.
+	fn rostro_hybrid_public_keys(&self, key_type: KeyTypeId) -> Vec<rostro_hybrid::Public>;
+
+	/// Generate a new Rostro hybrid key pair for the given key type and an
+	/// optional seed.
+	///
+	/// Returns a `rostro_hybrid::Public` key of the generated key pair or an
+	/// `Err` if something failed during key generation.
+	fn rostro_hybrid_generate_new(
+		&self,
+		key_type: KeyTypeId,
+		seed: Option<&str>,
+	) -> Result<rostro_hybrid::Public, Error>;
+
+	/// Generate a Rostro hybrid signature for a given message.
+	///
+	/// Receives [`KeyTypeId`] and a [`rostro_hybrid::Public`] key to be able
+	/// to map them to a private key that exists in the keystore.
+	///
+	/// Returns a [`rostro_hybrid::Signature`] or `None` in case the given
+	/// `key_type` and `public` combination doesn't exist in the keystore.
+	/// An `Err` will be returned if generating the signature itself failed.
+	fn rostro_hybrid_sign(
+		&self,
+		key_type: KeyTypeId,
+		public: &rostro_hybrid::Public,
+		msg: &[u8],
+	) -> Result<Option<rostro_hybrid::Signature>, Error>;
+
+	/// Sign a message with ONLY the ed25519 component of a Rostro hybrid
+	/// key (docs/PQ-FINALITY.md D5 — byte-budgeted consumers like the
+	/// validator-channel cert). Returns `None` if the key is absent.
+	fn rostro_hybrid_sign_ed25519_component(
+		&self,
+		key_type: KeyTypeId,
+		public: &rostro_hybrid::Public,
 		msg: &[u8],
 	) -> Result<Option<ed25519::Signature>, Error>;
 
@@ -511,6 +551,36 @@ impl<T: Keystore + ?Sized> Keystore for Arc<T> {
 		msg: &[u8],
 	) -> Result<Option<ed25519::Signature>, Error> {
 		(**self).ed25519_sign(key_type, public, msg)
+	}
+
+	fn rostro_hybrid_public_keys(&self, key_type: KeyTypeId) -> Vec<rostro_hybrid::Public> {
+		(**self).rostro_hybrid_public_keys(key_type)
+	}
+
+	fn rostro_hybrid_generate_new(
+		&self,
+		key_type: KeyTypeId,
+		seed: Option<&str>,
+	) -> Result<rostro_hybrid::Public, Error> {
+		(**self).rostro_hybrid_generate_new(key_type, seed)
+	}
+
+	fn rostro_hybrid_sign(
+		&self,
+		key_type: KeyTypeId,
+		public: &rostro_hybrid::Public,
+		msg: &[u8],
+	) -> Result<Option<rostro_hybrid::Signature>, Error> {
+		(**self).rostro_hybrid_sign(key_type, public, msg)
+	}
+
+	fn rostro_hybrid_sign_ed25519_component(
+		&self,
+		key_type: KeyTypeId,
+		public: &rostro_hybrid::Public,
+		msg: &[u8],
+	) -> Result<Option<ed25519::Signature>, Error> {
+		(**self).rostro_hybrid_sign_ed25519_component(key_type, public, msg)
 	}
 
 	fn ecdsa_public_keys(&self, key_type: KeyTypeId) -> Vec<ecdsa::Public> {

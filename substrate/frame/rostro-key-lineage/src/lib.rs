@@ -596,6 +596,14 @@ impl<T: Config> Pallet<T> {
 	/// Disable a validator because of a reported offence. Permanent record
 	/// stays in `pallet_offences::Reports` and this pallet's events; the
 	/// exclusion itself heals on a fresh `set_keys`.
+	/// Chain-authoritative retirement check. True iff `key` has a
+	/// permanent retirement record. Queued-but-not-yet-active and
+	/// currently-active keys return false — the node-side reaper must
+	/// NEVER destroy those.
+	pub fn is_retired(key: &AuthorityId) -> bool {
+		Keys::<T>::get(key).map(|r| r.retired.is_some()).unwrap_or(false)
+	}
+
 	pub fn disable_for_offence(validator: &T::ValidatorId) {
 		let era = T::CurrentEra::get();
 		let session = pallet_session::Pallet::<T>::current_index();
@@ -699,4 +707,17 @@ impl<T: Config>
 	}
 	fn start_session(_start_index: SessionIndex) {}
 	fn end_session(_end_index: SessionIndex) {}
+}
+
+sp_api::decl_runtime_apis! {
+	/// Key-lifecycle queries for node-side consumers. Consumer #1 is the
+	/// retired-key reaper (docs/PQ-FINALITY.md P3): the fast chain's
+	/// destruction discipline needs a chain-authoritative "this key is
+	/// permanently retired" signal, because a live authority-set poll
+	/// cannot distinguish a queued-not-yet-active key from a retired one
+	/// (and destroying a queued key would be catastrophic).
+	pub trait KeyLineageApi {
+		/// True iff this GRANDPA key has a permanent retirement record.
+		fn is_retired_grandpa_key(key: sp_consensus_grandpa::AuthorityId) -> bool;
+	}
 }
