@@ -119,7 +119,9 @@ PIDS=()
 # (17 KB vote sigs = ~100x classical GRANDPA bandwidth). The legacy
 # single-state pool has no such combined-select and rides the load. This
 # is a node-config choice, not a vendored change.
-COMMON=(--chain star --no-mdns --validator --rpc-cors=all --pool-type single-state)
+# Pool type is parameterized: fork-aware (Substrate default, patched by
+# this workstream) vs single-state. Override with ROSTRO_POOL_TYPE.
+COMMON=(--chain star --no-mdns --validator --rpc-cors=all --pool-type "${ROSTRO_POOL_TYPE:-fork-aware}")
 
 # Track PID per node name so a single node can be stopped/restarted.
 declare -A NODE_PID
@@ -326,7 +328,7 @@ grep -q "WasmExecutor\|notification.*too large\|exceeds.*limit" "$STAR_DIR/bob/r
 	echo "OK: no notification-size errors in bob's catch-up log"
 
 note "phase 6: WARP SYNC across the set change"
-start_node observer "$STAR_DIR/observer" --chain star --no-mdns --rpc-cors=all --pool-type single-state \
+start_node observer "$STAR_DIR/observer" --chain star --no-mdns --rpc-cors=all --pool-type "${ROSTRO_POOL_TYPE:-fork-aware}" \
 	--name observer-star --base-path "$STAR_DIR/observer" \
 	--node-key "0000000000000000000000000000000000000000000000000000000000000009" \
 	--port 30342 --rpc-port 9953 --prometheus-port 9624 \

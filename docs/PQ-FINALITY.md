@@ -95,15 +95,27 @@ bounds signatures by `Clone + Eq` only — no size assumptions.
   done.
 
   Two findings surfaced by the run, both recorded:
-  - **Node-config: validators must run `--pool-type single-state`.** The
-    default fork-aware txpool's combined essential task (a 5-way
-    `tokio::select` over listener/revalidation/import-sink/dropped-monitor/
-    metrics) tears the node down if any sub-stream ends, and does so
-    reproducibly ~15 min into sustained hybrid gossip (17 KB sigs ≈ 100x
-    classical GRANDPA bandwidth). Single-state has no such combined-select
-    and rides the load through the full lifecycle. This is a real
-    mainnet concern — fork-aware would crashloop validators under hybrid
-    load — and a candidate for the node default, flagged for decision.
+  - **~~Node-config: validators must run `--pool-type single-state`.~~
+    RETRACTED 2026-07-06 — this was a TEST-HARNESS ARTIFACT, not a
+    fork-aware bug.** The original theory (fork-aware's combined essential
+    task tears the node down under sustained hybrid gossip) was WRONG. A
+    multi-day root-cause (sp_core-level instrumentation, drop-site
+    backtraces, task_manager patient-zero tracing) proved: the crashes
+    correlated 1:1 with prometheus `AddrInUse` port conflicts, i.e. a
+    PREVIOUS run's local star nodes still alive when the next run started
+    (a node can outlive the misleading "Essential task failed. Shutting
+    down service." log, which fires on any completion incl. graceful
+    shutdown). Two node-sets sharing the fixed dev node-keys (`0x…01`–`05`)
+    means identical libp2p peer IDs on one chain → collision → the
+    teardown race. Root cause: `TaskStop`-ing scenario runs mid-flight
+    bypassed the cleanup trap, leaving colliding nodes. In a CLEAN
+    environment, **default fork-aware passes the full hybrid lifecycle**,
+    confirmed across 3 consecutive runs (incl. the uninstrumented shipping
+    binary), zero `AddrInUse`, zero real crashes. fedora (remote lab host,
+    `--chain local`) ruled out: no foreign peer IDs in any run. **Decision:
+    default `fork-aware`** (upstream's invested pool); no override, no
+    patch. Lesson: verify a clean process/port environment before
+    instrumenting code.
   - **Warp sync is blocked by Sassafras, orthogonal to PQ.** A warping
     observer fails at target-block import
     (`SassafrasApi::current_epoch: UnknownBlock`) upstream of any GRANDPA
