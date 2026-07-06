@@ -1,0 +1,36 @@
+[package]
+name = "rostro-history-anchor-verify"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Offline verifier for the dual-hash history anchor: recomputes the Keccak-512 anchor chain from raw header bytes over RPC and cross-checks every on-chain snapshot, the live head, and an optionally supplied externally published head. Deliberately independent of the runtime stack: this is the escape-hatch tool the anchor design leans on."
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "rostro-history-anchor-verify"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true, default-features = true }
+clap = { workspace = true, features = ["derive"] }
+codec = { workspace = true, default-features = true }
+hex = { workspace = true, default-features = true }
+jsonrpsee = { workspace = true, features = ["http-client"] }
+serde = { workspace = true, features = ["derive"], default-features = true }
+serde_json = { workspace = true, default-features = true }
+sp-crypto-hashing = { workspace = true, default-features = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+# Dev-only: pins the duplicated protocol constants + the JSON→SCALE header
+# re-encoding against the real types. The shipped binary stays frame-free.
+pallet-rostro-history-anchor = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+tempfile = { workspace = true }

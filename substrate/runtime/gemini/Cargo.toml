@@ -39,6 +39,7 @@ pallet-rns-resolvers = { workspace = true }
 rns-runtime-api = { workspace = true }
 pallet-rostro-bilateral-receipt = { workspace = true }
 pallet-rostro-canonical-files = { workspace = true }
+pallet-rostro-history-anchor = { workspace = true }
 pallet-rostro-operator-state = { workspace = true }
 pallet-rostro-personhood = { workspace = true }
 pallet-rostro-rpc-method-policy = { workspace = true }
@@ -118,6 +119,7 @@ std = [
 	"rns-runtime-api/std",
 	"pallet-rostro-bilateral-receipt/std",
 	"pallet-rostro-canonical-files/std",
+	"pallet-rostro-history-anchor/std",
 	"pallet-rostro-operator-state/std",
 	"pallet-rostro-personhood/std",
 	"pallet-rostro-rpc-method-policy/std",

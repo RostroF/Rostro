@@ -172,6 +172,7 @@ members = [
 	"substrate/frame/pallet-rostro-personhood",
 	"substrate/frame/rostro-canonical-files",
 	"substrate/frame/rostro-governance",
+	"substrate/frame/rostro-history-anchor",
 	"substrate/frame/rostro-key-lineage",
 	"substrate/frame/rostro-operator-state",
 	"substrate/frame/rostro-proof-anchor",
@@ -310,6 +311,7 @@ members = [
 	"substrate/utils/rostro-client",
 	"substrate/utils/rostro-curve25519",
 	"substrate/utils/rostro-executor",
+	"substrate/utils/rostro-history-anchor-verify",
 	"substrate/utils/rostro-hybrid-kex",
 	"substrate/utils/rostro-hybrid-sig",
 	"substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip",
@@ -697,6 +699,7 @@ pallet-rns-resolvers = { path = "substrate/frame/rns-resolvers", default-feature
 pallet-rostro-bilateral-receipt = { path = "substrate/frame/rostro-bilateral-receipt", default-features = false }
 pallet-rostro-canonical-files = { path = "substrate/frame/rostro-canonical-files", default-features = false }
 pallet-rostro-governance = { path = "substrate/frame/rostro-governance", default-features = false }
+pallet-rostro-history-anchor = { path = "substrate/frame/rostro-history-anchor", default-features = false }
 pallet-rostro-key-lineage = { path = "substrate/frame/rostro-key-lineage", default-features = false }
 pallet-rostro-operator-state = { path = "substrate/frame/rostro-operator-state", default-features = false }
 pallet-rostro-personhood = { path = "substrate/frame/pallet-rostro-personhood", default-features = false }
