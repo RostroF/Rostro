@@ -217,7 +217,7 @@ keystore_dir() { echo "$STAR_DIR/$1/chains/gemini-star/keystore"; }
 # A gran key file name is hex("gran") ++ hex(pubkey-without-0x).
 gran_key_file() { echo "$(keystore_dir "$1")/6772616e$(echo "$2" | sed 's/^0x//')"; }
 
-note "phase 1: HYBRID GENESIS FINALITY (17152-byte vote sigs carry finality)"
+note "phase 1: HYBRID GENESIS FINALITY (7920-byte hybrid vote sigs carry finality)"
 wait_state 'd["session"] >= 1 and d["validator_count"] == 5' 420 \
 	"session 1 reached with 5 hybrid-keyed validators" || FAIL=1
 wait_finality_past 20 300 || FAIL=1
