@@ -1,0 +1,56 @@
+[package]
+name = "pallet-rostro-history-anchor"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "Dual-hash anchoring of chain history. Once per era, an inherent hands the runtime the previous era's final header; the runtime verifies it against parent_hash (bind while fresh, enforced by consensus while BLAKE2-256 is sound) and folds it into a running Keccak-512 chain. Forging anchored history then requires simultaneous structural breaks of two unrelated hash families. The anchor chain is deterministically recomputable offline from raw headers, so durability rests on published 64-byte heads, not on this pallet's storage surviving."
+publish = false
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { features = ["derive", "max-encoded-len"], workspace = true }
+scale-info = { features = ["derive"], workspace = true }
+
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+
+sp-core = { workspace = true }
+sp-inherents = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"frame-support/std",
+	"frame-system/std",
+	"scale-info/std",
+	"sp-core/std",
+	"sp-inherents/std",
+	"sp-io/std",
+	"sp-runtime/std",
+]
+runtime-benchmarks = [
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]
+
+[dependencies.frame-benchmarking]
+optional = true
+workspace = true

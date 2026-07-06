@@ -193,8 +193,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// increase. 101 = first live upgrade (dev chain, 2026-07-02);
 	// 102 = first 3-node lab-cluster upgrade (2026-07-02);
 	// 103 = consensus-key lifecycle workstream 1 (session rotation,
-	// key lineage, offences; docs/CONSENSUS-KEY-LIFECYCLE.md).
-	spec_version: 103,
+	// key lineage, offences; docs/CONSENSUS-KEY-LIFECYCLE.md);
+	// 104 = history anchor (dual-hash sealing of session-boundary
+	// headers under Keccak-512).
+	spec_version: 104,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -504,6 +506,34 @@ impl pallet_rostro_rpc_method_policy::Config for Runtime {
 
 impl pallet_rostro_canonical_files::Config for Runtime {
 	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
+}
+
+// ─── pallet_rostro_history_anchor ──────────────────────────────────────────
+//
+// Dual-hash anchoring: the first block of each new session seals the
+// outgoing set's final header into a running Keccak-512 chain (bind while
+// fresh; forging anchored history requires simultaneous structural breaks
+// of BLAKE2-256 and Keccak).
+//
+// The era clock is the SESSION INDEX, deliberately not pallet-staking's
+// era: the epoch/era mechanism on this chain is orthogonal to NPoS, and
+// era-less deployments (the lab cluster) must anchor too. When NPoS lands,
+// staking eras are session multiples, so session-boundary seals subsume
+// era-boundary seals.
+
+/// Session index as the history-anchor era clock.
+pub struct SessionIndexProvider;
+impl Get<Option<u32>> for SessionIndexProvider {
+	fn get() -> Option<u32> {
+		Some(pallet_session::Pallet::<Runtime>::current_index())
+	}
+}
+
+impl pallet_rostro_history_anchor::Config for Runtime {
+	type EraProvider = SessionIndexProvider;
+	// Weight guard only, deliberately generous: a legitimate header
+	// failing this bound would make the scheduled block unbuildable.
+	type MaxHeaderBytes = ConstU32<65536>;
 }
 
 // ─── RNS — full wiring (registrar + registry + nft + price oracle ──────────
@@ -1090,6 +1120,14 @@ construct_runtime!(
 		// canary, consequence routed to KeyLineage (P2). Positional append,
 		// same as above.
 		Offences: pallet_offences,
+
+		// History anchor: dual-hash (Keccak-512) sealing of session-
+		// boundary headers. Positional append, same as above. Hook order
+		// matters and is satisfied here: Session's on_initialize rotates
+		// the session BEFORE this pallet's on_initialize latches the seal
+		// schedule, so the incoming set seals the outgoing set's final
+		// header in the rotation block itself.
+		HistoryAnchor: pallet_rostro_history_anchor,
 	}
 );
 

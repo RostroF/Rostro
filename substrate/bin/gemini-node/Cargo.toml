@@ -62,6 +62,7 @@ pallet-rns-registrar = { workspace = true, default-features = true }
 rns-types = { workspace = true, default-features = true }
 rns-runtime-api = { workspace = true, default-features = true }
 pallet-rostro-canonical-files = { workspace = true, default-features = true }
+pallet-rostro-history-anchor = { workspace = true, default-features = true }
 pallet-rostro-rpc-method-policy = { workspace = true, default-features = true }
 pallet-sassafras = { workspace = true, default-features = true }
 pallet-transaction-payment = { workspace = true, default-features = true }

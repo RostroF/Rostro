@@ -4672,6 +4672,7 @@ dependencies = [
  "log",
  "pallet-rns-registrar",
  "pallet-rostro-canonical-files",
+ "pallet-rostro-history-anchor",
  "pallet-rostro-key-lineage",
  "pallet-rostro-rpc-method-policy",
  "pallet-sassafras",
@@ -4757,6 +4758,7 @@ dependencies = [
  "pallet-rns-resolvers",
  "pallet-rostro-bilateral-receipt",
  "pallet-rostro-canonical-files",
+ "pallet-rostro-history-anchor",
  "pallet-rostro-key-lineage",
  "pallet-rostro-operator-state",
  "pallet-rostro-personhood",
@@ -10398,6 +10400,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-rostro-history-anchor"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-inherents",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-rostro-key-lineage"
 version = "0.1.0"
 dependencies = [
@@ -14298,6 +14315,24 @@ dependencies = [
  "rand 0.8.5",
  "rostro-curve25519",
  "rostro-poseidon-sponge-air",
+]
+
+[[package]]
+name = "rostro-history-anchor-verify"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "jsonrpsee",
+ "pallet-rostro-history-anchor",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "sp-crypto-hashing 0.1.0",
+ "sp-runtime",
+ "tokio",
 ]
 
 [[package]]

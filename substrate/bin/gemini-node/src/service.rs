@@ -10,8 +10,10 @@
 //! data provider is dropped — Phase Trace is a rostro-runtime feature
 //! and lives in that node binary.
 
+use codec::Encode;
 use futures::FutureExt;
 use gemini_runtime::{self, opaque::Block, RuntimeApi};
+use pallet_rostro_history_anchor::HISTORY_ANCHOR_INHERENT_ID;
 use rc_client_api::{Backend, BlockBackend};
 use rc_consensus::BasicQueue;
 use rc_consensus_grandpa::{GrandpaPruningFilter, SharedVoterState};
@@ -945,21 +947,36 @@ pub fn new_full<
 
 		let slot_duration = SlotDuration::from_millis(SLOT_DURATION_MILLIS);
 
-		let create_inherent_data_providers = move |_, ()| async move {
-			let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-			// First element of the tuple must Deref<Target = Slot> per
-			// rc_consensus_slots::InherentDataProviderExt's blanket
-			// impl. We reuse sp_consensus_aura::inherents — the
-			// provider is generic slot timing despite the crate name;
-			// it has no Aura-specific behaviour, just (timestamp +
-			// slot_duration) → Slot. Sassafras's actual slot identity
-			// rides in the SlotClaim digest, not the inherent.
-			let slot =
-				sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-					*timestamp,
-					slot_duration,
-				);
-			Ok::<_, Box<dyn std::error::Error + Send + Sync>>((slot, timestamp))
+		let client_for_inherents = client.clone();
+		let create_inherent_data_providers = move |parent_hash, ()| {
+			let client = client_for_inherents.clone();
+			async move {
+				let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+				// First element of the tuple must Deref<Target = Slot> per
+				// rc_consensus_slots::InherentDataProviderExt's blanket
+				// impl. We reuse sp_consensus_aura::inherents — the
+				// provider is generic slot timing despite the crate name;
+				// it has no Aura-specific behaviour, just (timestamp +
+				// slot_duration) → Slot. Sassafras's actual slot identity
+				// rides in the SlotClaim digest, not the inherent.
+				let slot =
+					sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
+						*timestamp,
+						slot_duration,
+					);
+				// History anchor: hand the runtime the parent header's raw
+				// bytes. Provided every slot; the runtime's seal schedule
+				// decides whether a seal extrinsic is created, and it
+				// re-verifies the bytes against parent_hash, so this
+				// provider cannot corrupt the anchor chain, only fail to
+				// author.
+				let parent_header = sp_blockchain::HeaderBackend::header(&*client, parent_hash)
+					.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
+					.ok_or("history anchor: parent header not in backend")?;
+				let history_anchor =
+					HistoryAnchorInherentDataProvider { header_bytes: parent_header.encode() };
+				Ok::<_, Box<dyn std::error::Error + Send + Sync>>((slot, timestamp, history_anchor))
+			}
 		};
 
 		let sassafras = start_sassafras(StartSassafrasParams {
@@ -1079,4 +1096,40 @@ where
 		}
 	}
 	Box::new(Adapter { source })
+}
+
+/// Provides the parent block's SCALE-encoded header bytes for the history
+/// anchor seal inherent (mirrors rostro-node's
+/// `RostroProofInherentDataProvider` provider-in-the-binary pattern).
+///
+/// Data is provided on every slot; the runtime's seal schedule decides
+/// whether to create the seal extrinsic, and dispatch re-verifies the bytes
+/// against `parent_hash`, so a buggy provider cannot corrupt the anchor
+/// chain, only fail to author a valid block.
+struct HistoryAnchorInherentDataProvider {
+	header_bytes: Vec<u8>,
+}
+
+#[async_trait::async_trait]
+impl sp_inherents::InherentDataProvider for HistoryAnchorInherentDataProvider {
+	async fn provide_inherent_data(
+		&self,
+		inherent_data: &mut sp_inherents::InherentData,
+	) -> Result<(), sp_inherents::Error> {
+		inherent_data.put_data(HISTORY_ANCHOR_INHERENT_ID, &self.header_bytes)
+	}
+
+	async fn try_handle_error(
+		&self,
+		identifier: &sp_inherents::InherentIdentifier,
+		_error: &[u8],
+	) -> Option<Result<(), sp_inherents::Error>> {
+		if *identifier == HISTORY_ANCHOR_INHERENT_ID {
+			// A missing or invalid seal on a scheduled block is fatal to
+			// that block.
+			Some(Err(sp_inherents::Error::FatalErrorReported))
+		} else {
+			None
+		}
+	}
 }
