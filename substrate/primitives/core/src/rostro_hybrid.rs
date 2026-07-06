@@ -155,6 +155,13 @@ impl Pair {
 		out.copy_from_slice(&(public.as_ref() as &[u8])[..32]);
 		out
 	}
+
+	/// Sign with ONLY the ed25519 component over the raw message (no
+	/// hybrid framing; the caller's preimage carries its own domain).
+	/// D5 path: the validator-channel cert stays 64 bytes.
+	pub fn sign_ed25519_component(&self, message: &[u8]) -> crate::ed25519::Signature {
+		crate::ed25519::Signature::from_raw(self.inner.sign_ed25519_component(message))
+	}
 }
 
 impl CryptoType for Public {

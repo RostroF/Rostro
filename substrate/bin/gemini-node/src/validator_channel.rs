@@ -6,7 +6,7 @@
 //!
 //! Two protocols on sc-network:
 //!
-//! * **`/rostro/validator-channel-handshake/3`** (request/response):
+//! * **`/rostro/validator-channel-handshake/4`** (request/response):
 //!   exchanges [`HandshakePayload`]s carrying the v3 hybrid key
 //!   exchange — an X25519 ephemeral plus the ML-KEM-768 flight
 //!   (initiator: encapsulation key; responder: ciphertext). Each side
@@ -83,6 +83,7 @@ use sp_blockchain::HeaderBackend;
 use sp_consensus_grandpa::{GrandpaApi, KEY_TYPE as GRANDPA_KEY_TYPE};
 use sp_core::crypto::KeyTypeId;
 use sp_core::ed25519 as sp_ed25519;
+use sp_core::rostro_hybrid as sp_rostro_hybrid;
 use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Block as BlockT;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519SecretKey};
@@ -110,7 +111,7 @@ const CERT_REFRESH_POLL_SECS: u64 = 60;
 /// both are gone. A hard cutover, as each bump before it: an old-`/N`
 /// peer and a `/3` peer simply never negotiate a substream, which is
 /// the intended behavior (no mixed fleet).
-pub const HANDSHAKE_PROTOCOL_NAME: &str = "/rostro/validator-channel-handshake/3";
+pub const HANDSHAKE_PROTOCOL_NAME: &str = "/rostro/validator-channel-handshake/4";
 
 /// libp2p notification protocol for encrypted message exchange after
 /// a handshake has established a Session.
@@ -194,8 +195,9 @@ pub type SharedEpoch = Arc<AtomicU64>;
 /// init path only runs when this is `Some`.
 #[derive(Clone)]
 pub struct LocalChannelIdentity {
-	/// GRANDPA Ed25519 pubkey — on-chain validator identity, cert issuer.
-	pub authority_pubkey: [u8; 32],
+	/// GRANDPA hybrid pubkey (ed25519 32 || SLH-DSA 32) — on-chain
+	/// validator identity; its ed25519 component issues the cert.
+	pub authority_pubkey: [u8; 64],
 	/// Channel Ed25519 pubkey (`chnl`) — signs handshakes, cert subject.
 	pub channel_pubkey: [u8; 32],
 }
@@ -211,10 +213,11 @@ impl LocalChannelIdentity {
 	/// useless without a current-epoch cert, and reusing one key avoids
 	/// littering the keystore (which has no delete API).
 	pub fn from_keystore(keystore: &KeystorePtr) -> Option<Self> {
-		let authority_pk = keystore.ed25519_public_keys(GRANDPA_KEY_TYPE).into_iter().next()?;
-		let authority_pubkey: [u8; 32] = AsRef::<[u8]>::as_ref(&authority_pk)
+		let authority_pk =
+			keystore.rostro_hybrid_public_keys(GRANDPA_KEY_TYPE).into_iter().next()?;
+		let authority_pubkey: [u8; 64] = AsRef::<[u8]>::as_ref(&authority_pk)
 			.try_into()
-			.expect("Ed25519 pubkey is 32 bytes");
+			.expect("hybrid pubkey is 64 bytes");
 
 		let channel_pk = match keystore.ed25519_public_keys(CHANNEL_KEY_TYPE).into_iter().next() {
 			Some(pk) => pk,
@@ -258,18 +261,24 @@ where
 }
 
 /// Issue a [`ChannelCert`] by signing `(channel_pubkey, epoch)` with the
-/// GRANDPA authority key via the keystore. This is the ONE place the
-/// channel subsystem touches the slashable consensus key, and it runs
-/// at most once per 24h epoch. Returns `None` if the keystore has no
-/// GRANDPA signing key for our authority pubkey.
+/// ed25519 COMPONENT of the GRANDPA hybrid authority key via the
+/// keystore (docs/PQ-FINALITY.md D5 — the cert stays 64 bytes, inside
+/// the handshake's 512-byte budget). This is the ONE place the channel
+/// subsystem touches the slashable consensus key, and it runs at most
+/// once per 24h epoch. Returns `None` if the keystore has no GRANDPA
+/// signing key for our authority pubkey.
 pub fn issue_cert(
 	keystore: &KeystorePtr,
 	identity: &LocalChannelIdentity,
 	epoch: u64,
 ) -> Option<ChannelCert> {
 	let preimage = cert_preimage(&identity.authority_pubkey, &identity.channel_pubkey, epoch);
-	let sp_authority = sp_ed25519::Public::from(identity.authority_pubkey);
-	let sig = match keystore.ed25519_sign(GRANDPA_KEY_TYPE, &sp_authority, &preimage) {
+	let sp_authority = sp_rostro_hybrid::Public::from(identity.authority_pubkey);
+	let sig = match keystore.rostro_hybrid_sign_ed25519_component(
+		GRANDPA_KEY_TYPE,
+		&sp_authority,
+		&preimage,
+	) {
 		Ok(Some(s)) => s,
 		Ok(None) => {
 			log::warn!(
@@ -763,10 +772,10 @@ pub async fn run_notification_task<N>(
 	// `our_pubkey` is only used inside the validator-channel-internal
 	// heartbeat formatter; for non-validators we have no sessions so
 	// no heartbeats fire — the zero pubkey is a safe placeholder.
-	let our_pubkey: [u8; 32] = identity
+	let our_pubkey: [u8; 64] = identity
 		.as_ref()
 		.map(|i| i.authority_pubkey)
-		.unwrap_or([0u8; 32]);
+		.unwrap_or([0u8; 64]);
 
 	let mut interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
 	// `interval.tick()` returns immediately on first call; skip it.
@@ -1006,7 +1015,7 @@ mod tests {
 	fn handshake_reply_scale_roundtrip() {
 		let accept = HandshakeReply::Accept(HandshakePayload {
 			cert: ChannelCert {
-				authority_pubkey: [0x11; 32],
+				authority_pubkey: [0x11; 64],
 				channel_pubkey: [0x44; 32],
 				epoch: 7,
 				signature: [0x55; 64],
@@ -1034,7 +1043,7 @@ mod tests {
 		// just never arrive), so pin the encoded wire sizes against the
 		// caps. The initiator flight (ML-KEM ek) is the larger one.
 		let cert = ChannelCert {
-			authority_pubkey: [0x11; 32],
+			authority_pubkey: [0x11; 64],
 			channel_pubkey: [0x44; 32],
 			epoch: 7,
 			signature: [0x55; 64],

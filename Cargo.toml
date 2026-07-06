@@ -1155,5 +1155,10 @@ zeroize = { opt-level = 3 }
 # Re-apply both on every upstream merge. Each patched site carries a
 # `Rostro: F-LAB-RT-NN closure` comment so a future audit can locate them.
 [patch.crates-io]
+# Vendored at substrate/external/parity-scale-codec/ — see its VENDOR.md.
+# Patched globally (not just as the workspace `codec` dep) because registry
+# crates (finality-grandpa) also depend on it; two codec builds in one tree
+# would split the Codec trait impls.
+parity-scale-codec = { path = "substrate/external/parity-scale-codec" }
 soketto = { path = "substrate/external/soketto" }
 hyper = { path = "substrate/external/hyper" }

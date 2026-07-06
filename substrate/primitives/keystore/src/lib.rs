@@ -178,6 +178,16 @@ pub trait Keystore: Send + Sync {
 		msg: &[u8],
 	) -> Result<Option<rostro_hybrid::Signature>, Error>;
 
+	/// Sign a message with ONLY the ed25519 component of a Rostro hybrid
+	/// key (docs/PQ-FINALITY.md D5 — byte-budgeted consumers like the
+	/// validator-channel cert). Returns `None` if the key is absent.
+	fn rostro_hybrid_sign_ed25519_component(
+		&self,
+		key_type: KeyTypeId,
+		public: &rostro_hybrid::Public,
+		msg: &[u8],
+	) -> Result<Option<ed25519::Signature>, Error>;
+
 	/// Returns all ecdsa public keys for the given key type.
 	fn ecdsa_public_keys(&self, key_type: KeyTypeId) -> Vec<ecdsa::Public>;
 
@@ -562,6 +572,15 @@ impl<T: Keystore + ?Sized> Keystore for Arc<T> {
 		msg: &[u8],
 	) -> Result<Option<rostro_hybrid::Signature>, Error> {
 		(**self).rostro_hybrid_sign(key_type, public, msg)
+	}
+
+	fn rostro_hybrid_sign_ed25519_component(
+		&self,
+		key_type: KeyTypeId,
+		public: &rostro_hybrid::Public,
+		msg: &[u8],
+	) -> Result<Option<ed25519::Signature>, Error> {
+		(**self).rostro_hybrid_sign_ed25519_component(key_type, public, msg)
 	}
 
 	fn ecdsa_public_keys(&self, key_type: KeyTypeId) -> Vec<ecdsa::Public> {

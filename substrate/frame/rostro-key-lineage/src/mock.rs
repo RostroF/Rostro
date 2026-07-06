@@ -16,7 +16,7 @@ use frame_support::{
 };
 use pallet_session::historical as pallet_session_historical;
 use sp_consensus_grandpa::AuthorityId;
-use sp_core::{ed25519, Pair};
+use sp_core::{rostro_hybrid, Pair};
 use sp_runtime::{impl_opaque_keys, BuildStorage};
 use std::cell::Cell;
 
@@ -141,9 +141,9 @@ impl pallet_rostro_key_lineage::Config for Test {
 	type ReportCanary = Offences;
 }
 
-/// Deterministic ed25519 GRANDPA key for test seed `n`.
-pub fn gran_key(n: u8) -> (ed25519::Pair, AuthorityId) {
-	let pair = ed25519::Pair::from_seed(&[n; 32]);
+/// Deterministic hybrid GRANDPA key for test seed `n`.
+pub fn gran_key(n: u8) -> (rostro_hybrid::Pair, AuthorityId) {
+	let pair = rostro_hybrid::Pair::from_seed(&[n; 32]);
 	(pair.clone(), pair.public().into())
 }
 

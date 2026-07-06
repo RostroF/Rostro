@@ -1,6 +1,8 @@
 // Rostro vendor change (see VENDOR.md): explicit alloc imports for
-// unconditional no_std.
+// unconditional no_std. `allow(unused_imports)`: which of the two is
+// used varies per file with cfg(test)/target; this is a shim, not code.
 #[cfg(feature = "alloc")]
+#[allow(unused_imports)]
 use alloc::{vec, vec::Vec};
 use crate::hashes::{
     Sha2_128f, Sha2_128s, Sha2_192f, Sha2_192s, Sha2_256f, Sha2_256s, Shake128f, Shake192f,

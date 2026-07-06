@@ -75,7 +75,10 @@ impl From<UintAuthorityId> for u64 {
 impl UintAuthorityId {
 	/// Convert this authority ID into a public key.
 	pub fn to_public_key<T: ByteArray>(&self) -> T {
-		let mut bytes = [0u8; 32];
+		// Sized by the target scheme (the hybrid GRANDPA public is 64
+		// bytes; classical schemes stay 32) — a fixed 32 here panics
+		// `from_slice` for any wider key type.
+		let mut bytes = alloc::vec![0u8; T::LEN];
 		bytes[0..8].copy_from_slice(&self.0.to_le_bytes());
 		T::from_slice(&bytes).unwrap()
 	}

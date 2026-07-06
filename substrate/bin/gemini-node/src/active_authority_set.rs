@@ -29,13 +29,14 @@ use sp_consensus_grandpa::{AuthorityId, GrandpaApi};
 use sp_runtime::traits::Block as BlockT;
 
 /// Fetch the current GRANDPA authority pubkeys at the latest known
-/// block. Returns each authority's 32-byte Ed25519 pubkey.
+/// block. Returns each authority's 64-byte hybrid pubkey
+/// (ed25519 32 || SLH-DSA 32).
 ///
 /// Errors from the runtime call surface as a human-readable string;
 /// the caller decides whether to fail-stop or fall back.
 pub fn fetch_active_authorities<Block, Client>(
 	client: &Arc<Client>,
-) -> Result<Vec<[u8; 32]>, String>
+) -> Result<Vec<[u8; 64]>, String>
 where
 	Block: BlockT,
 	Client: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
@@ -50,12 +51,12 @@ where
 }
 
 /// Convenience predicate: is `pubkey` in the current active set?
-/// `pubkey` is the candidate peer's claimed Ed25519 session pubkey;
+/// `pubkey` is the candidate peer's claimed hybrid session pubkey;
 /// the handshake verifies a signed challenge against this key
 /// AFTER membership is confirmed.
 pub fn is_active_authority<Block, Client>(
 	client: &Arc<Client>,
-	pubkey: &[u8; 32],
+	pubkey: &[u8; 64],
 ) -> Result<bool, String>
 where
 	Block: BlockT,
@@ -66,18 +67,17 @@ where
 	Ok(set.iter().any(|k| k == pubkey))
 }
 
-/// Convert a GRANDPA `AuthorityId` (Ed25519 newtype) to its raw
-/// 32-byte representation. The conversion is direct — Ed25519 keys
-/// are 32 bytes wide and the newtype is `#[repr(transparent)]`-ish.
-fn authority_id_to_bytes(id: &AuthorityId) -> [u8; 32] {
+/// Convert a GRANDPA `AuthorityId` (hybrid newtype) to its raw
+/// 64-byte representation (ed25519 component || SLH-DSA component).
+fn authority_id_to_bytes(id: &AuthorityId) -> [u8; 64] {
 	let raw = AsRef::<[u8]>::as_ref(id);
 	debug_assert_eq!(
 		raw.len(),
-		32,
-		"Ed25519 AuthorityId must be 32 bytes; got {}",
+		64,
+		"hybrid AuthorityId must be 64 bytes; got {}",
 		raw.len(),
 	);
-	let mut out = [0u8; 32];
+	let mut out = [0u8; 64];
 	let n = core::cmp::min(raw.len(), 32);
 	out[..n].copy_from_slice(&raw[..n]);
 	out

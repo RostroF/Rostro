@@ -1,6 +1,8 @@
 // Rostro vendor change (see VENDOR.md): explicit alloc imports for
-// unconditional no_std.
+// unconditional no_std. `allow(unused_imports)`: which of the two is
+// used varies per file with cfg(test)/target; this is a shim, not code.
 #[cfg(feature = "alloc")]
+#[allow(unused_imports)]
 use alloc::{vec, vec::Vec};
 use hybrid_array::{Array, ArraySize};
 use typenum::Unsigned;

@@ -730,8 +730,12 @@ pub fn grandpa_peers_set_config<B: BlockT, N: NetworkBackend<B, <B as BlockT>::H
 	N::notification_config(
 		protocol_name,
 		grandpa_protocol_name::LEGACY_NAMES.iter().map(|&n| n.into()).collect(),
-		// Notifications reach ~256kiB in size at the time of writing on Kusama and Polkadot.
-		1024 * 1024,
+		// Hybrid (ed25519 + SLH-DSA-SHA2-128f) vote signatures are 17152
+		// bytes. A catch-up message carries prevotes + precommits for the
+		// whole set: at MaxAuthorities=32 that is ~1.1 MiB, over the old
+		// 1 MiB cap; commits are ~550 KiB. 4 MiB leaves headroom for both
+		// (docs/PQ-FINALITY.md D7).
+		4 * 1024 * 1024,
 		None,
 		rc_network::config::SetConfig {
 			in_peers: 0,

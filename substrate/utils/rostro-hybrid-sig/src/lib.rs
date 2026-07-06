@@ -197,6 +197,18 @@ impl HybridSigningKey {
 		}
 	}
 
+	/// Sign `msg` with ONLY the ed25519 component, over the raw bytes
+	/// (no hybrid `M'` framing). For consumers with hard byte budgets that
+	/// authenticate against the ed25519 component of the hybrid public key
+	/// (the validator-channel cert, docs/PQ-FINALITY.md D5). The caller's
+	/// preimage must carry its own domain string. Raw preimages here can
+	/// never collide with hybrid `M'` framings: `M'` begins with 0x00
+	/// while every Rostro domain-prefixed preimage begins with an ASCII
+	/// domain byte.
+	pub fn sign_ed25519_component(&self, msg: &[u8]) -> [u8; ED25519_SIG_BYTES] {
+		self.ed.sign(msg).to_bytes()
+	}
+
 	/// Sign `msg` under `domain` with both components (deterministic
 	/// variants of both schemes; see crate docs).
 	pub fn sign(&self, domain: &[u8], msg: &[u8]) -> Result<HybridSignature, HybridSigError> {
@@ -237,6 +249,13 @@ impl HybridVerifyingKey {
 		out.extend_from_slice(self.ed.as_bytes());
 		out.extend_from_slice(&self.slh.to_bytes());
 		out
+	}
+
+	/// The ed25519 component of the public key (the first 32 bytes of the
+	/// hybrid encoding). Verifies signatures from
+	/// [`HybridSigningKey::sign_ed25519_component`].
+	pub fn ed25519_component(&self) -> [u8; ED25519_PK_BYTES] {
+		*self.ed.as_bytes()
 	}
 
 	/// Verify both components over `msg` under `domain`. BOTH must pass.

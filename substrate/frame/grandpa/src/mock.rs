@@ -33,7 +33,7 @@ use frame_support::{
 use pallet_session::historical as pallet_session_historical;
 use sp_consensus_grandpa::{RoundNumber, SetId, GRANDPA_ENGINE_ID};
 use sp_core::{ConstBool, H256};
-use sp_keyring::Ed25519Keyring;
+use sp_keyring::RostroHybridKeyring;
 use sp_runtime::{
 	curve::PiecewiseLinear,
 	impl_opaque_keys,
@@ -219,10 +219,10 @@ pub fn to_authorities(vec: Vec<(u64, u64)>) -> AuthorityList {
 		.collect()
 }
 
-pub fn extract_keyring(id: &AuthorityId) -> Ed25519Keyring {
-	let mut raw_public = [0; 32];
+pub fn extract_keyring(id: &AuthorityId) -> RostroHybridKeyring {
+	let mut raw_public = [0; 64];
 	raw_public.copy_from_slice(id.as_ref());
-	Ed25519Keyring::from_raw_public(raw_public).unwrap()
+	RostroHybridKeyring::from_raw_public(raw_public).unwrap()
 }
 
 pub fn new_test_ext(vec: Vec<(u64, u64)>) -> sp_io::TestExternalities {
@@ -317,10 +317,10 @@ pub fn initialize_block(number: u64, parent_hash: H256) {
 
 pub fn generate_equivocation_proof(
 	set_id: SetId,
-	vote1: (RoundNumber, H256, u64, &Ed25519Keyring),
-	vote2: (RoundNumber, H256, u64, &Ed25519Keyring),
+	vote1: (RoundNumber, H256, u64, &RostroHybridKeyring),
+	vote2: (RoundNumber, H256, u64, &RostroHybridKeyring),
 ) -> sp_consensus_grandpa::EquivocationProof<H256, u64> {
-	let signed_prevote = |round, hash, number, keyring: &Ed25519Keyring| {
+	let signed_prevote = |round, hash, number, keyring: &RostroHybridKeyring| {
 		let prevote = finality_grandpa::Prevote { target_hash: hash, target_number: number };
 
 		let prevote_msg = finality_grandpa::Message::Prevote(prevote.clone());

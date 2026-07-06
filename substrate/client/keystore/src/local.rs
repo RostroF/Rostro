@@ -273,6 +273,20 @@ impl Keystore for LocalKeystore {
 		self.sign::<rostro_hybrid::Pair>(key_type, public, msg)
 	}
 
+	fn rostro_hybrid_sign_ed25519_component(
+		&self,
+		key_type: KeyTypeId,
+		public: &rostro_hybrid::Public,
+		msg: &[u8],
+	) -> std::result::Result<Option<ed25519::Signature>, TraitError> {
+		let sig = self
+			.0
+			.read()
+			.key_pair_by_type::<rostro_hybrid::Pair>(public, key_type)?
+			.map(|pair| pair.sign_ed25519_component(msg));
+		Ok(sig)
+	}
+
 	fn ecdsa_public_keys(&self, key_type: KeyTypeId) -> Vec<ecdsa::Public> {
 		self.public_keys::<ecdsa::Pair>(key_type)
 	}
