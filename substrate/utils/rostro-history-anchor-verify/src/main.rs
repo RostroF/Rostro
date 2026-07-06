@@ -3,11 +3,25 @@
 
 //! # rostro-history-anchor-verify
 //!
-//! Offline verifier for the dual-hash history anchor
-//! (`pallet-rostro-history-anchor`). Recomputes the Keccak-512 anchor
-//! chain from raw header bytes fetched over RPC and cross-checks every
-//! on-chain anchor snapshot, the live head, the sealed count, and an
-//! optionally supplied externally published head.
+//! Offline verifier + publication tooling for the dual-hash history
+//! anchor (`pallet-rostro-history-anchor`). See `docs/HISTORY-ANCHOR.md`
+//! for the publication format and ritual.
+//!
+//! Subcommands (bare invocation = `verify`):
+//!
+//! - `verify` — recompute the Keccak-512 anchor chain from raw header
+//!   bytes over RPC; cross-check every on-chain snapshot, the live head,
+//!   the sealed count, and (via `--expect-head`) an externally published
+//!   head.
+//! - `publication [--prev 0x…]` — emit the canonical v1 publication
+//!   payload for the current tip, ONLY if a full verification pass
+//!   succeeds. Payload to stdout (pipe to the SRT signer); the sha-256
+//!   publication-hash to stderr.
+//! - `capsule --out DIR [--prev 0x…]` — export a century capsule
+//!   (sealed headers + anchors + README + publication payload), ONLY if
+//!   a full verification pass succeeds.
+//! - `verify-capsule --dir DIR` — re-verify a capsule fully offline (no
+//!   RPC, no node).
 //!
 //! This tool is the escape hatch the anchor design leans on: the chain of
 //! seals must be recomputable WITHOUT the runtime, the trie, or the frame
@@ -16,7 +30,7 @@
 //! them against the pallet crate so drift is caught at test time while the
 //! shipped binary stays frame-free.
 //!
-//! ## What a pass means
+//! ## What a `verify` pass means
 //!
 //! Every header the chain claims to have sealed was fetched raw, re-encoded
 //! to SCALE, self-checked (its BLAKE2-256 must equal the chain-reported
@@ -29,7 +43,7 @@
 //! Exit code: 0 = all checks passed, 1 = any mismatch.
 
 use anyhow::{anyhow, bail, Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use codec::{Compact, Encode};
 use jsonrpsee::{
 	core::client::ClientT,
@@ -37,7 +51,8 @@ use jsonrpsee::{
 	rpc_params,
 };
 use serde::Deserialize;
-use sp_crypto_hashing::{blake2_256, keccak_512, twox_128};
+use sp_crypto_hashing::{blake2_256, keccak_512, sha2_256, twox_128};
+use std::path::{Path, PathBuf};
 
 /// Must match `pallet_rostro_history_anchor::DOMAIN_TAG` (pinned by the
 /// `constants_match_pallet` test).
@@ -47,17 +62,48 @@ const DOMAIN_TAG: &[u8] = b"rostro-history-anchor-v0";
 const PALLET_NAME: &str = "HistoryAnchor";
 
 #[derive(Parser)]
-#[command(about = "Recompute and verify the Rostro dual-hash history anchor chain")]
-struct Args {
-	/// Node RPC endpoint.
-	#[arg(long, default_value = "http://127.0.0.1:9944")]
+#[command(about = "Recompute, verify, and publish the Rostro dual-hash history anchor chain")]
+struct Cli {
+	/// Node RPC endpoint (network subcommands).
+	#[arg(long, global = true, default_value = "http://127.0.0.1:9944")]
 	url: String,
 
 	/// Externally published anchor head (0x-prefixed, 64 bytes) to verify
 	/// the fold against, e.g. from an SRT publication or an `Anchored`
 	/// event recorded elsewhere.
-	#[arg(long)]
+	#[arg(long, global = true)]
 	expect_head: Option<String>,
+
+	#[command(subcommand)]
+	cmd: Option<Cmd>,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+	/// Recompute the anchor chain over RPC and verify it (default).
+	Verify,
+	/// Emit the canonical v1 publication payload for the verified tip.
+	Publication {
+		/// sha-256 publication-hash of the previous publication payload
+		/// (0x…, 32 bytes). Omit only for the first publication ever.
+		#[arg(long)]
+		prev: Option<String>,
+	},
+	/// Export a century capsule for the verified chain.
+	Capsule {
+		/// Output directory (created; must not already exist).
+		#[arg(long)]
+		out: PathBuf,
+		/// Previous publication-hash for the embedded payload.
+		#[arg(long)]
+		prev: Option<String>,
+	},
+	/// Re-verify a century capsule fully offline (no RPC).
+	VerifyCapsule {
+		/// Capsule directory.
+		#[arg(long)]
+		dir: PathBuf,
+	},
 }
 
 /// Header shape as returned by `chain_getHeader`. Field names and hex
@@ -201,29 +247,33 @@ async fn fetch_header_bytes(client: &HttpClient, height: u64) -> Result<Vec<u8>>
 	Ok(bytes)
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-	let args = Args::parse();
-	let client = HttpClientBuilder::default().build(&args.url)?;
+/// Result of a full network verification pass.
+struct Verified {
+	anchors: Vec<Anchor>,
+	/// Raw SCALE bytes per anchor, same order.
+	header_bytes: Vec<Vec<u8>>,
+	head: [u8; 64],
+	failures: u32,
+}
 
-	let at: String = client
-		.request("chain_getFinalizedHead", rpc_params![])
-		.await
-		.context("chain_getFinalizedHead")?;
-	println!("verifying at finalized head {at}");
-
-	let anchors = fetch_anchors(&client, &at).await?;
+/// The full verification pass: fold recompute + snapshot comparison +
+/// live-head + sealed-count + optional published-head check. Prints its
+/// findings; returns everything downstream subcommands need.
+async fn verify_chain(client: &HttpClient, at: &str, expect_head: Option<&str>) -> Result<Verified> {
+	let anchors = fetch_anchors(client, at).await?;
 	if anchors.is_empty() {
 		bail!("no anchors on chain (pallet inactive or storage prefix wrong)");
 	}
 
 	let mut failures = 0u32;
 	let mut head = keccak_512(DOMAIN_TAG);
+	let mut header_bytes = Vec::with_capacity(anchors.len());
 	for anchor in &anchors {
-		let bytes = fetch_header_bytes(&client, anchor.sealed_height).await?;
+		let bytes = fetch_header_bytes(client, anchor.sealed_height).await?;
 		head = fold(head, &bytes);
+		header_bytes.push(bytes);
 		if head == anchor.head {
-			println!(
+			eprintln!(
 				"  ok  era {:>6}  sealed height {:>10}  head 0x{}…",
 				anchor.era,
 				anchor.sealed_height,
@@ -231,7 +281,7 @@ async fn main() -> Result<()> {
 			);
 		} else {
 			failures += 1;
-			println!(
+			eprintln!(
 				"FAIL  era {:>6}  sealed height {:>10}\n      recomputed 0x{}\n      on-chain   0x{}",
 				anchor.era,
 				anchor.sealed_height,
@@ -242,52 +292,300 @@ async fn main() -> Result<()> {
 	}
 
 	// Live head + sealed count cross-checks.
-	let live_head = get_storage(&client, &storage_key("AnchorHead"), &at)
+	let live_head = get_storage(client, &storage_key("AnchorHead"), at)
 		.await?
 		.context("AnchorHead not in storage")?;
 	if live_head == head {
-		println!("live AnchorHead matches the fold");
+		eprintln!("live AnchorHead matches the fold");
 	} else {
 		failures += 1;
-		println!(
+		eprintln!(
 			"FAIL live AnchorHead 0x{} != recomputed 0x{}",
 			hex::encode(&live_head),
 			hex::encode(head)
 		);
 	}
-	let sealed_count = match get_storage(&client, &storage_key("SealedCount"), &at).await? {
+	let sealed_count = match get_storage(client, &storage_key("SealedCount"), at).await? {
 		Some(v) => u64::from_le_bytes(
 			v.try_into().map_err(|v: Vec<u8>| anyhow!("bad SealedCount length {}", v.len()))?,
 		),
 		None => 0,
 	};
 	if sealed_count == anchors.len() as u64 {
-		println!("SealedCount {sealed_count} matches {} anchors", anchors.len());
+		eprintln!("SealedCount {sealed_count} matches {} anchors", anchors.len());
 	} else {
 		failures += 1;
-		println!("FAIL SealedCount {sealed_count} != {} anchors", anchors.len());
+		eprintln!("FAIL SealedCount {sealed_count} != {} anchors", anchors.len());
 	}
 
-	if let Some(expect) = &args.expect_head {
+	if let Some(expect) = expect_head {
 		let expect = fixed::<64>(expect)?;
 		// The published head may be any historical fold state, so check
 		// against every snapshot, not just the tip.
 		if anchors.iter().any(|a| a.head == expect) || head == expect {
-			println!("published head found in the anchor chain");
+			eprintln!("published head found in the anchor chain");
 		} else {
 			failures += 1;
-			println!("FAIL published head 0x{} not reproduced by any seal", hex::encode(expect));
+			eprintln!("FAIL published head 0x{} not reproduced by any seal", hex::encode(expect));
 		}
 	}
 
-	println!(
-		"\ncurrent head (publish this): 0x{}\nseals verified: {}, failures: {}",
-		hex::encode(head),
-		anchors.len(),
-		failures
-	);
+	Ok(Verified { anchors, header_bytes, head, failures })
+}
+
+/// Build the frozen v1 publication payload (docs/HISTORY-ANCHOR.md §2).
+/// Exact bytes, LF endings, one trailing newline; sha-256 over these bytes
+/// is the publication-hash the NEXT publication references.
+fn publication_payload(
+	genesis: &str,
+	spec_name: &str,
+	spec_version: u64,
+	tip: &Anchor,
+	prev: Option<&str>,
+) -> String {
+	format!(
+		"ROSTRO HISTORY ANCHOR PUBLICATION v1\n\
+		 genesis: {}\n\
+		 spec-name: {}\n\
+		 runtime-spec: {}\n\
+		 era: {}\n\
+		 sealed-height: {}\n\
+		 head: 0x{}\n\
+		 previous-publication: {}\n",
+		genesis.to_lowercase(),
+		spec_name,
+		spec_version,
+		tip.era,
+		tip.sealed_height,
+		hex::encode(tip.head),
+		prev.map(str::to_lowercase).unwrap_or_else(|| "none".into()),
+	)
+}
+
+async fn chain_identity(client: &HttpClient, at: &str) -> Result<(String, String, u64)> {
+	let genesis: Option<String> = client
+		.request("chain_getBlockHash", rpc_params![0u64])
+		.await
+		.context("chain_getBlockHash(0)")?;
+	let genesis = genesis.context("no genesis hash")?;
+	let version: serde_json::Value = client
+		.request("state_getRuntimeVersion", rpc_params![at])
+		.await
+		.context("state_getRuntimeVersion")?;
+	let spec_name = version
+		.get("specName")
+		.and_then(|v| v.as_str())
+		.context("no specName")?
+		.to_owned();
+	let spec_version =
+		version.get("specVersion").and_then(|v| v.as_u64()).context("no specVersion")?;
+	Ok((genesis, spec_name, spec_version))
+}
+
+const CAPSULE_README: &str = r#"# Rostro history-anchor century capsule
+
+This directory is a self-contained, software-independent proof of Rostro
+chain history. It needs no Rostro software to verify — only a Keccak-512
+implementation.
+
+## Contents
+
+- `headers.jsonl` — one JSON object per line: `{"height": H,
+  "scale_hex": "0x…"}`. The hex is the raw SCALE-encoded header exactly
+  as the chain hashed it. These are the SEALED headers only (one per
+  session: each session's final header, plus genesis).
+- `anchors.jsonl` — one per line: `{"era": E, "sealed_height": H,
+  "head": "0x…"}`. The chain's on-chain anchor snapshots at export time.
+- `publication.txt` — the canonical publication payload for the capsule
+  tip (docs/HISTORY-ANCHOR.md §2 in the Rostro repo, if it still exists;
+  the format is self-describing regardless).
+
+## The fold
+
+    head = keccak_512(b"rostro-history-anchor-v0")
+    for each header in headers.jsonl, ascending height:
+        head = keccak_512(head || raw_header_bytes)
+
+After each fold step, `head` must equal the `head` of the anchor with
+the matching `sealed_height` in anchors.jsonl.
+
+## What verification proves
+
+If the final `head` equals a published head whose provenance you trust
+(a print notice, an external-chain anchor, a signed publication chain),
+then every byte of every sealed header — above all the state roots
+inside them — is bound under two unrelated hash families (BLAKE2-256 via
+the chain's own linkage, Keccak-512 via this fold) as of the
+publication's date. Forging an alternative requires simultaneous
+structural breaks of both, plus suppression of every surviving copy of
+the published head.
+
+BLAKE2-256 of each header equals the chain's block hash at that height,
+which lets you cross-reference any surviving block archive.
+"#;
+
+fn write_capsule(dir: &Path, v: &Verified, payload: &str) -> Result<()> {
+	use std::fmt::Write as _;
+	std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+
+	let mut headers = String::new();
+	let mut anchors = String::new();
+	for (anchor, bytes) in v.anchors.iter().zip(&v.header_bytes) {
+		writeln!(
+			headers,
+			r#"{{"height": {}, "scale_hex": "0x{}"}}"#,
+			anchor.sealed_height,
+			hex::encode(bytes)
+		)?;
+		writeln!(
+			anchors,
+			r#"{{"era": {}, "sealed_height": {}, "head": "0x{}"}}"#,
+			anchor.era,
+			anchor.sealed_height,
+			hex::encode(anchor.head)
+		)?;
+	}
+	std::fs::write(dir.join("headers.jsonl"), headers)?;
+	std::fs::write(dir.join("anchors.jsonl"), anchors)?;
+	std::fs::write(dir.join("publication.txt"), payload)?;
+	std::fs::write(dir.join("README.md"), CAPSULE_README)?;
+	Ok(())
+}
+
+/// Offline capsule verification: recompute the fold from headers.jsonl,
+/// compare every anchor in anchors.jsonl. No network.
+fn verify_capsule(dir: &Path) -> Result<[u8; 64]> {
+	#[derive(Deserialize)]
+	struct HeaderLine {
+		height: u64,
+		scale_hex: String,
+	}
+	#[derive(Deserialize)]
+	struct AnchorLine {
+		era: u32,
+		sealed_height: u64,
+		head: String,
+	}
+
+	let parse_lines = |name: &str| -> Result<Vec<String>> {
+		let raw = std::fs::read_to_string(dir.join(name))
+			.with_context(|| format!("reading {name}"))?;
+		Ok(raw.lines().filter(|l| !l.trim().is_empty()).map(str::to_owned).collect())
+	};
+
+	let mut headers: Vec<HeaderLine> = parse_lines("headers.jsonl")?
+		.iter()
+		.map(|l| serde_json::from_str(l).context("bad headers.jsonl line"))
+		.collect::<Result<_>>()?;
+	headers.sort_by_key(|h| h.height);
+	let mut anchors: Vec<AnchorLine> = parse_lines("anchors.jsonl")?
+		.iter()
+		.map(|l| serde_json::from_str(l).context("bad anchors.jsonl line"))
+		.collect::<Result<_>>()?;
+	anchors.sort_by_key(|a| a.era);
+
+	if headers.len() != anchors.len() {
+		bail!("{} headers vs {} anchors", headers.len(), anchors.len());
+	}
+
+	let mut failures = 0u32;
+	let mut head = keccak_512(DOMAIN_TAG);
+	for (h, a) in headers.iter().zip(&anchors) {
+		if h.height != a.sealed_height {
+			bail!("header height {} does not match anchor sealed_height {}", h.height, a.sealed_height);
+		}
+		let bytes = hex_bytes(&h.scale_hex)?;
+		head = fold(head, &bytes);
+		let expect = fixed::<64>(&a.head)?;
+		if head == expect {
+			eprintln!(
+				"  ok  era {:>6}  sealed height {:>10}  head 0x{}…  (blake2 0x{}…)",
+				a.era,
+				a.sealed_height,
+				hex::encode(&head[..8]),
+				hex::encode(&blake2_256(&bytes)[..8])
+			);
+		} else {
+			failures += 1;
+			eprintln!(
+				"FAIL  era {:>6}  sealed height {:>10}\n      recomputed 0x{}\n      capsule    0x{}",
+				a.era,
+				a.sealed_height,
+				hex::encode(head),
+				hex::encode(expect)
+			);
+		}
+	}
 	if failures > 0 {
+		bail!("{failures} capsule mismatches");
+	}
+	Ok(head)
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+	let cli = Cli::parse();
+	let cmd = cli.cmd.unwrap_or(Cmd::Verify);
+
+	// Offline path needs no client.
+	if let Cmd::VerifyCapsule { dir } = &cmd {
+		let head = verify_capsule(dir)?;
+		println!("\ncapsule verified offline; tip head: 0x{}", hex::encode(head));
+		return Ok(());
+	}
+
+	let client = HttpClientBuilder::default().build(&cli.url)?;
+	let at: String = client
+		.request("chain_getFinalizedHead", rpc_params![])
+		.await
+		.context("chain_getFinalizedHead")?;
+	eprintln!("verifying at finalized head {at}");
+
+	let v = verify_chain(&client, &at, cli.expect_head.as_deref()).await?;
+
+	eprintln!(
+		"\ncurrent head (publish this): 0x{}\nseals verified: {}, failures: {}",
+		hex::encode(v.head),
+		v.anchors.len(),
+		v.failures
+	);
+	if v.failures > 0 {
 		std::process::exit(1);
+	}
+
+	match cmd {
+		Cmd::Verify | Cmd::VerifyCapsule { .. } => {}
+		Cmd::Publication { prev } => {
+			let (genesis, spec_name, spec_version) = chain_identity(&client, &at).await?;
+			let tip = v.anchors.last().expect("non-empty checked in verify_chain");
+			let payload =
+				publication_payload(&genesis, &spec_name, spec_version, tip, prev.as_deref());
+			// Payload alone on stdout (pipe to the SRT signer); everything
+			// else on stderr.
+			print!("{payload}");
+			eprintln!(
+				"\npublication-hash (sha-256 of payload bytes): 0x{}\nSRT signs the payload bytes exactly as emitted.",
+				hex::encode(sha2_256(payload.as_bytes()))
+			);
+		}
+		Cmd::Capsule { out, prev } => {
+			if out.exists() {
+				bail!("{} already exists; refusing to overwrite a capsule", out.display());
+			}
+			let (genesis, spec_name, spec_version) = chain_identity(&client, &at).await?;
+			let tip = v.anchors.last().expect("non-empty checked in verify_chain");
+			let payload =
+				publication_payload(&genesis, &spec_name, spec_version, tip, prev.as_deref());
+			write_capsule(&out, &v, &payload)?;
+			println!(
+				"capsule written to {} ({} sealed headers)",
+				out.display(),
+				v.anchors.len()
+			);
+			// Immediately prove the capsule stands on its own.
+			let head = verify_capsule(&out)?;
+			println!("capsule re-verified offline; tip head: 0x{}", hex::encode(head));
+		}
 	}
 	Ok(())
 }
@@ -350,5 +648,78 @@ mod tests {
 		manual.extend_from_slice(&head0);
 		manual.extend_from_slice(&genesis.encode());
 		assert_eq!(head1, keccak_512(&manual));
+	}
+
+	/// The v1 payload format is FROZEN (docs/HISTORY-ANCHOR.md §2): exact
+	/// bytes, exact hash. If this test breaks, the format changed — that
+	/// is a protocol event, not a refactor.
+	#[test]
+	fn publication_payload_v1_frozen() {
+		let tip = Anchor { era: 2, sealed_height: 49, head: [0xAB; 64] };
+		let payload = publication_payload(
+			"0x00112233445566778899AABBCCDDEEFF00112233445566778899aabbccddeeff",
+			"gemini",
+			104,
+			&tip,
+			None,
+		);
+		let expected = "ROSTRO HISTORY ANCHOR PUBLICATION v1\n\
+			genesis: 0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\n\
+			spec-name: gemini\n\
+			runtime-spec: 104\n\
+			era: 2\n\
+			sealed-height: 49\n\
+			head: 0x".to_owned() + &"ab".repeat(64) + "\nprevious-publication: none\n";
+		assert_eq!(payload, expected);
+		// Chaining: the next payload embeds sha-256 of this one.
+		let hash = format!("0x{}", hex::encode(sha2_256(payload.as_bytes())));
+		let next = publication_payload("0x0011", "gemini", 104, &tip, Some(&hash));
+		assert!(next.contains(&format!("previous-publication: {hash}\n")));
+	}
+
+	/// Capsule roundtrip: write from synthetic verified data, re-verify
+	/// fully offline, tip heads must agree.
+	#[test]
+	fn capsule_roundtrip_offline() {
+		// Synthetic 3-seal chain (genesis + two session finals).
+		let mk = |n: u32, parent: sp_core::H256| {
+			Header::new(
+				n,
+				sp_core::H256::repeat_byte(0xE1),
+				sp_core::H256::repeat_byte(0x51),
+				parent,
+				Default::default(),
+			)
+		};
+		let g = mk(0, sp_core::H256::zero());
+		let h24 = mk(24, sp_core::H256::repeat_byte(1));
+		let h49 = mk(49, sp_core::H256::repeat_byte(2));
+
+		let mut head = keccak_512(DOMAIN_TAG);
+		let mut anchors = Vec::new();
+		let mut header_bytes = Vec::new();
+		for (era, h) in [(0u32, &g), (1, &h24), (2, &h49)] {
+			let bytes = h.encode();
+			head = fold(head, &bytes);
+			anchors.push(Anchor {
+				era,
+				sealed_height: *h.number() as u64,
+				head,
+			});
+			header_bytes.push(bytes);
+		}
+		let v = Verified { anchors, header_bytes, head, failures: 0 };
+
+		let dir = tempfile::tempdir().unwrap();
+		let capsule_dir = dir.path().join("capsule");
+		write_capsule(&capsule_dir, &v, "PAYLOAD PLACEHOLDER\n").unwrap();
+		let offline_head = verify_capsule(&capsule_dir).unwrap();
+		assert_eq!(offline_head, head);
+
+		// Tamper with one header byte: offline verification must fail.
+		let path = capsule_dir.join("headers.jsonl");
+		let tampered = std::fs::read_to_string(&path).unwrap().replace("e1", "e2");
+		std::fs::write(&path, tampered).unwrap();
+		assert!(verify_capsule(&capsule_dir).is_err());
 	}
 }

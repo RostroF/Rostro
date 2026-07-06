@@ -214,7 +214,39 @@ note "phase 3: second rotation — recompute + published-head (--expect-head) ch
 wait_finality_past 55 420 || FAIL=1
 run_verifier 3 --expect-head "$HEAD_A" || FAIL=1
 
-note "phase 4: negative control — junk published head must FAIL"
+note "phase 4: publication payload + century capsule (P4)"
+PUB=$("$VERIFIER" --url "$RPC_ALICE" publication 2>"$STAR_DIR/pub.stderr") || { echo "FAIL: publication exit"; FAIL=1; }
+echo "$PUB" | sed 's/^/    | /'
+sed 's/^/    | /' "$STAR_DIR/pub.stderr"
+if ! echo "$PUB" | head -1 | grep -q "^ROSTRO HISTORY ANCHOR PUBLICATION v1$"; then
+	echo "FAIL: payload header line wrong"
+	FAIL=1
+fi
+PUB_HEAD=$(echo "$PUB" | sed -n 's/^head: \(0x[0-9a-f]\{128\}\)$/\1/p')
+if [[ -z "$PUB_HEAD" ]]; then
+	echo "FAIL: no well-formed head in payload"
+	FAIL=1
+elif "$VERIFIER" --url "$RPC_ALICE" --expect-head "$PUB_HEAD" >/dev/null 2>&1; then
+	echo "OK: publication payload head verifies against the live chain"
+else
+	echo "FAIL: payload head not reproduced by the live chain"
+	FAIL=1
+fi
+CAPSULE_DIR="$STAR_DIR/capsule"
+CAPOUT=$("$VERIFIER" --url "$RPC_ALICE" capsule --out "$CAPSULE_DIR" 2>&1) || { echo "FAIL: capsule exit"; FAIL=1; }
+echo "$CAPOUT" | tail -3 | sed 's/^/    | /'
+if ! echo "$CAPOUT" | grep -q "capsule re-verified offline"; then
+	echo "FAIL: capsule self-reverification missing"
+	FAIL=1
+fi
+if "$VERIFIER" verify-capsule --dir "$CAPSULE_DIR" >/dev/null 2>&1; then
+	echo "OK: independent offline verify-capsule passed (no RPC)"
+else
+	echo "FAIL: offline verify-capsule failed"
+	FAIL=1
+fi
+
+note "phase 5: negative control — junk published head must FAIL"
 if "$VERIFIER" --url "$RPC_ALICE" --expect-head "0x$(printf '00%.0s' {1..64})" >/dev/null 2>&1; then
 	echo "FAIL: verifier accepted a junk published head"
 	FAIL=1
@@ -222,7 +254,7 @@ else
 	echo "OK: junk published head rejected (nonzero exit)"
 fi
 
-note "phase 5: finality still advancing with seals live"
+note "phase 6: finality still advancing with seals live"
 n=$(finalized_number)
 wait_finality_past "$n" 120 || FAIL=1
 

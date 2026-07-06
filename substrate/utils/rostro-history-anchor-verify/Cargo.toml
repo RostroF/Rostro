@@ -33,3 +33,4 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 pallet-rostro-history-anchor = { workspace = true, default-features = true }
 sp-core = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
+tempfile = { workspace = true }
