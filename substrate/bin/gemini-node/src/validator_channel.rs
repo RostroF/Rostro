@@ -106,11 +106,12 @@ pub const CHANNEL_KEY_TYPE: KeyTypeId = KeyTypeId(*b"chnl");
 const CERT_REFRESH_POLL_SECS: u64 = 60;
 
 /// libp2p request-response protocol for the handshake exchange. Bumped
-/// to `/3` for the hybrid X25519+ML-KEM-768 handshake; `/2` was the
-/// cert-carrying classical form, `/1` signed with the GRANDPA key —
-/// both are gone. A hard cutover, as each bump before it: an old-`/N`
-/// peer and a `/3` peer simply never negotiate a substream, which is
-/// the intended behavior (no mixed fleet).
+/// to `/4` for the hybrid GRANDPA authority id in the cert; `/3` was the
+/// X25519+ML-KEM-768 handshake with a 32-byte ed25519 authority, `/2`
+/// the cert-carrying classical form, `/1` signed with the GRANDPA key —
+/// all gone. A hard cutover, as each bump before it: an old-`/N` peer
+/// and a `/4` peer simply never negotiate a substream, which is the
+/// intended behavior (no mixed fleet).
 pub const HANDSHAKE_PROTOCOL_NAME: &str = "/rostro/validator-channel-handshake/4";
 
 /// libp2p notification protocol for encrypted message exchange after

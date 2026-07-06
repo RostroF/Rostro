@@ -13,11 +13,20 @@
 Pure-Rust SLH-DSA (FIPS 205 final, formerly SPHINCS+), no_std-capable,
 stateless hash-based signatures. Released 2024-08-18, five days after FIPS
 205 finalized; the 0.1.0 changelog records the draft→final migration.
-Rostro uses exactly one parameter set: **SLH-DSA-SHA2-128f** (fast-signing
-variant, 32-byte public key, 17088-byte signature), as the post-quantum
-component of the ed25519 + SLH-DSA hybrid finality-vote signature
-(docs/CONSENSUS-KEY-LIFECYCLE.md workstream 2, pq-finality-v0; companion
-crate `substrate/utils/rostro-hybrid-sig`).
+Rostro uses exactly one parameter set: **SLH-DSA-SHA2-128s** (small-
+signature variant, 32-byte public key, 7856-byte signature), as the
+post-quantum component of the ed25519 + SLH-DSA hybrid finality-vote
+signature (docs/CONSENSUS-KEY-LIFECYCLE.md workstream 2, pq-finality-v0;
+companion crate `substrate/utils/rostro-hybrid-sig`).
+
+The `s` (small) variant is chosen over `f` for validator SCALE: a
+justification carries one signature per validator and EVERY node verifies
+ALL of them, so signature size and verify speed dominate while
+per-validator signing (once per slot) is slack. Measured (see
+rostro-hybrid-sig `tests/param_bench.rs`): `s` is ~2.2x smaller (7856 vs
+17088 B) and verifies ~2.7x faster than `f`, paid for by slower signing
+(~170 ms vs ~8 ms, trivially inside a 6 s slot). At ~700 validators this
+is a ~5.4 MB justification vs ~11.8 MB for `f`.
 
 Why 0.1.0 and not 0.2.0-rc.x: 0.1.0 is the stable release with two years of
 soak, and it sits on the sha2 0.10 / rand_core 0.6 dependency generation the
@@ -78,15 +87,15 @@ Stripped (registry packaging artifacts only, not source):
 Unlike ml-kem, this tarball INCLUDES its test vectors:
 
 - `tests/known_answer_tests.rs` — SPHINCS+ reference-implementation KATs
-  for ALL twelve parameter sets, including our SLH-DSA-SHA2-128f
-  (`test_kat_sha2_128f`). Slow by nature (hash-based signing); run in
+  for ALL twelve parameter sets, including our SLH-DSA-SHA2-128s
+  (`test_kat_sha2_128s`). Slow by nature (hash-based signing); run in
   release.
 - `tests/acvp_*.rs` — NIST ACVP demo-sample vectors. Coverage is a
-  parameter-set SAMPLE chosen upstream (keyGen: SHA2-128s/192f + 2 SHAKE;
-  sigGen/sigVer: five sets, SHA2-128f NOT among them).
+  parameter-set SAMPLE chosen upstream: keyGen DOES include SHA2-128s,
+  but sigGen/sigVer do NOT (they cover 192s/256f/SHAKE sets).
 
-Because the in-crate ACVP sample skips SHA2-128f, the official NIST ACVP
-vectors for exactly that parameter set are pinned in
+Because the in-crate ACVP sample skips SHA2-128s for sigGen/sigVer, the
+official NIST ACVP vectors for exactly that parameter set are pinned in
 `substrate/utils/rostro-hybrid-sig` (same division of labor as
 rostro-hybrid-kex carrying the ML-KEM-768 ACVP vectors). Source and filter
 procedure are recorded in that crate.

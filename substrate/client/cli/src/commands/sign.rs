@@ -51,6 +51,11 @@ pub struct SignCmd {
 impl SignCmd {
 	/// Run the command
 	pub fn run(&self) -> error::Result<()> {
+		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
+			return Err(crate::Error::Input(
+				"the rostro-hybrid consensus scheme is supported by `key insert` only".into(),
+			));
+		}
 		let sig = self.sign(|| std::io::stdin().lock())?;
 		std::io::stdout().lock().write_all(sig.as_bytes())?;
 		Ok(())

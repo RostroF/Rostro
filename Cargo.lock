@@ -4672,6 +4672,7 @@ dependencies = [
  "log",
  "pallet-rns-registrar",
  "pallet-rostro-canonical-files",
+ "pallet-rostro-key-lineage",
  "pallet-rostro-rpc-method-policy",
  "pallet-sassafras",
  "pallet-transaction-payment",
@@ -10408,6 +10409,7 @@ dependencies = [
  "pallet-session",
  "parity-scale-codec",
  "scale-info",
+ "sp-api",
  "sp-consensus-grandpa",
  "sp-core",
  "sp-io",
@@ -10910,6 +10912,8 @@ dependencies = [
 [[package]]
 name = "parity-scale-codec"
 version = "3.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "799781ae679d79a948e13d4824a40970bfa500058d245760dd857301059810fa"
 dependencies = [
  "arrayvec 0.7.6",
  "bitvec",

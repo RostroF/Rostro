@@ -25,7 +25,7 @@
 
 use anyhow::{bail, Context, Result};
 use codec::{Compact, Decode, Encode};
-use ed25519_dalek::{Signer as _, SigningKey};
+
 use subxt::utils::AccountId32;
 use subxt::{OnlineClient, SubstrateConfig};
 use subxt_rpcs::{rpc_params, RpcClient};
@@ -93,6 +93,11 @@ impl Args {
 fn dev_keypair(suri: &str) -> Result<Keypair> {
 	let uri: SecretUri = suri.parse().context("bad --suri")?;
 	Keypair::from_uri(&uri).context("keypair from suri")
+}
+
+fn parse_hex64(s: &str) -> Result<[u8; 64]> {
+	let bytes = hex::decode(s.trim_start_matches("0x")).context("hex decode")?;
+	bytes.as_slice().try_into().context("expected 64 bytes")
 }
 
 fn parse_hex32(s: &str) -> Result<[u8; 32]> {
@@ -178,14 +183,22 @@ async fn cmd_rotate(args: Args) -> Result<()> {
 		Some(s) => parse_hex32(&s)?,
 		None => random_seed()?,
 	};
-	let sk = SigningKey::from_bytes(&seed);
-	let new_pub: [u8; 32] = sk.verifying_key().to_bytes();
+	// PQ cutover: the GRANDPA session key is the 64-byte hybrid
+	// (ed25519 + SLH-DSA-SHA2-128f). Derivation MUST match the node's
+	// one-seed HKDF expansion, so this goes through rostro-hybrid-sig
+	// (the same leaf sp_core::rostro_hybrid wraps), never raw dalek.
+	let sk = rostro_hybrid_sig::HybridSigningKey::from_seed(&seed);
+	let new_pub: [u8; 64] = sk
+		.verifying_key()
+		.to_vec()
+		.try_into()
+		.expect("hybrid public is 64 bytes");
 
 	// Keystore insertion is NOT done here: gemini validators (correctly)
 	// refuse --rpc-methods=unsafe, so author_insertKey is unavailable. The
 	// caller must have placed the secret in the node's file keystore first
 	// (`gemini-node key insert --suri 0x<seed> --key-type gran --scheme
-	// ed25519` against the running node's base path — LocalKeystore scans
+	// rostro-hybrid` against the running node's base path — LocalKeystore scans
 	// the directory per lookup, so live inserts are picked up). Opt-in
 	// escape hatch for non-validator targets: --insert-rpc.
 	if args.get("--insert-rpc").is_some() {
@@ -201,17 +214,23 @@ async fn cmd_rotate(args: Args) -> Result<()> {
 
 	// 2. Proof of possession: new key signs "POP_" ++ owner-account bytes
 	//    (sp_core::proof_of_possession::statement_of_ownership layout).
+	//    The hybrid scheme's PoP goes through TraitPair::sign, which
+	//    frames under the finality-vote domain — mirror that exactly or
+	//    the runtime rejects the registration.
 	let mut statement = b"POP_".to_vec();
 	statement.extend_from_slice(&account.0);
-	let pop = sk.sign(&statement).to_bytes(); // 64 bytes
+	let pop = sk
+		.sign(rostro_hybrid_sig::FINALITY_VOTE_DOMAIN, &statement)
+		.expect("domain is under the 255-byte limit")
+		.to_vec(); // 17152 bytes
 
 	// 3. Account-signed Session::set_keys(SessionKeys { grandpa }, proof).
 	let api = connect(&ws).await?;
 	let metadata = api.metadata();
 	let (p, c) = call_indices(&metadata, "Session", "set_keys")?;
 	let mut call = vec![p, c];
-	call.extend_from_slice(&new_pub); // SessionKeys = { grandpa: [u8; 32] }
-	pop.to_vec().encode_to(&mut call); // proof: Vec<u8>
+	call.extend_from_slice(&new_pub); // SessionKeys = { grandpa: [u8; 64] }
+	pop.encode_to(&mut call); // proof: Vec<u8>
 	let events = submit(&api, RawCall(call), &signer, 90).await?;
 
 	for ev in events.iter() {
@@ -239,9 +258,22 @@ async fn cmd_canary(args: Args) -> Result<()> {
 	let set_id: u64 = args.require("--set-id")?.parse()?;
 	let message = args.get_or("--message", "forged-after-retirement").into_bytes();
 
-	let sk = SigningKey::from_bytes(&seed);
-	let key: [u8; 32] = sk.verifying_key().to_bytes();
-	let signature = sk.sign(&grandpa_domain_payload(&message, round, set_id)).to_bytes();
+	// The runtime verifies AuthoritySignature via the sp-core hybrid
+	// scheme, which frames every message under the finality-vote domain;
+	// the probe must sign the same way or honest evidence is rejected.
+	let sk = rostro_hybrid_sig::HybridSigningKey::from_seed(&seed);
+	let key: [u8; 64] = sk
+		.verifying_key()
+		.to_vec()
+		.try_into()
+		.expect("hybrid public is 64 bytes");
+	let signature = sk
+		.sign(
+			rostro_hybrid_sig::FINALITY_VOTE_DOMAIN,
+			&grandpa_domain_payload(&message, round, set_id),
+		)
+		.expect("domain is under the 255-byte limit")
+		.to_vec();
 
 	let api = connect(&ws).await?;
 	let metadata = api.metadata();
@@ -281,7 +313,7 @@ async fn cmd_canary(args: Args) -> Result<()> {
 
 async fn cmd_lineage_key(args: Args) -> Result<()> {
 	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
-	let key = parse_hex32(&args.require("--key")?)?;
+	let key = parse_hex64(&args.require("--key")?)?;
 	let api = connect(&ws).await?;
 	let bytes = fetch_storage(
 		&api,
@@ -457,7 +489,7 @@ async fn cmd_force_roster(args: Args) -> Result<()> {
 async fn main() -> Result<()> {
 	let mut argv: Vec<String> = std::env::args().skip(1).collect();
 	if argv.is_empty() {
-		bail!("usage: rotation-probe <rotate|canary|lineage-key|session-state|wait-event|force-roster> [flags]");
+		bail!("usage: rotation-probe <rotate|canary|lineage-key|session-state|wait-event|force-roster|derive> [flags]");
 	}
 	let cmd = argv.remove(0);
 	let args = Args(argv);
@@ -469,6 +501,39 @@ async fn main() -> Result<()> {
 		"disabled" => cmd_disabled(args).await,
 		"wait-event" => cmd_wait_event(args).await,
 		"force-roster" => cmd_force_roster(args).await,
+		"derive" => cmd_derive(args),
 		other => bail!("unknown subcommand: {other}"),
 	}
+}
+
+/// Derive the 64-byte hybrid GRANDPA public key and its 32-byte master
+/// seed for a suri (`//Alice`) or a raw `--seed 0x…`. Replaces the
+/// ed25519 `key inspect` the classical scenario used — the hybrid public
+/// has no account identity, so `gemini-node key inspect` rejects it, and
+/// this derives through the exact sp_core::rostro_hybrid path the node
+/// keystore uses.
+fn cmd_derive(args: Args) -> Result<()> {
+	use sp_core::crypto::Pair as _;
+	let (pair, seed): (sp_core::rostro_hybrid::Pair, [u8; 32]) = match args.get("--seed") {
+		Some(hex_seed) => {
+			let seed = parse_hex32(&hex_seed)?;
+			(sp_core::rostro_hybrid::Pair::from_seed(&seed), seed)
+		},
+		None => {
+			let suri = args.require("--suri")?;
+			let (pair, opt_seed) =
+				sp_core::rostro_hybrid::Pair::from_string_with_seed(&suri, None)
+					.map_err(|e| anyhow::anyhow!("suri derive: {e:?}"))?;
+			(pair, opt_seed.expect("dev suri yields a seed"))
+		},
+	};
+	let public = pair.public();
+	println!(
+		"{}",
+		serde_json::json!({
+			"public": format!("0x{}", hex::encode(<sp_core::rostro_hybrid::Public as AsRef<[u8]>>::as_ref(&public))),
+			"seed": format!("0x{}", hex::encode(seed)),
+		})
+	);
+	Ok(())
 }

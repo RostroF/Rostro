@@ -51,6 +51,11 @@ pub struct VanityCmd {
 impl VanityCmd {
 	/// Run the command
 	pub fn run(&self) -> error::Result<()> {
+		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
+			return Err(crate::Error::Input(
+				"the rostro-hybrid consensus scheme is supported by `key insert` only".into(),
+			));
+		}
 		let formatted_seed = with_crypto_scheme!(
 			self.crypto_scheme.scheme,
 			generate_key(

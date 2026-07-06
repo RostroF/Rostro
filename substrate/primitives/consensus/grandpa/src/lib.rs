@@ -44,9 +44,9 @@ pub const KEY_TYPE: sp_core::crypto::KeyTypeId = sp_application_crypto::key_type
 
 mod app {
 	// PQ cutover (docs/PQ-FINALITY.md): the GRANDPA authority scheme is the
-	// Rostro hybrid (ed25519 + SLH-DSA-SHA2-128f), both-must-verify. The
+	// Rostro hybrid (ed25519 + SLH-DSA-SHA2-128s), both-must-verify. The
 	// key type stays `gran`; the key/signature lengths change (64B public,
-	// 17152B signature). Hard cutover: there is no ed25519-only vote path.
+	// 7920B signature). Hard cutover: there is no ed25519-only vote path.
 	use sp_application_crypto::{app_crypto, key_types::GRANDPA, rostro_hybrid};
 	app_crypto!(rostro_hybrid, GRANDPA);
 }

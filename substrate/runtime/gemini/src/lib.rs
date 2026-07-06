@@ -1275,6 +1275,12 @@ impl_runtime_apis! {
 		}
 	}
 
+	impl pallet_rostro_key_lineage::KeyLineageApi<Block> for Runtime {
+		fn is_retired_grandpa_key(key: sp_consensus_grandpa::AuthorityId) -> bool {
+			KeyLineage::is_retired(&key)
+		}
+	}
+
 	impl frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce> for Runtime {
 		fn account_nonce(account: AccountId) -> Nonce {
 			System::account_nonce(account)

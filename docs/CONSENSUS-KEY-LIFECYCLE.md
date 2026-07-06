@@ -196,14 +196,17 @@ this is client-side, so it ships via the node-binary release path, not
 
 Worktree `/home/coder/Rostro-pq-finality/`, branch `pq-finality-v0` off
 rostro-main 5daa9f4865. **Scheme LOCKED 2026-07-05: hybrid dual-signature
-per vote, ed25519 + SLH-DSA-SHA2-128f** (FIPS 205 final, RustCrypto
+per vote, ed25519 + SLH-DSA-SHA2-128s** (FIPS 205 final, RustCrypto
 `slh-dsa` 0.1.0 vendored per VENDOR.md exactly as `ml-kem` was).
 Rationale: stateless (no state-reuse grenade for operators, which matters
 until F4 hardware exists), same hybrid philosophy as [[PQ-TRANSPORT]]
 (classical security survives a lattice/hash-scheme break, PQ security
-survives Shor). Cost accepted: 17152-byte hybrid vote signature (64
-ed25519 + 17088 SLH-DSA), ~550 KB justifications at 32 authorities;
-signing is fast-variant (tens of ms), inside the round budget. The
+survives Shor). Cost accepted: 7920-byte hybrid vote signature (64 ed25519 + 7856
+SLH-DSA), ~250 KB justifications at 32 authorities; the `s` (small)
+variant halves size + verifies ~2.7x faster than `f` at the cost of
+~170 ms signing (once per slot, slack) — chosen for validator SCALE
+(a justification is one sig PER validator, verified by EVERY node;
+~5.4 MB at 700 validators vs ~11.8 MB for `f`). The
 stateful XMSS-style KES alternative is ~6x smaller but carries the state
 grenade until the F4 watermark exists; fat and safe wins v0.
 
@@ -214,7 +217,7 @@ unchanged) + `substrate/utils/rostro-hybrid-sig`: both-must-verify hybrid
 leaf, FIPS 205 context string as the domain channel with the identical
 `M'` framing on the ed25519 half, deterministic signing (no RNG in the
 voter hot path), ed25519-strict-first verify order. NIST ACVP
-SLH-DSA-SHA2-128f vectors pinned in-crate (the vendored tarball's ACVP
+SLH-DSA-SHA2-128s vectors pinned in-crate (the vendored tarball's ACVP
 sample skips that set; provenance + filter procedure in the test file).
 
 Phases: vendor `slh-dsa` + KATs (mirror the ml-kem playbook, wire sizes

@@ -2,7 +2,7 @@
 
 **Status:** build spec for the surgery phases. Phase 0 (vendor + hybrid leaf) LANDED (4ebd6ffbb3).
 **Date:** 2026-07-05.
-**Context:** workstream 2 of [[CONSENSUS-KEY-LIFECYCLE]] §4. Scheme locked: hybrid ed25519 + SLH-DSA-SHA2-128f per vote, both-must-verify, via `rostro-hybrid-sig`. This doc is the surgery map + resolved design decisions, from a full-tree survey 2026-07-05.
+**Context:** workstream 2 of [[CONSENSUS-KEY-LIFECYCLE]] §4. Scheme locked: hybrid ed25519 + SLH-DSA-SHA2-128s per vote, both-must-verify, via `rostro-hybrid-sig`. This doc is the surgery map + resolved design decisions, from a full-tree survey 2026-07-05.
 
 ## 0. The one-line finding
 
@@ -19,7 +19,7 @@ bounds signatures by `Clone + Eq` only — no size assumptions.
 ## 1. Resolved design decisions
 
 - **D1 — AuthorityId becomes the 64-byte hybrid pubkey** (ed25519 32 ||
-  SLH 32), signature the 17152-byte hybrid. One key, one registry; no
+  SLH 32), signature the 7920-byte hybrid. One key, one registry; no
   parallel SLH authority list (two Config-bindable verifiers of one input
   = attack surface, per standing rule). Consumers hardcoding `[u8;32]`
   are ours and get fixed (§3).
@@ -59,16 +59,16 @@ bounds signatures by `Clone + Eq` only — no size assumptions.
   If RVM-interpreted verify proves too slow in P3 measurement, a host
   function is the recorded escape hatch.
 - **D7 — network caps**: GRANDPA notification protocol max 1 MiB →
-  4 MiB (catch-up messages carry up to 2×32 sigs ≈ 1.1 MiB, exceeding
-  the current cap; commits ≈ 544 KB fit but without margin). Warp proof
-  cap stays 8 MiB (≈14 set-handoff fragments per proof instead of
-  thousands: more round-trips on warp sync, functionally intact;
-  revisit only if warp sync UX degrades on the lab).
+  4 MiB. At 128s (7920 B/sig) a 32-authority catch-up is ~0.5 MiB, so
+  4 MiB is generous headroom for the testnet set. **At mainnet scale
+  this cap MUST be raised**: a ~700-validator justification is ~5.4 MiB
+  and a catch-up ~11 MiB (see §5 scale analysis). Warp proof cap stays
+  8 MiB.
 
 ## 2. Phases
 
 - **P1 — primitives + keystore**: `sp_core::hybrid` module (wraps
-  rostro-hybrid-sig; fixed-size Public 64 / Signature 17152 via
+  rostro-hybrid-sig; fixed-size Public 64 / Signature 7920 via
   CryptoBytes), keystore `hybrid_sign` + ed25519-component signing,
   `app_crypto!(hybrid, GRANDPA)` swap, `sign_message` funnel. Unit
   proof: sign/verify roundtrip through LocalKeystore, justification
@@ -77,13 +77,41 @@ bounds signatures by `Clone + Eq` only — no size assumptions.
   channel cert, active-authority-set, chain-spec seeding, session-key
   decode), D7 cap raise, runtime type re-plumb, lineage pallet mock/tests
   to hybrid. RISC-V runtime build MUST pass (never-skip rule).
-- **P3 — star proof + reset**: fresh genesis (wire break = the sanctioned
-  reset), 3-validator star: finality through set changes with hybrid
-  votes, justification sizes measured on the wire, catch-up after a
-  restarted node (exercises the raised cap), equivocation + canary
-  submission with hybrid proofs, era rollover key destruction (node-side
-  deletion of the retired hybrid secret; F3 sealing hook stubbed), warp
-  sync across ≥2 set changes. Then lab deployment decision.
+- **P3 — star proof + reset**: DONE 2026-07-05 (**at parameter set
+  128f**, before the 128s re-cut — see §5),
+  `scripts/star-scenarios/pq-finality-01-hybrid-lifecycle.sh` on a live
+  5-validator star + observer (lab-fast). PROVEN green: (1) hybrid
+  genesis finality — hybrid votes carry consensus from block 0; (2)
+  justification size on the wire — 69054-byte (128f) / 86306-byte (128f,
+  5-set) stored set-change justification read via `chain_getBlock`; (3)
+  live rotation + the retired-key reaper destroying the retired hybrid
+  secret while sparing the live successor (fast-chain destruction, F3
+  seal-hook stubbed); (4) hybrid canary accepted via in-runtime verify,
+  reported by a non-validator; (5) catch-up past the old 1 MiB cap after
+  a node restart, no size errors (the D7 raise, live). The 128s re-cut
+  (§5) is mechanical (parameter swap; unit + ACVP-KAT + pallet-grandpa
+  equivocation + RISC-V-release all green) and preserves the consensus
+  mechanism; a confirming star re-run at 128s is recommended but not yet
+  done.
+
+  Two findings surfaced by the run, both recorded:
+  - **Node-config: validators must run `--pool-type single-state`.** The
+    default fork-aware txpool's combined essential task (a 5-way
+    `tokio::select` over listener/revalidation/import-sink/dropped-monitor/
+    metrics) tears the node down if any sub-stream ends, and does so
+    reproducibly ~15 min into sustained hybrid gossip (17 KB sigs ≈ 100x
+    classical GRANDPA bandwidth). Single-state has no such combined-select
+    and rides the load through the full lifecycle. This is a real
+    mainnet concern — fork-aware would crashloop validators under hybrid
+    load — and a candidate for the node default, flagged for decision.
+  - **Warp sync is blocked by Sassafras, orthogonal to PQ.** A warping
+    observer fails at target-block import
+    (`SassafrasApi::current_epoch: UnknownBlock`) upstream of any GRANDPA
+    warp proof, because warp skips the ancestor blocks carrying epoch
+    descriptors. Hybrid-justification-over-warp is therefore unproven
+    in-lab pending Sassafras warp-target support (its own workstream); it
+    is NOT a pq-finality defect. Scenario phase 6 records this as a NOTE
+    and only fails if the Sassafras blocker is absent.
 
 ## 3. Landmine list (from the survey; fix in P2)
 
@@ -110,3 +138,40 @@ Sassafras/bandersnatch untouched. Account signatures (RostroSignature)
 untouched. Justification persistence grows ~270× per artifact but is
 written once per 512 blocks (~1 KB/block amortized, accepted in the
 scheme decision).
+
+## 5. Scheme re-cut: 128f → 128s (2026-07-05, post-P3)
+
+P3 proved the mechanism at **SLH-DSA-SHA2-128f**. The user then flagged
+that mainnet validator count is likely ~700 (not the ≤32 the sizing
+assumed), where the non-aggregatable hash-based signature bloats
+justifications. Measured on-box (`rostro-hybrid-sig/tests/param_bench.rs`,
+run `--release --ignored --nocapture`):
+
+| set | sig | sign | verify | just @700 (full) | verify-all @700 |
+|---|---|---|---|---|---|
+| 128f | 17088 B | 8 ms | 0.47 ms | ~11.8 MiB | ~330 ms |
+| **128s** | **7856 B** | 170 ms | **0.17 ms** | **~5.4 MiB** | **~120 ms** |
+| 192s | 16224 B | 476 ms | 0.40 ms | ~11.2 MiB | ~280 ms |
+
+**128s chosen.** A justification carries one signature per validator and
+every node verifies all of them, so size + verify speed are the
+bottlenecks; per-validator signing (once per 6 s slot) is slack. 128s
+halves the size and verifies ~2.7x faster, paid for entirely by slower
+signing (170 ms, 2.8% of a slot). 192s is strictly worse for our profile
+except NIST security category (3 vs 1); category 1 (~2^128) is accepted.
+
+**Bonus — parity-scale-codec vendor REVERTED.** At 128f the hybrid vote
+(17152 B) exceeded parity-scale-codec's 16 KiB `decode_vec_chunked`
+element ceiling, forcing the P2 vendor patch. At 128s the vote is 7920 B,
+back under the ceiling, so the vendor + `[patch.crates-io]` entry were
+removed and the workspace uses registry `parity-scale-codec 3.7.5`
+unmodified. One fewer vendored crate to carry.
+
+**Still open at ~700-1000 scale** (not solved by 128s alone): the D7
+notification cap (4 MiB) must rise to ~16 MiB, and even 128s is ~5.4 MiB
+per justification. If that is still too heavy, the remaining levers are
+committee finality (a signing subset), recursive-proof compression of the
+justification (constant size, dovetails with the execution-proof
+direction), or ML-DSA-65 (~2.3x smaller than 128s but re-couples finality
+to the transport/keyring lattice family). Deferred decision; 128s is the
+right floor for hash-based assumption diversity.

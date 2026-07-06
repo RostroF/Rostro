@@ -30,8 +30,8 @@ mod benchmarks {
 	fn check_equivocation_proof(x: Linear<0, 1>) {
 		// NOTE: regenerated with `tests::generate_benchmark_equivocation_blob`
 		// (run with --ignored) whenever the authority signature scheme
-		// changes. Hybrid (ed25519 + SLH-DSA-SHA2-128f) proofs are ~34 KB —
-		// two votes at 17152 bytes each — so the fixture lives in a file.
+		// changes. Hybrid (ed25519 + SLH-DSA-SHA2-128s) proofs are ~16 KB —
+		// two votes at 7920 bytes each — so the fixture lives in a file.
 		const EQUIVOCATION_PROOF_BLOB: &[u8] =
 			include_bytes!("benchmarking_equivocation_proof.bin");
 

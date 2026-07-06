@@ -3,7 +3,7 @@
 
 //! # rostro-hybrid-sig
 //!
-//! ed25519 + SLH-DSA-SHA2-128f hybrid signature for Rostro finality votes
+//! ed25519 + SLH-DSA-SHA2-128s hybrid signature for Rostro finality votes
 //! (docs/CONSENSUS-KEY-LIFECYCLE.md, workstream 2 / pq-finality-v0).
 //!
 //! A finality justification is the one signature artifact verified years
@@ -15,12 +15,16 @@
 //! ed25519 AND the hash-based SLH-DSA at once; a break of the younger
 //! scheme alone changes nothing.
 //!
-//! Parameter set: **SLH-DSA-SHA2-128f** (FIPS 205 final). Chosen stateless
-//! on purpose: key-evolving/stateful schemes (XMSS-style) are ~6x smaller
-//! but carry the state-reuse grenade, which stays operator-hostile until
-//! the F4 hardware watermark exists. Fat and safe wins v0: 32-byte public
-//! key, 17088-byte signature, fast-variant signing (the `f` set) inside
-//! the vote budget.
+//! Parameter set: **SLH-DSA-SHA2-128s** (FIPS 205 final). Stateless on
+//! purpose (no key-evolution state grenade until the F4 hardware
+//! watermark exists). The **`s` (small) variant** is chosen over `f`
+//! deliberately for validator SCALE: a finality justification carries one
+//! signature PER validator and is verified by EVERY node, so signature
+//! size and verify speed are the bottlenecks while per-validator signing
+//! (once per slot) is the slack. Measured (see tests/param_bench.rs):
+//! `s` sig 7856 B vs `f` 17088 B (~2.2x smaller) and verify ~0.17 ms vs
+//! ~0.47 ms (~2.7x faster), paid for by slower signing (~170 ms vs ~8 ms,
+//! trivially inside a 6 s slot). 32-byte public key, 7856-byte signature.
 //!
 //! ## Domain separation
 //!
@@ -58,7 +62,7 @@ use alloc::vec::Vec;
 use ed25519_dalek::Signer as _;
 use hkdf::Hkdf;
 use sha2::Sha256;
-use slh_dsa::Sha2_128f;
+use slh_dsa::Sha2_128s;
 
 /// ed25519 public-key length in bytes (RFC 8032).
 pub const ED25519_PK_BYTES: usize = 32;
@@ -69,7 +73,7 @@ pub const ED25519_SK_BYTES: usize = 32;
 /// SLH-DSA-SHA2-128f public-key length in bytes (FIPS 205, table 2).
 pub const SLH_PK_BYTES: usize = 32;
 /// SLH-DSA-SHA2-128f signature length in bytes (FIPS 205, table 2).
-pub const SLH_SIG_BYTES: usize = 17088;
+pub const SLH_SIG_BYTES: usize = 7856;
 /// SLH-DSA-SHA2-128f secret-key length in bytes (FIPS 205, table 2).
 pub const SLH_SK_BYTES: usize = 64;
 
@@ -137,7 +141,7 @@ fn ed25519_preimage(domain: &[u8], msg: &[u8]) -> Result<Vec<u8>, HybridSigError
 #[derive(Clone)]
 pub struct HybridSigningKey {
 	ed: ed25519_dalek::SigningKey,
-	slh: slh_dsa::SigningKey<Sha2_128f>,
+	slh: slh_dsa::SigningKey<Sha2_128s>,
 }
 
 impl HybridSigningKey {
@@ -225,7 +229,7 @@ impl HybridSigningKey {
 #[derive(Clone)]
 pub struct HybridVerifyingKey {
 	ed: ed25519_dalek::VerifyingKey,
-	slh: slh_dsa::VerifyingKey<Sha2_128f>,
+	slh: slh_dsa::VerifyingKey<Sha2_128s>,
 }
 
 impl HybridVerifyingKey {
@@ -280,11 +284,11 @@ impl HybridVerifyingKey {
 #[derive(Clone)]
 pub struct HybridSignature {
 	ed: ed25519_dalek::Signature,
-	slh: slh_dsa::Signature<Sha2_128f>,
+	slh: slh_dsa::Signature<Sha2_128s>,
 }
 
 impl HybridSignature {
-	/// Decode from `ed25519 sig (64) || SLH-DSA sig (17088)`.
+	/// Decode from `ed25519 sig (64) || SLH-DSA sig (7856)`.
 	pub fn from_bytes(bytes: &[u8]) -> Result<Self, HybridSigError> {
 		if bytes.len() != HYBRID_SIG_BYTES {
 			return Err(HybridSigError::BadLength);
@@ -296,7 +300,7 @@ impl HybridSignature {
 		Ok(Self { ed: ed25519_dalek::Signature::from_bytes(&ed_sig), slh })
 	}
 
-	/// Encode as `ed25519 sig (64) || SLH-DSA sig (17088)`.
+	/// Encode as `ed25519 sig (64) || SLH-DSA sig (7856)`.
 	pub fn to_vec(&self) -> Vec<u8> {
 		let mut out = Vec::with_capacity(HYBRID_SIG_BYTES);
 		out.extend_from_slice(&self.ed.to_bytes());

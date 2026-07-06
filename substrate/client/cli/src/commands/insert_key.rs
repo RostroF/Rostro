@@ -68,7 +68,19 @@ impl InsertKeyCmd {
 
 		let (keystore, public) = match self.keystore_params.keystore_config(&config_dir)? {
 			KeystoreConfig::Path { path, password } => {
-				let public = with_crypto_scheme!(self.scheme, to_vec(&suri, password.clone()))?;
+				// The hybrid consensus scheme has no MultiSigner identity,
+				// so it bypasses the generic scheme macro.
+				let public: Vec<u8> = if matches!(self.scheme, CryptoScheme::RostroHybrid) {
+					use sp_core::{crypto::ByteArray as _, Pair as _};
+					utils::pair_from_suri::<sp_core::rostro_hybrid::Pair>(
+						&suri,
+						password.clone(),
+					)?
+					.public()
+					.to_raw_vec()
+				} else {
+					with_crypto_scheme!(self.scheme, to_vec(&suri, password.clone()))?
+				};
 				let keystore: KeystorePtr = LocalKeystore::open(path, password)?.into();
 				(keystore, public)
 			},

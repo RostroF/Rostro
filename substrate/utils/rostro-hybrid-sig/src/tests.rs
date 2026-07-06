@@ -26,7 +26,7 @@ fn wire_sizes_pinned() {
 	let (sk, vk) = keypair();
 	let sig = sk.sign(FINALITY_VOTE_DOMAIN, b"m").unwrap();
 	assert_eq!(sig.to_vec().len(), HYBRID_SIG_BYTES);
-	assert_eq!(HYBRID_SIG_BYTES, 17152);
+	assert_eq!(HYBRID_SIG_BYTES, 7920);
 	assert_eq!(vk.to_vec().len(), HYBRID_PK_BYTES);
 	assert_eq!(HYBRID_PK_BYTES, 64);
 	assert_eq!(sk.to_vec().len(), HYBRID_SK_BYTES);

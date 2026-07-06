@@ -36,7 +36,7 @@ pub const CRYPTO_ID: CryptoTypeId = CryptoTypeId(*b"rhyb");
 /// The byte length of a public key: ed25519 (32) || SLH-DSA-SHA2-128f (32).
 pub const PUBLIC_KEY_SERIALIZED_SIZE: usize = rostro_hybrid_sig::HYBRID_PK_BYTES;
 
-/// The byte length of a signature: ed25519 (64) || SLH-DSA-SHA2-128f (17088).
+/// The byte length of a signature: ed25519 (64) || SLH-DSA-SHA2-128s (7856).
 pub const SIGNATURE_SERIALIZED_SIZE: usize = rostro_hybrid_sig::HYBRID_SIG_BYTES;
 
 /// The domain every signature from this scheme is framed under. The
@@ -225,7 +225,7 @@ mod tests {
 	#[test]
 	fn sizes_pinned() {
 		assert_eq!(PUBLIC_KEY_SERIALIZED_SIZE, 64);
-		assert_eq!(SIGNATURE_SERIALIZED_SIZE, 17152);
+		assert_eq!(SIGNATURE_SERIALIZED_SIZE, 7920);
 		let pair = Pair::from_seed(&[9u8; 32]);
 		let public = pair.public();
 		let public_bytes: &[u8] = public.as_ref();

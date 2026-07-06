@@ -2,14 +2,14 @@
 // Copyright (C) 2026 Rostro Foundation contributors
 
 //! NIST ACVP known-answer tests for the vendored `slh-dsa` crate,
-//! SLH-DSA-SHA2-128f only — the parameter set Rostro ships. The vendored
+//! SLH-DSA-SHA2-128s only — the parameter set Rostro ships. The vendored
 //! tarball's in-crate ACVP sample covers other parameter sets; this file
 //! plus the vectors under `tests/acvp/` close that gap (see
 //! `substrate/external/slh-dsa/VENDOR.md`).
 //!
 //! Vector provenance: <https://github.com/usnistgov/ACVP-Server>
 //! `gen-val/json-files/SLH-DSA-{keyGen,sigGen,sigVer}-FIPS205/internalProjection.json`,
-//! fetched 2026-07-05, filtered verbatim to the `SLH-DSA-SHA2-128f` test
+//! fetched 2026-07-05, filtered verbatim to the `SLH-DSA-SHA2-128s` test
 //! groups (whole-group JSON subset, individual vectors untouched).
 //!
 //! Coverage note (no silent skips): the sigGen file carries 6 groups and
@@ -22,7 +22,7 @@
 #![allow(non_snake_case)]
 
 use serde::Deserialize;
-use slh_dsa::{Sha2_128f, Signature, SigningKey, VerifyingKey};
+use slh_dsa::{Sha2_128s, Signature, SigningKey, VerifyingKey};
 
 #[derive(Deserialize)]
 #[serde(transparent)]
@@ -92,15 +92,15 @@ struct TestFile<G> {
 }
 
 #[test]
-fn acvp_keygen_sha2_128f() {
+fn acvp_keygen_sha2_128s() {
 	let file: TestFile<KeyGenGroup> = serde_json::from_str(include_str!(
-		"acvp/SLH-DSA-keyGen-FIPS205.sha2-128f.json"
+		"acvp/SLH-DSA-keyGen-FIPS205.sha2-128s.json"
 	))
 	.unwrap();
 	assert_eq!(file.test_groups.len(), 1);
 	let mut cases = 0;
 	for t in &file.test_groups[0].tests {
-		let sk = SigningKey::<Sha2_128f>::slh_keygen_internal(
+		let sk = SigningKey::<Sha2_128s>::slh_keygen_internal(
 			&t.sk_seed.data,
 			&t.sk_prf.data,
 			&t.pk_seed.data,
@@ -115,9 +115,9 @@ fn acvp_keygen_sha2_128f() {
 }
 
 #[test]
-fn acvp_siggen_sha2_128f() {
+fn acvp_siggen_sha2_128s() {
 	let file: TestFile<SigGenGroup> = serde_json::from_str(include_str!(
-		"acvp/SLH-DSA-sigGen-FIPS205.sha2-128f.json"
+		"acvp/SLH-DSA-sigGen-FIPS205.sha2-128s.json"
 	))
 	.unwrap();
 	assert_eq!(file.test_groups.len(), 6);
@@ -129,7 +129,7 @@ fn acvp_siggen_sha2_128f() {
 		}
 		ran += 1;
 		for t in &g.tests {
-			let sk = SigningKey::<Sha2_128f>::try_from(t.sk.data.as_slice()).unwrap();
+			let sk = SigningKey::<Sha2_128s>::try_from(t.sk.data.as_slice()).unwrap();
 			let opt_rand = if g.deterministic {
 				None
 			} else {
@@ -155,9 +155,9 @@ fn acvp_siggen_sha2_128f() {
 }
 
 #[test]
-fn acvp_sigver_sha2_128f() {
+fn acvp_sigver_sha2_128s() {
 	let file: TestFile<SigVerGroup> = serde_json::from_str(include_str!(
-		"acvp/SLH-DSA-sigVer-FIPS205.sha2-128f.json"
+		"acvp/SLH-DSA-sigVer-FIPS205.sha2-128s.json"
 	))
 	.unwrap();
 	assert_eq!(file.test_groups.len(), 3);
@@ -171,9 +171,9 @@ fn acvp_sigver_sha2_128f() {
 		for t in &g.tests {
 			let verified = (|| -> Result<(), ()> {
 				let pk =
-					VerifyingKey::<Sha2_128f>::try_from(t.pk.data.as_slice()).map_err(|_| ())?;
+					VerifyingKey::<Sha2_128s>::try_from(t.pk.data.as_slice()).map_err(|_| ())?;
 				let sig =
-					Signature::<Sha2_128f>::try_from(t.signature.data.as_slice()).map_err(|_| ())?;
+					Signature::<Sha2_128s>::try_from(t.signature.data.as_slice()).map_err(|_| ())?;
 				match g.signature_interface.as_str() {
 					"internal" => pk.slh_verify_internal(&t.message.data, &sig).map_err(|_| ()),
 					"external" => pk
