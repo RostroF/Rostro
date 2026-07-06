@@ -7818,7 +7818,6 @@ dependencies = [
  "sp-api",
  "sp-blockchain",
  "sp-consensus",
- "sp-consensus-beefy",
  "sp-core",
  "sp-mmr-primitives",
  "sp-runtime",
@@ -9348,60 +9347,6 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
-]
-
-[[package]]
-name = "pallet-beefy"
-version = "47.0.0"
-dependencies = [
- "frame-election-provider-support",
- "frame-support",
- "frame-system",
- "log",
- "pallet-authorship",
- "pallet-balances",
- "pallet-offences",
- "pallet-session",
- "pallet-staking",
- "pallet-staking-reward-curve",
- "pallet-timestamp",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-consensus-beefy",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-session",
- "sp-staking",
- "sp-state-machine",
- "sp-tracing",
-]
-
-[[package]]
-name = "pallet-beefy-mmr"
-version = "47.0.0"
-dependencies = [
- "array-bytes 6.2.2",
- "binary-merkle-tree",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "pallet-balances",
- "pallet-beefy",
- "pallet-mmr",
- "pallet-session",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-api",
- "sp-consensus-beefy",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-staking",
- "sp-state-machine",
 ]
 
 [[package]]
@@ -12466,66 +12411,6 @@ dependencies = [
  "sp-core",
  "sp-keyring",
  "sp-keystore",
- "sp-runtime",
- "substrate-test-runtime-client",
- "thiserror 1.0.65",
- "tokio",
-]
-
-[[package]]
-name = "rc-consensus-beefy"
-version = "35.0.0"
-dependencies = [
- "array-bytes 6.2.2",
- "async-channel 1.9.0",
- "async-trait",
- "futures",
- "log",
- "parity-scale-codec",
- "parking_lot 0.12.3",
- "rc-block-builder",
- "rc-client-api",
- "rc-consensus",
- "rc-network",
- "rc-network-gossip",
- "rc-network-sync",
- "rc-network-test",
- "rc-network-types",
- "rc-utils",
- "serde",
- "sp-api",
- "sp-application-crypto",
- "sp-arithmetic",
- "sp-blockchain",
- "sp-consensus",
- "sp-consensus-beefy",
- "sp-core",
- "sp-keystore",
- "sp-mmr-primitives",
- "sp-runtime",
- "sp-tracing",
- "substrate-prometheus-endpoint",
- "substrate-test-runtime-client",
- "thiserror 1.0.65",
- "tokio",
- "wasm-timer",
-]
-
-[[package]]
-name = "rc-consensus-beefy-rpc"
-version = "35.0.0"
-dependencies = [
- "futures",
- "jsonrpsee",
- "log",
- "parity-scale-codec",
- "parking_lot 0.12.3",
- "rc-consensus-beefy",
- "rc-rpc",
- "serde",
- "sp-application-crypto",
- "sp-consensus-beefy",
- "sp-core",
  "sp-runtime",
  "substrate-test-runtime-client",
  "thiserror 1.0.65",
@@ -16341,27 +16226,6 @@ dependencies = [
  "sp-inherents",
  "sp-runtime",
  "sp-timestamp",
-]
-
-[[package]]
-name = "sp-consensus-beefy"
-version = "29.0.0"
-dependencies = [
- "array-bytes 6.2.2",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-api",
- "sp-application-crypto",
- "sp-core",
- "sp-crypto-hashing 0.1.0",
- "sp-io",
- "sp-keystore",
- "sp-mmr-primitives",
- "sp-runtime",
- "sp-weights",
- "strum 0.26.3",
- "w3f-bls",
 ]
 
 [[package]]
