@@ -445,7 +445,7 @@ array-bytes = { version = "6.2.2", default-features = false }
 arrayvec = { version = "0.7.4" }
 assert_cmd = { version = "2.0.14" }
 assert_matches = { version = "1.5.0" }
-async-channel = { version = "1.8.0" }
+async-channel = { version = "2.3.0" }
 
 async-trait = { version = "0.1.88" }
 asynchronous-codec = { version = "0.6" }
