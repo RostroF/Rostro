@@ -407,6 +407,102 @@ fn parallel_scaling_unshared() {
 	}
 }
 
+/// Third discriminator: ONE reused instance per thread (`reset_memory`
+/// between calls) instead of a cold instantiate per call — the guest
+/// memory buffers stay cache-warm per core. This is exactly what
+/// executor-side instance pooling would do. Plateau lifts => the DRAM
+/// traffic is per-call instance churn; plateau stays => inherent
+/// execution traffic (predecode stream + state walk).
+#[test]
+#[ignore = "requires SUBSTRATE_RUNTIME_TARGET=riscv to build gemini-runtime as PVM"]
+fn parallel_scaling_reused_instance() {
+	use polkavm::{BackendKind, CallError, Config, Engine, Module, ModuleConfig, Reg};
+	use std::sync::{Arc, Barrier};
+
+	let blob = gemini_runtime::WASM_BINARY.expect("riscv blob");
+	const METHOD: &str = "TaggedTransactionQueue_validate_transaction";
+
+	let txs: Arc<Vec<Vec<u8>>> = Arc::new(
+		(0..N)
+			.map(|nonce| {
+				(TransactionSource::External, signed_transfer(nonce), genesis_hash()).encode()
+			})
+			.collect(),
+	);
+
+	let mut one_thread_rate = 0f64;
+	for threads in [1usize, 2, 4, 8] {
+		let barrier = Arc::new(Barrier::new(threads + 1));
+		let handles: Vec<_> = (0..threads)
+			.map(|_| {
+				let txs = Arc::clone(&txs);
+				let barrier = Arc::clone(&barrier);
+				std::thread::spawn(move || {
+					// Own engine + module per thread (mirrors the
+					// unshared test), ONE instance reused across calls.
+					let mut config = Config::from_env().unwrap_or_else(|_| Config::new());
+					config.set_allow_experimental(true);
+					config.set_backend(Some(BackendKind::Interpreter));
+					let engine = Engine::new(&config).expect("engine");
+					let module = Module::new(&engine, &ModuleConfig::new(), blob.to_vec().into())
+						.expect("module");
+					let mut linker = polkavm::Linker::<(), String>::new();
+					rostro_executor::register_substrate_host_functions::<
+						(),
+						sp_io::SubstrateHostFunctions,
+					>(&mut linker)
+					.expect("host fns");
+					let mut instance =
+						linker.instantiate_pre(&module).expect("pre").instantiate().expect("inst");
+					let pc = module
+						.exports()
+						.find(|e| e.symbol().as_bytes() == METHOD.as_bytes())
+						.expect("export")
+						.program_counter();
+					let heap_base = module.memory_map().heap_base();
+
+					let mut ext = test_externalities();
+					let mut ext = ext.ext();
+
+					barrier.wait();
+					for tx in txs.iter() {
+						let len = tx.len() as u32;
+						instance.reset_memory().expect("reset");
+						instance.sbrk(len).expect("sbrk");
+						instance.write_memory(heap_base, tx).expect("write input");
+						let run: Result<(), CallError<String>> =
+							sp_externalities::set_and_run_with_externalities(&mut ext, || {
+								instance.call_typed::<(u32, u32)>(&mut (), pc, (heap_base, len))
+							});
+						run.expect("guest call");
+						let packed = instance.reg(Reg::A0);
+						let ret = instance
+							.read_memory(packed as u32, (packed >> 32) as u32)
+							.expect("read result");
+						assert_valid(&ret);
+					}
+				})
+			})
+			.collect();
+
+		barrier.wait();
+		let t = Instant::now();
+		for handle in handles {
+			handle.join().expect("worker thread panicked");
+		}
+		let elapsed = t.elapsed();
+		let total = threads * N as usize;
+		let rate = total as f64 / elapsed.as_secs_f64();
+		if threads == 1 {
+			one_thread_rate = rate;
+		}
+		eprintln!(
+			"threads={threads}: {total} validates in {elapsed:?} → {rate:.0} tx/s aggregate ({:.2}x vs 1 thread)",
+			rate / one_thread_rate,
+		);
+	}
+}
+
 /// `TransactionValidity` = `Result<ValidTransaction, TransactionValidityError>`;
 /// SCALE `Ok` discriminant is `0`.
 fn assert_valid(ret: &[u8]) {
