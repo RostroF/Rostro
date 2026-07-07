@@ -43,8 +43,12 @@ pub const RUNTIME_LOG_TARGET: &str = "runtime::grandpa";
 pub const KEY_TYPE: sp_core::crypto::KeyTypeId = sp_application_crypto::key_types::GRANDPA;
 
 mod app {
-	use sp_application_crypto::{app_crypto, ed25519, key_types::GRANDPA};
-	app_crypto!(ed25519, GRANDPA);
+	// PQ cutover (docs/PQ-FINALITY.md): the GRANDPA authority scheme is the
+	// Rostro hybrid (ed25519 + SLH-DSA-SHA2-128s), both-must-verify. The
+	// key type stays `gran`; the key/signature lengths change (64B public,
+	// 7920B signature). Hard cutover: there is no ed25519-only vote path.
+	use sp_application_crypto::{app_crypto, key_types::GRANDPA, rostro_hybrid};
+	app_crypto!(rostro_hybrid, GRANDPA);
 }
 
 sp_application_crypto::with_pair! {
@@ -518,7 +522,7 @@ where
 
 	let encoded = localized_payload(round, set_id, &message);
 	let signature = keystore
-		.ed25519_sign(AuthorityId::ID, public.as_ref(), &encoded[..])
+		.rostro_hybrid_sign(AuthorityId::ID, public.as_ref(), &encoded[..])
 		.ok()
 		.flatten()?
 		.try_into()

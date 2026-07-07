@@ -51,10 +51,16 @@ pub fn get_account_id_from_seed(seed: &str) -> AccountId {
 	AccountPublic::from(pubkey).into_account()
 }
 
-/// Generate a Sassafras (bandersnatch) + GRANDPA (ed25519) authority
-/// pair from a seed string.
-pub fn authority_keys_from_seed(s: &str) -> (SassafrasId, GrandpaId) {
-	(get_from_seed::<SassafrasId>(s), get_from_seed::<GrandpaAuthorityId>(s))
+/// Generate the account + Sassafras (bandersnatch) + GRANDPA (hybrid
+/// ed25519+SLH-DSA) authority triple from a seed string. The account is the validator's
+/// on-chain identity: it owns the session-key registration (and is what
+/// `set_keys` rotation is authorized by).
+pub fn authority_keys_from_seed(s: &str) -> (AccountId, SassafrasId, GrandpaId) {
+	(
+		get_account_id_from_seed(s),
+		get_from_seed::<SassafrasId>(s),
+		get_from_seed::<GrandpaAuthorityId>(s),
+	)
 }
 
 fn dev_endowed_accounts() -> Vec<AccountId> {
@@ -219,7 +225,7 @@ fn read_initial_release_pubkey() -> Option<[u8; 32]> {
 /// `construct-dummy-ring-context` feature gate at genesis-build time
 /// — so we don't pass URS bytes here in v1.
 fn testnet_genesis(
-	initial_authorities: Vec<(SassafrasId, GrandpaId)>,
+	initial_authorities: Vec<(AccountId, SassafrasId, GrandpaId)>,
 	root_key: AccountId,
 	endowed_accounts: Vec<AccountId>,
 ) -> Value {
@@ -234,16 +240,31 @@ fn testnet_genesis(
 				.collect::<Vec<_>>(),
 		},
 		"sassafras": {
-			"authorities": initial_authorities.iter().map(|x| x.0.clone()).collect::<Vec<_>>(),
+			"authorities": initial_authorities.iter().map(|x| x.1.clone()).collect::<Vec<_>>(),
 			"epochConfig": EpochConfiguration {
 				redundancy_factor: 2,
 				attempts_number: 32,
 			},
 		},
-		"grandpa": {
-			"authorities": initial_authorities
+		// GRANDPA authorities flow through pallet_session's genesis (its
+		// `on_genesis_session` initializes pallet_grandpa), NOT the grandpa
+		// genesis config — session must own the (validator → GRANDPA key)
+		// mapping from block 0 or key rotation via `set_keys` is inert:
+		// with no session validators the session manager plans nothing and
+		// GRANDPA never schedules an authority-set change
+		// (docs/CONSENSUS-KEY-LIFECYCLE.md, workstream 1 P3). Sassafras
+		// stays genesis-direct: its key is not in `SessionKeys` (separate
+		// lifecycle, separate future thread).
+		"session": {
+			"keys": initial_authorities
 				.iter()
-				.map(|x| (x.1.clone(), 1u64))
+				.map(|x| {
+					(
+						x.0.clone(),
+						x.0.clone(),
+						json!({ "grandpa": x.2.clone() }),
+					)
+				})
 				.collect::<Vec<_>>(),
 		},
 		"sudo": {

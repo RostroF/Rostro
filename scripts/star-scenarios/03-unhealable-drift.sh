@@ -66,11 +66,11 @@ for base in "$REPO_ROOT/.star/alice" "$REPO_ROOT/.star/charlie" "$REPO_ROOT/.sta
 done
 
 echo "injecting Sassafras keys..."
-"$NODE_BIN" insert-sassafras-key --suri //Alice   --base-path "$REPO_ROOT/.star/alice"   --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Bob     --base-path "$BOB_BASE"                --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Charlie --base-path "$REPO_ROOT/.star/charlie" --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Dave    --base-path "$REPO_ROOT/.star/dave"    --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Eve     --base-path "$REPO_ROOT/.star/eve"     --chain-id gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Alice   --base-path "$REPO_ROOT/.star/alice"   --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Bob     --base-path "$BOB_BASE"                --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Charlie --base-path "$REPO_ROOT/.star/charlie" --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Dave    --base-path "$REPO_ROOT/.star/dave"    --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Eve     --base-path "$REPO_ROOT/.star/eve"     --chain gemini-star
 
 ALICE_PEER_ID="12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"
 BOOTNODES_MULTIADDR="/ip4/127.0.0.1/tcp/30333/p2p/${ALICE_PEER_ID}"

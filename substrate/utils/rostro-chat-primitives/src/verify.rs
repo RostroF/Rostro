@@ -8,15 +8,30 @@
 //! - [`verify_sender`]: validates the sender's Ed25519 signature
 //!   over a recovered [`crate::envelope::UnsealedInner`] against
 //!   the message id observed in the outer envelope.
-//! - [`derive_share_mac_key`] + [`mac_share`] + [`verify_share_mac`]:
-//!   per-share MAC construction. Each XOR share is tagged with a
-//!   keyed-blake2 MAC, keyed by a per-message key derived from the
-//!   upper-layer session secret. A relay that flips bits in a share
-//!   produces a MAC mismatch that the recipient detects at fetch
-//!   time, identifying *which* share was tampered.
-//! - [`MacError`] / [`VerifyError`]: distinguishable error variants
-//!   so callers can route remediation (re-fetch the bad share, ban
-//!   the offending relay, etc.).
+//! - [`checksum_chunk`] + [`verify_chunk_checksum`]: per-chunk
+//!   descriptor-bound **integrity checksum** (a keyless blake2 hash).
+//!   Each chunk of a split message carries a checksum computed on the
+//!   sender's device over the chunk bytes AND the sender-authored
+//!   descriptor fields (message_id, pickup_key, share_index,
+//!   total_shares, expires_at). It exists to catch and LOCALIZE
+//!   accidental corruption — bit rot in a relay's RAM, a truncated
+//!   transfer, a mislabelled index — and tells the recipient *which*
+//!   chunk was mangled.
+//!
+//!   **This is a checksum, not a MAC.** It is keyless, so anyone
+//!   (including any relay) can recompute a valid checksum over
+//!   substituted bytes. It therefore provides NO protection against
+//!   an adversarial relay and is not a security boundary. Content
+//!   authenticity is owned entirely by the envelope's sealed-sender
+//!   AEAD + the sender's Ed25519 signature ([`verify_sender`]): a
+//!   tampered chunk can only ever cause a decrypt/verify failure
+//!   (denial), never accepted-forged content. See
+//!   docs/CHAT-SHARE-CHUNKING.md §4.3 for why a real (relay-
+//!   unforgeable) keyed MAC was deferred to the rotation-minted
+//!   keying path, and why availability lives in the bucket-
+//!   subscription replication scheme, not in client-side recovery.
+//! - [`ChecksumError`] / [`VerifyError`]: distinguishable error
+//!   variants so callers can localize a corrupt chunk.
 //!
 //! TTL checks live on [`crate::descriptor::ShareDescriptor`]
 //! directly (`is_expired`).
@@ -24,25 +39,19 @@
 use alloc::vec::Vec;
 use sp_crypto_hashing::blake2_256;
 
-use crate::descriptor::{MessageId, ShareIndex};
+use crate::descriptor::{MessageId, PickupKey, ShareIndex, UnixTimestamp};
 use crate::envelope::{build_sender_preimage, UnsealedInner};
 
-/// Length of a per-share MAC tag, in bytes. Blake2-256 output is 32 bytes.
-pub const MAC_TAG_LEN: usize = 32;
+/// Length of a per-chunk checksum, in bytes. Blake2-256 output is 32 bytes.
+pub const CHUNK_CHECKSUM_LEN: usize = 32;
 
-/// Per-share MAC key. Derived per-message from the upper-layer session
-/// secret via [`derive_share_mac_key`]; the same key MACs every share
-/// of a given message.
-pub type ShareMacKey = [u8; 32];
+/// Per-chunk integrity checksum (a keyless blake2 hash — NOT a MAC;
+/// see the module docs). Corruption detection + localization only.
+pub type ChunkChecksum = [u8; CHUNK_CHECKSUM_LEN];
 
-/// Per-share MAC tag.
-pub type ShareMacTag = [u8; MAC_TAG_LEN];
-
-/// Domain-separation tag for share-MAC-key derivation.
-pub const SHARE_MAC_KEY_DOMAIN: &[u8] = b"rostro/chat/share-mac-key/v1";
-
-/// Domain-separation tag for the share MAC itself.
-pub const SHARE_MAC_DOMAIN: &[u8] = b"rostro/chat/share-mac/v1";
+/// Domain-separation tag for the per-chunk checksum. Descriptor-bound
+/// (see [`checksum_chunk`]).
+pub const CHUNK_CHECKSUM_DOMAIN: &[u8] = b"rostro/chat/chunk-checksum/v1";
 
 /// Verification outcomes for a single [`UnsealedInner`] sender check.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,84 +65,87 @@ pub enum VerifyError {
 	SignatureInvalid,
 }
 
-/// MAC-check outcomes for a single share.
+/// Checksum-check outcome for a single chunk.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MacError {
-	/// Computed MAC for the share bytes + index does not match the
-	/// claimed tag. Indicates tampered share bytes, tampered index
-	/// (share-swap attack), or tampered tag.
-	TagMismatch,
+pub enum ChecksumError {
+	/// Computed checksum for the chunk bytes + bound descriptor
+	/// fields does not match the claimed checksum. Indicates
+	/// corrupted chunk bytes or a corrupted descriptor field (wrong
+	/// index, rewritten TTL/total, wrong pickup) — accidental or
+	/// adversarial. Either way the chunk is unusable; the recipient
+	/// falls back to a fresh poll (availability is the bucket-
+	/// subscription scheme's job, not this function's).
+	Mismatch,
 }
 
-/// Derive a per-message share-MAC key from an upper-layer session
-/// secret and the message id. The same key MACs every share of a
-/// given message; different messages produce different keys.
+/// Compute the descriptor-bound integrity checksum for a single
+/// chunk. Keyless (see module docs) — this is corruption detection,
+/// not authentication.
 ///
-/// `session_secret` is whatever the upper layer (MLS group epoch
-/// key, Double Ratchet message key, etc.) hands us — this crate
-/// does not own session state.
-///
-/// Layout:
+/// Layout hashed (fixed-width fields before the variable-length
+/// chunk bytes, so the preimage is unambiguous):
 ///
 /// ```text
-/// SHARE_MAC_KEY_DOMAIN || session_secret || message_id
+/// CHUNK_CHECKSUM_DOMAIN || message_id || pickup_key
+///   || share_index || total_shares || expires_at (u64 BE)
+///   || chunk_bytes
 /// ```
-pub fn derive_share_mac_key(
-	session_secret: &[u8; 32],
+///
+/// Binding the descriptor fields (not just bytes+index) means a
+/// checksum mismatch also catches accidental corruption of the
+/// index, total, expiry, or pickup — the sender authors both the
+/// descriptor and the checksum for free. `relay_pubkey` stays
+/// OUTSIDE the preimage: it is the distributing node's self-identity
+/// stamp, filled in per-relay, not sender-authored.
+pub fn checksum_chunk(
 	message_id: &MessageId,
-) -> ShareMacKey {
-	let mut input = Vec::with_capacity(SHARE_MAC_KEY_DOMAIN.len() + 32 + 32);
-	input.extend_from_slice(SHARE_MAC_KEY_DOMAIN);
-	input.extend_from_slice(session_secret);
-	input.extend_from_slice(&message_id.0);
-	blake2_256(&input)
-}
-
-/// Compute the MAC tag for a single share.
-///
-/// Layout signed:
-///
-/// ```text
-/// SHARE_MAC_DOMAIN || key || share_index || share_bytes
-/// ```
-///
-/// Including `share_index` in the preimage prevents share-swap
-/// attacks where a relay returns `share[i]`'s bytes when `share[j]`
-/// was asked for. The MAC binds bytes to their canonical position.
-pub fn mac_share(
-	key: &ShareMacKey,
-	share_bytes: &[u8],
+	pickup_key: &PickupKey,
 	share_index: ShareIndex,
-) -> ShareMacTag {
+	total_shares: u8,
+	expires_at_unix_ts: UnixTimestamp,
+	chunk_bytes: &[u8],
+) -> ChunkChecksum {
 	let mut input = Vec::with_capacity(
-		SHARE_MAC_DOMAIN.len() + 32 + 1 + share_bytes.len(),
+		CHUNK_CHECKSUM_DOMAIN.len() + 32 + 32 + 1 + 1 + 8 + chunk_bytes.len(),
 	);
-	input.extend_from_slice(SHARE_MAC_DOMAIN);
-	input.extend_from_slice(key);
+	input.extend_from_slice(CHUNK_CHECKSUM_DOMAIN);
+	input.extend_from_slice(&message_id.0);
+	input.extend_from_slice(&pickup_key.0);
 	input.push(share_index);
-	input.extend_from_slice(share_bytes);
+	input.push(total_shares);
+	input.extend_from_slice(&expires_at_unix_ts.to_be_bytes());
+	input.extend_from_slice(chunk_bytes);
 	blake2_256(&input)
 }
 
-/// Verify a claimed MAC tag against a share's bytes + index under
-/// `key`. Constant-time-ish comparison: blake2_256 itself is fast
-/// and the byte comparison short-circuits, but for 32-byte MACs the
-/// timing exposure is negligible.
+/// Verify a claimed checksum against a chunk's bytes + bound
+/// descriptor fields.
 ///
-/// Returns `Ok(())` on match, [`MacError::TagMismatch`] on any
-/// divergence (tampered bytes, tampered index, tampered tag, wrong
-/// key — all surface as the same outcome).
-pub fn verify_share_mac(
-	key: &ShareMacKey,
-	share_bytes: &[u8],
+/// Returns `Ok(())` on match, [`ChecksumError::Mismatch`] on any
+/// divergence. A pass means "not corrupted in transit/storage," NOT
+/// "authentic" — authenticity is the AEAD's job ([`verify_sender`]
+/// and the sealed-sender unseal downstream).
+pub fn verify_chunk_checksum(
+	message_id: &MessageId,
+	pickup_key: &PickupKey,
 	share_index: ShareIndex,
-	claimed_tag: &ShareMacTag,
-) -> Result<(), MacError> {
-	let computed = mac_share(key, share_bytes, share_index);
-	if &computed == claimed_tag {
+	total_shares: u8,
+	expires_at_unix_ts: UnixTimestamp,
+	chunk_bytes: &[u8],
+	claimed: &ChunkChecksum,
+) -> Result<(), ChecksumError> {
+	let computed = checksum_chunk(
+		message_id,
+		pickup_key,
+		share_index,
+		total_shares,
+		expires_at_unix_ts,
+		chunk_bytes,
+	);
+	if &computed == claimed {
 		Ok(())
 	} else {
-		Err(MacError::TagMismatch)
+		Err(ChecksumError::Mismatch)
 	}
 }
 
@@ -284,118 +296,155 @@ mod tests {
 		);
 	}
 
-	// ── share MAC primitives ──────────────────────────────────────
+	// ── chunk checksum primitives (keyless, descriptor-bound) ─────
 
-	const SAMPLE_SECRET: [u8; 32] = [0x42; 32];
+	use crate::descriptor::PickupKey;
 
-	#[test]
-	fn mac_honest_share_verifies() {
-		let key = derive_share_mac_key(&SAMPLE_SECRET, &MessageId([0xAA; 32]));
-		let bytes = vec![1, 2, 3, 4, 5];
-		let tag = mac_share(&key, &bytes, 0);
-		assert!(verify_share_mac(&key, &bytes, 0, &tag).is_ok());
+	const SAMPLE_EXPIRY: UnixTimestamp = 1_700_259_200;
+
+	fn sample_pickup() -> PickupKey {
+		PickupKey([0xBB; 32])
+	}
+
+	/// Convenience wrapper: checksum chunk `i` of `total` with the
+	/// sample message context.
+	fn ck(mid: &MessageId, bytes: &[u8], i: ShareIndex, total: u8) -> ChunkChecksum {
+		checksum_chunk(mid, &sample_pickup(), i, total, SAMPLE_EXPIRY, bytes)
+	}
+
+	fn check(
+		mid: &MessageId,
+		bytes: &[u8],
+		i: ShareIndex,
+		total: u8,
+		c: &ChunkChecksum,
+	) -> Result<(), ChecksumError> {
+		verify_chunk_checksum(mid, &sample_pickup(), i, total, SAMPLE_EXPIRY, bytes, c)
 	}
 
 	#[test]
-	fn mac_rejects_tampered_share_bytes() {
-		let key = derive_share_mac_key(&SAMPLE_SECRET, &MessageId([0xAA; 32]));
+	fn checksum_honest_chunk_verifies() {
+		let mid = MessageId([0xAA; 32]);
 		let bytes = vec![1, 2, 3, 4, 5];
-		let tag = mac_share(&key, &bytes, 0);
-		// Flip a byte; MAC fails.
-		let tampered = vec![1, 2, 3, 4, 99];
-		assert_eq!(
-			verify_share_mac(&key, &tampered, 0, &tag),
-			Err(MacError::TagMismatch),
-		);
+		let c = ck(&mid, &bytes, 0, 5);
+		assert!(check(&mid, &bytes, 0, 5, &c).is_ok());
 	}
 
 	#[test]
-	fn mac_rejects_share_swap() {
-		// Relay returns share[0]'s bytes when share[1] was asked for.
-		// The MAC binds bytes to position; index mismatch fails MAC.
-		let key = derive_share_mac_key(&SAMPLE_SECRET, &MessageId([0xAA; 32]));
+	fn checksum_catches_corrupted_bytes() {
+		let mid = MessageId([0xAA; 32]);
+		let bytes = vec![1, 2, 3, 4, 5];
+		let c = ck(&mid, &bytes, 0, 5);
+		let corrupted = vec![1, 2, 3, 4, 99];
+		assert_eq!(check(&mid, &corrupted, 0, 5, &c), Err(ChecksumError::Mismatch));
+	}
+
+	#[test]
+	fn checksum_catches_index_corruption() {
+		// A chunk delivered under the wrong index fails — the index is
+		// in the preimage.
+		let mid = MessageId([0xAA; 32]);
 		let bytes = vec![5, 6, 7, 8];
-		let tag_for_index_0 = mac_share(&key, &bytes, 0);
-		// Same bytes, claimed as share index 1: MAC fails.
-		assert_eq!(
-			verify_share_mac(&key, &bytes, 1, &tag_for_index_0),
-			Err(MacError::TagMismatch),
-		);
+		let c0 = ck(&mid, &bytes, 0, 5);
+		assert_eq!(check(&mid, &bytes, 1, 5, &c0), Err(ChecksumError::Mismatch));
 	}
 
 	#[test]
-	fn mac_rejects_tampered_tag() {
-		let key = derive_share_mac_key(&SAMPLE_SECRET, &MessageId([0xAA; 32]));
+	fn checksum_catches_total_corruption() {
+		let mid = MessageId([0xAA; 32]);
 		let bytes = vec![1, 2, 3];
-		let mut tag = mac_share(&key, &bytes, 0);
-		tag[0] ^= 0xFF;
-		assert_eq!(
-			verify_share_mac(&key, &bytes, 0, &tag),
-			Err(MacError::TagMismatch),
-		);
+		let c = ck(&mid, &bytes, 0, 5);
+		assert_eq!(check(&mid, &bytes, 0, 3, &c), Err(ChecksumError::Mismatch));
 	}
 
 	#[test]
-	fn mac_rejects_wrong_key() {
-		let key_a = derive_share_mac_key(&[0x01; 32], &MessageId([0xAA; 32]));
-		let key_b = derive_share_mac_key(&[0x02; 32], &MessageId([0xAA; 32]));
+	fn checksum_catches_expiry_corruption() {
+		let mid = MessageId([0xAA; 32]);
 		let bytes = vec![1, 2, 3];
-		let tag = mac_share(&key_a, &bytes, 0);
-		// Wrong session secret → wrong key → MAC fails.
+		let c = ck(&mid, &bytes, 0, 5);
 		assert_eq!(
-			verify_share_mac(&key_b, &bytes, 0, &tag),
-			Err(MacError::TagMismatch),
+			verify_chunk_checksum(
+				&mid,
+				&sample_pickup(),
+				0,
+				5,
+				SAMPLE_EXPIRY - 3600,
+				&bytes,
+				&c,
+			),
+			Err(ChecksumError::Mismatch),
 		);
 	}
 
 	#[test]
-	fn mac_key_differs_per_message() {
-		// Same session secret, different message_id → different MAC key.
-		// Prevents replaying a share from one message into a different
-		// message under the same session.
-		let k1 = derive_share_mac_key(&SAMPLE_SECRET, &MessageId([0x01; 32]));
-		let k2 = derive_share_mac_key(&SAMPLE_SECRET, &MessageId([0x02; 32]));
-		assert_ne!(k1, k2);
+	fn checksum_catches_pickup_corruption() {
+		let mid = MessageId([0xAA; 32]);
+		let bytes = vec![1, 2, 3];
+		let c = ck(&mid, &bytes, 0, 5);
+		assert_eq!(
+			verify_chunk_checksum(
+				&mid,
+				&PickupKey([0xCC; 32]),
+				0,
+				5,
+				SAMPLE_EXPIRY,
+				&bytes,
+				&c,
+			),
+			Err(ChecksumError::Mismatch),
+		);
 	}
 
 	#[test]
-	fn mac_key_differs_per_session() {
-		// Same message_id, different session secret → different MAC key.
-		let k1 = derive_share_mac_key(&[0x01; 32], &MessageId([0xAA; 32]));
-		let k2 = derive_share_mac_key(&[0x02; 32], &MessageId([0xAA; 32]));
-		assert_ne!(k1, k2);
+	fn checksum_catches_corrupted_checksum_field() {
+		let mid = MessageId([0xAA; 32]);
+		let bytes = vec![1, 2, 3];
+		let mut c = ck(&mid, &bytes, 0, 5);
+		c[0] ^= 0xFF;
+		assert_eq!(check(&mid, &bytes, 0, 5, &c), Err(ChecksumError::Mismatch));
 	}
 
 	#[test]
-	fn mac_is_deterministic() {
-		// blake2 is deterministic; same inputs → same MAC. Test
-		// pins this so a future refactor that introduces randomness
-		// (it shouldn't!) breaks the test.
-		let key = derive_share_mac_key(&SAMPLE_SECRET, &MessageId([0xAA; 32]));
+	fn checksum_differs_per_message() {
+		// Different message_id → different checksum for identical bytes,
+		// so a chunk can't be silently reused across messages.
+		let bytes = vec![1, 2, 3];
+		let c1 = ck(&MessageId([0x01; 32]), &bytes, 0, 5);
+		let c2 = ck(&MessageId([0x02; 32]), &bytes, 0, 5);
+		assert_ne!(c1, c2);
+	}
+
+	#[test]
+	fn checksum_is_deterministic() {
+		let mid = MessageId([0xAA; 32]);
 		let bytes = vec![1, 2, 3, 4, 5];
-		let t1 = mac_share(&key, &bytes, 0);
-		let t2 = mac_share(&key, &bytes, 0);
-		assert_eq!(t1, t2);
+		assert_eq!(ck(&mid, &bytes, 0, 5), ck(&mid, &bytes, 0, 5));
 	}
 
 	#[test]
-	fn mac_empty_share_verifies() {
-		// MAC of an empty share is well-defined; verifies cleanly.
-		let key = derive_share_mac_key(&SAMPLE_SECRET, &MessageId([0xAA; 32]));
-		let tag = mac_share(&key, &[], 0);
-		assert!(verify_share_mac(&key, &[], 0, &tag).is_ok());
+	fn checksum_empty_chunk_verifies() {
+		// Empty trailing chunks (payload shorter than N) checksum cleanly.
+		let mid = MessageId([0xAA; 32]);
+		let c = ck(&mid, &[], 4, 5);
+		assert!(check(&mid, &[], 4, 5, &c).is_ok());
 	}
 
 	#[test]
-	fn mac_key_derivation_layout_is_stable() {
-		// Pin output against accidental refactors. A change here
-		// breaks every previously-MAC'd share.
-		let key = derive_share_mac_key(&[0x42; 32], &MessageId([0x55; 32]));
-		// Recompute by hand to assert the formula didn't change.
-		let mut input = Vec::with_capacity(SHARE_MAC_KEY_DOMAIN.len() + 32 + 32);
-		input.extend_from_slice(SHARE_MAC_KEY_DOMAIN);
-		input.extend_from_slice(&[0x42; 32]);
-		input.extend_from_slice(&[0x55; 32]);
-		assert_eq!(key, blake2_256(&input));
+	fn checksum_preimage_layout_is_stable() {
+		// Pin the keyless preimage: domain || message_id || pickup_key
+		// || index || total || expiry BE || bytes.
+		let mid = MessageId([0x55; 32]);
+		let bytes = vec![9, 8, 7];
+		let c = ck(&mid, &bytes, 2, 5);
+
+		let mut input = Vec::new();
+		input.extend_from_slice(CHUNK_CHECKSUM_DOMAIN);
+		input.extend_from_slice(&mid.0);
+		input.extend_from_slice(&sample_pickup().0);
+		input.push(2);
+		input.push(5);
+		input.extend_from_slice(&SAMPLE_EXPIRY.to_be_bytes());
+		input.extend_from_slice(&bytes);
+		assert_eq!(c, blake2_256(&input));
 	}
 }

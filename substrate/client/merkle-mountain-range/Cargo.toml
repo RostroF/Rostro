@@ -22,7 +22,6 @@ rc-offchain = { default-features = true, workspace = true }
 sp-api = { default-features = true, workspace = true }
 sp-blockchain = { default-features = true, workspace = true }
 sp-consensus = { default-features = true, workspace = true }
-sp-consensus-beefy = { default-features = true, workspace = true }
 sp-core = { default-features = true, workspace = true }
 sp-mmr-primitives = { default-features = true, workspace = true }
 sp-runtime = { default-features = true, workspace = true }

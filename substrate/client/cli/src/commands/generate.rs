@@ -53,6 +53,13 @@ pub struct GenerateCmd {
 impl GenerateCmd {
 	/// Run the command
 	pub fn run(&self) -> Result<(), Error> {
+		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
+			return Err(crate::Error::Input(
+				"rostro-hybrid is a consensus-key scheme with no account identity; \
+				 pass --scheme ed25519 or --scheme sr25519 for account keys"
+					.into(),
+			));
+		}
 		let words = match self.words {
 			Some(words_count) if [12, 15, 18, 21, 24].contains(&words_count) => Ok(words_count),
 			Some(_) => Err(Error::Input(
@@ -81,7 +88,7 @@ mod tests {
 
 	#[test]
 	fn generate() {
-		let generate = GenerateCmd::parse_from(&["generate", "--password", "12345"]);
+		let generate = GenerateCmd::parse_from(&["generate", "--scheme", "sr25519", "--password", "12345"]);
 		assert!(generate.run().is_ok())
 	}
 }

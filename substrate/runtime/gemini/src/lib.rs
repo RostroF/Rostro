@@ -68,8 +68,9 @@ use sp_runtime::{
 		BlakeTwo256, Block as BlockT, ConvertInto, IdentifyAccount, NumberFor, Verify,
 	},
 	transaction_validity::{TransactionSource, TransactionValidity},
-	ApplyExtrinsicResult, DispatchError,
+	ApplyExtrinsicResult,
 };
+use pallet_session::historical as pallet_session_historical;
 use rostro_multi_key::{RostroSignature, RostroSigner};
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
@@ -78,7 +79,7 @@ use sp_version::RuntimeVersion;
 pub use frame_support::{
 	construct_runtime, derive_impl, parameter_types,
 	traits::{
-		ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, FindAuthor, KeyOwnerProofSystem,
+		ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, FindAuthor, Get, KeyOwnerProofSystem,
 		Randomness, VariantCountOf,
 	},
 	weights::{
@@ -190,8 +191,12 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	authoring_version: 1,
 	// Bumped per forkless set_code upgrade — Substrate requires strict
 	// increase. 101 = first live upgrade (dev chain, 2026-07-02);
-	// 102 = first 3-node lab-cluster upgrade (2026-07-02).
-	spec_version: 102,
+	// 102 = first 3-node lab-cluster upgrade (2026-07-02);
+	// 103 = consensus-key lifecycle workstream 1 (session rotation,
+	// key lineage, offences; docs/CONSENSUS-KEY-LIFECYCLE.md);
+	// 104 = history anchor (dual-hash sealing of session-boundary
+	// headers under Keccak-512).
+	spec_version: 104,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -261,11 +266,30 @@ impl pallet_sassafras::Config for Runtime {
 }
 
 // ─── pallet_session ────────────────────────────────────────────────────────
-// Required as `pallet_grandpa::Config` supertrait. No periodic rotation —
-// the validator set is fixed for the testbed lifetime.
+// Sessions rotate every 4h. The validator SET stays fixed until NPoS staking
+// lands (the key-lineage pallet re-feeds the roster each session), but session
+// KEYS registered via `set_keys` activate at the next session boundary and
+// GRANDPA schedules the authority-set change (set_id advances every session).
+// KeyLineage vets every `set_keys` (a GRANDPA key is accepted exactly once in
+// chain history) and enforces the forced-rotation deadline by excluding
+// non-compliant validators from the next set.
+// docs/CONSENSUS-KEY-LIFECYCLE.md, workstream 1 P0+P1.
 
+#[cfg(not(feature = "lab-fast-lifecycle"))]
 parameter_types! {
-	pub const SessionPeriod: BlockNumber = u32::MAX;
+	pub const SessionPeriod: BlockNumber = 4 * 60 * 60 / 6; // 4h of 6s blocks
+	pub const SessionOffset: BlockNumber = 0;
+}
+
+// Scenario-only compression of the key lifecycle (star proofs; see
+// scripts/star-scenarios/). 25-block sessions make a rotation observable in
+// minutes instead of hours. NEVER ship a lab-fast binary to the lab cluster
+// or beyond: it changes consensus timing without changing spec_version, so
+// it would fork any chain whose peers run the canonical build. The star
+// scenarios run their own genesis with every node built the same way.
+#[cfg(feature = "lab-fast-lifecycle")]
+parameter_types! {
+	pub const SessionPeriod: BlockNumber = 25;
 	pub const SessionOffset: BlockNumber = 0;
 }
 
@@ -275,13 +299,91 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = ConvertInto;
 	type ShouldEndSession = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
-	type SessionManager = ();
+	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Runtime, KeyLineage>;
 	type SessionHandler = <opaque::SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = opaque::SessionKeys;
 	type DisablingStrategy = ();
 	type Currency = Balances;
 	type KeyDeposit = ConstU128<{ ROSTO / 10 }>;
 	type WeightInfo = ();
+	type KeyProvenance = KeyLineage;
+}
+
+// Session-historical: stores a merkle root of each session's (validator,
+// session-keys) mapping so equivocation key-ownership proofs stay checkable
+// after the session that the offence occurred in has ended.
+impl pallet_session::historical::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type FullIdentification = ();
+	type FullIdentificationOf = UnitIdentificationOf;
+}
+
+/// Unit identification: no economic data to attach until NPoS staking lands.
+pub struct UnitIdentificationOf;
+impl sp_runtime::traits::Convert<AccountId, Option<()>> for UnitIdentificationOf {
+	fn convert(_: AccountId) -> Option<()> {
+		Some(())
+	}
+}
+
+// ─── pallet_rostro_key_lineage ─────────────────────────────────────────────
+// Permanent GRANDPA-key lineage + fresh-key primitive + forced-rotation
+// deadline. As the inner session manager under `NoteHistoricalRoot` it
+// re-feeds the (filtered) roster every session, so the historical trie root
+// is regenerated from the keys actually active in that session — a rotated
+// GRANDPA key stays provable for exactly the sessions it was live — and every
+// session is marked `changed`, which is what makes GRANDPA schedule the
+// authority-set change that activates rotated keys.
+
+/// Era clock for key lineage: the zkpki 24h membership epoch, so "era" means
+/// one thing chain-wide. Under `lab-fast-lifecycle` (star scenarios only)
+/// the lineage era runs off a compressed 25-block clock instead, so the
+/// K=7-era forced-rotation deadline is provable inside a scenario window;
+/// the zkpki epoch itself is untouched (chat freshness keeps its real
+/// clock).
+pub struct MembershipEpochEra;
+impl Get<u32> for MembershipEpochEra {
+	fn get() -> u32 {
+		#[cfg(feature = "lab-fast-lifecycle")]
+		{
+			(frame_system::Pallet::<Runtime>::block_number() / 25) as u32
+		}
+		#[cfg(not(feature = "lab-fast-lifecycle"))]
+		{
+			zk_pki_pallet::Pallet::<Runtime>::current_epoch()
+		}
+	}
+}
+
+/// Live GRANDPA set id for lineage lifecycle points.
+pub struct GrandpaCurrentSetId;
+impl Get<u64> for GrandpaCurrentSetId {
+	fn get() -> u64 {
+		Grandpa::current_set_id()
+	}
+}
+
+impl pallet_rostro_key_lineage::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type CurrentEra = MembershipEpochEra;
+	type CurrentSetId = GrandpaCurrentSetId;
+	// Forced-rotation deadline K = 7 eras (7 days): a next-session GRANDPA
+	// key strictly older than this excludes its validator from the next set.
+	type MaxKeyAgeEras = ConstU32<7>;
+	type MaxValidators = ConstU32<32>;
+	type ReportCanary = Offences;
+}
+
+// ─── pallet_offences ───────────────────────────────────────────────────────
+// The offence sink for GRANDPA equivocations and retired-key canary reports.
+// Reports are stored permanently; the consequence is routed to KeyLineage
+// (disable-and-record, heal on fresh keys). Slash fractions flow through the
+// same seam and start meaning something when NPoS staking lands.
+
+impl pallet_offences::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type IdentificationTuple = pallet_session_historical::IdentificationTuple<Self>;
+	type OnOffenceHandler = KeyLineage;
 }
 
 // ─── pallet_grandpa ────────────────────────────────────────────────────────
@@ -291,9 +393,19 @@ impl pallet_grandpa::Config for Runtime {
 	type WeightInfo = ();
 	type MaxAuthorities = ConstU32<32>;
 	type MaxNominators = ConstU32<0>;
-	type MaxSetIdSessionEntries = ConstU64<0>;
-	type KeyOwnerProof = sp_core::Void;
-	type EquivocationReportSystem = ();
+	// set_id → session mappings retained for validating equivocation proofs
+	// against past authority sets. One entry per session: 2048 ≈ 341 days.
+	type MaxSetIdSessionEntries = ConstU64<2048>;
+	type KeyOwnerProof = sp_session::MembershipProof;
+	// Equivocation reports flow into pallet_offences and from there to
+	// KeyLineage's disable-and-record handler. Report validity window: the
+	// proof must land within ~3 sessions of the offence.
+	type EquivocationReportSystem =
+		pallet_grandpa::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+}
+
+parameter_types! {
+	pub ReportLongevity: u64 = 3 * SessionPeriod::get() as u64;
 }
 
 // ─── pallet_authorship ─────────────────────────────────────────────────────
@@ -394,6 +506,34 @@ impl pallet_rostro_rpc_method_policy::Config for Runtime {
 
 impl pallet_rostro_canonical_files::Config for Runtime {
 	type SecurityResponseTeamOrigin = frame_system::EnsureRoot<AccountId>;
+}
+
+// ─── pallet_rostro_history_anchor ──────────────────────────────────────────
+//
+// Dual-hash anchoring: the first block of each new session seals the
+// outgoing set's final header into a running Keccak-512 chain (bind while
+// fresh; forging anchored history requires simultaneous structural breaks
+// of BLAKE2-256 and Keccak).
+//
+// The era clock is the SESSION INDEX, deliberately not pallet-staking's
+// era: the epoch/era mechanism on this chain is orthogonal to NPoS, and
+// era-less deployments (the lab cluster) must anchor too. When NPoS lands,
+// staking eras are session multiples, so session-boundary seals subsume
+// era-boundary seals.
+
+/// Session index as the history-anchor era clock.
+pub struct SessionIndexProvider;
+impl Get<Option<u32>> for SessionIndexProvider {
+	fn get() -> Option<u32> {
+		Some(pallet_session::Pallet::<Runtime>::current_index())
+	}
+}
+
+impl pallet_rostro_history_anchor::Config for Runtime {
+	type EraProvider = SessionIndexProvider;
+	// Weight guard only, deliberately generous: a legitimate header
+	// failing this bound would make the scheduled block unbuildable.
+	type MaxHeaderBytes = ConstU32<65536>;
 }
 
 // ─── RNS — full wiring (registrar + registry + nft + price oracle ──────────
@@ -962,6 +1102,32 @@ construct_runtime!(
 		// personhood layer mime_wrap is orthogonal to (HW
 		// attestation), bound only via the SS58 holder.
 		Personhood: pallet_rostro_personhood,
+
+		// Session-historical — per-session key-ownership trie roots
+		// (equivocation proofs against past sessions). Appended at the
+		// END on purpose: pallet indices are positional and this runtime
+		// is live; inserting next to Session would renumber every pallet
+		// after it and break encoded-call compatibility.
+		Historical: pallet_session_historical,
+
+		// GRANDPA-key lineage: fresh-key primitive, permanent key records,
+		// forced-rotation deadline (docs/CONSENSUS-KEY-LIFECYCLE.md, P1).
+		// Appended at the END: pallet indices are positional and this
+		// runtime is live.
+		KeyLineage: pallet_rostro_key_lineage,
+
+		// Offence sink: permanent reports for equivocation + retired-key
+		// canary, consequence routed to KeyLineage (P2). Positional append,
+		// same as above.
+		Offences: pallet_offences,
+
+		// History anchor: dual-hash (Keccak-512) sealing of session-
+		// boundary headers. Positional append, same as above. Hook order
+		// matters and is satisfied here: Session's on_initialize rotates
+		// the session BEFORE this pallet's on_initialize latches the seal
+		// schedule, so the incoming set seals the outgoing set's final
+		// header in the rotation block itself.
+		HistoryAnchor: pallet_rostro_history_anchor,
 	}
 );
 
@@ -1127,20 +1293,29 @@ impl_runtime_apis! {
 		}
 
 		fn submit_report_equivocation_unsigned_extrinsic(
-			_equivocation_proof: sp_consensus_grandpa::EquivocationProof<
+			equivocation_proof: sp_consensus_grandpa::EquivocationProof<
 				<Block as BlockT>::Hash,
 				NumberFor<Block>,
 			>,
-			_key_owner_proof: sp_consensus_grandpa::OpaqueKeyOwnershipProof,
+			key_owner_proof: sp_consensus_grandpa::OpaqueKeyOwnershipProof,
 		) -> Option<()> {
-			None
+			let key_owner_proof = key_owner_proof.decode()?;
+			Grandpa::submit_unsigned_equivocation_report(equivocation_proof, key_owner_proof)
 		}
 
 		fn generate_key_ownership_proof(
 			_set_id: sp_consensus_grandpa::SetId,
-			_authority_id: sp_consensus_grandpa::AuthorityId,
+			authority_id: sp_consensus_grandpa::AuthorityId,
 		) -> Option<sp_consensus_grandpa::OpaqueKeyOwnershipProof> {
-			None
+			Historical::prove((sp_consensus_grandpa::KEY_TYPE, authority_id))
+				.map(|p| p.encode())
+				.map(sp_consensus_grandpa::OpaqueKeyOwnershipProof::new)
+		}
+	}
+
+	impl pallet_rostro_key_lineage::KeyLineageApi<Block> for Runtime {
+		fn is_retired_grandpa_key(key: sp_consensus_grandpa::AuthorityId) -> bool {
+			KeyLineage::is_retired(&key)
 		}
 	}
 

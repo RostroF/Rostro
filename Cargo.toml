@@ -28,8 +28,6 @@ members = [
 	"substrate/client/consensus/aura",
 	"substrate/client/consensus/babe",
 	"substrate/client/consensus/babe/rpc",
-	"substrate/client/consensus/beefy",
-	"substrate/client/consensus/beefy/rpc",
 	"substrate/client/consensus/common",
 	"substrate/client/consensus/epochs",
 	"substrate/client/consensus/grandpa",
@@ -102,8 +100,6 @@ members = [
 	"substrate/frame/bags-list/fuzzer",
 	"substrate/frame/bags-list/remote-tests",
 	"substrate/frame/balances",
-	"substrate/frame/beefy",
-	"substrate/frame/beefy-mmr",
 	"substrate/frame/benchmarking",
 	"substrate/frame/benchmarking/pov",
 	"substrate/frame/collective",
@@ -172,6 +168,8 @@ members = [
 	"substrate/frame/pallet-rostro-personhood",
 	"substrate/frame/rostro-canonical-files",
 	"substrate/frame/rostro-governance",
+	"substrate/frame/rostro-history-anchor",
+	"substrate/frame/rostro-key-lineage",
 	"substrate/frame/rostro-operator-state",
 	"substrate/frame/rostro-proof-anchor",
 	"substrate/frame/rostro-rpc-method-policy",
@@ -227,7 +225,6 @@ members = [
 	"substrate/primitives/blockchain",
 	"substrate/primitives/consensus/aura",
 	"substrate/primitives/consensus/babe",
-	"substrate/primitives/consensus/beefy",
 	"substrate/primitives/consensus/common",
 	"substrate/primitives/consensus/grandpa",
 	"substrate/primitives/consensus/pow",
@@ -309,7 +306,9 @@ members = [
 	"substrate/utils/rostro-client",
 	"substrate/utils/rostro-curve25519",
 	"substrate/utils/rostro-executor",
+	"substrate/utils/rostro-history-anchor-verify",
 	"substrate/utils/rostro-hybrid-kex",
+	"substrate/utils/rostro-hybrid-sig",
 	"substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip",
 	"substrate/utils/rostro-node-identity",
 	"substrate/utils/rostro-node-sandbox",
@@ -647,8 +646,6 @@ pallet-babe = { path = "substrate/frame/babe", default-features = false }
 pallet-bags-list = { path = "substrate/frame/bags-list", default-features = false }
 pallet-bags-list-remote-tests = { path = "substrate/frame/bags-list/remote-tests" }
 pallet-balances = { path = "substrate/frame/balances", default-features = false }
-pallet-beefy = { path = "substrate/frame/beefy", default-features = false }
-pallet-beefy-mmr = { path = "substrate/frame/beefy-mmr", default-features = false }
 pallet-collective = { path = "substrate/frame/collective", default-features = false }
 pallet-default-config-example = { path = "substrate/frame/examples/default-config", default-features = false }
 pallet-delegated-staking = { path = "substrate/frame/delegated-staking", default-features = false }
@@ -695,6 +692,8 @@ pallet-rns-resolvers = { path = "substrate/frame/rns-resolvers", default-feature
 pallet-rostro-bilateral-receipt = { path = "substrate/frame/rostro-bilateral-receipt", default-features = false }
 pallet-rostro-canonical-files = { path = "substrate/frame/rostro-canonical-files", default-features = false }
 pallet-rostro-governance = { path = "substrate/frame/rostro-governance", default-features = false }
+pallet-rostro-history-anchor = { path = "substrate/frame/rostro-history-anchor", default-features = false }
+pallet-rostro-key-lineage = { path = "substrate/frame/rostro-key-lineage", default-features = false }
 pallet-rostro-operator-state = { path = "substrate/frame/rostro-operator-state", default-features = false }
 pallet-rostro-personhood = { path = "substrate/frame/pallet-rostro-personhood", default-features = false }
 zk-pki-client = { path = "substrate/utils/zkpki-client", default-features = false }
@@ -709,6 +708,7 @@ rostro-curve25519 = { path = "substrate/utils/rostro-curve25519", default-featur
 rostro-executor = { path = "substrate/utils/rostro-executor", default-features = false }
 rostro-executor-fixture-storage-roundtrip = { path = "substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip", default-features = false }
 rostro-hybrid-kex = { path = "substrate/utils/rostro-hybrid-kex", default-features = false }
+rostro-hybrid-sig = { path = "substrate/utils/rostro-hybrid-sig", default-features = false }
 rostro-node-sandbox = { path = "substrate/utils/rostro-node-sandbox", default-features = false }
 rostro-poseidon-air = { path = "substrate/utils/rostro-poseidon-air", default-features = false }
 rostro-poseidon-sponge-air = { path = "substrate/utils/rostro-poseidon-sponge-air", default-features = false }
@@ -853,8 +853,6 @@ rc-consensus = { path = "substrate/client/consensus/common", default-features = 
 rc-consensus-aura = { path = "substrate/client/consensus/aura", default-features = false }
 rc-consensus-babe = { path = "substrate/client/consensus/babe", default-features = false }
 rc-consensus-babe-rpc = { path = "substrate/client/consensus/babe/rpc", default-features = false }
-rc-consensus-beefy = { path = "substrate/client/consensus/beefy", default-features = false }
-rc-consensus-beefy-rpc = { path = "substrate/client/consensus/beefy/rpc", default-features = false }
 rc-consensus-epochs = { path = "substrate/client/consensus/epochs", default-features = false }
 rc-consensus-grandpa = { path = "substrate/client/consensus/grandpa", default-features = false }
 rc-consensus-grandpa-rpc = { path = "substrate/client/consensus/grandpa/rpc", default-features = false }
@@ -919,6 +917,9 @@ sha2 = { version = "0.10.7", default-features = false }
 sha3 = { version = "0.10.0", default-features = false }
 shlex = { version = "1.3.0" }
 simple-mermaid = { version = "0.1.1" }
+# Vendored at substrate/external/slh-dsa/ — see its VENDOR.md for sync policy.
+# SHA2-128f ACVP KATs live in rostro-hybrid-sig (in-crate ACVP sample skips that set).
+slh-dsa = { path = "substrate/external/slh-dsa", default-features = false, features = ["alloc"] }
 slotmap = { version = "1.0" }
 smallvec = { version = "1.11.0", default-features = false }
 soketto = { version = "0.8.0" }
@@ -938,7 +939,6 @@ sp-blockchain = { path = "substrate/primitives/blockchain", default-features = f
 sp-consensus = { path = "substrate/primitives/consensus/common", default-features = false }
 sp-consensus-aura = { path = "substrate/primitives/consensus/aura", default-features = false }
 sp-consensus-babe = { path = "substrate/primitives/consensus/babe", default-features = false }
-sp-consensus-beefy = { path = "substrate/primitives/consensus/beefy", default-features = false }
 sp-consensus-grandpa = { path = "substrate/primitives/consensus/grandpa", default-features = false }
 sp-consensus-pow = { path = "substrate/primitives/consensus/pow", default-features = false }
 sp-consensus-sassafras = { path = "substrate/primitives/consensus/sassafras", default-features = false }
@@ -1112,6 +1112,7 @@ integer-sqrt = { opt-level = 3 }
 libsecp256k1 = { opt-level = 3 }
 ml-kem = { opt-level = 3 }
 module-lattice = { opt-level = 3 }
+slh-dsa = { opt-level = 3 }
 num-bigint = { opt-level = 3 }
 parking_lot = { opt-level = 3 }
 polkavm-linker = { opt-level = 3 }

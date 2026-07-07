@@ -56,7 +56,7 @@
 //! ## Replacement for `TODO(B6b)`
 //!
 //! This module closes the `TODO(B6b)` markers in
-//! `chat_stripe_protocol.rs` and `chat_fetch_protocol.rs`.
+//! `chat_chunk_protocol.rs` and `chat_fetch_protocol.rs`.
 
 use rc_network::PeerId;
 

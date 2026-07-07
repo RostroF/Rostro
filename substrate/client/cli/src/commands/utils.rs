@@ -287,14 +287,21 @@ macro_rules! with_crypto_scheme {
 		$method:ident<$($generics:ty),*>( $( $params:expr ),* $(,)?) $(,)?
 	) => {
 		match $scheme {
-			$crate::CryptoScheme::Ecdsa => {
-				$method::<sp_core::ecdsa::Pair, $($generics),*>($($params),*)
-			}
 			$crate::CryptoScheme::Sr25519 => {
 				$method::<sp_core::sr25519::Pair, $($generics),*>($($params),*)
 			}
 			$crate::CryptoScheme::Ed25519 => {
 				$method::<sp_core::ed25519::Pair, $($generics),*>($($params),*)
+			}
+			// The hybrid consensus scheme has no account-space identity
+			// (MultiSigner stays classical on purpose), so generic key
+			// commands cannot route through this macro with it. Commands
+			// that support it (`key insert`) special-case it BEFORE the
+			// macro; every other command guards with a clean error.
+			$crate::CryptoScheme::RostroHybrid => {
+				unreachable!(
+					"rostro-hybrid must be handled or rejected before with_crypto_scheme!"
+				)
 			}
 		}
 	};

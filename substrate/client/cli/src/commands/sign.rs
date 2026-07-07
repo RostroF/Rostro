@@ -51,6 +51,13 @@ pub struct SignCmd {
 impl SignCmd {
 	/// Run the command
 	pub fn run(&self) -> error::Result<()> {
+		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
+			return Err(crate::Error::Input(
+				"rostro-hybrid is a consensus-key scheme with no account identity; \
+				 pass --scheme ed25519 or --scheme sr25519 for account keys"
+					.into(),
+			));
+		}
 		let sig = self.sign(|| std::io::stdin().lock())?;
 		std::io::stdout().lock().write_all(sig.as_bytes())?;
 		Ok(())
@@ -93,6 +100,8 @@ mod test {
 	fn sign_arg() {
 		let cmd = SignCmd::parse_from(&[
 			"sign",
+			"--scheme",
+			"sr25519",
 			"--suri",
 			&SEED,
 			"--message",
@@ -111,6 +120,8 @@ mod test {
 	fn sign_stdin() {
 		let cmd = SignCmd::parse_from(&[
 			"sign",
+			"--scheme",
+			"sr25519",
 			"--suri",
 			SEED,
 			"--message",

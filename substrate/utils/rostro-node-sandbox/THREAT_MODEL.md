@@ -78,7 +78,7 @@ current build. F-numbers map to entries in
 | F-NEW-R3-03 | `validate_rw_paths_not_system_dirs` exact-string match bypassable via non-canonical paths (`/etc/`, `//etc`, `/etc/.`, `/etc/foo/..`); kernel `mount(2)` resolves to the same dentry, host's `/etc` gets `MS_NOEXEC` bind-remounted | **F-NEW-R3 closure (2026-05-25):** new `normalize_path_for_denylist` runs before the denylist compare. Normalizes trailing slashes / double slashes / `.` components via `Path::components().collect()`. Refuses `..` components outright with an F-NEW-R3-03 error pointing at the bypass shape (`..` can't be statically resolved without filesystem traversal, especially under symlinks). Parameterized regression tests cover `/etc/`, `//etc`, `/etc/.`, `/etc/./`, `/etc/foo/..`, `/var/lib/rostro/../../etc`. |
 | F-NEW-R4-01 | Operator passes `--sandbox-stdio-log /etc/sudoers.d/foo` (or `/etc/cron.d/*`, `/etc/profile.d/*.sh`, `/etc/ld.so.conf.d/*.conf`, `/etc/logrotate.d/*`, `/etc/systemd/*`, etc.); supervisor opens AS ROOT pre-Cannae and the pipe-relay reader appends child-controlled bytes verbatim. A compromised child emits attacker-controlled bytes that the host daemon parses as root on next invocation → root escalation. Surfaced by `/security-review` 2026-05-25. | **F-NEW-R4 closure (2026-05-25):** `validate_stdio_log_placement` extended with a tree-denylist (`path_is_under_stdio_system_prefix` against `STDIO_LOG_SYSTEM_PREFIX_DENYLIST` = `/etc`, `/usr`, `/bin`, `/sbin`, `/lib*`, `/boot`). Normalize the path first via `normalize_path_for_denylist` (R3-03 closure) so bypass-shapes like `/etc//sudoers.d/foo`, `/etc/./sudoers.d/foo` also catch. Stdio file open mode tightened from `0644` → `0600` so even if a future bypass lands the file in a daemon-scanned dir, non-root parsers can't read it. Permitted log targets: `/var/log/*`, `/srv/*`, `/opt/*`, `/tmp/*`, `/home/*`, `/dev/null`, or any path inside `--sandbox-rw-path`. 11 parameterized regression tests cover the denylist matrix + R3-03 bypass shapes. |
 | F-NEW-R4-02 | A compromised child emits raw `STATE_DELTA schema=1 swap_count=0 crashes=[]` on its stdout. The pipe-relay reader prepends `[child-stdio] ` and forwards to journald. The R3-01 docstring's documented operator recovery `grep STATE_DELTA \| tail -1` is un-anchored substring match — accepts the child-injected line, defeats reconstruction. Surfaced by `/security-review` 2026-05-25. | **F-NEW-R4 closure (2026-05-25):** two layers. **(1)** Anchored grep — all docstring references updated to `grep '^STATE_DELTA' \| tail -1`. Supervisor's own emissions go to stderr at column 0 via `eprintln!`; child lines start with `[child-stdio] `, never at column 0. **(2)** Defense-in-depth substring mangling — new `sanitize_state_delta_for_relay` in `main.rs` replaces every `STATE_DELTA` substring in child bytes with `STATE_DELTA_FROM_CHILD` BEFORE writing to supervisor stderr. The in-sandbox mirror file gets the verbatim bytes (operator-local grep convenience). Even an operator running ad-hoc un-anchored grep, OR a future change that drops the `[child-stdio] ` prefix, gets non-confusable lines. 5 unit tests cover the sanitization matrix. |
-| F-NEW-R4-FOLLOWUP-1 (host mount-NS containment) | `install_noexec_remount` previously mutated the HOST mount namespace, so any `--sandbox-rw-path` got a host-visible `MS_BIND \| MS_NOEXEC` remount. R2-04 + R3-03 denylists caught the worst operator-misconfig cases, but supply-chain compromise of `landlock` / `seccompiler` between cgroup-install and seccomp-install could have called `mount(MS_BIND \| MS_NOEXEC, "/")` host-globally. The 2026-05-25 audit empirically verified the host-visibility was live (WSL `/etc` was actually remounted). | **F-NEW-R4 closure (2026-05-25):** new `install_mount_ns` runs FIRST in the install sequence (cgroup → mount-NS → noexec → Landlock → seccomp). Calls `unshare(CLONE_NEWNS)` to give supervisor + descendants a private mount namespace, then `mount(NULL, "/", NULL, MS_REC\|MS_PRIVATE, NULL)` to disable upward mount-event propagation. Subsequent bind-remounts stay contained — the host's `/proc/self/mountinfo` shows no Cannae mounts. Diagnostic `ROSTRO_SKIP_MOUNT_NS=1` available. R2-04 + R3-03 demote to defense-in-depth. Operator UX caveat: `mount \| grep` on the host no longer shows Cannae mounts; use `nsenter -t <sup_pid> -m mount` to inspect from inside the NS. Empirically verified live: bind-remounted path NOT in host mount table after the fix. |
+| F-NEW-R4-FOLLOWUP-1 (host mount-NS containment) | `install_noexec_remount` previously mutated the HOST mount namespace, so any `--sandbox-rw-path` got a host-visible `MS_BIND \| MS_NOEXEC` remount. R2-04 + R3-03 denylists caught the worst operator-misconfig cases, but supply-chain compromise of `landlock` / `seccompiler` between cgroup-install and seccomp-install could have called `mount(MS_BIND \| MS_NOEXEC, "/")` host-globally. The 2026-05-25 audit empirically verified the host-visibility was live (WSL `/etc` was actually remounted). | **F-NEW-R4 closure (2026-05-25):** new `install_mount_ns` runs FIRST in the install sequence (cgroup → mount-NS → noexec → Landlock → seccomp). Calls `unshare(CLONE_NEWNS)` to give supervisor + descendants a private mount namespace, then `mount(NULL, "/", NULL, MS_REC\|MS_PRIVATE, NULL)` to disable upward mount-event propagation. Subsequent bind-remounts stay contained — the host's `/proc/self/mountinfo` shows no Cannae mounts. Diagnostic `ROSTRO_SKIP_MOUNT_NS=1` available **only in a `--features sandbox-diagnostics` build** (see §2.3; compiled out of canonical binaries). R2-04 + R3-03 demote to defense-in-depth. Operator UX caveat: `mount \| grep` on the host no longer shows Cannae mounts; use `nsenter -t <sup_pid> -m mount` to inspect from inside the NS. Empirically verified live: bind-remounted path NOT in host mount table after the fix. |
 | F-NEW-R4-FOLLOWUP-3 (cross-validator localhost RPC reach — lab-side stopgap) | Documented as `F-NEW-08` residual in earlier rounds: compromised validator-A on the same host as validator-B can `connect(127.0.0.1:9944)` to validator-B's RPC and call every "safe-by-default" method. Phase G's CAP_KILL drop closes cross-UID signal but not cross-UID localhost TCP. | **F-NEW-R4 closure (2026-05-25) — REPLACED by F-LAB-RT-03 (2026-05-26).** The original closure used `meta skuid != $CHILD_UID iif "lo" tcp dport $RPC_PORT drop` on the netfilter input hook. F-LAB-RT-03 found this is a no-op: `meta skuid` on input matches the SERVER socket's owner UID (the gemini-node's own UID), NOT the client's UID. Every connection to that socket therefore matched the accept rule; the drop rule never fired. Empirically confirmed: uid=1000 → 127.0.0.1:9944 → HTTP 200. See F-LAB-RT-03 row below for the working rule. |
 | F-LAB-RT-04 (jsonrpsee/soketto accepts unmasked client WebSocket frames) | RFC 6455 §5.1 violation: a WebSocket server MUST close the connection upon receiving an unmasked frame from the client. Upstream soketto 0.8.0 (jsonrpsee 0.24.10's WS dependency) silently accepts unmasked frames — the mask bit is parsed at `base.rs:416` but never enforced on the receive path. Sovereign-chain principle ([[feedback_sovereign_chain_vendored_is_ours]]): a CVE/RFC-violation in a crate Rostro ships is OUR issue, not upstream's. | **F-LAB-RT-04 closure (2026-05-26):** vendored soketto 0.8.0 into `substrate/external/soketto/`; patched `Receiver::receive` in `connection.rs:222-242` to check `self.mode.is_server() && !header.is_masked()` immediately after `receive_header()` and return new `Error::UnmaskedClientFrame` variant. Restores symmetry with the existing sender-side check that enforces client-frame masking. `[patch.crates-io]` entry in workspace Cargo.toml routes all downstream consumers (jsonrpsee-server, etc.) to the patched copy. Two new regression tests pin the behavior: `server_rejects_unmasked_client_frame` (RFC-violating bytes → Error::UnmaskedClientFrame), `server_accepts_masked_client_frame` (RFC-conforming bytes → Ok). Patched site carries `Rostro: F-LAB-RT-04 closure` comment so the next upstream-merge audit can locate + re-apply. |
 | F-LAB-RT-05 (hyper accepts requests with both Transfer-Encoding AND Content-Length) | RFC 7230 §3.3.3 rule 3 violation: a message with both `Transfer-Encoding` and `Content-Length` headers "ought to be handled as an error" — the classic HTTP request-smuggling primitive when a fronting proxy uses CL and a backend uses TE (or vice versa), allowing an attacker to smuggle one request inside another. Upstream hyper 1.6.0 silently prefers TE and drops CL via an `if is_te { continue }` short-circuit in `proto/h1/role.rs`. Sovereign-chain principle applies. | **F-LAB-RT-05 closure (2026-05-26):** vendored hyper 1.6.0 into `substrate/external/hyper/`; patched `Server::parse` header-loop in `proto/h1/role.rs:255-310` to reject hard with `Parse::content_length_invalid()` (which maps to 400 Bad Request) when both headers are present. Symmetric check: TE-arm rejects if `con_len.is_some()`; CL-arm rejects if `is_te`. Three existing upstream tests in `test_decoder_request` were codifying the vulnerable behavior (asserting TE silently wins over CL); flipped from `assert_eq!(parse(...).decode, CHUNKED)` to `parse_err(...)` so the regression coverage now confirms rejection. Patched sites carry `Rostro: F-LAB-RT-05 closure` comments. |
@@ -112,6 +112,12 @@ provides:
   EPERM (no `CAP_KILL`). Operator paths under `--sandbox-rw-path` must
   be owned by `--sandbox-child-uid:--sandbox-child-gid` or the child
   cannot read/write them after the drop.
+- **No privilege regain via exec.** `PR_SET_NO_NEW_PRIVS` is set
+  unconditionally at the top of `install()` (item 4b, 2026-07-07),
+  independent of whether Landlock/seccomp run. No `execve` after that
+  point — including the child's exec of gemini-node or any setuid binary
+  reachable on an RO path — can gain privilege via setuid/setgid bits or
+  file capabilities. Monotone and inherited across fork+exec.
 - **Filesystem scope.** Landlock denies *all* paths outside the union
   of `BASELINE_RO_PATHS` + `--sandbox-ro-path` + `--sandbox-rw-path` +
   the cgroup directory + cgroup root (with `RemoveDir`/`ReadDir` only,
@@ -123,10 +129,20 @@ provides:
   `MS_BIND | MS_NOEXEC` bind-remount on every `--sandbox-rw-path` at
   install time, so the kernel's mount layer rejects
   `mmap(PROT_EXEC, fd, …)` on any file under these paths — closes F05.
+  The Landlock ruleset is built at ABI v3 (item 2, 2026-07-07; floor is
+  kernel 6.6 / ABI v3, `BestEffort` degrades below): `Truncate` is granted
+  on RW paths but withheld from RO paths, so a writable-inode fd obtained
+  by reopening an RO-path file via `/proc/self/fd/N` can no longer be
+  `ftruncate`d (the RO-reopen leg of F13 — see §4). `Refer` is likewise
+  RW-only, so cross-directory rename/link out of an RO path is denied.
 - **Syscall surface.** ~60 specific syscalls allowed; everything else
   is `SIGKILL` via `SECCOMP_RET_KILL_PROCESS`. Argument-filtered for
   `mmap`, `mprotect`, `clone`, `clone3` (via stacked ENOSYS),
-  `socket`, `setsockopt`, `prctl`, `prlimit64`, `ioctl`.
+  `socket`, `setsockopt`, `prctl`, `prlimit64`, `ioctl`. **x86_64 only**:
+  on any other arch a canonical build has no allowlist and `install_seccomp`
+  fails closed — `install()` aborts and the supervisor exits rather than
+  run without the filter (item 4a, 2026-07-07). The deliberate
+  run-unfiltered path is `--unsafe-skip-sandbox`, never a silent default.
 - **W^X memory.** mmap arg filter rejects simultaneous
   `PROT_WRITE | PROT_EXEC`. JIT-flip pattern (write fill →
   `mprotect(PROT_READ | PROT_EXEC)`) is the only way to get
@@ -138,6 +154,37 @@ provides:
   `AF_UNIX`, and `AF_NETLINK + NETLINK_ROUTE` (for interface
   enumeration) reachable. AF_PACKET, AF_VSOCK, AF_BLUETOOTH, all
   other NETLINK protocols denied.
+
+### 2.3. Build-integrity guarantees (no diagnostic downgrade surface)
+
+The layer-skip env vars (`ROSTRO_SKIP_MOUNT_NS`, `ROSTRO_SKIP_NOEXEC`,
+`ROSTRO_SKIP_LANDLOCK`, `ROSTRO_SKIP_SECCOMP`) and the
+`ROSTRO_SECCOMP_ACTION=log` (log-and-**allow**, non-enforcing) seccomp
+mode are Phase-5 diagnostics that would let whoever controls the
+supervisor's launch environment weaken or disable a layer at start-up —
+not a compromised-child escape, but a launch-time downgrade surface.
+
+As of 2026-07-06 they live behind the crate's `sandbox-diagnostics`
+Cargo feature, which is **off** in the canonical feature set
+(`default = []`):
+
+- In a canonical build the skip helper compiles to a constant `false`
+  (the env vars are never read; every layer is unconditionally
+  installed) and `seccomp_default_action` returns `KillProcess`
+  unconditionally — the `Log` action does not exist in the compiled
+  binary. There is no runtime input that downgrades the envelope.
+- Building with `--features sandbox-diagnostics` changes the compiled
+  output and therefore the binary hash. Such a binary no longer matches
+  the on-chain canonical-files registry, so the canonical-files gate
+  quarantines the node until self-heal restores the canonical build.
+
+This makes "no diagnostic escape hatch on a networked validator" a
+consensus-enforced property rather than an operator-discipline one:
+enabling a hatch is a build-output change the network detects, not an
+env var an operator might set unnoticed. Diagnostics are for a
+hand-built, non-networked lab box only. Regression test
+`seccomp_default_action_is_always_kill_in_canonical_build` pins the
+canonical-build behavior.
 
 ## 3. Accepted by design
 
@@ -336,16 +383,20 @@ should set `umask 077` so newly-created files inherit restrictive
 modes by default. F-NEW-R4-V8's `O_NOFOLLOW` close on the state-file
 write path remains independent of this layer.
 
-An attacker who can obtain a writable-inode fd via a path Landlock
-doesn't deny (i.e., something in `--sandbox-rw-path`) can still
-truncate that file. The path scope means they cannot truncate host
-config files like `/etc/resolv.conf` — but they CAN truncate any
-file in `/opt/rostro/data` (validator state, keystore, RocksDB).
+RO-reopen leg closed (item 2, 2026-07-07). The Landlock ruleset now
+handles `Truncate` at ABI v3 and grants it only on RW paths, so an
+attacker who reopens an RO-path inode as writable via `/proc/self/fd/N`
+gets EACCES on `ftruncate` — the trick that let `fchmod`-style reopen
+attacks reach truncate on a read-only file no longer works.
 
-This is consistent with the threat model: the attacker can already
-write to those paths, so truncating them adds no privilege; it's
-just destruction within reach. Treated as in-scope vandalism, not
-escalation.
+What remains: `ftruncate` on a file that is genuinely inside
+`--sandbox-rw-path` (e.g. `/opt/rostro/data` — validator state, keystore,
+ParityDB). Landlock grants `Truncate` there because ParityDB legitimately
+truncates its own files, and there is no way to distinguish the node's
+truncate from an attacker's within the same inode set. This is consistent
+with the threat model: the attacker can already write to those paths, so
+truncating them adds no privilege; it's just destruction within reach.
+Treated as in-scope vandalism, not escalation.
 
 ### Supervisor state-file write under Cannae
 
@@ -411,7 +462,26 @@ the relevant section in the same PR. The `PHASE5_NOTES.md`
 red-team-follow-up tracker is the authoritative per-commit record;
 this doc is the user-facing summary.
 
-Last revised: 2026-05-26 (F-LAB-RT-04 + F-LAB-RT-05 close — vendored
+Last revised: 2026-07-07 (hardening round 2: (item 2) Landlock ruleset
+raised from ABI v1 to v3 — `Truncate` + `Refer` now RW-only, closing the
+RO-reopen leg of the F13 ftruncate residual (§4); network gating (v4)
+deliberately NOT used, F-NEW-08 stays on the address-aware nftables
+stopgap since Landlock net rules are port-keyed. (item 4a) non-x86_64
+`install_seccomp` now fails closed in canonical builds instead of running
+without a syscall filter; also fixed a latent bug where the crate did not
+compile on non-x86_64 Linux at all (`install_noexec_remount` lacked a
+non-x86 stub). (item 4b) `PR_SET_NO_NEW_PRIVS` set unconditionally at
+`install()` entry, independent of Landlock/seccomp.)
+
+Prior revision: 2026-07-06 (§2.3 added — the diagnostic escape hatches
+(`ROSTRO_SKIP_*` layer skips + `ROSTRO_SECCOMP_ACTION=log`) moved behind
+the `sandbox-diagnostics` Cargo feature, off in the canonical
+`default = []` set. Canonical builds compile the hatches out entirely, so
+enabling one changes the binary hash and the canonical-files gate
+quarantines the node. Turns "no downgrade surface on a networked
+validator" into a consensus-enforced property).
+
+Prior revision: 2026-05-26 (F-LAB-RT-04 + F-LAB-RT-05 close — vendored
 soketto 0.8.0 + hyper 1.6.0 into `substrate/external/` with surgical
 RFC-compliance patches. soketto's `Receiver::receive` now enforces
 RFC 6455 §5.1 server-side mask check; hyper's request parser now

@@ -297,6 +297,7 @@ impl Convert<u64, Option<u64>> for TestValidatorIdOf {
 pub(crate) const DISABLING_LIMIT_FACTOR: usize = 3;
 
 impl Config for Test {
+	type KeyProvenance = ();
 	type ShouldEndSession = TestShouldEndSession;
 	#[cfg(feature = "historical")]
 	type SessionManager = crate::historical::NoteHistoricalRoot<Test, TestSessionManager>;

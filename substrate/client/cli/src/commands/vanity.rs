@@ -51,6 +51,13 @@ pub struct VanityCmd {
 impl VanityCmd {
 	/// Run the command
 	pub fn run(&self) -> error::Result<()> {
+		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
+			return Err(crate::Error::Input(
+				"rostro-hybrid is a consensus-key scheme with no account identity; \
+				 pass --scheme ed25519 or --scheme sr25519 for account keys"
+					.into(),
+			));
+		}
 		let formatted_seed = with_crypto_scheme!(
 			self.crypto_scheme.scheme,
 			generate_key(
@@ -169,7 +176,7 @@ mod tests {
 
 	#[test]
 	fn vanity() {
-		let vanity = VanityCmd::parse_from(&["vanity", "--pattern", "j"]);
+		let vanity = VanityCmd::parse_from(&["vanity", "--scheme", "sr25519", "--pattern", "j"]);
 		assert!(vanity.run().is_ok());
 	}
 

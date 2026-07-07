@@ -78,28 +78,5 @@ pub enum Subcommand {
 	/// Db meta columns information.
 	ChainInfo(rc_cli::ChainInfoCmd),
 
-	/// Insert a Sassafras (bandersnatch) authority key into the local
-	/// keystore for the running node. `rc-cli`'s `key insert` only
-	/// supports ed25519/sr25519/ecdsa; bandersnatch (the Sassafras
-	/// authority scheme) needs this side path.
-	InsertSassafrasKey(InsertSassafrasKeyCmd),
-}
-
-/// Insert a bandersnatch authority key derived from a SURI seed
-/// directly into the keystore at `<base-path>/chains/<chain-id>/keystore/`.
-#[derive(Debug, clap::Parser)]
-pub struct InsertSassafrasKeyCmd {
-	/// Secret URI (e.g. `//Alice`).
-	#[arg(long, required = true)]
-	pub suri: String,
-
-	/// Base path of the running node's data directory. The key gets
-	/// written under `<base-path>/chains/<chain-spec-id>/keystore/`.
-	#[arg(long, required = true)]
-	pub base_path: std::path::PathBuf,
-
-	/// Chain spec identifier (matches the directory name under chains/).
-	#[arg(long, default_value = "gemini-local")]
-	pub chain_id: String,
 }
 

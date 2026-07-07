@@ -50,6 +50,13 @@ pub struct VerifyCmd {
 impl VerifyCmd {
 	/// Run the command
 	pub fn run(&self) -> error::Result<()> {
+		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
+			return Err(crate::Error::Input(
+				"rostro-hybrid is a consensus-key scheme with no account identity; \
+				 pass --scheme ed25519 or --scheme sr25519 for account keys"
+					.into(),
+			));
+		}
 		self.verify(|| std::io::stdin().lock())
 	}
 
@@ -107,14 +114,14 @@ mod test {
 	// Verify work with `--message` argument.
 	#[test]
 	fn verify_immediate() {
-		let cmd = VerifyCmd::parse_from(&["verify", SIG1, ALICE, "--message", "test message"]);
+		let cmd = VerifyCmd::parse_from(&["verify", "--scheme", "sr25519", SIG1, ALICE, "--message", "test message"]);
 		assert!(cmd.run().is_ok(), "Alice' signature should verify");
 	}
 
 	// Verify work without `--message` argument.
 	#[test]
 	fn verify_stdin() {
-		let cmd = VerifyCmd::parse_from(&["verify", SIG1, ALICE]);
+		let cmd = VerifyCmd::parse_from(&["verify", "--scheme", "sr25519", SIG1, ALICE]);
 		let message = "test message";
 		assert!(cmd.verify(|| message.as_bytes()).is_ok(), "Alice' signature should verify");
 	}
@@ -122,14 +129,14 @@ mod test {
 	// Verify work with `--message` argument for hex message.
 	#[test]
 	fn verify_immediate_hex() {
-		let cmd = VerifyCmd::parse_from(&["verify", SIG2, ALICE, "--message", "0xaabbcc", "--hex"]);
+		let cmd = VerifyCmd::parse_from(&["verify", "--scheme", "sr25519", SIG2, ALICE, "--message", "0xaabbcc", "--hex"]);
 		assert!(cmd.run().is_ok(), "Alice' signature should verify");
 	}
 
 	// Verify work without `--message` argument for hex message.
 	#[test]
 	fn verify_stdin_hex() {
-		let cmd = VerifyCmd::parse_from(&["verify", SIG2, ALICE, "--hex"]);
+		let cmd = VerifyCmd::parse_from(&["verify", "--scheme", "sr25519", SIG2, ALICE, "--hex"]);
 		assert!(cmd.verify(|| "0xaabbcc".as_bytes()).is_ok());
 		assert!(cmd.verify(|| "aabbcc".as_bytes()).is_ok());
 		assert!(cmd.verify(|| "0xaABBcC".as_bytes()).is_ok());

@@ -26,8 +26,8 @@ use log::{debug, error, info, warn};
 use rc_client_api::{Backend, FinalityNotification};
 use rc_offchain::OffchainDb;
 use sp_blockchain::CachedHeaderMetadata;
-use sp_consensus_beefy::MmrRootHash;
 use sp_core::offchain::{DbExternalities, StorageKind};
+use sp_core::H256 as MmrRootHash;
 use sp_mmr_primitives::{utils, utils::NodesUtils, MmrApi, NodeIndex};
 use sp_runtime::{
 	traits::{Block, Header, NumberFor, One},

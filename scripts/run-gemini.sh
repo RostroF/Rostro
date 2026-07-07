@@ -49,15 +49,15 @@ BOB_BASE="${REPO_ROOT}/.gemini/bob"
 mkdir -p "$ALICE_BASE" "$BOB_BASE"
 
 # Phase Star B8: gemini's Sassafras (bandersnatch) authority key isn't
-# injected by the stock `--alice` / `--bob` keyring flags — those only
-# cover sr25519/ed25519/ecdsa. Inject the bandersnatch keys via
-# gemini-node's `insert-sassafras-key` subcommand before launch. Safe
+# injected by the stock `--alice` / `--bob` keyring flags. Inject the
+# bandersnatch keys via `key insert --key-type sass` (scheme derived
+# from the key type) before launch. Safe
 # to re-run: keystore inserts are idempotent for the same SURI.
 echo "injecting Alice + Bob Sassafras (bandersnatch) keys..."
-"$NODE_BIN" insert-sassafras-key \
-	--suri //Alice --base-path "$ALICE_BASE" --chain-id gemini-local
-"$NODE_BIN" insert-sassafras-key \
-	--suri //Bob --base-path "$BOB_BASE" --chain-id gemini-local
+"$NODE_BIN" key insert --key-type sass \
+	--suri //Alice --base-path "$ALICE_BASE" --chain gemini-local
+"$NODE_BIN" key insert --key-type sass \
+	--suri //Bob --base-path "$BOB_BASE" --chain gemini-local
 
 # Common arguments. --no-mdns avoids cross-machine surprises during the
 # lab; we explicitly set the bootnodes multiaddr.

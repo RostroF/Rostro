@@ -41,7 +41,7 @@ use sp_runtime::traits::Block as BlockT;
 use crate::chat_admission::is_chat_admitted;
 use crate::validator_channel::SharedSessions;
 
-/// libp2p protocol name. Distinct from `/rostro/chat-stripe/1`,
+/// libp2p protocol name. Distinct from `/rostro/chat-chunk/1`,
 /// `/rostro/validator-channel/*`, and `/rostro/canonical-fetch-*`.
 pub const CHAT_FETCH_PROTOCOL_NAME: &str = "/rostro/chat-fetch/1";
 

@@ -75,6 +75,9 @@ pub struct InspectKeyCmd {
 impl InspectKeyCmd {
 	/// Run the command
 	pub fn run(&self) -> Result<(), Error> {
+		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
+			return self.run_rostro_hybrid();
+		}
 		let uri = utils::read_uri(self.uri.as_ref())?;
 		let password = self.keystore_params.read_password()?;
 
@@ -106,6 +109,31 @@ impl InspectKeyCmd {
 			);
 		}
 
+		Ok(())
+	}
+
+	/// Inspect a rostro-hybrid secret URI: print the master seed and the
+	/// 64-byte hybrid public (labels match the classical output so
+	/// tooling can awk either scheme). The hybrid scheme has no account
+	/// identity, so there is no SS58/account line, and `--public` /
+	/// `--expect-public` inspection is not supported for it.
+	fn run_rostro_hybrid(&self) -> Result<(), Error> {
+		if self.public || self.expect_public.is_some() {
+			return Err(crate::Error::Input(
+				"rostro-hybrid supports secret-URI inspection only (it has no \
+				 account identity to derive from a bare public key)"
+					.into(),
+			));
+		}
+		let uri = utils::read_uri(self.uri.as_ref())?;
+		let password = self.keystore_params.read_password()?;
+
+		use sp_core::{crypto::ByteArray as _, Pair as _};
+		let pair = utils::pair_from_suri::<sp_core::rostro_hybrid::Pair>(&uri, password)?;
+		let public = pair.public().to_raw_vec();
+		println!("Secret Key URI `{uri}` is a rostro-hybrid consensus key:");
+		println!("  Secret seed:       {}", array_bytes::bytes2hex("0x", pair.to_raw_vec()));
+		println!("  Public key (hex):  {}", array_bytes::bytes2hex("0x", public));
 		Ok(())
 	}
 }
@@ -161,10 +189,10 @@ mod tests {
 			"remember fiber forum demise paper uniform squirrel feel access exclude casual effort";
 		let seed = "0xad1fb77243b536b90cfe5f0d351ab1b1ac40e3890b41dc64f766ee56340cfca5";
 
-		let inspect = InspectKeyCmd::parse_from(&["inspect-key", words, "--password", "12345"]);
+		let inspect = InspectKeyCmd::parse_from(&["inspect-key", "--scheme", "sr25519", words, "--password", "12345"]);
 		assert!(inspect.run().is_ok());
 
-		let inspect = InspectKeyCmd::parse_from(&["inspect-key", seed]);
+		let inspect = InspectKeyCmd::parse_from(&["inspect-key", "--scheme", "sr25519", seed]);
 		assert!(inspect.run().is_ok());
 	}
 
@@ -172,7 +200,7 @@ mod tests {
 	fn inspect_public_key() {
 		let public = "0x12e76e0ae8ce41b6516cce52b3f23a08dcb4cfeed53c6ee8f5eb9f7367341069";
 
-		let inspect = InspectKeyCmd::parse_from(&["inspect-key", "--public", public]);
+		let inspect = InspectKeyCmd::parse_from(&["inspect-key", "--scheme", "sr25519", "--public", public]);
 		assert!(inspect.run().is_ok());
 	}
 
@@ -181,6 +209,8 @@ mod tests {
 		let check_cmd = |seed, expected_public, success| {
 			let inspect = InspectKeyCmd::parse_from(&[
 				"inspect-key",
+				"--scheme",
+				"sr25519",
 				"--expect-public",
 				expected_public,
 				seed,

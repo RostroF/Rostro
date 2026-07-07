@@ -22,7 +22,7 @@ use parking_lot::RwLock;
 use sp_application_crypto::{AppCrypto, AppPair, IsWrappedBy};
 use sp_core::{
 	crypto::{ByteArray, ExposeSecret, KeyTypeId, Pair as CorePair, SecretString, VrfSecret},
-	ecdsa, ed25519, sr25519,
+	ecdsa, ed25519, rostro_hybrid, sr25519,
 };
 use sp_keystore::{Error as TraitError, Keystore, KeystorePtr};
 use std::{
@@ -250,6 +250,43 @@ impl Keystore for LocalKeystore {
 		msg: &[u8],
 	) -> std::result::Result<Option<ed25519::Signature>, TraitError> {
 		self.sign::<ed25519::Pair>(key_type, public, msg)
+	}
+
+	fn rostro_hybrid_public_keys(&self, key_type: KeyTypeId) -> Vec<rostro_hybrid::Public> {
+		self.public_keys::<rostro_hybrid::Pair>(key_type)
+	}
+
+	fn rostro_hybrid_generate_new(
+		&self,
+		key_type: KeyTypeId,
+		seed: Option<&str>,
+	) -> std::result::Result<rostro_hybrid::Public, TraitError> {
+		self.generate_new::<rostro_hybrid::Pair>(key_type, seed)
+	}
+
+	fn rostro_hybrid_sign(
+		&self,
+		key_type: KeyTypeId,
+		public: &rostro_hybrid::Public,
+		msg: &[u8],
+	) -> std::result::Result<Option<rostro_hybrid::Signature>, TraitError> {
+		self.sign::<rostro_hybrid::Pair>(key_type, public, msg)
+	}
+
+	fn rostro_hybrid_sign_with_domain(
+		&self,
+		key_type: KeyTypeId,
+		public: &rostro_hybrid::Public,
+		domain: &[u8],
+		msg: &[u8],
+	) -> std::result::Result<Option<rostro_hybrid::Signature>, TraitError> {
+		match self.0.read().key_pair_by_type::<rostro_hybrid::Pair>(public, key_type)? {
+			Some(pair) => pair
+				.sign_with_domain(domain, msg)
+				.map(Some)
+				.ok_or_else(|| TraitError::ValidationError("refused hybrid signing domain".into())),
+			None => Ok(None),
+		}
 	}
 
 	fn ecdsa_public_keys(&self, key_type: KeyTypeId) -> Vec<ecdsa::Public> {
@@ -563,7 +600,23 @@ impl KeystoreInner {
 		};
 
 		if path.exists() {
-			let file = File::open(path)?;
+			let file = File::open(&path).map_err(|e| {
+				// The file exists (just checked) but could not be opened. This is
+				// almost always a permissions/ownership problem — e.g. a key
+				// inserted under a different uid, mode 0600, that this process
+				// cannot read. `has_keys` discards this error via `.ok()`, which
+				// otherwise makes an unreadable key indistinguishable from an
+				// absent one and can silently drop the node from a validator or
+				// GRANDPA voter set with no diagnostic anywhere. Log it loudly
+				// before propagating.
+				log::warn!(
+					target: "keystore",
+					"key file {} exists but could not be opened ({e}); the key will be \
+					 treated as absent — check the file's ownership and permissions",
+					path.display(),
+				);
+				e
+			})?;
 
 			serde_json::from_reader(&file).map_err(Into::into).map(Some)
 		} else {
@@ -808,6 +861,68 @@ mod tests {
 			.unwrap();
 
 		assert_eq!(key_pair.public(), store_key_pair.public());
+	}
+
+	#[test]
+	fn rostro_hybrid_keystore_roundtrip() {
+		use sp_core::testing::ROSTRO_HYBRID;
+
+		let temp_dir = TempDir::new().unwrap();
+		let store = LocalKeystore::open(temp_dir.path(), None).unwrap();
+
+		// Generate persisted (no-seed) hybrid key.
+		let public = store.rostro_hybrid_generate_new(ROSTRO_HYBRID, None).unwrap();
+		assert_eq!(store.rostro_hybrid_public_keys(ROSTRO_HYBRID), vec![public]);
+
+		// Sign through the keystore trait; verify with the sp-core scheme.
+		let msg = b"hybrid vote payload";
+		let sig = store.rostro_hybrid_sign(ROSTRO_HYBRID, &public, msg).unwrap().unwrap();
+		assert!(sp_core::rostro_hybrid::Pair::verify(&sig, msg, &public));
+
+		// Unknown key → None, not an error.
+		let other = sp_core::rostro_hybrid::Pair::generate().0.public();
+		assert!(store.rostro_hybrid_sign(ROSTRO_HYBRID, &other, msg).unwrap().is_none());
+
+		// Domain-framed signing: verifies under the same domain via the
+		// leaf crate, refuses the finality-vote scheme domain outright,
+		// and an unknown key is still None (checked before the domain).
+		const TEST_DOMAIN: &[u8] = b"rostro/test/keystore/v1";
+		let dsig = store
+			.rostro_hybrid_sign_with_domain(ROSTRO_HYBRID, &public, TEST_DOMAIN, msg)
+			.unwrap()
+			.unwrap();
+		let vk = rostro_hybrid_sig::HybridVerifyingKey::from_bytes(public.as_ref() as &[u8])
+			.unwrap();
+		let leaf_sig =
+			rostro_hybrid_sig::HybridSignature::from_bytes(dsig.as_ref() as &[u8]).unwrap();
+		assert!(vk.verify(TEST_DOMAIN, msg, &leaf_sig).is_ok());
+		assert!(store
+			.rostro_hybrid_sign_with_domain(
+				ROSTRO_HYBRID,
+				&public,
+				rostro_hybrid_sig::FINALITY_VOTE_DOMAIN,
+				msg,
+			)
+			.is_err());
+		assert!(store
+			.rostro_hybrid_sign_with_domain(ROSTRO_HYBRID, &other, TEST_DOMAIN, msg)
+			.unwrap()
+			.is_none());
+
+		// The key survives a keystore reopen (fresh scan of the same dir),
+		// and the reopened store signs identically (both components are
+		// deterministic).
+		drop(store);
+		let reopened = LocalKeystore::open(temp_dir.path(), None).unwrap();
+		assert_eq!(reopened.rostro_hybrid_public_keys(ROSTRO_HYBRID), vec![public]);
+		let sig2 = reopened.rostro_hybrid_sign(ROSTRO_HYBRID, &public, msg).unwrap().unwrap();
+		assert_eq!(sig, sig2);
+
+		// Seed-derived generation matches direct pair construction
+		// (the chain-spec //-path flow).
+		let seeded = reopened.rostro_hybrid_generate_new(ROSTRO_HYBRID, Some("//Alice")).unwrap();
+		let direct = sp_core::rostro_hybrid::Pair::from_string("//Alice", None).unwrap();
+		assert_eq!(seeded, direct.public());
 	}
 
 	#[test]

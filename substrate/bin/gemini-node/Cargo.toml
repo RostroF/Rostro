@@ -62,6 +62,7 @@ pallet-rns-registrar = { workspace = true, default-features = true }
 rns-types = { workspace = true, default-features = true }
 rns-runtime-api = { workspace = true, default-features = true }
 pallet-rostro-canonical-files = { workspace = true, default-features = true }
+pallet-rostro-history-anchor = { workspace = true, default-features = true }
 pallet-rostro-rpc-method-policy = { workspace = true, default-features = true }
 pallet-sassafras = { workspace = true, default-features = true }
 pallet-transaction-payment = { workspace = true, default-features = true }
@@ -132,6 +133,7 @@ rand = { workspace = true, default-features = true }
 # the OS RNG used during ephemeral keygen. (tokio is already a dep
 # above with default-features, which gives us rt + time.)
 rostro-validator-channel = { path = "../../utils/rostro-validator-channel" }
+pallet-rostro-key-lineage = { workspace = true, default-features = true }
 # ML-KEM-768 encap/decap + the hybrid combine for the v3 handshake
 # (docs/PQ-TRANSPORT.md). Same crate the wire format's sizes come from.
 rostro-hybrid-kex = { workspace = true, default-features = true }
@@ -156,6 +158,11 @@ substrate-build-script-utils = { workspace = true, default-features = true }
 
 [features]
 default = []
+
+# Forwarded to the runtime blob build (star scenarios only; see the
+# runtime's feature of the same name — never ship a lab-fast binary to a
+# real chain).
+lab-fast-lifecycle = ["gemini-runtime/lab-fast-lifecycle"]
 
 # Lab-only chat diagnostics. When OFF (the canonical release default),
 # every success-path chat auth/admission/delivery log statement is

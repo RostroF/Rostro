@@ -113,6 +113,7 @@ parameter_types! {
 }
 
 impl pallet_session::Config for Runtime {
+	type KeyProvenance = ();
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorId = AccountId;
 	type ValidatorIdOf = ConvertInto;

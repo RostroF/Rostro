@@ -8,13 +8,13 @@
 //! both the sender and the destination:
 //!
 //! ```text
-//! sender → GUARD → RELAY-2 → (existing stripe fan-out → bucket)
+//! sender → GUARD → RELAY-2 → (existing chunk fan-out → bucket)
 //! ```
 //!
 //! - **GUARD** sees the sender (its cert + IP) and the next hop, but
 //!   NOT the destination — the inner layer is sealed to relay-2.
-//! - **RELAY-2** sees the destination (the drop it injects into the
-//!   stripe layer) but NOT the sender — it only ever saw the guard hand
+//! - **RELAY-2** sees the destination (the drop it fans out to the
+//!   chunk layer) but NOT the sender — it only ever saw the guard hand
 //!   over an opaque blob.
 //!
 //! Relinking sender→destination requires the *specific* relays on the
@@ -72,8 +72,10 @@ use zeroize::Zeroize;
 
 /// Fixed plaintext size every drop is padded to at the `Deliver`
 /// layer, so all messages nest to a constant size regardless of length.
-/// Must exceed the largest realistic `SealedEnvelope + routing` drop;
-/// over-padding only costs bytes. (Open decision #3 in the Phase-4 doc.)
+/// Must exceed the largest realistic drop (a `PreparedBatch`: the
+/// chunks sum to the envelope size, plus ~42 bytes/chunk of descriptor
+/// + tag framing); over-padding only costs bytes. (Open decision #3 in
+/// the Phase-4 doc.)
 pub const FIXED_DROP_SIZE: usize = 4096;
 
 /// An opaque onion packet: a [`SealedOutput`] (random ephemeral pubkey
@@ -82,29 +84,14 @@ pub const FIXED_DROP_SIZE: usize = 4096;
 /// relay forwards to the next.
 pub type OnionPacket = SealedOutput;
 
-/// The chat application's `Deliver` drop: what the last relay needs to
-/// inject the message into the normal stripe-and-distribute path. The
-/// onion treats the drop as opaque bytes; this is the agreed encoding
-/// the sender writes and the last relay reads.
-///
-/// It carries the **pickup key** (the 32-byte bucket the relay shards to)
-/// alongside the recipient-sealed `SealedEnvelope` bytes (opaque to the
-/// relay). The sender derives the pickup key for *all* traffic — pairwise
-/// (`PickupKey::for_pairwise`) for normal DMs, `PickupKey::for_deaddrop`
-/// for dead drops — so the relay only ever sees an opaque 32-byte key and
-/// cannot distinguish the two. The relay does no key validation,
-/// conversion, or hashing; it just shards by these bytes. See
-/// `docs/DOTWAVE-CHAT-DEAD-DROPS.md`.
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct OnionDeliverPayload {
-	/// Sender-derived 32-byte pickup key (the stripe-and-distribute
-	/// bucket). Opaque to the relay — pairwise, group, and dead-drop keys
-	/// are all uniform blake2 outputs and indistinguishable here.
-	pub pickup_key: [u8; 32],
-	/// The recipient-sealed `SealedEnvelope`, SCALE-encoded. Opaque to
-	/// the relay — only the recipient can open it.
-	pub envelope_bytes: Vec<u8>,
-}
+// NOTE: the chat application's `Deliver` drop encoding is
+// `rostro_chat_primitives::chunk::PreparedBatch` (SCALE), carrying the
+// pickup key + message id + the sender-prepared, MAC-tagged chunks.
+// This crate deliberately does NOT define (or depend on) that type:
+// the onion treats the drop as opaque bytes, and the drop's shape is
+// the chat layer's contract. (The pre-chunk-cutover
+// `OnionDeliverPayload` wrapper lived here; deleted with the cutover,
+// docs/CHAT-SHARE-CHUNKING.md.)
 
 /// The result of peeling one layer — what a relay does next.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
@@ -113,8 +100,8 @@ pub enum OnionHop {
 	/// identity is `next_hop` (a raw ed25519 pubkey; the node layer
 	/// maps it to a peer to reach).
 	Forward { next_hop: [u8; 32], inner: OnionPacket },
-	/// Last hop: inject `drop` (the depadded SealedEnvelope + routing)
-	/// into the existing recipient/stripe path.
+	/// Last hop: hand `drop` (the depadded, opaque drop bytes — the
+	/// chat layer's `PreparedBatch` encoding) to the recipient path.
 	Deliver { drop: Vec<u8> },
 }
 

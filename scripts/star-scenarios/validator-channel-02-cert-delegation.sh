@@ -14,7 +14,7 @@
 #   1. Each validator issues a channel cert ("issued channel cert for
 #      epoch N") — the once-per-epoch GRANDPA-key touch fired.
 #   2. Each validator establishes encrypted sessions with >=2 distinct
-#      peers on /rostro/validator-channel-handshake/3 (hybrid
+#      peers on /rostro/validator-channel-handshake/5 (hybrid auth chain +
 #      X25519+ML-KEM-768, docs/PQ-TRANSPORT.md). Sessions can only form
 #      if the cert + channel-key handshake verified AND both sides
 #      derived the same hybrid secret, so this is the end-to-end proof
@@ -79,13 +79,13 @@ done
 echo "injecting Sassafras keys for 5 validators (skipping frank)..."
 for pair in "//Alice:$ALICE_BASE" "//Bob:$BOB_BASE" "//Charlie:$CHARLIE_BASE" "//Dave:$DAVE_BASE" "//Eve:$EVE_BASE"; do
 	suri="${pair%%:*}"; base="${pair##*:}"
-	"$NODE_BIN" insert-sassafras-key --suri "$suri" --base-path "$base" --chain-id gemini-star
+	"$NODE_BIN" key insert --key-type sass --suri "$suri" --base-path "$base" --chain gemini-star
 done
 
 echo "injecting GRANDPA Ed25519 keys for 5 validators (skipping frank)..."
 for pair in "//Alice:$ALICE_BASE" "//Bob:$BOB_BASE" "//Charlie:$CHARLIE_BASE" "//Dave:$DAVE_BASE" "//Eve:$EVE_BASE"; do
 	suri="${pair%%:*}"; base="${pair##*:}"
-	"$NODE_BIN" key insert --suri "$suri" --key-type gran --scheme ed25519 --base-path "$base" --chain star
+	"$NODE_BIN" key insert --suri "$suri" --key-type gran --base-path "$base" --chain star
 done
 
 ALICE_PEER_ID="12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"
@@ -199,7 +199,7 @@ for name in alice bob charlie dave eve; do
 		echo "OK [$name]: issued a channel cert (GRANDPA-key touch fired)"
 	else
 		echo "FAIL [$name]: no channel cert issued"
-		grep "rostro-validator-channel" "$log" 2>/dev/null | tail -8 | sed "s/^/    /"
+		{ grep "rostro-validator-channel" "$log" 2>/dev/null || true; } | tail -8 | sed "s/^/    /"
 		FAIL=1
 	fi
 done
@@ -209,7 +209,7 @@ for name in alice bob charlie dave eve; do
 	log="$REPO_ROOT/.star/cert/$name/run.log"
 	if ! grep -qE "established (initiator|responder) session" "$log" 2>/dev/null; then
 		echo "FAIL [$name]: no session established (v3 hybrid handshake path failed)"
-		grep "rostro-validator-channel" "$log" 2>/dev/null | tail -10 | sed "s/^/    /"
+		{ grep "rostro-validator-channel" "$log" 2>/dev/null || true; } | tail -10 | sed "s/^/    /"
 		FAIL=1
 		continue
 	fi
@@ -218,7 +218,7 @@ for name in alice bob charlie dave eve; do
 		echo "FAIL [$name]: only $count distinct session peers (expected 2)"
 		FAIL=1
 	else
-		echo "OK [$name]: established sessions with $count distinct peers on /3"
+		echo "OK [$name]: established sessions with $count distinct peers on /5"
 	fi
 done
 

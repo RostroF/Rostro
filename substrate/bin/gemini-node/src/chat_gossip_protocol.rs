@@ -23,7 +23,7 @@
 //!   cache.
 //! - `ValidateInboundSubstream(peer, _)` → accept all (admission is
 //!   handled separately by [`crate::chat_admission`] at the
-//!   chat-stripe / chat-fetch layer).
+//!   chat-chunk / chat-fetch layer).
 //!
 //! ## Local subscription change broadcast
 //!
@@ -309,7 +309,7 @@ pub async fn run_chat_gossip_task(
 				// Rebalance task updated our bitmap + bumped version.
 				// Broadcast the new advertisement to every cached peer
 				// so they refresh their copy of our subscription
-				// (which drives chat-stripe routing decisions on
+				// (which drives chat-chunk routing decisions on
 				// THEIR end).
 				let peers: Vec<rc_network::PeerId> = cache
 					.all_peers()

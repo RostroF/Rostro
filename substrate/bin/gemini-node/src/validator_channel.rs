@@ -6,18 +6,21 @@
 //!
 //! Two protocols on sc-network:
 //!
-//! * **`/rostro/validator-channel-handshake/3`** (request/response):
-//!   exchanges [`HandshakePayload`]s carrying the v3 hybrid key
+//! * **`/rostro/validator-channel-handshake/5`** (request/response):
+//!   exchanges [`HandshakePayload`]s carrying the v5 hybrid key
 //!   exchange — an X25519 ephemeral plus the ML-KEM-768 flight
 //!   (initiator: encapsulation key; responder: ciphertext). Each side
-//!   signs both halves with its channel key (delegated from the
-//!   GRANDPA key via [`ChannelCert`]). The receiver verifies the
-//!   signature AND looks up the cert's authority pubkey in the
-//!   on-chain active-validator set via
+//!   signs both halves with its hybrid ed25519+SLH-DSA channel key
+//!   (delegated from the hybrid GRANDPA key via a hybrid-signed
+//!   [`ChannelCert`], so the auth chain is PQ end to end, not just the
+//!   KEX). The receiver verifies the signature AND looks up the cert's
+//!   authority pubkey in the on-chain active-validator set via
 //!   [`crate::active_authority_set`]. Both checks must pass before a
 //!   [`Session`] is established, keyed by the HYBRID secret
 //!   (docs/PQ-TRANSPORT.md): recorded channel traffic stays
-//!   confidential unless X25519 and ML-KEM both fall.
+//!   confidential unless X25519 and ML-KEM both fall, and an active
+//!   attacker cannot forge its way in without breaking ed25519 AND
+//!   SLH-DSA.
 //!
 //! * **`/rostro/validator-channel/1`** (notification): carries
 //!   encrypted [`WireMessage`]s once a Session is established.
@@ -75,14 +78,15 @@ use rostro_hybrid_kex::{
 	MlKemDecapKey, MLKEM768_SEED_BYTES,
 };
 use rostro_validator_channel::{
-	cert_preimage, handshake_preimage, handshake_shared_secret, verify_handshake, ChannelCert,
-	HandshakePayload, HybridKexMaterial, KexRole, Session, WireMessage,
+	cert_msg, handshake_msg, handshake_shared_secret, verify_handshake, ChannelCert,
+	HandshakePayload, HybridKexMaterial, KexRole, Session, WireMessage, CERT_DOMAIN,
+	HANDSHAKE_DOMAIN,
 };
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_consensus_grandpa::{GrandpaApi, KEY_TYPE as GRANDPA_KEY_TYPE};
 use sp_core::crypto::KeyTypeId;
-use sp_core::ed25519 as sp_ed25519;
+use sp_core::rostro_hybrid as sp_rostro_hybrid;
 use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Block as BlockT;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519SecretKey};
@@ -90,11 +94,12 @@ use zk_pki_primitives::runtime_api::ZkPkiApi;
 
 use crate::active_authority_set::is_active_authority;
 
-/// Keystore key type for the per-validator *channel key* (ed25519).
-/// This key is NEVER registered on-chain: it is a delegate the GRANDPA
-/// authority key vouches for via a [`ChannelCert`], so the
-/// internet-facing validator-channel code signs handshakes with THIS
-/// key and never touches the slashable consensus key. See
+/// Keystore key type for the per-validator *channel key* (hybrid
+/// ed25519+SLH-DSA, same scheme as the authority key). This key is
+/// NEVER registered on-chain: it is a delegate the GRANDPA authority
+/// key vouches for via a [`ChannelCert`], so the internet-facing
+/// validator-channel code signs handshakes with THIS key and never
+/// touches the slashable consensus key. See
 /// docs/VALIDATOR-CHANNEL-CERT.md and docs/KEYSTORE-AUDIT.md (F1).
 pub const CHANNEL_KEY_TYPE: KeyTypeId = KeyTypeId(*b"chnl");
 
@@ -105,26 +110,30 @@ pub const CHANNEL_KEY_TYPE: KeyTypeId = KeyTypeId(*b"chnl");
 const CERT_REFRESH_POLL_SECS: u64 = 60;
 
 /// libp2p request-response protocol for the handshake exchange. Bumped
-/// to `/3` for the hybrid X25519+ML-KEM-768 handshake; `/2` was the
-/// cert-carrying classical form, `/1` signed with the GRANDPA key —
-/// both are gone. A hard cutover, as each bump before it: an old-`/N`
-/// peer and a `/3` peer simply never negotiate a substream, which is
-/// the intended behavior (no mixed fleet).
-pub const HANDSHAKE_PROTOCOL_NAME: &str = "/rostro/validator-channel-handshake/3";
+/// to `/5` for the fully hybrid auth chain (hybrid-signed cert, hybrid
+/// channel key, hybrid handshake signature); `/4` carried the hybrid
+/// GRANDPA authority id under classical signatures, `/3` was the
+/// X25519+ML-KEM-768 handshake with a 32-byte ed25519 authority, `/2`
+/// the cert-carrying classical form, `/1` signed with the GRANDPA key —
+/// all gone. A hard cutover, as each bump before it: an old-`/N` peer
+/// and a `/5` peer simply never negotiate a substream, which is the
+/// intended behavior (no mixed fleet).
+pub const HANDSHAKE_PROTOCOL_NAME: &str = "/rostro/validator-channel-handshake/5";
 
 /// libp2p notification protocol for encrypted message exchange after
 /// a handshake has established a Session.
 pub const NOTIFICATION_PROTOCOL_NAME: &str = "/rostro/validator-channel/1";
 
 const INBOUND_QUEUE_CAPACITY: usize = 64;
-// The v3 hybrid payloads are 1417 bytes (initiator, carrying the
-// ML-KEM-768 encapsulation key) / 1321 bytes (responder, carrying the
-// ciphertext) plus SCALE overhead. 2 KiB gives headroom without
-// admitting junk. An undersized cap here fails SILENTLY at the
-// request-response layer — if handshakes ever stop flowing after a
-// payload change, check these first.
-const MAX_HANDSHAKE_REQUEST_SIZE: u64 = 2048;
-const MAX_HANDSHAKE_RESPONSE_SIZE: u64 = 2048;
+// The v5 hybrid payloads are 17193 bytes (initiator, carrying the
+// ML-KEM-768 encapsulation key) / 17097 bytes (responder, carrying the
+// ciphertext) plus SCALE overhead — the 8056-byte hybrid-signed cert
+// and the 7920-byte hybrid handshake signature dominate. 20 KiB gives
+// headroom without admitting junk. An undersized cap here fails
+// SILENTLY at the request-response layer — if handshakes ever stop
+// flowing after a payload change, check these first.
+const MAX_HANDSHAKE_REQUEST_SIZE: u64 = 20 * 1024;
+const MAX_HANDSHAKE_RESPONSE_SIZE: u64 = 20 * 1024;
 const HANDSHAKE_TIMEOUT_SECS: u64 = 10;
 const HEARTBEAT_INTERVAL_SECS: u64 = 10;
 const MAX_NOTIFICATION_SIZE: u64 = 1024 * 1024;
@@ -194,10 +203,11 @@ pub type SharedEpoch = Arc<AtomicU64>;
 /// init path only runs when this is `Some`.
 #[derive(Clone)]
 pub struct LocalChannelIdentity {
-	/// GRANDPA Ed25519 pubkey — on-chain validator identity, cert issuer.
-	pub authority_pubkey: [u8; 32],
-	/// Channel Ed25519 pubkey (`chnl`) — signs handshakes, cert subject.
-	pub channel_pubkey: [u8; 32],
+	/// GRANDPA hybrid pubkey (ed25519 32 || SLH-DSA 32) — on-chain
+	/// validator identity; both components sign the cert.
+	pub authority_pubkey: [u8; 64],
+	/// Channel hybrid pubkey (`chnl`) — signs handshakes, cert subject.
+	pub channel_pubkey: [u8; 64],
 }
 
 impl LocalChannelIdentity {
@@ -211,18 +221,23 @@ impl LocalChannelIdentity {
 	/// useless without a current-epoch cert, and reusing one key avoids
 	/// littering the keystore (which has no delete API).
 	pub fn from_keystore(keystore: &KeystorePtr) -> Option<Self> {
-		let authority_pk = keystore.ed25519_public_keys(GRANDPA_KEY_TYPE).into_iter().next()?;
-		let authority_pubkey: [u8; 32] = AsRef::<[u8]>::as_ref(&authority_pk)
+		let authority_pk =
+			keystore.rostro_hybrid_public_keys(GRANDPA_KEY_TYPE).into_iter().next()?;
+		let authority_pubkey: [u8; 64] = AsRef::<[u8]>::as_ref(&authority_pk)
 			.try_into()
-			.expect("Ed25519 pubkey is 32 bytes");
+			.expect("hybrid pubkey is 64 bytes");
 
-		let channel_pk = match keystore.ed25519_public_keys(CHANNEL_KEY_TYPE).into_iter().next() {
+		let channel_pk = match keystore
+			.rostro_hybrid_public_keys(CHANNEL_KEY_TYPE)
+			.into_iter()
+			.next()
+		{
 			Some(pk) => pk,
-			None => match keystore.ed25519_generate_new(CHANNEL_KEY_TYPE, None) {
+			None => match keystore.rostro_hybrid_generate_new(CHANNEL_KEY_TYPE, None) {
 				Ok(pk) => {
 					log::info!(
 						target: "rostro-validator-channel",
-						"generated a new channel key (chnl) for handshake signing",
+						"generated a new hybrid channel key (chnl) for handshake signing",
 					);
 					pk
 				},
@@ -236,9 +251,9 @@ impl LocalChannelIdentity {
 				},
 			},
 		};
-		let channel_pubkey: [u8; 32] = AsRef::<[u8]>::as_ref(&channel_pk)
+		let channel_pubkey: [u8; 64] = AsRef::<[u8]>::as_ref(&channel_pk)
 			.try_into()
-			.expect("Ed25519 pubkey is 32 bytes");
+			.expect("hybrid pubkey is 64 bytes");
 
 		Some(LocalChannelIdentity { authority_pubkey, channel_pubkey })
 	}
@@ -257,19 +272,26 @@ where
 	client.runtime_api().membership_epoch(best).ok().map(|e| e as u64)
 }
 
-/// Issue a [`ChannelCert`] by signing `(channel_pubkey, epoch)` with the
-/// GRANDPA authority key via the keystore. This is the ONE place the
-/// channel subsystem touches the slashable consensus key, and it runs
-/// at most once per 24h epoch. Returns `None` if the keystore has no
-/// GRANDPA signing key for our authority pubkey.
+/// Issue a [`ChannelCert`] by signing `(channel_pubkey, epoch)` with
+/// BOTH components of the GRANDPA hybrid authority key via the keystore,
+/// framed under [`CERT_DOMAIN`] (the keystore refuses the finality-vote
+/// domain on this path, so a cert can never double as a vote). This is
+/// the ONE place the channel subsystem touches the slashable consensus
+/// key, and it runs at most once per 24h epoch. Returns `None` if the
+/// keystore has no GRANDPA signing key for our authority pubkey.
 pub fn issue_cert(
 	keystore: &KeystorePtr,
 	identity: &LocalChannelIdentity,
 	epoch: u64,
 ) -> Option<ChannelCert> {
-	let preimage = cert_preimage(&identity.authority_pubkey, &identity.channel_pubkey, epoch);
-	let sp_authority = sp_ed25519::Public::from(identity.authority_pubkey);
-	let sig = match keystore.ed25519_sign(GRANDPA_KEY_TYPE, &sp_authority, &preimage) {
+	let msg = cert_msg(&identity.authority_pubkey, &identity.channel_pubkey, epoch);
+	let sp_authority = sp_rostro_hybrid::Public::from(identity.authority_pubkey);
+	let sig = match keystore.rostro_hybrid_sign_with_domain(
+		GRANDPA_KEY_TYPE,
+		&sp_authority,
+		CERT_DOMAIN,
+		&msg,
+	) {
 		Ok(Some(s)) => s,
 		Ok(None) => {
 			log::warn!(
@@ -363,10 +385,14 @@ fn build_our_handshake_payload(
 	kex: HybridKexMaterial,
 ) -> Option<HandshakePayload> {
 	let cert = shared_cert.lock().clone()?;
-	let preimage =
-		handshake_preimage(&cert.channel_pubkey, cert.epoch, our_eph_pub.as_bytes(), &kex);
-	let sp_channel = sp_ed25519::Public::from(identity.channel_pubkey);
-	let sig = match keystore.ed25519_sign(CHANNEL_KEY_TYPE, &sp_channel, &preimage) {
+	let msg = handshake_msg(&cert.channel_pubkey, cert.epoch, our_eph_pub.as_bytes(), &kex);
+	let sp_channel = sp_rostro_hybrid::Public::from(identity.channel_pubkey);
+	let sig = match keystore.rostro_hybrid_sign_with_domain(
+		CHANNEL_KEY_TYPE,
+		&sp_channel,
+		HANDSHAKE_DOMAIN,
+		&msg,
+	) {
 		Ok(Some(s)) => s,
 		_ => return None,
 	};
@@ -763,10 +789,10 @@ pub async fn run_notification_task<N>(
 	// `our_pubkey` is only used inside the validator-channel-internal
 	// heartbeat formatter; for non-validators we have no sessions so
 	// no heartbeats fire — the zero pubkey is a safe placeholder.
-	let our_pubkey: [u8; 32] = identity
+	let our_pubkey: [u8; 64] = identity
 		.as_ref()
 		.map(|i| i.authority_pubkey)
-		.unwrap_or([0u8; 32]);
+		.unwrap_or([0u8; 64]);
 
 	let mut interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
 	// `interval.tick()` returns immediately on first call; skip it.
@@ -1002,20 +1028,24 @@ mod tests {
 		assert_eq!(hex_prefix(&[0xAB], 8), "ab");
 	}
 
+	/// Hybrid signature length, spelled locally so the tests read as
+	/// wire-size documentation.
+	const HYBRID_SIG: usize = 7920;
+
 	#[test]
 	fn handshake_reply_scale_roundtrip() {
 		let accept = HandshakeReply::Accept(HandshakePayload {
 			cert: ChannelCert {
-				authority_pubkey: [0x11; 32],
-				channel_pubkey: [0x44; 32],
+				authority_pubkey: [0x11; 64],
+				channel_pubkey: [0x44; 64],
 				epoch: 7,
-				signature: [0x55; 64],
+				signature: [0x55; HYBRID_SIG],
 			},
 			ephemeral_x25519: [0x22; 32],
 			kex: HybridKexMaterial::ResponderCt(
 				[0x66; rostro_hybrid_kex::MLKEM768_CT_BYTES],
 			),
-			signature: [0x33; 64],
+			signature: [0x33; HYBRID_SIG],
 		});
 		let reject = HandshakeReply::Reject;
 		assert_eq!(
@@ -1034,10 +1064,10 @@ mod tests {
 		// just never arrive), so pin the encoded wire sizes against the
 		// caps. The initiator flight (ML-KEM ek) is the larger one.
 		let cert = ChannelCert {
-			authority_pubkey: [0x11; 32],
-			channel_pubkey: [0x44; 32],
+			authority_pubkey: [0x11; 64],
+			channel_pubkey: [0x44; 64],
 			epoch: 7,
-			signature: [0x55; 64],
+			signature: [0x55; HYBRID_SIG],
 		};
 		let request = HandshakePayload {
 			cert: cert.clone(),
@@ -1045,7 +1075,7 @@ mod tests {
 			kex: HybridKexMaterial::InitiatorEk(
 				[0x77; rostro_hybrid_kex::MLKEM768_EK_BYTES],
 			),
-			signature: [0x33; 64],
+			signature: [0x33; HYBRID_SIG],
 		};
 		let reply = HandshakeReply::Accept(HandshakePayload {
 			cert,
@@ -1053,7 +1083,7 @@ mod tests {
 			kex: HybridKexMaterial::ResponderCt(
 				[0x66; rostro_hybrid_kex::MLKEM768_CT_BYTES],
 			),
-			signature: [0x33; 64],
+			signature: [0x33; HYBRID_SIG],
 		});
 		assert!(request.encode().len() as u64 <= MAX_HANDSHAKE_REQUEST_SIZE);
 		assert!(reply.encode().len() as u64 <= MAX_HANDSHAKE_RESPONSE_SIZE);

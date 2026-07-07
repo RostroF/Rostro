@@ -40,7 +40,7 @@ use rc_network_test::{Block, Hash};
 use rc_network_types::PeerId;
 use rc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use sp_consensus_grandpa::AuthorityList;
-use sp_keyring::Ed25519Keyring;
+use sp_keyring::RostroHybridKeyring;
 use sp_runtime::traits::NumberFor;
 use std::{collections::HashSet, pin::Pin, sync::Arc, task::Poll};
 
@@ -351,7 +351,7 @@ pub(crate) fn make_test_network() -> (impl Future<Output = Tester>, TestNetwork)
 	)
 }
 
-fn make_ids(keys: &[Ed25519Keyring]) -> AuthorityList {
+fn make_ids(keys: &[RostroHybridKeyring]) -> AuthorityList {
 	keys.iter().map(|&key| key.public().into()).map(|id| (id, 1)).collect()
 }
 
@@ -366,7 +366,7 @@ impl rc_network_gossip::ValidatorContext<Block> for NoopContext {
 
 #[test]
 fn good_commit_leads_to_relay() {
-	let private = [Ed25519Keyring::Alice, Ed25519Keyring::Bob, Ed25519Keyring::Charlie];
+	let private = [RostroHybridKeyring::Alice, RostroHybridKeyring::Bob, RostroHybridKeyring::Charlie];
 	let public = make_ids(&private[..]);
 	let voter_set = Arc::new(VoterSet::new(public.iter().cloned()).unwrap());
 
@@ -517,7 +517,7 @@ fn good_commit_leads_to_relay() {
 #[test]
 fn bad_commit_leads_to_report() {
 	sp_tracing::try_init_simple();
-	let private = [Ed25519Keyring::Alice, Ed25519Keyring::Bob, Ed25519Keyring::Charlie];
+	let private = [RostroHybridKeyring::Alice, RostroHybridKeyring::Bob, RostroHybridKeyring::Charlie];
 	let public = make_ids(&private[..]);
 	let voter_set = Arc::new(VoterSet::new(public.iter().cloned()).unwrap());
 

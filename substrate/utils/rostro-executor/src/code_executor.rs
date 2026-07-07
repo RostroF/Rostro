@@ -18,29 +18,41 @@
 //!
 //! `RostroCodeExecutor::call` follows that contract:
 //!
-//! 1. Compile the blob into a [`polkavm::Module`].
-//! 2. Register `H: HostFunctions` against a [`polkavm::Linker`].
-//! 3. Instantiate, reset memory, `sbrk(input_len)` to extend the heap.
-//! 4. Write the input bytes at `module.memory_map().heap_base()`.
-//! 5. `call_typed` the entry point with `(data_ptr, data_len)`.
-//! 6. Read `A0`, unpack the fat pointer, `read_memory` the result bytes.
+//! 1. Fetch the compiled-and-linked runtime from the module cache
+//!    (compile + link on miss — see below).
+//! 2. Instantiate, reset memory, `sbrk(input_len)` to extend the heap.
+//! 3. Write the input bytes at `module.memory_map().heap_base()`.
+//! 4. `call_typed` the entry point with `(data_ptr, data_len)`.
+//! 5. Read `A0`, unpack the fat pointer, `read_memory` the result bytes.
 //!
-//! No module caching in B6 — every call recompiles. Cache is a
-//! straightforward follow-up once we measure the perf cost on the
-//! testbed.
+//! ## Module cache
+//!
+//! Decompress + [`polkavm::Module`] parse of the ~5 MB runtime blob costs
+//! ~14 ms on dev hardware; instantiating from a cached
+//! [`polkavm::InstancePre`] costs ~300 ns (measured 2026-07-06, lab
+//! throughput investigation). Since every runtime call — each
+//! `validate_transaction` on tx submission, each `apply_extrinsic` during
+//! authoring — funnels through here, the compiled module + resolved
+//! host-fn linkage are cached per code blob and shared across calls and
+//! executor clones. Capacity is [`RUNTIME_CACHE_CAPACITY`]; the key is
+//! the client-supplied [`RuntimeCode::hash`] (the `:code` storage hash),
+//! falling back to a content hash when the caller supplies an empty one.
+//! Per-call mutable state lives in the [`polkavm::Instance`] created
+//! fresh from the cached `InstancePre` — nothing written by one call is
+//! visible to the next.
 //!
 //! ## Clone
 //!
 //! Substrate's [`CodeExecutor`] supertrait set requires `Clone` so the
 //! client pipeline can hand out copies to async tasks. We Arc-wrap the
-//! engine; modules are recompiled per call so they don't need to flow
-//! through `Clone`.
+//! engine and the module cache, so all clones share both.
 
 use alloc::{string::String, sync::Arc, vec::Vec};
 use core::marker::PhantomData;
+use std::sync::{Mutex, MutexGuard};
 
 use codec::Decode;
-use polkavm::{BackendKind, CallError, Config, Engine, Module, ModuleConfig, Reg};
+use polkavm::{BackendKind, CallError, Config, Engine, InstancePre, Module, ModuleConfig, Reg};
 use rc_executor::{error as rc_executor_error, RuntimeVersionOf};
 use sp_core::traits::{CallContext, CodeExecutor, ReadRuntimeVersion, RuntimeCode};
 use sp_externalities::Externalities;
@@ -49,6 +61,81 @@ use sp_wasm_interface::HostFunctions;
 
 use crate::host_fn;
 
+/// Max distinct runtimes kept compiled: the live runtime plus the
+/// incoming one while a `set_code` upgrade is in flight (the same bound
+/// upstream `sc-executor` defaults its runtime cache to).
+const RUNTIME_CACHE_CAPACITY: usize = 2;
+
+/// Max idle instances kept per runtime. Bounds resident memory: each
+/// pooled instance retains its guest-memory `Vec` capacities at their
+/// high-water mark (a few MB after heavy calls). More concurrent runtime
+/// calls than this just instantiate fresh (cheap) and drop on release.
+const INSTANCE_POOL_CAPACITY: usize = 16;
+
+/// One compiled-and-linked runtime, shared read-only across calls.
+/// `instance_pre` carries the module with its host-fn imports resolved;
+/// per-call mutable state lives in the `Instance` acquired from `pool`.
+///
+/// ## Why pooling is consensus-safe
+///
+/// A reused instance is semantically pristine (audited 2026-07-07,
+/// throughput investigation) because every guest-visible surface is
+/// re-derived per call:
+/// - memory: `reset_memory()` on acquire zeroes the region watermarks
+///   and lazily re-materializes contents from the module's pristine
+///   `Arc`'d image on first touch;
+/// - registers/SP/RA/pc: `prepare_call_untyped` (under `call_typed`)
+///   does `clear_regs()` + fresh SP/RA/entry-pc on every call;
+/// - dynamic paging and VM-level gas metering are off on our modules.
+/// What persists is only the per-instance predecode cache of immutable
+/// bytecode (a large part of why reuse is fast) and non-guest-visible
+/// counters. Instances are returned to the pool ONLY after a fully
+/// successful call; every error path drops the instance instead, so a
+/// call that trapped or failed mid-way can never donate state forward.
+///
+/// Why it exists: fresh-instantiate-per-call costs ~3.4x single-threaded
+/// (cold guest memory + re-predecode) and its cold-page DRAM traffic is
+/// what capped multi-threaded validate throughput (~1000 tx/s wall on
+/// dev hw regardless of cores; ~12000 tx/s with reuse).
+struct CachedRuntime {
+	module: Module,
+	instance_pre: InstancePre<(), String>,
+	pool: Mutex<Vec<polkavm::Instance<(), String>>>,
+}
+
+impl CachedRuntime {
+	/// Pop an idle instance or instantiate a fresh one (cheap: allocation
+	/// is lazy). The caller resets memory before use.
+	fn acquire(&self, method: &str) -> Result<polkavm::Instance<(), String>, String> {
+		if let Some(instance) = lock_ignore_poison(&self.pool).pop() {
+			return Ok(instance);
+		}
+		self.instance_pre
+			.instantiate()
+			.map_err(|e| format!("instantiate for '{method}': {e}"))
+	}
+
+	/// Return an instance after a fully successful call. Over-capacity
+	/// instances are dropped.
+	fn release(&self, instance: polkavm::Instance<(), String>) {
+		let mut pool = lock_ignore_poison(&self.pool);
+		if pool.len() < INSTANCE_POOL_CAPACITY {
+			pool.push(instance);
+		}
+	}
+}
+
+/// Locks that guard plain data (`Vec`s of `Arc`s / instances) — always
+/// structurally valid even if a panic unwound while held — so recover
+/// from poisoning rather than cascading the panic into every runtime
+/// call.
+fn lock_ignore_poison<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+	mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// MRU-ordered cache slots: most recently used at index 0.
+type RuntimeCache = Vec<(Vec<u8>, Arc<CachedRuntime>)>;
+
 /// Substrate-runtime executor backed by the vendored rostrovm fork.
 /// Generic over `H: HostFunctions` so the consumer picks the host-fn
 /// surface — production wires `sp_io::SubstrateHostFunctions`; tests can
@@ -56,12 +143,17 @@ use crate::host_fn;
 /// to call.
 pub struct RostroCodeExecutor<H: HostFunctions + 'static> {
 	engine: Arc<Engine>,
+	cache: Arc<Mutex<RuntimeCache>>,
 	_phantom: PhantomData<fn() -> H>,
 }
 
 impl<H: HostFunctions + 'static> Clone for RostroCodeExecutor<H> {
 	fn clone(&self) -> Self {
-		Self { engine: Arc::clone(&self.engine), _phantom: PhantomData }
+		Self {
+			engine: Arc::clone(&self.engine),
+			cache: Arc::clone(&self.cache),
+			_phantom: PhantomData,
+		}
 	}
 }
 
@@ -97,19 +189,54 @@ impl<H: HostFunctions + 'static> RostroCodeExecutor<H> {
 		config.set_backend(Some(BackendKind::Interpreter));
 		let engine =
 			Engine::new(&config).map_err(|e| format!("RostroCodeExecutor engine init: {e}"))?;
-		Ok(Self { engine: Arc::new(engine), _phantom: PhantomData })
+		Ok(Self {
+			engine: Arc::new(engine),
+			cache: Arc::new(Mutex::new(Vec::with_capacity(RUNTIME_CACHE_CAPACITY))),
+			_phantom: PhantomData,
+		})
 	}
 
-	/// Per-call invocation: compile, link, instantiate, run, read return.
-	/// Factored out so `CodeExecutor::call` and `ReadRuntimeVersion::
-	/// read_runtime_version` share the same implementation.
-	fn call_inner(
+	fn lock_cache(&self) -> MutexGuard<'_, RuntimeCache> {
+		lock_ignore_poison(&self.cache)
+	}
+
+	/// Fetch the compiled-and-linked runtime for `cache_key`, compiling
+	/// `blob` on a miss.
+	///
+	/// The caller-supplied key is trusted to identify the blob (it is the
+	/// `:code` storage hash on the `CodeExecutor::call` path — the same
+	/// contract upstream sc-executor's runtime cache relies on). An empty
+	/// key is a known-invalid sentinel: it would alias every caller that
+	/// failed to supply one, so it is rejected here and replaced with a
+	/// content hash before lookup.
+	fn cached_runtime(
 		&self,
-		ext: &mut dyn Externalities,
+		cache_key: &[u8],
 		blob: &[u8],
 		method: &str,
-		data: &[u8],
-	) -> Result<Vec<u8>, String> {
+	) -> Result<Arc<CachedRuntime>, String> {
+		let cache_key: Vec<u8> = if cache_key.is_empty() {
+			sp_core::hashing::blake2_256(blob).to_vec()
+		} else {
+			cache_key.to_vec()
+		};
+
+		{
+			let mut cache = self.lock_cache();
+			if let Some(pos) = cache.iter().position(|(key, _)| *key == cache_key) {
+				let slot = cache.remove(pos);
+				let runtime = Arc::clone(&slot.1);
+				cache.insert(0, slot);
+				return Ok(runtime);
+			}
+		}
+
+		// Miss: build outside the lock so a ~14 ms compile never blocks
+		// calls that hit on another runtime. Two racing misses on the
+		// same key both build; the later insert wins and the loser's
+		// runtime just drops. Correctness is unaffected — both were
+		// built from the same blob.
+
 		// Forkless upgrades submit :code in the sp-maybe-compressed-blob
 		// envelope (zstd + 8-byte magic); genesis blobs are raw PVM\0.
 		// Decompress here, at the single seam all three trait impls
@@ -137,10 +264,37 @@ impl<H: HostFunctions + 'static> RostroCodeExecutor<H> {
 		let instance_pre = linker
 			.instantiate_pre(&module)
 			.map_err(|e| format!("instantiate_pre for '{method}': {e}"))?;
-		let mut instance = instance_pre
-			.instantiate()
-			.map_err(|e| format!("instantiate for '{method}': {e}"))?;
 
+		let runtime =
+			Arc::new(CachedRuntime { module, instance_pre, pool: Mutex::new(Vec::new()) });
+		let mut cache = self.lock_cache();
+		cache.retain(|(key, _)| *key != cache_key);
+		cache.insert(0, (cache_key, Arc::clone(&runtime)));
+		cache.truncate(RUNTIME_CACHE_CAPACITY);
+		Ok(runtime)
+	}
+
+	/// Per-call invocation: fetch cached runtime, acquire a pooled
+	/// instance, run, read return, release. Factored out so
+	/// `CodeExecutor::call` and `ReadRuntimeVersion::read_runtime_version`
+	/// share the same implementation. `cache_key` identifies `blob` for
+	/// the module cache; pass empty to key by content hash.
+	///
+	/// The instance is released back to the pool ONLY on the fully
+	/// successful path at the bottom; every `?` before that drops it.
+	fn call_inner(
+		&self,
+		ext: &mut dyn Externalities,
+		cache_key: &[u8],
+		blob: &[u8],
+		method: &str,
+		data: &[u8],
+	) -> Result<Vec<u8>, String> {
+		let runtime = self.cached_runtime(cache_key, blob, method)?;
+		let module = &runtime.module;
+
+		// Resolve everything that needs only the module BEFORE acquiring
+		// an instance, so lookup failures never cost a pooled instance.
 		let pc = module
 			.exports()
 			.find(|e| e.symbol().as_bytes() == method.as_bytes())
@@ -151,6 +305,8 @@ impl<H: HostFunctions + 'static> RostroCodeExecutor<H> {
 			.len()
 			.try_into()
 			.map_err(|_| format!("input payload for '{method}' is too large for u32"))?;
+
+		let mut instance = runtime.acquire(method)?;
 
 		// Reset, then grow the heap to hold the input payload. The substrate
 		// ABI puts the input bytes starting at `heap_base()`.
@@ -209,9 +365,13 @@ impl<H: HostFunctions + 'static> RostroCodeExecutor<H> {
 		let packed = instance.reg(Reg::A0);
 		let result_ptr = packed as u32;
 		let result_len = (packed >> 32) as u32;
-		instance
+		let result_bytes = instance
 			.read_memory(result_ptr, result_len)
-			.map_err(|e| format!("read return payload for '{method}': {e}"))
+			.map_err(|e| format!("read return payload for '{method}': {e}"))?;
+
+		// Fully successful call — this instance is safe to reuse.
+		runtime.release(instance);
+		Ok(result_bytes)
 	}
 }
 
@@ -226,7 +386,11 @@ impl<H: HostFunctions + 'static> ReadRuntimeVersion for RostroCodeExecutor<H> {
 		// `runtime_apis!` documents `Core_version` as the legacy
 		// fallback substrate uses today when no embedded version is
 		// present, so functionally we're correct.
-		self.call_inner(ext, wasm_code, "Core_version", &[])
+		//
+		// No caller-supplied code hash on this trait; empty key = the
+		// executor derives a content hash (cold path, called on code
+		// changes and startup).
+		self.call_inner(ext, &[], wasm_code, "Core_version", &[])
 	}
 }
 
@@ -249,7 +413,7 @@ impl<H: HostFunctions + 'static> CodeExecutor for RostroCodeExecutor<H> {
 					false,
 				),
 		};
-		(self.call_inner(ext, blob.as_ref(), method, data), false)
+		(self.call_inner(ext, &runtime_code.hash, blob.as_ref(), method, data), false)
 	}
 }
 
@@ -270,12 +434,146 @@ impl<H: HostFunctions + 'static> RuntimeVersionOf for RostroCodeExecutor<H> {
 			)
 		})?;
 		let encoded = self
-			.call_inner(ext, blob.as_ref(), "Core_version", &[])
+			.call_inner(ext, &runtime_code.hash, blob.as_ref(), "Core_version", &[])
 			.map_err(|e| rc_executor_error::Error::ApiError(e.into()))?;
 		RuntimeVersion::decode(&mut encoded.as_slice()).map_err(|e| {
 			rc_executor_error::Error::ApiError(
 				format!("RostroCodeExecutor::runtime_version: SCALE decode failed: {e}").into(),
 			)
 		})
+	}
+}
+
+#[cfg(test)]
+impl<H: HostFunctions + 'static> RostroCodeExecutor<H> {
+	/// Test-only: idle-instance count for the runtime cached under `key`.
+	fn pool_len(&self, cache_key: &[u8], blob: &[u8]) -> usize {
+		let runtime = self.cached_runtime(cache_key, blob, "test").expect("cached runtime");
+		let len = lock_ignore_poison(&runtime.pool).len();
+		len
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rostro_executor_fixture_storage_roundtrip as fixture;
+
+	/// Host-fn tuple wide enough to resolve the fixture blob's imports.
+	type FixtureHostFns = (
+		sp_io::storage::HostFunctions,
+		sp_io::hashing::HostFunctions,
+		sp_io::crypto::HostFunctions,
+		sp_io::misc::HostFunctions,
+		sp_io::allocator::HostFunctions,
+	);
+
+	fn executor() -> RostroCodeExecutor<FixtureHostFns> {
+		RostroCodeExecutor::new().expect("construct executor")
+	}
+
+	#[test]
+	fn same_key_hits_cache() {
+		let exec = executor();
+		let blob = fixture::binary_unwrap();
+		let first = exec.cached_runtime(b"key-a", blob, "test").expect("compile");
+		let second = exec.cached_runtime(b"key-a", blob, "test").expect("cached");
+		assert!(Arc::ptr_eq(&first, &second), "second lookup must reuse the cached runtime");
+	}
+
+	#[test]
+	fn empty_key_falls_back_to_content_hash() {
+		let exec = executor();
+		let blob = fixture::binary_unwrap();
+		let first = exec.cached_runtime(&[], blob, "test").expect("compile");
+		let second = exec.cached_runtime(&[], blob, "test").expect("cached");
+		assert!(Arc::ptr_eq(&first, &second), "content-hash key must be stable for one blob");
+	}
+
+	#[test]
+	fn capacity_evicts_least_recently_used() {
+		let exec = executor();
+		let blob = fixture::binary_unwrap();
+		assert_eq!(RUNTIME_CACHE_CAPACITY, 2, "test written for capacity 2");
+
+		let a = exec.cached_runtime(b"key-a", blob, "test").expect("compile a");
+		exec.cached_runtime(b"key-b", blob, "test").expect("compile b");
+		// Touch `a` so `b` is the LRU, then insert a third runtime.
+		exec.cached_runtime(b"key-a", blob, "test").expect("hit a");
+		exec.cached_runtime(b"key-c", blob, "test").expect("compile c");
+
+		let a_again = exec.cached_runtime(b"key-a", blob, "test").expect("hit a");
+		assert!(Arc::ptr_eq(&a, &a_again), "recently-used entry must survive eviction");
+
+		let keys: Vec<Vec<u8>> = exec.lock_cache().iter().map(|(k, _)| k.clone()).collect();
+		assert_eq!(
+			keys,
+			vec![b"key-a".to_vec(), b"key-c".to_vec()],
+			"LRU entry (key-b) must be the one evicted"
+		);
+	}
+
+	#[test]
+	fn clones_share_the_cache() {
+		let exec = executor();
+		let blob = fixture::binary_unwrap();
+		let first = exec.cached_runtime(b"key-a", blob, "test").expect("compile");
+		let second = exec.clone().cached_runtime(b"key-a", blob, "test").expect("cached");
+		assert!(Arc::ptr_eq(&first, &second), "clones must share one cache");
+	}
+
+	// ── Instance pool ──────────────────────────────────────────────────
+
+	/// Full successful guest call through `call_inner` on the fixture.
+	fn run_fixture(exec: &RostroCodeExecutor<FixtureHostFns>, export: &str) -> Vec<u8> {
+		let blob = fixture::binary_unwrap();
+		let mut ext = sp_state_machine::BasicExternalities::default();
+		exec.call_inner(&mut ext, b"fixture", blob, export, &[])
+			.unwrap_or_else(|e| panic!("fixture call '{export}' failed: {e}"))
+	}
+
+	#[test]
+	fn successful_call_returns_instance_to_pool() {
+		let exec = executor();
+		let blob = fixture::binary_unwrap();
+		assert_eq!(exec.pool_len(b"fixture", blob), 0, "pool starts empty");
+
+		run_fixture(&exec, "test_storage_roundtrip");
+		assert_eq!(exec.pool_len(b"fixture", blob), 1, "instance released after success");
+
+		// Sequential calls reuse the pooled instance instead of growing.
+		run_fixture(&exec, "test_storage_roundtrip");
+		run_fixture(&exec, "test_storage_roundtrip");
+		assert_eq!(exec.pool_len(b"fixture", blob), 1, "sequential calls reuse one instance");
+	}
+
+	#[test]
+	fn failed_lookup_costs_no_instance() {
+		let exec = executor();
+		let blob = fixture::binary_unwrap();
+		run_fixture(&exec, "test_storage_roundtrip");
+		assert_eq!(exec.pool_len(b"fixture", blob), 1);
+
+		let mut ext = sp_state_machine::BasicExternalities::default();
+		let err = exec
+			.call_inner(&mut ext, b"fixture", blob, "no_such_export", &[])
+			.expect_err("missing export must error");
+		assert!(err.contains("export not found"), "unexpected error: {err}");
+		// Export resolution happens before acquire; the pooled instance
+		// must be untouched (not consumed, not duplicated).
+		assert_eq!(exec.pool_len(b"fixture", blob), 1);
+	}
+
+	#[test]
+	fn pooled_reuse_is_deterministic() {
+		let exec = executor();
+		// Fresh executor per call = fresh instance every time.
+		let fresh: Vec<Vec<u8>> = (0..3)
+			.map(|_| run_fixture(&executor(), "test_storage_roundtrip"))
+			.collect();
+		// One executor across calls = pooled reuse after the first.
+		let pooled: Vec<Vec<u8>> =
+			(0..3).map(|_| run_fixture(&exec, "test_storage_roundtrip")).collect();
+		assert_eq!(fresh, pooled, "pooled instances must be byte-identical to fresh ones");
 	}
 }

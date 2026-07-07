@@ -39,13 +39,13 @@ pub struct FullDeps<C, P> {
 ///     + node-info diagnostics)
 ///   - the shared share-store handle
 ///   - the networking service handle (for outbound remote-relay
-///     fetches AND for outbound chat-stripe pushes — Commit B)
+///     fetches AND for outbound chat-chunk pushes — Commit B)
 ///   - the bucket cache (for selecting which peers to push shards
 ///     to per the message's pickup-key bucket)
 pub struct ChatRpcDeps {
 	/// Raw 32-byte Ed25519 pubkey of this NODE (libp2p
 	/// node-identity). Used as the `relay_pubkey` field in share
-	/// descriptors the node mints when accepting `chat_send_envelope`
+	/// descriptors the node mints when accepting `chat_send_prepared`
 	/// calls. Distinct from any user chat-identity.
 	pub node_pubkey_ed25519: [u8; 32],
 	/// This node's OWN ed25519 node-key seed, if it has a persistent
@@ -57,12 +57,12 @@ pub struct ChatRpcDeps {
 	/// lifetime of the node; cloned into the RPC layer.
 	pub share_store: Arc<rostro_chat_ephemeral_store::EphemeralShareStore>,
 	/// Handle to the running node's networking service. Used by
-	/// `chat_send_envelope` to push shards to bucket peers via
-	/// outbound `/rostro/chat-stripe/1`, and by `chat_fetch_shares`
+	/// `chat_send_prepared` to push chunks to bucket peers via
+	/// outbound `/rostro/chat-chunk/1`, and by `chat_fetch_shares`
 	/// for outbound `/rostro/chat-fetch/1`.
 	pub network: Arc<dyn rc_network::service::traits::NetworkService>,
 	/// Shared bucket cache populated by `/rostro/chat-gossip/1`
-	/// advertisements. `chat_send_envelope` reads
+	/// advertisements. `chat_send_prepared` reads
 	/// `peers_for_bucket(b)` to pick push targets for each shard.
 	pub bucket_cache: crate::chat_bucket_cache::BucketCache,
 	/// Optional shared `LocalSubscriptionState`. Present iff this

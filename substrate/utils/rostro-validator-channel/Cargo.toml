@@ -19,7 +19,9 @@ chacha20poly1305 = { workspace = true }
 hkdf = { workspace = true }
 sha2 = { workspace = true }
 zeroize = { workspace = true }
-ed25519-zebra = { workspace = true }
+# Hybrid ed25519+SLH-DSA signatures for the /v3 cert and /v5 handshake.
+# Same leaf crate as finality votes, so the signing rule cannot drift.
+rostro-hybrid-sig = { workspace = true }
 # ML-KEM-768 sizes + the hybrid combine for the v3 handshake. Both this
 # crate (wire format, preimage) and the node (encap/decap) go through
 # rostro-hybrid-kex so the derivation cannot drift.
@@ -40,6 +42,6 @@ std = [
 	"hkdf/std",
 	"sha2/std",
 	"zeroize/std",
-	"ed25519-zebra/std",
+	"rostro-hybrid-sig/std",
 	"rostro-hybrid-kex/std",
 ]

@@ -27,8 +27,8 @@
 //!    `outer_ciphertext`.
 //! 5. [`SealedEnvelope`] wraps `outer_ciphertext` along with the
 //!    [`EnvelopeKind`] tag, ephemeral pubkey, and message id.
-//! 6. The encoded [`SealedEnvelope`] is the input to the XOR-stripe
-//!    layer; striped shares fan out to relays.
+//! 6. The encoded [`SealedEnvelope`] is the input to the chunk
+//!    layer; tagged chunks fan out to relays.
 //!
 //! At the recipient side, the flow is reversed: assemble shares →
 //! combine → decode [`SealedEnvelope`] → outer-decrypt to
@@ -63,7 +63,7 @@ pub const SENDER_PREIMAGE_DOMAIN: &[u8] = b"rostro/chat/sender-sig/v1";
 
 /// Tag distinguishing pairwise DMs from group messages on the
 /// recipient side. Invisible to relays (the entire
-/// [`SealedEnvelope`] is XOR-striped across relays, so relays see
+/// [`SealedEnvelope`] is chunked across relays, so relays see
 /// only noise shares).
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub enum EnvelopeKind {
@@ -75,7 +75,7 @@ pub enum EnvelopeKind {
 	Group(GroupId),
 }
 
-/// Outer-layer wire envelope. After XOR-stripe split, shares of the
+/// Outer-layer wire envelope. After the chunk split, pieces of the
 /// SCALE-encoded form of this struct travel over the network; only
 /// the recipient who assembles all N shares reconstructs the
 /// envelope.

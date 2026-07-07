@@ -8,7 +8,7 @@
 //! real chat message takes, minus libp2p transport (which lives in
 //! Phase B):
 //!
-//! **Pairwise flow** (DR + Sealed Sender + envelope + stripe + MAC):
+//! **Pairwise flow** (DR + Sealed Sender + envelope + chunk + checksum):
 //!
 //! ```text
 //! plaintext
@@ -19,12 +19,12 @@
 //!   → seal under recipient's X25519 id (rostro-chat-sealed-sender)
 //!   → SealedEnvelope { Pairwise }      (rostro-chat-primitives)
 //!   → SCALE encode SealedEnvelope
-//!   → split_xor + per-share MAC        (rostro-chat-primitives)
-//!   → N shares over the wire
+//!   → prepare_batch (chunk + checksum) (rostro-chat-primitives)
+//!   → N tagged chunks over the wire
 //! (recipient reverses all of the above)
 //! ```
 //!
-//! **Group flow** (MLS + envelope + stripe + MAC, no Sealed Sender
+//! **Group flow** (MLS + envelope + chunk + checksum, no Sealed Sender
 //! outer):
 //!
 //! ```text
@@ -32,8 +32,8 @@
 //!   → MLS Group::encrypt_application_message  (rostro-chat-mls)
 //!   → MLS wire bytes (outer_ciphertext directly)
 //!   → SealedEnvelope { Group(group_id), ephemeral_pubkey=[0;32] }
-//!   → SCALE encode + split_xor + MAC
-//!   → N shares over the wire
+//!   → SCALE encode + prepare_batch (chunk + checksum)
+//!   → N tagged chunks over the wire
 //! ```
 //!
 //! Group messages skip the Sealed Sender outer wrap because MLS
@@ -50,17 +50,21 @@ use rostro_chat_dr::{
 };
 use rostro_chat_mls::Member;
 use rostro_chat_primitives::{
-	descriptor::{GroupId, MessageId, ShareIndex},
+	chunk::{
+		combine_chunks_verified, prepare_batch, ChunkCombineError, PreparedBatch,
+		TaggedChunk,
+	},
+	descriptor::{GroupId, MessageId, PickupKey, CHAT_TTL_SECONDS},
 	envelope::{sign_inner, EnvelopeKind, SealedEnvelope, UnsealedInner},
-	stripe::{combine_xor_authenticated, split_xor, AuthCombineError},
-	verify::{derive_share_mac_key, mac_share, verify_sender, ShareMacTag},
+	verify::verify_sender,
 };
 use rostro_chat_sealed_sender::{seal as ss_seal, unseal as ss_unseal, SealedOutput};
 
 use codec::{Decode, Encode};
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519SecretKey};
 
-const SHARE_COUNT: usize = 5;
+const CHUNK_COUNT: usize = 5;
+const NOW_TS: u64 = 1_700_000_000;
 
 /// Build a fresh DR session pair (Alice initiator, Bob responder)
 /// from a deterministic seed. Mirrors the X3DH-lite handshake.
@@ -88,32 +92,42 @@ fn fresh_x25519_identity(seed: u64) -> ([u8; 32], [u8; 32]) {
 	(sk.to_bytes(), *pk.as_bytes())
 }
 
-/// Encode + stripe-split + MAC a SealedEnvelope. Returns
-/// (encoded_envelope_bytes, shares-with-tags) so the test can
-/// inspect both sides of the wire.
-fn stripe_and_mac(
+/// Encode + chunk-split + MAC a SealedEnvelope on the "sender's
+/// device" — the prepare-side pipeline of the chunk cutover
+/// (docs/CHAT-SHARE-CHUNKING.md). Returns (encoded_envelope_bytes,
+/// batch) so the test can inspect both sides of the wire.
+fn chunk_and_checksum(
 	envelope: &SealedEnvelope,
-	mac_key: &[u8; 32],
-	rng: &mut ChaCha20Rng,
-) -> (Vec<u8>, Vec<(ShareIndex, Vec<u8>, ShareMacTag)>) {
+	pickup_key: PickupKey,
+) -> (Vec<u8>, PreparedBatch) {
 	let encoded = envelope.encode();
-	let shares = split_xor(&encoded, SHARE_COUNT, rng).unwrap();
-	let tagged: Vec<(ShareIndex, Vec<u8>, ShareMacTag)> = shares
-		.iter()
-		.enumerate()
-		.map(|(i, s)| {
-			let idx = i as ShareIndex;
-			let tag = mac_share(mac_key, s, idx);
-			(idx, s.clone(), tag)
-		})
-		.collect();
-	(encoded, tagged)
+	let batch = prepare_batch(
+		&encoded,
+		CHUNK_COUNT,
+		envelope.message_id,
+		pickup_key,
+		NOW_TS + CHAT_TTL_SECONDS,
+	)
+	.unwrap();
+	// The chunk invariant that motivated the cutover: pieces SUM to
+	// the envelope size instead of N× it.
+	let total: usize = batch.shares.iter().map(|s| s.chunk_bytes.len()).sum();
+	assert_eq!(total, encoded.len());
+	(encoded, batch)
 }
 
-fn tagged_refs(
-	tagged: &[(ShareIndex, Vec<u8>, ShareMacTag)],
-) -> Vec<(ShareIndex, &[u8], &ShareMacTag)> {
-	tagged.iter().map(|(i, b, t)| (*i, b.as_slice(), t)).collect()
+fn tagged_refs(batch: &PreparedBatch) -> Vec<TaggedChunk<'_>> {
+	batch
+		.shares
+		.iter()
+		.map(|s| TaggedChunk {
+			share_index: s.share_index,
+			total_shares: s.total_shares,
+			expires_at_unix_ts: s.expires_at_unix_ts,
+			bytes: &s.chunk_bytes,
+			checksum: &s.checksum,
+		})
+		.collect()
 }
 
 #[test]
@@ -133,11 +147,7 @@ fn pairwise_full_crypto_stack_roundtrip() {
 	// DR session pair — established via an X3DH-lite handshake.
 	let (mut alice_dr, mut bob_dr) = fresh_dr_pair(0x33, 0x44);
 
-	// Shared symmetric secret between sender and recipient for
-	// per-share MAC keying. In production this is derived from the
-	// DR session state (a HKDF over the root key); the test uses
-	// a fixed value both sides know.
-	let session_secret = [0x55u8; 32];
+
 
 	let plaintext = b"hello over the full crypto stack";
 
@@ -165,15 +175,17 @@ fn pairwise_full_crypto_stack_roundtrip() {
 		message_id,
 	};
 
-	// 6. Stripe-split + MAC each share.
-	let mac_key = derive_share_mac_key(&session_secret, &message_id);
-	let (_envelope_encoded, tagged) = stripe_and_mac(&envelope, &mac_key, &mut rng);
+	// 6. Chunk-split + checksum each piece on the sender's device.
+	let pickup_key = PickupKey::for_pairwise(&bob_x_pk);
+	let (_envelope_encoded, batch) = chunk_and_checksum(&envelope, pickup_key);
 
 	// ── Recipient flow ────────────────────────────────────────────
 
-	// 1. Authenticated-combine the shares.
-	let triples = tagged_refs(&tagged);
-	let recovered_envelope_bytes = combine_xor_authenticated(&mac_key, &triples).unwrap();
+	// 1. Verified reassembly (check every chunk's checksum, then
+	//    concatenate in index order).
+	let refs = tagged_refs(&batch);
+	let recovered_envelope_bytes =
+		combine_chunks_verified(&message_id, &pickup_key, &refs).unwrap();
 
 	// 2. Decode SealedEnvelope.
 	let recovered_envelope =
@@ -238,10 +250,7 @@ fn group_full_crypto_stack_roundtrip() {
 
 	let plaintext = b"group hello via full stack";
 
-	// Session secret for the share MAC. In production this is
-	// derived from the MLS group's current exporter secret; the
-	// test pins a fixed value both sides know.
-	let session_secret = [0x77u8; 32];
+
 
 	// ── Sender flow ───────────────────────────────────────────────
 
@@ -261,14 +270,15 @@ fn group_full_crypto_stack_roundtrip() {
 		message_id,
 	};
 
-	// 3. Stripe-split + MAC.
-	let mac_key = derive_share_mac_key(&session_secret, &message_id);
-	let (_, tagged) = stripe_and_mac(&envelope, &mac_key, &mut rng);
+	// 3. Chunk-split + checksum.
+	let pickup_key = PickupKey::for_group(&gid);
+	let (_, batch) = chunk_and_checksum(&envelope, pickup_key);
 
 	// ── Recipient flow (Bob) ──────────────────────────────────────
 
-	let triples = tagged_refs(&tagged);
-	let bob_recovered = combine_xor_authenticated(&mac_key, &triples).unwrap();
+	let refs = tagged_refs(&batch);
+	let bob_recovered =
+		combine_chunks_verified(&message_id, &pickup_key, &refs).unwrap();
 	let bob_envelope = SealedEnvelope::decode(&mut &bob_recovered[..]).unwrap();
 	assert!(matches!(bob_envelope.kind, EnvelopeKind::Group(g) if g == gid));
 	let bob_plaintext = bob_group
@@ -278,7 +288,8 @@ fn group_full_crypto_stack_roundtrip() {
 
 	// ── Recipient flow (Charlie) ──────────────────────────────────
 
-	let charlie_recovered = combine_xor_authenticated(&mac_key, &triples).unwrap();
+	let charlie_recovered =
+		combine_chunks_verified(&message_id, &pickup_key, &refs).unwrap();
 	let charlie_envelope =
 		SealedEnvelope::decode(&mut &charlie_recovered[..]).unwrap();
 	let charlie_plaintext = charlie_group
@@ -330,13 +341,13 @@ fn group_removed_member_cannot_decrypt_via_full_stack() {
 		ephemeral_pubkey: [0; 32],
 		message_id,
 	};
-	let session_secret = [0x99u8; 32];
-	let mac_key = derive_share_mac_key(&session_secret, &message_id);
-	let (_, tagged) = stripe_and_mac(&envelope, &mac_key, &mut rng);
-	let triples = tagged_refs(&tagged);
+	let pickup_key = PickupKey::for_group(&gid);
+	let (_, batch) = chunk_and_checksum(&envelope, pickup_key);
+	let refs = tagged_refs(&batch);
 
 	// Bob (still a member) decrypts.
-	let bob_recovered = combine_xor_authenticated(&mac_key, &triples).unwrap();
+	let bob_recovered =
+		combine_chunks_verified(&message_id, &pickup_key, &refs).unwrap();
 	let bob_envelope = SealedEnvelope::decode(&mut &bob_recovered[..]).unwrap();
 	assert_eq!(
 		bob_group
@@ -345,13 +356,13 @@ fn group_removed_member_cannot_decrypt_via_full_stack() {
 		plaintext,
 	);
 
-	// Charlie (removed) attempts the same flow. The XOR-stripe
-	// layer succeeds (those are public shares + a MAC key Charlie
-	// could in principle derive from the *old* session secret —
-	// but the MLS decryption fails because Charlie's MLS state is
-	// at the pre-remove epoch). What matters: at the MLS layer,
-	// Charlie can NOT decrypt the post-remove message.
-	let charlie_recovered = combine_xor_authenticated(&mac_key, &triples).unwrap();
+	// Charlie (removed) attempts the same flow. The chunk layer
+	// succeeds (chunks + keyless checksums are public) — but the MLS
+	// decryption fails because Charlie's MLS state is at the
+	// pre-remove epoch. What matters: at the MLS layer, Charlie can
+	// NOT decrypt the post-remove message.
+	let charlie_recovered =
+		combine_chunks_verified(&message_id, &pickup_key, &refs).unwrap();
 	let charlie_envelope =
 		SealedEnvelope::decode(&mut &charlie_recovered[..]).unwrap();
 	assert!(
@@ -363,14 +374,13 @@ fn group_removed_member_cannot_decrypt_via_full_stack() {
 }
 
 #[test]
-fn tampered_share_localized_in_full_stack() {
+fn corrupt_chunk_localized_in_full_stack() {
 	let mut rng = ChaCha20Rng::seed_from_u64(0x12);
 	let alice_signing = ed25519_zebra::SigningKey::from([0x44u8; 32]);
 	let (_bob_x_sk, bob_x_pk) = fresh_x25519_identity(0x55);
 	let (mut alice_dr, _bob_dr) = fresh_dr_pair(0x66, 0x77);
-	let session_secret = [0x88u8; 32];
 
-	let plaintext = b"tamper detection at the stripe layer";
+	let plaintext = b"corruption detection at the chunk layer";
 	let dr_msg = alice_dr.encrypt(plaintext);
 	let inner_ciphertext = dr_msg.encode();
 	let message_id = MessageId::generate(&mut rng);
@@ -382,19 +392,19 @@ fn tampered_share_localized_in_full_stack() {
 		ephemeral_pubkey: ss.ephemeral_pub,
 		message_id,
 	};
-	let mac_key = derive_share_mac_key(&session_secret, &message_id);
-	let (_, mut tagged) = stripe_and_mac(&envelope, &mac_key, &mut rng);
+	let pickup_key = PickupKey::for_pairwise(&bob_x_pk);
+	let (_, mut batch) = chunk_and_checksum(&envelope, pickup_key);
 
-	// Corrupt share at slice index 3.
-	tagged[3].1[0] ^= 0xFF;
+	// Corrupt chunk at slice index 3.
+	batch.shares[3].chunk_bytes[0] ^= 0xFF;
 
-	let triples = tagged_refs(&tagged);
-	match combine_xor_authenticated(&mac_key, &triples) {
-		Err(AuthCombineError::TamperedShare { slice_index, share_index }) => {
+	let refs = tagged_refs(&batch);
+	match combine_chunks_verified(&message_id, &pickup_key, &refs) {
+		Err(ChunkCombineError::CorruptChunk { slice_index, share_index }) => {
 			assert_eq!(slice_index, 3);
 			assert_eq!(share_index, 3);
 		},
-		other => panic!("expected TamperedShare at slice_index 3, got {:?}", other),
+		other => panic!("expected CorruptChunk at slice_index 3, got {:?}", other),
 	}
 }
 

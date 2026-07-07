@@ -246,6 +246,7 @@ mod tests {
 	}
 
 	impl pallet_session::Config for Test {
+		type KeyProvenance = ();
 		type SessionManager = ();
 		type Keys = UintAuthorityId;
 		type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
