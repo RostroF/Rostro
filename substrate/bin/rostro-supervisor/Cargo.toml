@@ -27,3 +27,10 @@ libc = { workspace = true }
 
 [features]
 default = []
+
+# Lab-only passthrough to rostro-node-sandbox's diagnostic escape hatches
+# (layer-skip env vars + seccomp Log mode). OFF by default, so the canonical
+# supervisor build does not enable it and its hash is unaffected. Building
+# with `--features sandbox-diagnostics` changes the compiled output and the
+# binary hash, so the canonical-files gate keeps such a build off the network.
+sandbox-diagnostics = ["rostro-node-sandbox/sandbox-diagnostics"]
