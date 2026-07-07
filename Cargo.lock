@@ -13908,8 +13908,10 @@ dependencies = [
  "rand_core 0.6.4",
  "rostro-chat-primitives",
  "rostro-chat-sealed-sender",
+ "rostro-hybrid-kex",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
 ]
 
@@ -13985,6 +13987,7 @@ dependencies = [
  "rostro-chat-dr",
  "rostro-chat-primitives",
  "rostro-chat-sealed-sender",
+ "rostro-hybrid-kex",
  "tls_codec",
  "x25519-dalek",
 ]

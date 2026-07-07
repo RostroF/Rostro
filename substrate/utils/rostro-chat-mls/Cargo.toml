@@ -23,6 +23,7 @@ tls_codec = { workspace = true }
 rostro-chat-primitives = { path = "../rostro-chat-primitives" }
 
 [dev-dependencies]
+rostro-hybrid-kex = { workspace = true, default-features = true }
 # Full crypto-stack integration tests pull in the other chat
 # crates so a single tests/ binary can exercise DR + Sealed
 # Sender + MLS + envelope + stripe + MAC end-to-end.

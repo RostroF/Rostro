@@ -32,7 +32,7 @@ use rostro_chat_primitives::{
 	descriptor::{
 		GroupId, MessageId, PickupKey, RelayPubkey, ShareDescriptor, CHAT_TTL_SECONDS,
 	},
-	envelope::{sign_inner, EnvelopeKind, SealedEnvelope, UnsealedInner},
+	envelope::{sign_inner, SealedEnvelope, UnsealedInner, PAIRWISE_PQ_CT_BYTES},
 	verify::verify_sender,
 };
 
@@ -97,10 +97,10 @@ fn pairwise_dm_full_stack_roundtrip() {
 	let unsealed_encoded = unsealed.encode();
 
 	// Step 5: build the outer SealedEnvelope.
-	let envelope = SealedEnvelope {
-		kind: EnvelopeKind::Pairwise,
-		outer_ciphertext: unsealed_encoded,
+	let envelope = SealedEnvelope::Pairwise {
 		ephemeral_pubkey: [0xEE; 32], // would be a real X25519 epk in production
+		pq_ct: [0x5A; PAIRWISE_PQ_CT_BYTES], // would be a real ML-KEM ct in production
+		outer_ciphertext: unsealed_encoded,
 		message_id,
 	};
 	let envelope_encoded = envelope.encode();
@@ -169,18 +169,18 @@ fn pairwise_dm_full_stack_roundtrip() {
 		SealedEnvelope::decode(&mut &recovered_envelope_bytes[..]).unwrap();
 	assert_eq!(recovered_envelope, envelope);
 
-	// Recipient confirms the envelope kind is pairwise (would route
-	// to DR-decrypt rather than MLS-decrypt).
-	assert_eq!(recovered_envelope.kind, EnvelopeKind::Pairwise);
+	// Recipient confirms the envelope variant is pairwise (would
+	// route to hybrid-unseal + DR-decrypt rather than MLS-decrypt).
+	assert!(matches!(recovered_envelope, SealedEnvelope::Pairwise { .. }));
 
-	// Recipient decrypts outer_ciphertext. In production this is
-	// Sealed Sender outer AEAD decrypt; here it's just SCALE decode.
+	// Recipient decrypts outer_ciphertext. In production this is the
+	// hybrid sealed-sender unseal; here it's just SCALE decode.
 	let recovered_unsealed =
-		UnsealedInner::decode(&mut &recovered_envelope.outer_ciphertext[..]).unwrap();
+		UnsealedInner::decode(&mut recovered_envelope.outer_ciphertext()).unwrap();
 
 	// Recipient verifies the sender signature against the outer's
 	// message_id (NOT a freshly-derived one).
-	let verified_pubkey = verify_sender(&recovered_unsealed, &recovered_envelope.message_id)
+	let verified_pubkey = verify_sender(&recovered_unsealed, recovered_envelope.message_id())
 		.expect("honest sender signature must verify");
 
 	// Verified pubkey matches the sender's actual pubkey.
@@ -205,10 +205,9 @@ fn group_message_full_stack_roundtrip() {
 
 	let message_id = MessageId::generate(&mut rng);
 	let unsealed = sign_inner(plaintext.to_vec(), &message_id, &signing_key);
-	let envelope = SealedEnvelope {
-		kind: EnvelopeKind::Group(group_id),
+	let envelope = SealedEnvelope::Group {
+		group_id,
 		outer_ciphertext: unsealed.encode(),
-		ephemeral_pubkey: [0u8; 32], // group sentinel
 		message_id,
 	};
 	let envelope_encoded = envelope.encode();
@@ -238,10 +237,10 @@ fn group_message_full_stack_roundtrip() {
 	)
 	.unwrap();
 	let recovered_envelope = SealedEnvelope::decode(&mut &recovered[..]).unwrap();
-	assert_eq!(recovered_envelope.kind, EnvelopeKind::Group(group_id));
+	assert!(matches!(recovered_envelope, SealedEnvelope::Group { group_id: g, .. } if g == group_id));
 	let recovered_unsealed =
-		UnsealedInner::decode(&mut &recovered_envelope.outer_ciphertext[..]).unwrap();
-	verify_sender(&recovered_unsealed, &recovered_envelope.message_id).unwrap();
+		UnsealedInner::decode(&mut recovered_envelope.outer_ciphertext()).unwrap();
+	verify_sender(&recovered_unsealed, recovered_envelope.message_id()).unwrap();
 	assert_eq!(recovered_unsealed.inner_ciphertext, plaintext);
 }
 
@@ -257,10 +256,10 @@ fn tampered_chunk_is_localized() {
 
 	let message_id = MessageId::generate(&mut rng);
 	let unsealed = sign_inner(plaintext.to_vec(), &message_id, &signing_key);
-	let envelope = SealedEnvelope {
-		kind: EnvelopeKind::Pairwise,
-		outer_ciphertext: unsealed.encode(),
+	let envelope = SealedEnvelope::Pairwise {
 		ephemeral_pubkey: [0; 32],
+		pq_ct: [0; PAIRWISE_PQ_CT_BYTES],
+		outer_ciphertext: unsealed.encode(),
 		message_id,
 	};
 	let pickup = PickupKey::for_pairwise(&[0x10; 32]);
