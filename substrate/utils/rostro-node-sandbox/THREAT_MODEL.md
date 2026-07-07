@@ -112,6 +112,12 @@ provides:
   EPERM (no `CAP_KILL`). Operator paths under `--sandbox-rw-path` must
   be owned by `--sandbox-child-uid:--sandbox-child-gid` or the child
   cannot read/write them after the drop.
+- **No privilege regain via exec.** `PR_SET_NO_NEW_PRIVS` is set
+  unconditionally at the top of `install()` (item 4b, 2026-07-07),
+  independent of whether Landlock/seccomp run. No `execve` after that
+  point — including the child's exec of gemini-node or any setuid binary
+  reachable on an RO path — can gain privilege via setuid/setgid bits or
+  file capabilities. Monotone and inherited across fork+exec.
 - **Filesystem scope.** Landlock denies *all* paths outside the union
   of `BASELINE_RO_PATHS` + `--sandbox-ro-path` + `--sandbox-rw-path` +
   the cgroup directory + cgroup root (with `RemoveDir`/`ReadDir` only,
@@ -123,10 +129,20 @@ provides:
   `MS_BIND | MS_NOEXEC` bind-remount on every `--sandbox-rw-path` at
   install time, so the kernel's mount layer rejects
   `mmap(PROT_EXEC, fd, …)` on any file under these paths — closes F05.
+  The Landlock ruleset is built at ABI v3 (item 2, 2026-07-07; floor is
+  kernel 6.6 / ABI v3, `BestEffort` degrades below): `Truncate` is granted
+  on RW paths but withheld from RO paths, so a writable-inode fd obtained
+  by reopening an RO-path file via `/proc/self/fd/N` can no longer be
+  `ftruncate`d (the RO-reopen leg of F13 — see §4). `Refer` is likewise
+  RW-only, so cross-directory rename/link out of an RO path is denied.
 - **Syscall surface.** ~60 specific syscalls allowed; everything else
   is `SIGKILL` via `SECCOMP_RET_KILL_PROCESS`. Argument-filtered for
   `mmap`, `mprotect`, `clone`, `clone3` (via stacked ENOSYS),
-  `socket`, `setsockopt`, `prctl`, `prlimit64`, `ioctl`.
+  `socket`, `setsockopt`, `prctl`, `prlimit64`, `ioctl`. **x86_64 only**:
+  on any other arch a canonical build has no allowlist and `install_seccomp`
+  fails closed — `install()` aborts and the supervisor exits rather than
+  run without the filter (item 4a, 2026-07-07). The deliberate
+  run-unfiltered path is `--unsafe-skip-sandbox`, never a silent default.
 - **W^X memory.** mmap arg filter rejects simultaneous
   `PROT_WRITE | PROT_EXEC`. JIT-flip pattern (write fill →
   `mprotect(PROT_READ | PROT_EXEC)`) is the only way to get
@@ -367,16 +383,20 @@ should set `umask 077` so newly-created files inherit restrictive
 modes by default. F-NEW-R4-V8's `O_NOFOLLOW` close on the state-file
 write path remains independent of this layer.
 
-An attacker who can obtain a writable-inode fd via a path Landlock
-doesn't deny (i.e., something in `--sandbox-rw-path`) can still
-truncate that file. The path scope means they cannot truncate host
-config files like `/etc/resolv.conf` — but they CAN truncate any
-file in `/opt/rostro/data` (validator state, keystore, RocksDB).
+RO-reopen leg closed (item 2, 2026-07-07). The Landlock ruleset now
+handles `Truncate` at ABI v3 and grants it only on RW paths, so an
+attacker who reopens an RO-path inode as writable via `/proc/self/fd/N`
+gets EACCES on `ftruncate` — the trick that let `fchmod`-style reopen
+attacks reach truncate on a read-only file no longer works.
 
-This is consistent with the threat model: the attacker can already
-write to those paths, so truncating them adds no privilege; it's
-just destruction within reach. Treated as in-scope vandalism, not
-escalation.
+What remains: `ftruncate` on a file that is genuinely inside
+`--sandbox-rw-path` (e.g. `/opt/rostro/data` — validator state, keystore,
+ParityDB). Landlock grants `Truncate` there because ParityDB legitimately
+truncates its own files, and there is no way to distinguish the node's
+truncate from an attacker's within the same inode set. This is consistent
+with the threat model: the attacker can already write to those paths, so
+truncating them adds no privilege; it's just destruction within reach.
+Treated as in-scope vandalism, not escalation.
 
 ### Supervisor state-file write under Cannae
 
@@ -442,7 +462,18 @@ the relevant section in the same PR. The `PHASE5_NOTES.md`
 red-team-follow-up tracker is the authoritative per-commit record;
 this doc is the user-facing summary.
 
-Last revised: 2026-07-06 (§2.3 added — the diagnostic escape hatches
+Last revised: 2026-07-07 (hardening round 2: (item 2) Landlock ruleset
+raised from ABI v1 to v3 — `Truncate` + `Refer` now RW-only, closing the
+RO-reopen leg of the F13 ftruncate residual (§4); network gating (v4)
+deliberately NOT used, F-NEW-08 stays on the address-aware nftables
+stopgap since Landlock net rules are port-keyed. (item 4a) non-x86_64
+`install_seccomp` now fails closed in canonical builds instead of running
+without a syscall filter; also fixed a latent bug where the crate did not
+compile on non-x86_64 Linux at all (`install_noexec_remount` lacked a
+non-x86 stub). (item 4b) `PR_SET_NO_NEW_PRIVS` set unconditionally at
+`install()` entry, independent of Landlock/seccomp.)
+
+Prior revision: 2026-07-06 (§2.3 added — the diagnostic escape hatches
 (`ROSTRO_SKIP_*` layer skips + `ROSTRO_SECCOMP_ACTION=log`) moved behind
 the `sandbox-diagnostics` Cargo feature, off in the canonical
 `default = []` set. Canonical builds compile the hatches out entirely, so
