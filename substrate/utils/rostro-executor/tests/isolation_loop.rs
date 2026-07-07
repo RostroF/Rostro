@@ -208,6 +208,205 @@ fn apply_extrinsic_tight_loop() {
 	report("apply_extrinsic (authoring/import runtime path)", &mut times);
 }
 
+/// Parallel scaling: T threads, each with its own in-memory state, all
+/// sharing ONE executor (and therefore one module cache + engine — the
+/// same sharing shape as sc-service handing executor clones to async
+/// tasks). Flat scaling here would mean the executor serializes
+/// internally; linear scaling means any single-node ceiling below
+/// (cores × single-thread rate) is node-side.
+#[test]
+#[ignore = "requires SUBSTRATE_RUNTIME_TARGET=riscv to build gemini-runtime as PVM"]
+fn parallel_scaling() {
+	use std::sync::{Arc, Barrier};
+
+	let harness = Arc::new(Harness::new());
+
+	// Warm the module cache before any threads race on the compile.
+	{
+		let mut ext = test_externalities();
+		let mut ext = ext.ext();
+		let seed = (TransactionSource::External, signed_transfer(0), genesis_hash()).encode();
+		harness.call(&mut ext, "TaggedTransactionQueue_validate_transaction", &seed);
+	}
+
+	let txs: Arc<Vec<Vec<u8>>> = Arc::new(
+		(0..N)
+			.map(|nonce| {
+				(TransactionSource::External, signed_transfer(nonce), genesis_hash()).encode()
+			})
+			.collect(),
+	);
+
+	let mut one_thread_rate = 0f64;
+	for threads in [1usize, 2, 4, 8] {
+		// Threads build their externalities first, then hit the barrier,
+		// so the timed window is pure validate work.
+		let barrier = Arc::new(Barrier::new(threads + 1));
+		let handles: Vec<_> = (0..threads)
+			.map(|_| {
+				let harness = Arc::clone(&harness);
+				let txs = Arc::clone(&txs);
+				let barrier = Arc::clone(&barrier);
+				std::thread::spawn(move || {
+					let mut ext = test_externalities();
+					let mut ext = ext.ext();
+					barrier.wait();
+					for tx in txs.iter() {
+						let ret = harness.call(
+							&mut ext,
+							"TaggedTransactionQueue_validate_transaction",
+							tx,
+						);
+						assert_valid(&ret);
+					}
+				})
+			})
+			.collect();
+
+		barrier.wait();
+		let t = Instant::now();
+		for handle in handles {
+			handle.join().expect("worker thread panicked");
+		}
+		let elapsed = t.elapsed();
+		let total = threads * N as usize;
+		let rate = total as f64 / elapsed.as_secs_f64();
+		if threads == 1 {
+			one_thread_rate = rate;
+		}
+		eprintln!(
+			"threads={threads}: {total} validates in {elapsed:?} → {rate:.0} tx/s aggregate ({:.2}x vs 1 thread)",
+			rate / one_thread_rate,
+		);
+	}
+}
+
+/// Discriminator for the parallel plateau: instantiation only, no
+/// execution. If this plateaus like `parallel_scaling`, the contention
+/// is in per-call instance setup (allocation/zeroing); if it scales,
+/// the contention is in interpreted execution itself.
+#[test]
+#[ignore = "requires SUBSTRATE_RUNTIME_TARGET=riscv to build gemini-runtime as PVM"]
+fn parallel_instantiate_scaling() {
+	use polkavm::{BackendKind, Config, Engine, Module, ModuleConfig};
+	use std::sync::{Arc, Barrier};
+
+	let blob = gemini_runtime::WASM_BINARY.expect("riscv blob");
+	let mut config = Config::from_env().unwrap_or_else(|_| Config::new());
+	config.set_allow_experimental(true);
+	config.set_backend(Some(BackendKind::Interpreter));
+	let engine = Engine::new(&config).expect("engine");
+	let module =
+		Module::new(&engine, &ModuleConfig::new(), blob.to_vec().into()).expect("module");
+	let mut linker = polkavm::Linker::<(), String>::new();
+	rostro_executor::register_substrate_host_functions::<(), sp_io::SubstrateHostFunctions>(
+		&mut linker,
+	)
+	.expect("host fns");
+	let instance_pre = Arc::new(linker.instantiate_pre(&module).expect("instantiate_pre"));
+
+	const ITERS: usize = 2_000;
+	let mut one_thread_rate = 0f64;
+	for threads in [1usize, 2, 4, 8] {
+		let barrier = Arc::new(Barrier::new(threads + 1));
+		let handles: Vec<_> = (0..threads)
+			.map(|_| {
+				let pre = Arc::clone(&instance_pre);
+				let barrier = Arc::clone(&barrier);
+				std::thread::spawn(move || {
+					barrier.wait();
+					for _ in 0..ITERS {
+						let mut instance = pre.instantiate().expect("instantiate");
+						instance.reset_memory().expect("reset");
+						std::hint::black_box(&instance);
+					}
+				})
+			})
+			.collect();
+
+		barrier.wait();
+		let t = Instant::now();
+		for handle in handles {
+			handle.join().expect("worker thread panicked");
+		}
+		let elapsed = t.elapsed();
+		let total = threads * ITERS;
+		let rate = total as f64 / elapsed.as_secs_f64();
+		if threads == 1 {
+			one_thread_rate = rate;
+		}
+		eprintln!(
+			"threads={threads}: {total} instantiates in {elapsed:?} → {rate:.0}/s aggregate ({:.2}x vs 1 thread)",
+			rate / one_thread_rate,
+		);
+	}
+}
+
+/// Second discriminator: fully UNSHARED executors — every thread gets
+/// its own engine, module cache, and compiled module, so no executor
+/// state is shared at all. If this plateaus like `parallel_scaling`,
+/// the wall is the machine (memory bandwidth / SMT / WSL2), not
+/// executor-internal sharing.
+#[test]
+#[ignore = "requires SUBSTRATE_RUNTIME_TARGET=riscv to build gemini-runtime as PVM"]
+fn parallel_scaling_unshared() {
+	use std::sync::{Arc, Barrier};
+
+	let txs: Arc<Vec<Vec<u8>>> = Arc::new(
+		(0..N)
+			.map(|nonce| {
+				(TransactionSource::External, signed_transfer(nonce), genesis_hash()).encode()
+			})
+			.collect(),
+	);
+
+	let mut one_thread_rate = 0f64;
+	for threads in [1usize, 2, 4, 8] {
+		let barrier = Arc::new(Barrier::new(threads + 1));
+		let handles: Vec<_> = (0..threads)
+			.map(|_| {
+				let txs = Arc::clone(&txs);
+				let barrier = Arc::clone(&barrier);
+				std::thread::spawn(move || {
+					// Private executor: own engine + module cache. Warm
+					// it (per-thread compile) before the barrier.
+					let harness = Harness::new();
+					let mut ext = test_externalities();
+					let mut ext = ext.ext();
+					let seed =
+						(TransactionSource::External, signed_transfer(0), genesis_hash()).encode();
+					harness.call(&mut ext, "TaggedTransactionQueue_validate_transaction", &seed);
+					barrier.wait();
+					for tx in txs.iter() {
+						let ret = harness.call(
+							&mut ext,
+							"TaggedTransactionQueue_validate_transaction",
+							tx,
+						);
+						assert_valid(&ret);
+					}
+				})
+			})
+			.collect();
+
+		barrier.wait();
+		let t = Instant::now();
+		for handle in handles {
+			handle.join().expect("worker thread panicked");
+		}
+		let elapsed = t.elapsed();
+		let total = threads * N as usize;
+		let rate = total as f64 / elapsed.as_secs_f64();
+		if threads == 1 {
+			one_thread_rate = rate;
+		}
+		eprintln!(
+			"threads={threads}: {total} validates in {elapsed:?} → {rate:.0} tx/s aggregate ({:.2}x vs 1 thread)",
+			rate / one_thread_rate,
+		);
+	}
+}
+
 /// `TransactionValidity` = `Result<ValidTransaction, TransactionValidityError>`;
 /// SCALE `Ok` discriminant is `0`.
 fn assert_valid(ret: &[u8]) {
