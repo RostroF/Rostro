@@ -43,7 +43,9 @@ rc-utils = { default-features = true, workspace = true }
 serde = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
 sp-blockchain = { default-features = true, workspace = true }
-sp-core = { default-features = true, workspace = true }
+# bandersnatch-experimental: `key insert --key-type sass` derives the
+# bandersnatch scheme from the key type (no bespoke subcommand).
+sp-core = { default-features = true, workspace = true, features = ["bandersnatch-experimental"] }
 sp-keyring = { default-features = true, workspace = true }
 sp-keystore = { default-features = true, workspace = true }
 sp-panic-handler = { default-features = true, workspace = true }

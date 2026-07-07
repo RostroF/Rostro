@@ -81,15 +81,15 @@ for name in alice bob charlie dave eve observer; do
 	setup_node_cache "$STAR_DIR/$name"
 done
 
-# Hybrid GRANDPA keys: inserted with --scheme rostro-hybrid (the PQ
+# Hybrid GRANDPA keys: the scheme is derived from the key type (the PQ
 # cutover). `key inspect` rejects hybrid (no account identity), so the
 # probe's `derive` command produces the 64-byte public + 32-byte master
 # seed through the exact sp_core::rostro_hybrid path.
 echo "injecting Sassafras + HYBRID GRANDPA keys for 3 validators..."
 for pair in "//Alice:alice" "//Bob:bob" "//Charlie:charlie" "//Dave:dave" "//Eve:eve"; do
 	suri="${pair%%:*}"; name="${pair##*:}"; base="$STAR_DIR/$name"
-	"$NODE_BIN" insert-sassafras-key --suri "$suri" --base-path "$base" --chain-id gemini-star
-	"$NODE_BIN" key insert --suri "$suri" --key-type gran --scheme rostro-hybrid --base-path "$base" --chain star
+	"$NODE_BIN" key insert --key-type sass --suri "$suri" --base-path "$base" --chain gemini-star
+	"$NODE_BIN" key insert --suri "$suri" --key-type gran --base-path "$base" --chain star
 done
 
 BOB_DERIVE="$("$PROBE" derive --suri //Bob)"
@@ -207,7 +207,7 @@ wait_finality_past() {
 rotate_validator() {
 	local name="$1" ws="$2" suri="$3" seed
 	seed="0x$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
-	"$NODE_BIN" key insert --suri "$seed" --key-type gran --scheme rostro-hybrid \
+	"$NODE_BIN" key insert --suri "$seed" --key-type gran \
 		--base-path "$STAR_DIR/$name" --chain star
 	"$PROBE" rotate --ws "$ws" --suri "$suri" --seed "$seed"
 }

@@ -273,18 +273,20 @@ impl Keystore for LocalKeystore {
 		self.sign::<rostro_hybrid::Pair>(key_type, public, msg)
 	}
 
-	fn rostro_hybrid_sign_ed25519_component(
+	fn rostro_hybrid_sign_with_domain(
 		&self,
 		key_type: KeyTypeId,
 		public: &rostro_hybrid::Public,
+		domain: &[u8],
 		msg: &[u8],
-	) -> std::result::Result<Option<ed25519::Signature>, TraitError> {
-		let sig = self
-			.0
-			.read()
-			.key_pair_by_type::<rostro_hybrid::Pair>(public, key_type)?
-			.map(|pair| pair.sign_ed25519_component(msg));
-		Ok(sig)
+	) -> std::result::Result<Option<rostro_hybrid::Signature>, TraitError> {
+		match self.0.read().key_pair_by_type::<rostro_hybrid::Pair>(public, key_type)? {
+			Some(pair) => pair
+				.sign_with_domain(domain, msg)
+				.map(Some)
+				.ok_or_else(|| TraitError::ValidationError("refused hybrid signing domain".into())),
+			None => Ok(None),
+		}
 	}
 
 	fn ecdsa_public_keys(&self, key_type: KeyTypeId) -> Vec<ecdsa::Public> {
@@ -880,6 +882,32 @@ mod tests {
 		// Unknown key → None, not an error.
 		let other = sp_core::rostro_hybrid::Pair::generate().0.public();
 		assert!(store.rostro_hybrid_sign(ROSTRO_HYBRID, &other, msg).unwrap().is_none());
+
+		// Domain-framed signing: verifies under the same domain via the
+		// leaf crate, refuses the finality-vote scheme domain outright,
+		// and an unknown key is still None (checked before the domain).
+		const TEST_DOMAIN: &[u8] = b"rostro/test/keystore/v1";
+		let dsig = store
+			.rostro_hybrid_sign_with_domain(ROSTRO_HYBRID, &public, TEST_DOMAIN, msg)
+			.unwrap()
+			.unwrap();
+		let vk = rostro_hybrid_sig::HybridVerifyingKey::from_bytes(public.as_ref() as &[u8])
+			.unwrap();
+		let leaf_sig =
+			rostro_hybrid_sig::HybridSignature::from_bytes(dsig.as_ref() as &[u8]).unwrap();
+		assert!(vk.verify(TEST_DOMAIN, msg, &leaf_sig).is_ok());
+		assert!(store
+			.rostro_hybrid_sign_with_domain(
+				ROSTRO_HYBRID,
+				&public,
+				rostro_hybrid_sig::FINALITY_VOTE_DOMAIN,
+				msg,
+			)
+			.is_err());
+		assert!(store
+			.rostro_hybrid_sign_with_domain(ROSTRO_HYBRID, &other, TEST_DOMAIN, msg)
+			.unwrap()
+			.is_none());
 
 		// The key survives a keystore reopen (fresh scan of the same dir),
 		// and the reopened store signs identically (both components are

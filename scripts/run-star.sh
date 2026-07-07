@@ -100,14 +100,14 @@ setup_node_cache "$EVE_BASE"
 mkdir -p "$ALICE_BASE" "$BOB_BASE" "$CHARLIE_BASE" "$DAVE_BASE" "$EVE_BASE"
 
 # Inject the Sassafras (bandersnatch) authority key for each validator.
-# Stock `--alice` / `--bob` / etc only cover sr25519/ed25519/ecdsa.
+# Stock `--alice` / `--bob` / etc do not cover bandersnatch.
 # Idempotent — safe to re-run.
 echo "injecting Sassafras bandersnatch keys for all 5 nodes..."
-"$NODE_BIN" insert-sassafras-key --suri //Alice   --base-path "$ALICE_BASE"   --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Bob     --base-path "$BOB_BASE"     --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Charlie --base-path "$CHARLIE_BASE" --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Dave    --base-path "$DAVE_BASE"    --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Eve     --base-path "$EVE_BASE"     --chain-id gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Alice   --base-path "$ALICE_BASE"   --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Bob     --base-path "$BOB_BASE"     --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Charlie --base-path "$CHARLIE_BASE" --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Dave    --base-path "$DAVE_BASE"    --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Eve     --base-path "$EVE_BASE"     --chain gemini-star
 
 # GRANDPA Ed25519 keys for each validator. The `--alice` etc. dev
 # flags do NOT auto-inject GRANDPA keys into the local keystore in
@@ -116,11 +116,11 @@ echo "injecting Sassafras bandersnatch keys for all 5 nodes..."
 # validator-channel asker thinks we're not a validator (no GRANDPA
 # pubkey in the keystore to claim).
 echo "injecting GRANDPA Ed25519 keys for all 5 nodes..."
-"$NODE_BIN" key insert --suri //Alice   --key-type gran --scheme ed25519 --base-path "$ALICE_BASE"   --chain star
-"$NODE_BIN" key insert --suri //Bob     --key-type gran --scheme ed25519 --base-path "$BOB_BASE"     --chain star
-"$NODE_BIN" key insert --suri //Charlie --key-type gran --scheme ed25519 --base-path "$CHARLIE_BASE" --chain star
-"$NODE_BIN" key insert --suri //Dave    --key-type gran --scheme ed25519 --base-path "$DAVE_BASE"    --chain star
-"$NODE_BIN" key insert --suri //Eve     --key-type gran --scheme ed25519 --base-path "$EVE_BASE"     --chain star
+"$NODE_BIN" key insert --suri //Alice   --key-type gran --base-path "$ALICE_BASE"   --chain star
+"$NODE_BIN" key insert --suri //Bob     --key-type gran --base-path "$BOB_BASE"     --chain star
+"$NODE_BIN" key insert --suri //Charlie --key-type gran --base-path "$CHARLIE_BASE" --chain star
+"$NODE_BIN" key insert --suri //Dave    --key-type gran --base-path "$DAVE_BASE"    --chain star
+"$NODE_BIN" key insert --suri //Eve     --key-type gran --base-path "$EVE_BASE"     --chain star
 
 # `--canonical-files-dir` makes the running binary advertise the heal-
 # fetch server and serve canonical bytes to peers. Same dir is the

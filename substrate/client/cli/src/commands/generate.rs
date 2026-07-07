@@ -55,7 +55,9 @@ impl GenerateCmd {
 	pub fn run(&self) -> Result<(), Error> {
 		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
 			return Err(crate::Error::Input(
-				"the rostro-hybrid consensus scheme is supported by `key insert` only".into(),
+				"rostro-hybrid is a consensus-key scheme with no account identity; \
+				 pass --scheme ed25519 or --scheme sr25519 for account keys"
+					.into(),
 			));
 		}
 		let words = match self.words {
@@ -86,7 +88,7 @@ mod tests {
 
 	#[test]
 	fn generate() {
-		let generate = GenerateCmd::parse_from(&["generate", "--password", "12345"]);
+		let generate = GenerateCmd::parse_from(&["generate", "--scheme", "sr25519", "--password", "12345"]);
 		assert!(generate.run().is_ok())
 	}
 }

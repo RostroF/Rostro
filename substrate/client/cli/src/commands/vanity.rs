@@ -53,7 +53,9 @@ impl VanityCmd {
 	pub fn run(&self) -> error::Result<()> {
 		if matches!(self.crypto_scheme.scheme, crate::CryptoScheme::RostroHybrid) {
 			return Err(crate::Error::Input(
-				"the rostro-hybrid consensus scheme is supported by `key insert` only".into(),
+				"rostro-hybrid is a consensus-key scheme with no account identity; \
+				 pass --scheme ed25519 or --scheme sr25519 for account keys"
+					.into(),
 			));
 		}
 		let formatted_seed = with_crypto_scheme!(
@@ -174,7 +176,7 @@ mod tests {
 
 	#[test]
 	fn vanity() {
-		let vanity = VanityCmd::parse_from(&["vanity", "--pattern", "j"]);
+		let vanity = VanityCmd::parse_from(&["vanity", "--scheme", "sr25519", "--pattern", "j"]);
 		assert!(vanity.run().is_ok());
 	}
 

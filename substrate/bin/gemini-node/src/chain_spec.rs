@@ -51,8 +51,8 @@ pub fn get_account_id_from_seed(seed: &str) -> AccountId {
 	AccountPublic::from(pubkey).into_account()
 }
 
-/// Generate the account + Sassafras (bandersnatch) + GRANDPA (ed25519)
-/// authority triple from a seed string. The account is the validator's
+/// Generate the account + Sassafras (bandersnatch) + GRANDPA (hybrid
+/// ed25519+SLH-DSA) authority triple from a seed string. The account is the validator's
 /// on-chain identity: it owns the session-key registration (and is what
 /// `set_keys` rotation is authorized by).
 pub fn authority_keys_from_seed(s: &str) -> (AccountId, SassafrasId, GrandpaId) {

@@ -109,35 +109,6 @@ pub fn run() -> rc_cli::Result<()> {
 			let runner = cli.create_runner(cmd)?;
 			runner.sync_run(|config| cmd.run::<Block>(&config))
 		},
-		Some(Subcommand::InsertSassafrasKey(cmd)) => {
-			use sp_core::{bandersnatch, crypto::Pair as PairT};
-			use sp_keystore::Keystore;
-			let keystore_path =
-				cmd.base_path.join("chains").join(&cmd.chain_id).join("keystore");
-			std::fs::create_dir_all(&keystore_path)
-				.map_err(|e| format!("create keystore dir: {e}"))?;
-
-			// Use sp-keystore's LocalKeystore (file-backed) to insert.
-			let keystore = rc_keystore::LocalKeystore::open(&keystore_path, None)
-				.map_err(|e| format!("open LocalKeystore: {e}"))?;
-
-			// Derive the bandersnatch keypair from the SURI seed.
-			let pair = bandersnatch::Pair::from_string(&cmd.suri, None)
-				.map_err(|e| format!("derive pair from SURI: {e:?}"))?;
-			let public = pair.public();
-
-			Keystore::insert(
-				&keystore,
-				sp_consensus_sassafras::KEY_TYPE,
-				&cmd.suri,
-				public.as_ref(),
-			)
-			.map_err(|e| format!("Keystore::insert: {e:?}"))?;
-
-			let public_bytes: &[u8] = public.as_ref();
-			println!("Inserted Sassafras key for {} → public {}", cmd.suri, hex::encode(public_bytes));
-			Ok(())
-		},
 		None => {
 			let canonical_files_dir = cli.canonical_files_dir.clone();
 			let canonical_staging_dir = cli.canonical_staging_dir.clone();

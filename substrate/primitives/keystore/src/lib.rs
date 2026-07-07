@@ -178,15 +178,23 @@ pub trait Keystore: Send + Sync {
 		msg: &[u8],
 	) -> Result<Option<rostro_hybrid::Signature>, Error>;
 
-	/// Sign a message with ONLY the ed25519 component of a Rostro hybrid
-	/// key (docs/PQ-FINALITY.md D5 — byte-budgeted consumers like the
-	/// validator-channel cert). Returns `None` if the key is absent.
-	fn rostro_hybrid_sign_ed25519_component(
+	/// Generate a Rostro hybrid signature framed under an explicit protocol
+	/// `domain` (the FIPS 205 context) instead of the finality-vote scheme
+	/// domain. For non-consensus consumers of a hybrid key — the
+	/// validator-channel cert and handshake (docs/PQ-TRANSPORT.md).
+	///
+	/// Returns `None` in case the given `key_type` and `public` combination
+	/// doesn't exist in the keystore. An `Err` is returned if the domain is
+	/// refused: the finality-vote domain itself (this method must never
+	/// mint a signature that verifies as a finality vote) or a domain over
+	/// the 255-byte FIPS 205 context limit.
+	fn rostro_hybrid_sign_with_domain(
 		&self,
 		key_type: KeyTypeId,
 		public: &rostro_hybrid::Public,
+		domain: &[u8],
 		msg: &[u8],
-	) -> Result<Option<ed25519::Signature>, Error>;
+	) -> Result<Option<rostro_hybrid::Signature>, Error>;
 
 	/// Returns all ecdsa public keys for the given key type.
 	fn ecdsa_public_keys(&self, key_type: KeyTypeId) -> Vec<ecdsa::Public>;
@@ -574,13 +582,14 @@ impl<T: Keystore + ?Sized> Keystore for Arc<T> {
 		(**self).rostro_hybrid_sign(key_type, public, msg)
 	}
 
-	fn rostro_hybrid_sign_ed25519_component(
+	fn rostro_hybrid_sign_with_domain(
 		&self,
 		key_type: KeyTypeId,
 		public: &rostro_hybrid::Public,
+		domain: &[u8],
 		msg: &[u8],
-	) -> Result<Option<ed25519::Signature>, Error> {
-		(**self).rostro_hybrid_sign_ed25519_component(key_type, public, msg)
+	) -> Result<Option<rostro_hybrid::Signature>, Error> {
+		(**self).rostro_hybrid_sign_with_domain(key_type, public, domain, msg)
 	}
 
 	fn ecdsa_public_keys(&self, key_type: KeyTypeId) -> Vec<ecdsa::Public> {

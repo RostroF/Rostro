@@ -53,6 +53,17 @@ bounds signatures by `Clone + Eq` only — no size assumptions.
   becomes the 64-byte hybrid id (set-membership check input), signature
   stays 64B ed25519 over the cert domain. PQ-hardening the channel cert
   is a named follow-up, not this workstream.
+  **SUPERSEDED (pq-channel-auth-v0, 2026-07-06)**: the named follow-up
+  landed. The cert is hybrid-signed by BOTH components (`/v3` cert
+  domain via the FIPS 205 context), the `chnl` channel key is itself
+  hybrid, and handshakes carry hybrid signatures (`/v5`, protocol
+  `/rostro/validator-channel-handshake/5`, 20 KiB caps). The 512-byte
+  budget rationale died with it — the handshake was already ~1.4 KB
+  after the ML-KEM flight, and at one handshake per pair per session
+  the ~17 KB hybrid payload is noise. `hybrid_sign_ed25519_component`
+  was removed from the keystore/sp-core/leaf; the replacement seam is
+  `rostro_hybrid_sign_with_domain`, which refuses the finality-vote
+  domain so a cert or handshake signature can never double as a vote.
 - **D6 — runtime verifies hybrid in-runtime (RISC-V), no host function
   yet.** Equivocation `check_equivocation_proof` and the lineage canary
   verify are rare extrinsic paths; SLH-DSA verify is pure no_std Rust.
