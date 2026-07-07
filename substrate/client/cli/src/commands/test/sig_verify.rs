@@ -34,7 +34,7 @@ fn sign(msg: &str, hex: bool, stdin: bool) -> String {
 
 /// Sign a raw message which can be `hex` and passed either via `stdin` or as an argument.
 fn sign_raw(msg: &[u8], hex: bool, stdin: bool) -> String {
-	let mut args = vec!["sign", "--suri", SEED];
+	let mut args = vec!["sign", "--scheme", "sr25519", "--suri", SEED];
 	if !stdin {
 		args.push("--message");
 		args.push(std::str::from_utf8(msg).expect("Can only pass valid UTF-8 as arg"));
@@ -53,7 +53,7 @@ fn verify(msg: &str, hex: bool, stdin: bool, who: &str, sig: &str) -> bool {
 
 /// Verify a raw message which can be `hex` and passed either via `stdin` or as an argument.
 fn verify_raw(msg: &[u8], hex: bool, stdin: bool, who: &str, sig: &str) -> bool {
-	let mut args = vec!["verify", sig, who];
+	let mut args = vec!["verify", "--scheme", "sr25519", sig, who];
 	if !stdin {
 		args.push("--message");
 		args.push(std::str::from_utf8(msg).expect("Can only pass valid UTF-8 as arg"));

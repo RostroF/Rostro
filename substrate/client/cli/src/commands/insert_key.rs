@@ -50,13 +50,60 @@ pub struct InsertKeyCmd {
 	pub keystore_params: KeystoreParams,
 
 	/// The cryptography scheme that should be used to generate the key out of the given URI.
+	///
+	/// Not needed for the node's key types: it is DERIVED from `--key-type`
+	/// (`gran`/`chnl` → rostro-hybrid, `sass` → bandersnatch) and refused if
+	/// it contradicts the derivation. Unknown key types default to
+	/// rostro-hybrid; pass a scheme explicitly for classical keys.
 	#[arg(long, value_name = "SCHEME", value_enum, ignore_case = true)]
-	pub scheme: CryptoScheme,
+	pub scheme: Option<CryptoScheme>,
+}
+
+/// The scheme a key will actually be generated with, after deriving from
+/// the key type. Bandersnatch (Sassafras) is insert-only and has no
+/// [`CryptoScheme`] variant: it must never be reachable by flag, only by
+/// key-type derivation.
+enum ResolvedScheme {
+	Classical(CryptoScheme),
+	RostroHybrid,
+	Bandersnatch,
+}
+
+/// Derive the scheme from the key type; an explicit `--scheme` may only
+/// agree. This makes "insert gran as ed25519" (the pre-hybrid legacy
+/// pattern) unrepresentable rather than a silent misconfiguration — a
+/// node that voted fine but could never authenticate its validator
+/// channel.
+fn resolve_scheme(
+	key_type: &str,
+	explicit: Option<CryptoScheme>,
+) -> Result<ResolvedScheme, Error> {
+	let refuse = |required: &str| {
+		Err(Error::Input(format!(
+			"key type `{key_type}` is always {required}; omit --scheme (it is \
+			 derived from the key type)",
+		)))
+	};
+	match key_type {
+		"gran" | "chnl" => match explicit {
+			None | Some(CryptoScheme::RostroHybrid) => Ok(ResolvedScheme::RostroHybrid),
+			Some(_) => refuse("rostro-hybrid"),
+		},
+		"sass" => match explicit {
+			None => Ok(ResolvedScheme::Bandersnatch),
+			Some(_) => refuse("bandersnatch"),
+		},
+		_ => Ok(match explicit {
+			None | Some(CryptoScheme::RostroHybrid) => ResolvedScheme::RostroHybrid,
+			Some(scheme) => ResolvedScheme::Classical(scheme),
+		}),
+	}
 }
 
 impl InsertKeyCmd {
 	/// Run the command
 	pub fn run<C: SubstrateCli>(&self, cli: &C) -> Result<(), Error> {
+		let resolved = resolve_scheme(&self.key_type, self.scheme)?;
 		let suri = utils::read_uri(self.suri.as_ref())?;
 		let base_path = self
 			.shared_params
@@ -68,18 +115,15 @@ impl InsertKeyCmd {
 
 		let (keystore, public) = match self.keystore_params.keystore_config(&config_dir)? {
 			KeystoreConfig::Path { path, password } => {
-				// The hybrid consensus scheme has no MultiSigner identity,
-				// so it bypasses the generic scheme macro.
-				let public: Vec<u8> = if matches!(self.scheme, CryptoScheme::RostroHybrid) {
-					use sp_core::{crypto::ByteArray as _, Pair as _};
-					utils::pair_from_suri::<sp_core::rostro_hybrid::Pair>(
-						&suri,
-						password.clone(),
-					)?
-					.public()
-					.to_raw_vec()
-				} else {
-					with_crypto_scheme!(self.scheme, to_vec(&suri, password.clone()))?
+				// The hybrid and bandersnatch schemes have no MultiSigner
+				// identity, so they bypass the generic scheme macro.
+				let public: Vec<u8> = match resolved {
+					ResolvedScheme::RostroHybrid =>
+						to_raw_vec::<sp_core::rostro_hybrid::Pair>(&suri, password.clone())?,
+					ResolvedScheme::Bandersnatch =>
+						to_raw_vec::<sp_core::bandersnatch::Pair>(&suri, password.clone())?,
+					ResolvedScheme::Classical(scheme) =>
+						with_crypto_scheme!(scheme, to_vec(&suri, password.clone()))?,
 				};
 				let keystore: KeystorePtr = LocalKeystore::open(path, password)?.into();
 				(keystore, public)
@@ -101,6 +145,12 @@ impl InsertKeyCmd {
 fn to_vec<P: sp_core::Pair>(uri: &str, pass: Option<SecretString>) -> Result<Vec<u8>, Error> {
 	let p = utils::pair_from_suri::<P>(uri, pass)?;
 	Ok(p.public().as_ref().to_vec())
+}
+
+fn to_raw_vec<P: sp_core::Pair>(uri: &str, pass: Option<SecretString>) -> Result<Vec<u8>, Error> {
+	use sp_core::crypto::ByteArray as _;
+	let p = utils::pair_from_suri::<P>(uri, pass)?;
+	Ok(p.public().to_raw_vec())
 }
 
 #[cfg(test)]
@@ -152,6 +202,11 @@ mod tests {
 		}
 	}
 
+	fn open_test_keystore(path: &TempDir) -> LocalKeystore {
+		LocalKeystore::open(path.path().join("chains").join("test_id").join("keystore"), None)
+			.unwrap()
+	}
+
 	#[test]
 	fn insert_with_custom_base_path() {
 		let path = TempDir::new().unwrap();
@@ -170,9 +225,96 @@ mod tests {
 		]);
 		assert!(inspect.run(&Cli).is_ok());
 
-		let keystore =
-			LocalKeystore::open(path.path().join("chains").join("test_id").join("keystore"), None)
-				.unwrap();
+		let keystore = open_test_keystore(&path);
 		assert!(keystore.has_keys(&[(key.public().to_raw_vec(), KeyTypeId(*b"test"))]));
+	}
+
+	#[test]
+	fn gran_derives_rostro_hybrid_without_scheme_flag() {
+		let path = TempDir::new().unwrap();
+		let path_str = format!("{}", path.path().display());
+
+		let cmd = InsertKeyCmd::parse_from(&[
+			"insert-key", "-d", &path_str, "--key-type", "gran", "--suri", "//Alice",
+		]);
+		assert!(cmd.run(&Cli).is_ok());
+
+		let keystore = open_test_keystore(&path);
+		let direct = sp_core::rostro_hybrid::Pair::from_string("//Alice", None).unwrap();
+		// The full 64-byte hybrid public must be on disk — a 32-byte
+		// (ed25519-era) gran key is invisible to the hybrid probe and
+		// leaves the validator channel dead while finality still works.
+		assert_eq!(
+			keystore.rostro_hybrid_public_keys(KeyTypeId(*b"gran")),
+			vec![direct.public().into()],
+		);
+	}
+
+	#[test]
+	fn gran_with_classical_scheme_is_refused() {
+		let path = TempDir::new().unwrap();
+		let path_str = format!("{}", path.path().display());
+
+		for scheme in ["--scheme=ed25519", "--scheme=sr25519"] {
+			let cmd = InsertKeyCmd::parse_from(&[
+				"insert-key", "-d", &path_str, "--key-type", "gran", "--suri", "//Alice", scheme,
+			]);
+			assert!(cmd.run(&Cli).is_err(), "gran must refuse {scheme}");
+		}
+		// Explicitly naming the derived scheme is allowed (harmless).
+		let cmd = InsertKeyCmd::parse_from(&[
+			"insert-key",
+			"-d",
+			&path_str,
+			"--key-type",
+			"gran",
+			"--suri",
+			"//Alice",
+			"--scheme=rostro-hybrid",
+		]);
+		assert!(cmd.run(&Cli).is_ok());
+	}
+
+	#[test]
+	fn sass_derives_bandersnatch_and_refuses_any_scheme_flag() {
+		let path = TempDir::new().unwrap();
+		let path_str = format!("{}", path.path().display());
+
+		let cmd = InsertKeyCmd::parse_from(&[
+			"insert-key", "-d", &path_str, "--key-type", "sass", "--suri", "//Alice",
+		]);
+		assert!(cmd.run(&Cli).is_ok());
+
+		let keystore = open_test_keystore(&path);
+		let direct = sp_core::bandersnatch::Pair::from_string("//Alice", None).unwrap();
+		assert!(keystore.has_keys(&[(direct.public().to_raw_vec(), KeyTypeId(*b"sass"))]));
+
+		// Bandersnatch has no CryptoScheme variant, so ANY explicit
+		// scheme contradicts the derivation — including rostro-hybrid.
+		let cmd = InsertKeyCmd::parse_from(&[
+			"insert-key",
+			"-d",
+			&path_str,
+			"--key-type",
+			"sass",
+			"--suri",
+			"//Alice",
+			"--scheme=rostro-hybrid",
+		]);
+		assert!(cmd.run(&Cli).is_err());
+	}
+
+	#[test]
+	fn unknown_key_type_defaults_to_rostro_hybrid() {
+		let path = TempDir::new().unwrap();
+		let path_str = format!("{}", path.path().display());
+
+		let cmd = InsertKeyCmd::parse_from(&[
+			"insert-key", "-d", &path_str, "--key-type", "test", "--suri", "//Alice",
+		]);
+		assert!(cmd.run(&Cli).is_ok());
+
+		let keystore = open_test_keystore(&path);
+		assert_eq!(keystore.rostro_hybrid_public_keys(KeyTypeId(*b"test")).len(), 1);
 	}
 }

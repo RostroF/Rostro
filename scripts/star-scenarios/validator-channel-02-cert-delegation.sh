@@ -79,13 +79,13 @@ done
 echo "injecting Sassafras keys for 5 validators (skipping frank)..."
 for pair in "//Alice:$ALICE_BASE" "//Bob:$BOB_BASE" "//Charlie:$CHARLIE_BASE" "//Dave:$DAVE_BASE" "//Eve:$EVE_BASE"; do
 	suri="${pair%%:*}"; base="${pair##*:}"
-	"$NODE_BIN" insert-sassafras-key --suri "$suri" --base-path "$base" --chain-id gemini-star
+	"$NODE_BIN" key insert --key-type sass --suri "$suri" --base-path "$base" --chain gemini-star
 done
 
 echo "injecting GRANDPA Ed25519 keys for 5 validators (skipping frank)..."
 for pair in "//Alice:$ALICE_BASE" "//Bob:$BOB_BASE" "//Charlie:$CHARLIE_BASE" "//Dave:$DAVE_BASE" "//Eve:$EVE_BASE"; do
 	suri="${pair%%:*}"; base="${pair##*:}"
-	"$NODE_BIN" key insert --suri "$suri" --key-type gran --scheme rostro-hybrid --base-path "$base" --chain star
+	"$NODE_BIN" key insert --suri "$suri" --key-type gran --base-path "$base" --chain star
 done
 
 ALICE_PEER_ID="12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"

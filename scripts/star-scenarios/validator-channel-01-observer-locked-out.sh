@@ -65,21 +65,21 @@ done
 # Inject Sassafras (bandersnatch) authority key for the 5 validators
 # ONLY. Frank does NOT get a Sassafras key — he's not a validator.
 echo "injecting Sassafras keys for 5 validators (skipping frank)..."
-"$NODE_BIN" insert-sassafras-key --suri //Alice   --base-path "$ALICE_BASE"   --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Bob     --base-path "$BOB_BASE"     --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Charlie --base-path "$CHARLIE_BASE" --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Dave    --base-path "$DAVE_BASE"    --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Eve     --base-path "$EVE_BASE"     --chain-id gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Alice   --base-path "$ALICE_BASE"   --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Bob     --base-path "$BOB_BASE"     --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Charlie --base-path "$CHARLIE_BASE" --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Dave    --base-path "$DAVE_BASE"    --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Eve     --base-path "$EVE_BASE"     --chain gemini-star
 
 # GRANDPA Ed25519 keys for the 5 validators (NOT frank). Required for
 # GRANDPA voting AND for the validator-channel asker to recognize the
 # local node as a validator.
 echo "injecting GRANDPA Ed25519 keys for 5 validators (skipping frank)..."
-"$NODE_BIN" key insert --suri //Alice   --key-type gran --scheme rostro-hybrid --base-path "$ALICE_BASE"   --chain star
-"$NODE_BIN" key insert --suri //Bob     --key-type gran --scheme rostro-hybrid --base-path "$BOB_BASE"     --chain star
-"$NODE_BIN" key insert --suri //Charlie --key-type gran --scheme rostro-hybrid --base-path "$CHARLIE_BASE" --chain star
-"$NODE_BIN" key insert --suri //Dave    --key-type gran --scheme rostro-hybrid --base-path "$DAVE_BASE"    --chain star
-"$NODE_BIN" key insert --suri //Eve     --key-type gran --scheme rostro-hybrid --base-path "$EVE_BASE"     --chain star
+"$NODE_BIN" key insert --suri //Alice   --key-type gran --base-path "$ALICE_BASE"   --chain star
+"$NODE_BIN" key insert --suri //Bob     --key-type gran --base-path "$BOB_BASE"     --chain star
+"$NODE_BIN" key insert --suri //Charlie --key-type gran --base-path "$CHARLIE_BASE" --chain star
+"$NODE_BIN" key insert --suri //Dave    --key-type gran --base-path "$DAVE_BASE"    --chain star
+"$NODE_BIN" key insert --suri //Eve     --key-type gran --base-path "$EVE_BASE"     --chain star
 
 ALICE_PEER_ID="12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"
 BOOTNODES_MULTIADDR="/ip4/127.0.0.1/tcp/30333/p2p/${ALICE_PEER_ID}"

@@ -89,12 +89,12 @@ for name in alice bob charlie dave eve; do
 	setup_node_cache "$STAR_DIR/$name"
 done
 
-# Hybrid GRANDPA keys (post-PQ-cutover: --scheme rostro-hybrid).
+# Hybrid GRANDPA keys (post-PQ-cutover: scheme derived from key type).
 echo "injecting Sassafras + HYBRID GRANDPA keys for 5 validators..."
 for pair in "//Alice:alice" "//Bob:bob" "//Charlie:charlie" "//Dave:dave" "//Eve:eve"; do
 	suri="${pair%%:*}"; name="${pair##*:}"; base="$STAR_DIR/$name"
-	"$NODE_BIN" insert-sassafras-key --suri "$suri" --base-path "$base" --chain-id gemini-star
-	"$NODE_BIN" key insert --suri "$suri" --key-type gran --scheme rostro-hybrid --base-path "$base" --chain star
+	"$NODE_BIN" key insert --key-type sass --suri "$suri" --base-path "$base" --chain gemini-star
+	"$NODE_BIN" key insert --suri "$suri" --key-type gran --base-path "$base" --chain star
 done
 
 ALICE_PEER_ID="12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"

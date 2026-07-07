@@ -141,14 +141,25 @@ pub enum NodeKeyType {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 pub enum CryptoScheme {
-	/// Use ed25519.
-	Ed25519,
-	/// Use sr25519.
-	Sr25519,
-	/// Use ecdsa.
-	Ecdsa,
-	/// Use the Rostro hybrid consensus scheme (ed25519 + SLH-DSA-SHA2-128f).
+	/// The Rostro hybrid consensus scheme (ed25519 + SLH-DSA-SHA2-128s).
+	/// The default. `key insert` derives the scheme from well-known key
+	/// types, so consensus keys never need this flag at all.
 	RostroHybrid,
+	/// ed25519 — account keys.
+	Ed25519,
+	/// sr25519 — account keys.
+	Sr25519,
+}
+
+impl CryptoScheme {
+	/// The kebab-case CLI name of the scheme, for error messages.
+	pub fn cli_name(&self) -> &'static str {
+		match self {
+			CryptoScheme::RostroHybrid => "rostro-hybrid",
+			CryptoScheme::Ed25519 => "ed25519",
+			CryptoScheme::Sr25519 => "sr25519",
+		}
+	}
 }
 
 /// The type of the output format.

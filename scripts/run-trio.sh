@@ -97,9 +97,9 @@ setup_node_cache "$DAVE_BASE"
 
 # Sassafras keys ONLY for the 3 validators. Dave deliberately skipped.
 echo "injecting Sassafras keys for 3 validators (NOT dave)..."
-"$NODE_BIN" insert-sassafras-key --suri //Alice   --base-path "$ALICE_BASE"   --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Bob     --base-path "$BOB_BASE"     --chain-id gemini-star
-"$NODE_BIN" insert-sassafras-key --suri //Charlie --base-path "$CHARLIE_BASE" --chain-id gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Alice   --base-path "$ALICE_BASE"   --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Bob     --base-path "$BOB_BASE"     --chain gemini-star
+"$NODE_BIN" key insert --key-type sass --suri //Charlie --base-path "$CHARLIE_BASE" --chain gemini-star
 
 # GRANDPA Ed25519 keys for the 3 validators. The `--alice` etc. dev
 # flags do NOT auto-inject GRANDPA keys into the local keystore in
@@ -108,9 +108,9 @@ echo "injecting Sassafras keys for 3 validators (NOT dave)..."
 # channel asker thinks we're not a validator (no GRANDPA pubkey to
 # claim).
 echo "injecting GRANDPA Ed25519 keys for 3 validators..."
-"$NODE_BIN" key insert --suri //Alice   --key-type gran --scheme rostro-hybrid --base-path "$ALICE_BASE"   --chain star
-"$NODE_BIN" key insert --suri //Bob     --key-type gran --scheme rostro-hybrid --base-path "$BOB_BASE"     --chain star
-"$NODE_BIN" key insert --suri //Charlie --key-type gran --scheme rostro-hybrid --base-path "$CHARLIE_BASE" --chain star
+"$NODE_BIN" key insert --suri //Alice   --key-type gran --base-path "$ALICE_BASE"   --chain star
+"$NODE_BIN" key insert --suri //Bob     --key-type gran --base-path "$BOB_BASE"     --chain star
+"$NODE_BIN" key insert --suri //Charlie --key-type gran --base-path "$CHARLIE_BASE" --chain star
 
 COMMON_VALIDATOR=(--chain star --no-mdns --validator --rpc-cors=all -l "$LOG_FILTER")
 COMMON_EAVESDROPPER=(--chain star --no-mdns --rpc-cors=all -l "$LOG_FILTER")

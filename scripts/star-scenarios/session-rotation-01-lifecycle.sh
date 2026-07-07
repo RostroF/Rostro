@@ -81,14 +81,14 @@ done
 echo "injecting Sassafras + GRANDPA keys for 5 validators..."
 for pair in "//Alice:alice" "//Bob:bob" "//Charlie:charlie" "//Dave:dave" "//Eve:eve"; do
 	suri="${pair%%:*}"; name="${pair##*:}"; base="$STAR_DIR/$name"
-	"$NODE_BIN" insert-sassafras-key --suri "$suri" --base-path "$base" --chain-id gemini-star
-	"$NODE_BIN" key insert --suri "$suri" --key-type gran --scheme rostro-hybrid --base-path "$base" --chain star
+	"$NODE_BIN" key insert --key-type sass --suri "$suri" --base-path "$base" --chain gemini-star
+	"$NODE_BIN" key insert --suri "$suri" --key-type gran --base-path "$base" --chain star
 done
 
 # Genesis GRANDPA public keys + secret seeds (dev keys; the canary phase
 # signs with bob's retired genesis seed — the "leaked old key" threat).
-gran_pub() { "$NODE_BIN" key inspect --scheme ed25519 "$1" 2>/dev/null | awk '/Public key \(hex\)/ {print $NF}'; }
-gran_seed() { "$NODE_BIN" key inspect --scheme ed25519 "$1" 2>/dev/null | awk '/Secret seed/ {print $NF}'; }
+gran_pub() { "$NODE_BIN" key inspect "$1" 2>/dev/null | awk '/Public key \(hex\)/ {print $NF}'; }
+gran_seed() { "$NODE_BIN" key inspect "$1" 2>/dev/null | awk '/Secret seed/ {print $NF}'; }
 ALICE_GRAN_PUB="$(gran_pub //Alice)"; BOB_GRAN_PUB="$(gran_pub //Bob)"
 EVE_GRAN_PUB="$(gran_pub //Eve)"; BOB_GRAN_SEED="$(gran_seed //Bob)"
 [[ -n "$BOB_GRAN_PUB" && -n "$BOB_GRAN_SEED" ]] || { echo "failed to derive dev GRANDPA keys" >&2; exit 1; }
@@ -162,7 +162,7 @@ rotate_validator() {
 	local name="$1" ws="$2" suri="$3"
 	local seed
 	seed="0x$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
-	"$NODE_BIN" key insert --suri "$seed" --key-type gran --scheme rostro-hybrid \
+	"$NODE_BIN" key insert --suri "$seed" --key-type gran \
 		--base-path "$STAR_DIR/$name" --chain star
 	"$PROBE" rotate --ws "$ws" --suri "$suri" --seed "$seed"
 }
