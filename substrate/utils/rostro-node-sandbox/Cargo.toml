@@ -23,3 +23,15 @@ seccompiler = "0.4"
 
 [features]
 default = []
+
+# Diagnostic-only escape hatches: the `ROSTRO_SKIP_{MOUNT_NS,NOEXEC,LANDLOCK,
+# SECCOMP}` layer-skip env vars and the `ROSTRO_SECCOMP_ACTION=log`
+# (log-and-ALLOW) seccomp mode. OFF in canonical builds — `default = []` is
+# the canonical feature set, so the shipped validator binary contains ZERO
+# sandbox-downgrade surface: the env vars are not read and the Log action does
+# not exist in the compiled code. Building with this feature changes the
+# binary's compiled output and therefore its hash, so the node no longer
+# matches the on-chain canonical registry and the canonical-files gate
+# quarantines it until self-heal restores the canonical build. Enable ONLY for
+# a hand-built, non-networked lab box.
+sandbox-diagnostics = []

@@ -38,6 +38,13 @@ pub(crate) fn install(config: &NodeSandboxConfig) -> Result<SandboxHandle, Sandb
 	// primitive is responsible for a failure mode without rebuilding.
 	// All default to enabled; set to "1" to skip.
 	//
+	// CANONICAL-HASH GATE (2026-07-06): these skips only exist when the
+	// `sandbox-diagnostics` feature is compiled in. In a canonical build
+	// (`default = []`), `diagnostic_skip` is a constant `false` — the env
+	// vars are never read and every layer is unconditionally installed.
+	// Enabling the feature changes the binary hash, which the on-chain
+	// canonical-files gate rejects → the node self-heals back to canonical.
+	//
 	// F-NEW-R4-FOLLOWUP-1 (2026-05-25): install_mount_ns runs FIRST after
 	// cgroup, before noexec bind-remount. It calls `unshare(CLONE_NEWNS)`
 	// to give the supervisor + descendants a private mount namespace,
@@ -51,30 +58,56 @@ pub(crate) fn install(config: &NodeSandboxConfig) -> Result<SandboxHandle, Sandb
 	// stay touched-by-noexec only if the OPERATOR explicitly mounted them
 	// there. R2-04 + R3-03 denylists become defense-in-depth; this is the
 	// architectural fix.
-	if std::env::var_os("ROSTRO_SKIP_MOUNT_NS").is_none() {
+	if !diagnostic_skip(
+		"ROSTRO_SKIP_MOUNT_NS",
+		"mount-NS unshare (bind-remounts will affect host mount namespace)",
+	) {
 		install_mount_ns()?;
-	} else {
-		log::warn!("Cannae: mount-NS unshare SKIPPED via ROSTRO_SKIP_MOUNT_NS — bind-remounts will affect host mount namespace");
 	}
-	if std::env::var_os("ROSTRO_SKIP_NOEXEC").is_none() {
+	if !diagnostic_skip("ROSTRO_SKIP_NOEXEC", "noexec bind-remount") {
 		install_noexec_remount(config)?;
-	} else {
-		log::warn!("Cannae: noexec bind-remount SKIPPED via ROSTRO_SKIP_NOEXEC");
 	}
-	if std::env::var_os("ROSTRO_SKIP_LANDLOCK").is_none() {
+	if !diagnostic_skip("ROSTRO_SKIP_LANDLOCK", "Landlock") {
 		// Thread the child cgroup path into Landlock so the supervisor's
 		// subsequent `place_child_in_cgroup` writes (which target a file
 		// inside this dir) aren't blocked by the Landlock policy.
 		install_landlock(config, cgroup_child.as_deref())?;
-	} else {
-		log::warn!("Cannae: Landlock SKIPPED via ROSTRO_SKIP_LANDLOCK");
 	}
-	if std::env::var_os("ROSTRO_SKIP_SECCOMP").is_none() {
+	if !diagnostic_skip("ROSTRO_SKIP_SECCOMP", "seccomp") {
 		install_seccomp(config)?;
-	} else {
-		log::warn!("Cannae: seccomp SKIPPED via ROSTRO_SKIP_SECCOMP");
 	}
 	Ok(SandboxHandle { cgroup_child })
+}
+
+/// Diagnostic layer-skip check consulted by [`install`].
+///
+/// **Canonical build** (`sandbox-diagnostics` feature OFF, which is the
+/// `default = []` set): this is a constant `false`. The env var is never
+/// read and the named layer is always installed. The shipped validator
+/// binary therefore carries no layer-skip surface at all, and its hash
+/// reflects a build in which every Cannae layer is unconditionally on.
+///
+/// **Diagnostics build** (`--features sandbox-diagnostics`): honors the env
+/// var so a lab operator can isolate a failing primitive without rebuilding.
+/// Because the feature changes the compiled output, such a binary hashes
+/// differently from the canonical registry entry — the canonical-files gate
+/// quarantines the node and self-heal restores the canonical build. That
+/// makes "no diagnostic escape hatch on a networked node" a consensus-enforced
+/// property, not an operator-discipline one. See [[canonical_files_gate_load_bearing]].
+#[cfg(feature = "sandbox-diagnostics")]
+fn diagnostic_skip(var: &str, what: &str) -> bool {
+	if std::env::var_os(var).is_some() {
+		log::warn!("Cannae: {what} SKIPPED via {var} (diagnostics build — NOT a canonical binary)");
+		true
+	} else {
+		false
+	}
+}
+
+#[cfg(not(feature = "sandbox-diagnostics"))]
+#[inline(always)]
+fn diagnostic_skip(_var: &str, _what: &str) -> bool {
+	false
 }
 
 // ─── cgroup v2 self-cap (Phase 3a) ─────────────────────────────────────────
@@ -873,38 +906,57 @@ fn build_seccomp_filter_with_label()
 }
 
 /// Select the default seccomp action (the one fired for syscalls NOT
-/// matched by any rule). Production = `KillProcess`. Phase 5 diagnostics
-/// can flip to `Log` via the env var below.
+/// matched by any rule).
 ///
+/// **Canonical build** (`sandbox-diagnostics` OFF): always `KillProcess`.
+/// `ROSTRO_SECCOMP_ACTION` is not read and the `Log` mode is not compiled
+/// in — the shipped validator cannot have its filter weakened to a
+/// non-enforcing action.
+///
+/// **Diagnostics build** (`--features sandbox-diagnostics`), via
 /// `ROSTRO_SECCOMP_ACTION`:
-///   * unset or `kill` → `SeccompAction::KillProcess` (production)
-///   * `log`           → `SeccompAction::Log` (diagnostic; emits one
-///                       audit record per denied syscall and ALLOWS the
-///                       call to proceed — DO NOT set in production)
+///   * unset or `kill` → `SeccompAction::KillProcess`
+///   * `log`           → `SeccompAction::Log` (emits one audit record per
+///                       denied syscall and ALLOWS the call to proceed)
 ///   * anything else   → install fails fast; we never silently fall
 ///                       back to a weaker action.
 ///
-/// Why an env var (not a Config field): symmetric with the existing
-/// `ROSTRO_SKIP_LANDLOCK` / `ROSTRO_SKIP_SECCOMP` Phase 5 diagnostic
-/// pattern, and lets operators flip mode without rebuilding the
-/// supervisor. Add a CLI plumb only if a higher-level caller needs it.
+/// The Log escape hatch lives behind the feature (not a Config field or an
+/// always-live env var) precisely so that enabling it changes the binary
+/// hash — the canonical-files gate then keeps such a build off the network.
 #[cfg(target_arch = "x86_64")]
 fn seccomp_default_action() -> Result<(SeccompAction, &'static str), SandboxError> {
-	match std::env::var("ROSTRO_SECCOMP_ACTION").as_deref() {
-		Err(_) | Ok("kill") => Ok((SeccompAction::KillProcess, "KILL_PROCESS")),
-		Ok("log") => {
-			log::warn!(
-				"Cannae seccomp: ROSTRO_SECCOMP_ACTION=log — denied syscalls \
-				 will be LOGGED and ALLOWED. Diagnostic mode; do not use in production."
-			);
-			Ok((SeccompAction::Log, "LOG"))
-		},
-		Ok(other) => Err(SandboxError::InstallFailed {
-			primitive: "seccomp",
-			reason: format!(
-				"unknown ROSTRO_SECCOMP_ACTION={other:?}; expected unset, \"kill\", or \"log\"",
-			),
-		}),
+	// Canonical build (no `sandbox-diagnostics`): the default action is
+	// unconditionally KILL_PROCESS. `ROSTRO_SECCOMP_ACTION` is not consulted
+	// and the Log (log-and-ALLOW, non-enforcing) mode does not exist in the
+	// compiled binary — there is no way to weaken the filter to a
+	// non-enforcing action on a shipped validator. See `diagnostic_skip`
+	// for the canonical-hash rationale.
+	#[cfg(not(feature = "sandbox-diagnostics"))]
+	{
+		Ok((SeccompAction::KillProcess, "KILL_PROCESS"))
+	}
+	// Diagnostics build only: allow flipping to Log mode for lab triage. A
+	// binary compiled this way hashes differently from the canonical entry,
+	// so the canonical-files gate keeps it off the network.
+	#[cfg(feature = "sandbox-diagnostics")]
+	{
+		match std::env::var("ROSTRO_SECCOMP_ACTION").as_deref() {
+			Err(_) | Ok("kill") => Ok((SeccompAction::KillProcess, "KILL_PROCESS")),
+			Ok("log") => {
+				log::warn!(
+					"Cannae seccomp: ROSTRO_SECCOMP_ACTION=log — denied syscalls \
+					 will be LOGGED and ALLOWED. Diagnostics build; NOT a canonical binary."
+				);
+				Ok((SeccompAction::Log, "LOG"))
+			},
+			Ok(other) => Err(SandboxError::InstallFailed {
+				primitive: "seccomp",
+				reason: format!(
+					"unknown ROSTRO_SECCOMP_ACTION={other:?}; expected unset, \"kill\", or \"log\"",
+				),
+			}),
+		}
 	}
 }
 
@@ -2221,7 +2273,7 @@ mod tests {
 		let _bpf: BpfProgram = filter.try_into().expect("compile to BPF should succeed");
 	}
 
-	#[cfg(target_arch = "x86_64")]
+	#[cfg(all(target_arch = "x86_64", feature = "sandbox-diagnostics"))]
 	#[test]
 	fn seccomp_default_action_respects_env_var() {
 		let _guard = SECCOMP_ENV_MUTEX.lock().unwrap();
@@ -2250,6 +2302,38 @@ mod tests {
 		}
 
 		// Restore for any subsequent test in the same process.
+		match saved {
+			Some(v) => std::env::set_var("ROSTRO_SECCOMP_ACTION", v),
+			None => std::env::remove_var("ROSTRO_SECCOMP_ACTION"),
+		}
+	}
+
+	#[cfg(all(target_arch = "x86_64", not(feature = "sandbox-diagnostics")))]
+	#[test]
+	fn seccomp_default_action_is_always_kill_in_canonical_build() {
+		// Canonical-hash contract: with the diagnostics feature compiled
+		// out, the ROSTRO_SECCOMP_ACTION escape hatch does not exist. Even
+		// the previously-weakening "log" value (and an otherwise-rejected
+		// unknown value) must yield KILL_PROCESS — the env var is ignored
+		// entirely. If this regresses, a canonical binary could be flipped
+		// to a non-enforcing seccomp action at launch time.
+		let _guard = SECCOMP_ENV_MUTEX.lock().unwrap();
+		let saved = std::env::var_os("ROSTRO_SECCOMP_ACTION");
+
+		std::env::set_var("ROSTRO_SECCOMP_ACTION", "log");
+		let (_, label) = seccomp_default_action().unwrap();
+		assert_eq!(
+			label, "KILL_PROCESS",
+			"canonical build must ignore ROSTRO_SECCOMP_ACTION=log, not weaken to Log",
+		);
+
+		std::env::set_var("ROSTRO_SECCOMP_ACTION", "anything-else");
+		let (_, label) = seccomp_default_action().unwrap();
+		assert_eq!(
+			label, "KILL_PROCESS",
+			"canonical build ignores the var entirely, so unknown values don't even error",
+		);
+
 		match saved {
 			Some(v) => std::env::set_var("ROSTRO_SECCOMP_ACTION", v),
 			None => std::env::remove_var("ROSTRO_SECCOMP_ACTION"),
