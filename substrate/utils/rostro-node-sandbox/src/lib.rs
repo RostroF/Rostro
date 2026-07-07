@@ -567,32 +567,39 @@ impl SandboxHandle {
 	}
 
 	/// F-NEW-01 + F-NEW-04 closure (2026-05-25): set per-resource rlimits
-	/// on the child before exec. Bounds the burst-allocation window between
-	/// `Command::spawn` (which returns after the child is already executing)
-	/// and `place_child_in_cgroup` (which writes the child PID into
-	/// `cgroup.procs`). During that window the child sits in the
-	/// supervisor's inherited root cgroup with no `memory.max` /
-	/// `swap.max=0` / `cpu.max` enforcement — cgroup v2 charges pages at
-	/// allocation time and won't retroactively reclaim. A compromised
-	/// static initializer (or a malicious runtime blob's startup hook) can
-	/// `MADV_POPULATE_WRITE` multi-GB before the move-in lands, risking
-	/// host-wide OOM that the cgroup's atomic-kill can't prevent.
+	/// on the child before exec.
 	///
-	/// **Mitigation shape**: `prlimit64(pid=0, …)` with `arg0 == 0` is
-	/// already in the seccomp allowlist via [`super::linux::prlimit64_self_only_rules`],
-	/// so this hook runs cleanly under the inherited filter. RLIMIT_AS is
-	/// the load-bearing one — it bounds virtual address space, defeating
-	/// the burst-mmap vector even before the cgroup applies. RLIMIT_NPROC
-	/// caps fork bombs from inside the sandbox. RLIMIT_MEMLOCK = 0 denies
-	/// `mlock`/`mlockall` outright; no Rostro path needs locked pages.
+	/// **The burst-mmap window is now closed by
+	/// [`place_self_in_cgroup_in_child`], not by RLIMIT_AS.** Formerly
+	/// RLIMIT_AS was "the load-bearing one" here — it bounded virtual
+	/// address space to defeat a `MADV_POPULATE_WRITE` burst in the window
+	/// between `Command::spawn` (returns after the child has already
+	/// exec'd) and the parent's `place_child_in_cgroup`. That no longer
+	/// works: ParityDB reserves ~1 GiB of virtual address space per
+	/// value-table file, so any finite RLIMIT_AS is either a brick at the
+	/// node's next `Db::open` or set so high it bounds nothing (see
+	/// `sandbox_rlimit_as_bytes` in the supervisor). The window is instead
+	/// closed structurally by self-placing into the cgroup in a pre_exec
+	/// hook before the node image loads, so `memory.max` — the physical
+	/// guard — is live from the node's first instruction. RLIMIT_AS is
+	/// therefore off by default (operator opt-in only).
+	///
+	/// This hook still applies the two rlimits that remain useful:
+	/// RLIMIT_NPROC caps fork bombs from inside the sandbox, and
+	/// RLIMIT_MEMLOCK = 0 denies `mlock`/`mlockall` outright (no Rostro
+	/// path needs locked pages). `prlimit64(pid=0, …)` with `arg0 == 0`
+	/// is in the seccomp allowlist via
+	/// [`super::linux::prlimit64_self_only_rules`], so it runs cleanly
+	/// under the inherited filter.
 	///
 	/// **Ordering**: must run while the hook still has CAP_SYS_RESOURCE
 	/// (i.e., before [`drop_to_uid_gid_in_child`]). A non-root caller can
 	/// only *lower* an rlimit, but lowering is exactly what we want; the
 	/// CAP_SYS_RESOURCE point is defensive — if a future caller passes a
 	/// limit higher than the inherited soft limit, only root can raise.
-	/// Position in the chain: AFTER `close_inherited_fds_in_child` (any
-	/// order vs. the cap drops), BEFORE `drop_to_uid_gid_in_child`.
+	/// Position in the chain: AFTER `place_self_in_cgroup_in_child` and
+	/// `close_inherited_fds_in_child` (any order vs. the cap drops),
+	/// BEFORE `drop_to_uid_gid_in_child`.
 	///
 	/// `None` for any value leaves that rlimit at its inherited setting
 	/// (operator opt-out). Pass `Some(0)` for hard refusal (e.g.
@@ -634,6 +641,84 @@ impl SandboxHandle {
 		Ok(())
 	}
 
+	/// Build a NUL-terminated path to the child cgroup's `cgroup.procs`
+	/// for the [`place_self_in_cgroup_in_child`] pre_exec hook. Built in
+	/// the parent (before fork) so the hook, which must not allocate,
+	/// only opens a ready CString. `None` when no cgroup was installed
+	/// (no memory/cpu caps configured).
+	///
+	/// [`place_self_in_cgroup_in_child`]: SandboxHandle::place_self_in_cgroup_in_child
+	#[cfg(target_os = "linux")]
+	pub fn cgroup_child_procs_cstring(&self) -> Option<std::ffi::CString> {
+		use std::os::unix::ffi::OsStrExt;
+		let dir = self.cgroup_child.as_deref()?;
+		let mut bytes = dir.as_os_str().as_bytes().to_vec();
+		bytes.extend_from_slice(b"/cgroup.procs");
+		std::ffi::CString::new(bytes).ok()
+	}
+
+	/// F-NEW-01 window closure (2026-07-07): place the forked child into
+	/// its pre-created cgroup by writing its own PID to `cgroup.procs`,
+	/// as a `pre_exec` hook that runs in the forked-but-not-yet-execed
+	/// child while it is still root and BEFORE the gemini-node image
+	/// loads.
+	///
+	/// **Why this and not the parent's post-`spawn`
+	/// [`place_child_in_cgroup`]:** `Command::spawn` returns only after
+	/// the child has already `execve`d the node image, so a parent-side
+	/// `cgroup.procs` write leaves a window in which the (potentially
+	/// compromised) node runs in the inherited root cgroup with no
+	/// `memory.max` — the F-NEW-01 burst-mmap vector that RLIMIT_AS used
+	/// to bound. RLIMIT_AS can no longer do that job (ParityDB's per-table
+	/// virtual-address reservation makes any finite AS cap either a brick
+	/// or effectively unlimited — see `sandbox_rlimit_as_bytes`), so the
+	/// window is closed structurally instead: this is OUR trusted code
+	/// running before the node image exists, not a cooperative act by the
+	/// node, so a compromised runtime cannot decline it. Ordered FIRST in
+	/// the pre_exec chain (ahead of [`apply_rlimits_in_child`] and
+	/// [`drop_to_uid_gid_in_child`]) so `memory.max` is live before a
+	/// single instruction of node code — the residual window is a handful
+	/// of our own trusted, allocation-free instructions between fork and
+	/// this write.
+	///
+	/// **Ordering constraint:** must run while still root — writing a
+	/// root-owned `cgroup.procs` needs DAC write, which the UID drop
+	/// removes. First-in-chain satisfies this (UID drop is later).
+	///
+	/// **Async-signal-safety:** open/getpid/write/close are AS-safe
+	/// syscalls and nothing here allocates; the path CString is built in
+	/// the parent. `O_CLOEXEC` keeps the fd from reaching the exec'd
+	/// image. `openat`/`write`/`close` are in the seccomp allowlist and
+	/// the child cgroup dir is Landlock-RW.
+	///
+	/// [`place_child_in_cgroup`]: SandboxHandle::place_child_in_cgroup
+	/// [`apply_rlimits_in_child`]: SandboxHandle::apply_rlimits_in_child
+	/// [`drop_to_uid_gid_in_child`]: SandboxHandle::drop_to_uid_gid_in_child
+	#[cfg(target_os = "linux")]
+	pub fn place_self_in_cgroup_in_child(procs_path: &std::ffi::CStr) -> std::io::Result<()> {
+		// SAFETY: open with a valid NUL-terminated pointer; no memory
+		// safety implications; failure returns -1/errno.
+		let fd = unsafe { libc::open(procs_path.as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC) };
+		if fd < 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+		// getpid() is always positive; format decimal + '\n' onto the
+		// stack (no heap).
+		let pid = unsafe { libc::getpid() };
+		let mut buf = [0u8; 16];
+		let len = fmt_pid_line(pid, &mut buf);
+		// SAFETY: buf/len describe an initialized stack region; fd is a
+		// valid open descriptor.
+		let rc = unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, len) };
+		let write_err = std::io::Error::last_os_error();
+		// SAFETY: fd was returned by open above and is not used after this.
+		unsafe { libc::close(fd) };
+		if rc < 0 || rc as usize != len {
+			return Err(write_err);
+		}
+		Ok(())
+	}
+
 	/// `close_range` IS in the seccomp allowlist (sibling of `close`).
 	#[cfg(target_os = "linux")]
 	pub fn close_inherited_fds_in_child() -> std::io::Result<()> {
@@ -665,11 +750,55 @@ impl SandboxHandle {
 	}
 }
 
+/// Format a positive PID as `"<decimal>\n"` into `buf`, returning the
+/// byte length written. Allocation-free (for use in the `pre_exec`
+/// self-placement hook, which runs post-fork and must not touch the
+/// heap). `buf` must hold at least 12 bytes; a `pid_t` is `i32` so the
+/// longest output is 10 digits + newline.
+#[cfg(target_os = "linux")]
+fn fmt_pid_line(pid: libc::pid_t, buf: &mut [u8; 16]) -> usize {
+	// getpid() never returns <= 0; clamp defensively so the cast is sound.
+	let mut n = if pid > 0 { pid as u32 } else { 0 };
+	let mut digits = [0u8; 10];
+	let mut d = 0;
+	loop {
+		digits[d] = b'0' + (n % 10) as u8;
+		d += 1;
+		n /= 10;
+		if n == 0 {
+			break;
+		}
+	}
+	let mut out = 0;
+	while d > 0 {
+		d -= 1;
+		buf[out] = digits[d];
+		out += 1;
+	}
+	buf[out] = b'\n';
+	out + 1
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[cfg(target_os = "linux")]
+	#[test]
+	fn fmt_pid_line_formats_decimal_with_newline() {
+		let mut buf = [0u8; 16];
+		for (pid, want) in [(1i32, "1\n"), (42, "42\n"), (2_147_483_647, "2147483647\n")] {
+			let len = fmt_pid_line(pid, &mut buf);
+			assert_eq!(&buf[..len], want.as_bytes(), "pid {pid}");
+			// The kernel parses cgroup.procs as a decimal integer; the
+			// round trip must recover the PID exactly.
+			let parsed: i32 =
+				std::str::from_utf8(&buf[..len - 1]).unwrap().parse().unwrap();
+			assert_eq!(parsed, pid);
+		}
+	}
 
 	#[test]
 	fn config_builder_records_rw_paths() {
