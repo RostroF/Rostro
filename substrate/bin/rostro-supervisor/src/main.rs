@@ -220,14 +220,27 @@ struct Args {
 	#[arg(long)]
 	sandbox_child_gid: Option<u32>,
 
-	/// F-NEW-01/04 closure (2026-05-25): cap the child's virtual address
-	/// space (RLIMIT_AS, bytes). Bounds burst-mmap during the small
-	/// window between `Command::spawn` and `place_child_in_cgroup` where
-	/// the child runs in the supervisor's inherited root cgroup without
-	/// `memory.max` enforcement. If unset, defaults to
-	/// `sandbox_memory_max_bytes + 1 GiB` (room for mmap'd RO libs +
-	/// runtime blob that count against AS but not against memcg). Set to
-	/// 0 to leave inherited (NOT recommended; defeats the TOCTOU close).
+	/// Optional cap on the child's virtual address space (RLIMIT_AS,
+	/// bytes). **Off by default, and normally should stay off.**
+	///
+	/// RLIMIT_AS bounds *virtual* address space, not physical memory, and
+	/// the two diverge wildly here: ParityDB reserves 1 GiB of VA per
+	/// value-table file up front (`RESERVE_ADDRESS_SPACE` in the vendored
+	/// parity-db) against a few hundred bytes-to-MB of real data, so a
+	/// node's VmSize runs to hundreds of GiB while its RSS is a rounding
+	/// error. Table-file count grows with stored value size-diversity
+	/// (256 size tiers × columns), so *no fixed AS ceiling is safe* — an
+	/// attacker storing size-diverse values can inflate VA past any cap
+	/// and brick the validator at its next cold `Db::open` (restart /
+	/// upgrade / reboot). See 2026-07-07 investigation.
+	///
+	/// The real guard against memory exhaustion is the cgroup
+	/// `--sandbox-memory-max-bytes` (physical, enforced from the child's
+	/// first instruction via pre-exec cgroup placement) plus
+	/// `--sandbox-rlimit-memlock-bytes=0` (no pinned host RAM). Those
+	/// cover F-NEW-01/04; this flag is a belt-and-suspenders opt-in for
+	/// operators who know their column/tier ceiling. Set to 0 is refused
+	/// (would make allocation impossible); omit to leave AS unbounded.
 	#[arg(long)]
 	sandbox_rlimit_as_bytes: Option<u64>,
 
@@ -306,6 +319,35 @@ fn build_sandbox_config(args: &Args) -> NodeSandboxConfig {
 		config = config.child_uid(uid);
 	}
 	config
+}
+
+/// Compensating control for dropping the RLIMIT_AS default: with
+/// RLIMIT_AS no longer bounding the child's virtual address space, the
+/// cgroup `memory.max` is the ONLY guard against physical-memory
+/// exhaustion (F-NEW-01/04). Require it whenever the sandbox is active,
+/// so "no AS cap" can never combine with "no memory cap" into an
+/// unbounded child. `--unsafe-skip-sandbox` opts out of the whole
+/// envelope and is exempt. Factored out so unit tests can exercise the
+/// rule without going through `main`. Takes the two scalar fields rather
+/// than `&Args` so it can be called after `args` is partially moved.
+fn require_memory_guard(
+	unsafe_skip_sandbox: bool,
+	sandbox_memory_max_bytes: Option<u64>,
+) -> Result<(), String> {
+	if unsafe_skip_sandbox {
+		return Ok(());
+	}
+	match sandbox_memory_max_bytes {
+		Some(bytes) if bytes > 0 => Ok(()),
+		_ => Err(
+			"misconfig: --sandbox-memory-max-bytes is required when the \
+			 sandbox is active. It is the cgroup physical-memory guard \
+			 (RLIMIT_AS no longer defaults on — see \
+			 --sandbox-rlimit-as-bytes). Pass a byte ceiling, or \
+			 --unsafe-skip-sandbox to run with no envelope at all."
+			.to_string(),
+		),
+	}
 }
 
 /// F15/F16 fix (2026-05-24): reject CLI configs where the supervisor's
@@ -1483,24 +1525,31 @@ fn run(args: Args) -> ExitCode {
 		return ExitCode::FAILURE;
 	}
 
-	// F-NEW-R2-01: refuse `--sandbox-rlimit-as-bytes=0` at parse time.
-	// The earlier semantics — `Some(0) => None` meaning "leave RLIMIT_AS
-	// at inherited (unlimited)" — inverted the convention used by
-	// `--sandbox-rlimit-memlock-bytes` where `0` means "hard deny mlock."
-	// An operator with the muscle memory of the MEMLOCK convention who
-	// passes `--sandbox-rlimit-as-bytes=0` thinking they're hardening
-	// would actually re-open F-NEW-01 (TOCTOU host-memory burst).
-	// Refuse explicitly with a pointer to the right way to skip:
-	// omit the flag entirely.
+	// Refuse `--sandbox-rlimit-as-bytes=0` at parse time: RLIMIT_AS=0
+	// makes every allocation impossible. Omitting the flag is the
+	// supported way to leave AS unbounded — which is now the default and
+	// recommended posture (physical memory is bounded by the cgroup
+	// memory.max, required below; a fixed AS cap is a brick-on-restart
+	// hazard given ParityDB's per-table VA reservation, 2026-07-07).
 	if args.sandbox_rlimit_as_bytes == Some(0) {
 		log::error!(
-			"F-NEW-R2-01 misconfig: --sandbox-rlimit-as-bytes=0 is refused. \
-			 RLIMIT_AS=0 would make any allocation impossible. To skip the \
-			 RLIMIT_AS hardening and leave it at inherited (NOT recommended; \
-			 re-opens F-NEW-01 host-memory-burst), omit the flag entirely \
-			 OR pass a large explicit value. To hard-cap, pass the desired \
-			 byte ceiling (default = sandbox-memory-max + 1 GiB)."
+			"misconfig: --sandbox-rlimit-as-bytes=0 is refused. RLIMIT_AS=0 \
+			 would make any allocation impossible. To leave AS unbounded \
+			 (the default), omit the flag entirely. To opt into an explicit \
+			 cap, pass a byte ceiling ABOVE the node's VmSize (ParityDB \
+			 reserves ~1 GiB of virtual address space per value-table file, \
+			 so this runs to hundreds of GiB — an undersized cap bricks the \
+			 node at its next restart)."
 		);
+		return ExitCode::FAILURE;
+	}
+
+	// Compensating control for the dropped AS default (see
+	// `require_memory_guard`).
+	if let Err(msg) =
+		require_memory_guard(args.unsafe_skip_sandbox, args.sandbox_memory_max_bytes)
+	{
+		log::error!("{msg}");
 		return ExitCode::FAILURE;
 	}
 
@@ -1896,10 +1945,19 @@ fn run(args: Args) -> ExitCode {
 			}
 		}
 
-		// Pre-exec hardening (2026-05-24, extended 2026-05-25 by Phase H+).
-		// Run in the forked-but-pre-exec child where seccomp + landlock
-		// are already inherited from supervisor, but the new gemini-node
-		// image hasn't started. Order is load-bearing:
+		// Pre-exec hardening (2026-05-24, extended 2026-05-25 by Phase H+,
+		// 2026-07-07 self-placement). Run in the forked-but-pre-exec child
+		// where seccomp + landlock are already inherited from supervisor,
+		// but the new gemini-node image hasn't started. Order is
+		// load-bearing:
+		//   (0) self-place into the child cgroup (F-NEW-01 window closure,
+		//       2026-07-07). Writes our own PID to the pre-created
+		//       cgroup.procs so `memory.max` is enforced BEFORE any node
+		//       instruction runs — replacing RLIMIT_AS, which ParityDB's
+		//       per-table VA reservation made unusable. FIRST so the whole
+		//       rest of the chain (and the node) runs already-capped;
+		//       still root here, which the root-owned cgroup.procs write
+		//       requires (the UID drop in (5) would remove it).
 		//   (1) close inherited fds (F13 residual — defeats the
 		//       /proc/self/fd-reopen attack on inherited writable
 		//       inodes by closing those fds above stdio before exec)
@@ -1931,16 +1989,12 @@ fn run(args: Args) -> ExitCode {
 		if sandbox_handle.is_some() {
 			use std::os::unix::process::CommandExt;
 			// Resolve rlimit values once, here, where args is in scope.
-			// RLIMIT_AS default: memory cap + 1 GiB headroom for mmap'd
-			// RO libs + runtime blob that count against AS but not memcg.
-			// `Some(0)` is already refused at parse time (F-NEW-R2-01),
-			// so we don't have a corresponding match arm here.
-			let rlimit_as = match args.sandbox_rlimit_as_bytes {
-				Some(v) => Some(v),
-				None => args
-					.sandbox_memory_max_bytes
-					.map(|m| m.saturating_add(1024 * 1024 * 1024)),
-			};
+			// RLIMIT_AS is OFF unless the operator opts in: ParityDB's
+			// per-table VA reservation makes any fixed AS ceiling a
+			// brick-on-restart hazard (2026-07-07). Physical memory is
+			// bounded by the cgroup memory.max (required below) instead.
+			// `Some(0)` is already refused at parse time (F-NEW-R2-01).
+			let rlimit_as = args.sandbox_rlimit_as_bytes;
 			let rlimit_nproc = if args.sandbox_rlimit_nproc == 0 {
 				None
 			} else {
@@ -1950,10 +2004,25 @@ fn run(args: Args) -> ExitCode {
 			// default + Rostro's intended posture). Pass Some(0) through
 			// so the hook actually sets it.
 			let rlimit_memlock = Some(args.sandbox_rlimit_memlock_bytes);
+			// F-NEW-01 window closure: prepare the cgroup.procs path in the
+			// parent (the hook must not allocate). `None` when no cgroup was
+			// installed — but require_memory_guard has already ensured a
+			// memory cap is set when the sandbox is active, so under the
+			// sandbox this is always `Some`.
+			let cgroup_procs_cstr = sandbox_handle
+				.as_ref()
+				.and_then(|h| h.cgroup_child_procs_cstring());
 			// SAFETY: each closure is panic-free, thread-safe, and a
 			// short syscall sequence; pre_exec doc requires all of these.
 			// pre_exec closures run in REGISTRATION order per std docs.
 			unsafe {
+				// (0) FIRST: self-place into the cgroup so memory.max is
+				// live before the rest of the chain and the node image.
+				if let Some(procs) = cgroup_procs_cstr {
+					cmd.pre_exec(move || {
+						SandboxHandle::place_self_in_cgroup_in_child(&procs)
+					});
+				}
 				cmd.pre_exec(SandboxHandle::close_inherited_fds_in_child);
 				cmd.pre_exec(SandboxHandle::drop_cap_sys_admin_in_child);
 				if let Some((uid, gid)) = child_uid_gid {
@@ -1993,9 +2062,14 @@ fn run(args: Args) -> ExitCode {
 			},
 		};
 
-		// Place the just-spawned child into the constrained inner
-		// cgroup so memory + cpu caps apply. No-op if no cgroup was
-		// installed (no caps configured) or sandbox was skipped.
+		// Backstop for the pre_exec self-placement (step 0): re-assert the
+		// child's cgroup membership from the parent. The window closure
+		// relies on `place_self_in_cgroup_in_child`, which self-places
+		// before the node image loads and is fail-closed (its error aborts
+		// the spawn above). This parent-side write is a harmless idempotent
+		// no-op when self-placement already landed the PID; it also covers
+		// the degenerate case where no pre_exec self-placement ran. No-op
+		// if no cgroup was installed or the sandbox was skipped.
 		if let Some(ref handle) = sandbox_handle {
 			if let Err(e) = handle.place_child_in_cgroup(child.id()) {
 				log::error!(
@@ -2753,6 +2827,44 @@ mod tests {
 		let args = args_with(vec![], vec![], None, None, 50_000, false);
 		let cfg = build_sandbox_config(&args);
 		assert!(cfg.cpu_cap().is_none());
+	}
+
+	#[test]
+	fn require_memory_guard_rejects_active_sandbox_without_memory_cap() {
+		// Sandbox active (not --unsafe-skip) + no memory.max = refuse:
+		// dropping the RLIMIT_AS default must not leave the child with
+		// no physical-memory guard at all.
+		let args = args_with(vec![], vec![], None, None, 100_000, false);
+		assert!(require_memory_guard(args.unsafe_skip_sandbox, args.sandbox_memory_max_bytes).is_err());
+	}
+
+	#[test]
+	fn require_memory_guard_rejects_zero_memory_cap() {
+		let args = args_with(vec![], vec![], Some(0), None, 100_000, false);
+		assert!(require_memory_guard(args.unsafe_skip_sandbox, args.sandbox_memory_max_bytes).is_err());
+	}
+
+	#[test]
+	fn require_memory_guard_accepts_memory_cap() {
+		let args = args_with(vec![], vec![], Some(4 << 30), None, 100_000, false);
+		assert!(require_memory_guard(args.unsafe_skip_sandbox, args.sandbox_memory_max_bytes).is_ok());
+	}
+
+	#[test]
+	fn require_memory_guard_exempts_unsafe_skip_sandbox() {
+		// No envelope at all: the whole sandbox is off, so the memory.max
+		// requirement doesn't apply.
+		let args = args_with(vec![], vec![], None, None, 100_000, true);
+		assert!(require_memory_guard(args.unsafe_skip_sandbox, args.sandbox_memory_max_bytes).is_ok());
+	}
+
+	#[test]
+	fn rlimit_as_defaults_to_unset() {
+		// Regression: the AS cap must NOT default on. ParityDB's per-table
+		// VA reservation makes any fixed AS ceiling a brick-on-restart
+		// hazard; unset = unbounded is the intended posture.
+		let args = Args::parse_from(["rostro-supervisor"]);
+		assert_eq!(args.sandbox_rlimit_as_bytes, None);
 	}
 
 	#[test]
