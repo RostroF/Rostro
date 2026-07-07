@@ -346,7 +346,9 @@ parameter_types! {
 	pub const RnsDefaultCapacity: u32 = 100;
 	pub const RnsMinRegistrationDuration: u64 = 28 * DAYS_MS;
 	pub const RnsMaxRegistrationDuration: u64 = 365 * DAYS_MS;
-	pub const RnsMaxContentLen: u32 = 1024;
+	// 1536 fits the largest typed record, a PQSPK/SEAL prekey record
+	// (1184-byte ML-KEM-768 ek + 64-byte sig = 1248; docs/PQ-CHAT.md).
+	pub const RnsMaxContentLen: u32 = 1536;
 	pub const RnsListingDeposit: Balance = 10 * ROSTO;
 	pub const RnsListingGracePeriod: u64 = 7 * DAYS_MS;
 	pub PnsCustodianAccount: AccountId = AccountId::new([0u8; 32]);

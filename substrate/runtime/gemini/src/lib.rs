@@ -195,8 +195,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// 103 = consensus-key lifecycle workstream 1 (session rotation,
 	// key lineage, offences; docs/CONSENSUS-KEY-LIFECYCLE.md);
 	// 104 = history anchor (dual-hash sealing of session-boundary
-	// headers under Keccak-512).
-	spec_version: 104,
+	// headers under Keccak-512);
+	// 105 = pq-chat P3b prekey record home (PREKEY/SEAL typed
+	// records, RnsMaxContentLen 1024 -> 1536; docs/PQ-CHAT.md).
+	spec_version: 105,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -580,8 +582,10 @@ parameter_types! {
 	pub const RnsMaxRegistrationDuration: u64 = 365 * (DAYS as u64) * MILLISECS_PER_BLOCK;
 
 	/// Maximum bytes per resolver record (TXT, AVATAR CID, RPC
-	/// endpoint, etc.). 1 KiB.
-	pub const RnsMaxContentLen: u32 = 1024;
+	/// endpoint, etc.). 1536: fits the largest typed record, a
+	/// PQSPK/SEAL prekey record (1184-byte ML-KEM-768 ek + 64-byte
+	/// sig = 1248; docs/PQ-CHAT.md).
+	pub const RnsMaxContentLen: u32 = 1536;
 
 	/// Marketplace listing deposit — held on the seller while a
 	/// listing is active, refunded on cancellation, paid to the

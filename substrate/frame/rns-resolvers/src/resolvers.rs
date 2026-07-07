@@ -157,6 +157,13 @@ pub mod pallet {
         /// The `NODE` key is already registered under a different name. A node
         /// identity belongs to one name so the guard set has no duplicates.
         NodeKeyTaken,
+        /// A `PREKEY` record must be exactly 1344 bytes — 32-byte X25519 SPK
+        /// ‖ 64-byte sig ‖ 1184-byte ML-KEM-768 PQSPK ek ‖ 64-byte sig.
+        InvalidPrekeyRecord,
+        /// A `SEAL` record must be exactly 1248 bytes — a 1184-byte
+        /// ML-KEM-768 encapsulation key followed by its 64-byte Ed25519
+        /// signature.
+        InvalidSealRecord,
     }
 
     impl<T: Config> Pallet<T> {
@@ -183,7 +190,9 @@ pub mod pallet {
         /// in every response and cannot be set by users:
         ///   SS58, ORIGIN
         pub fn lookup(node: rns_types::DomainHash, record_types: Vec<RecordType>) -> Vec<(RecordType, Vec<u8>)> {
-            const MAX_QUERY_TYPES: usize = 3;
+            // 4 = a complete chat identity (CHAT + MESSAGE + PREKEY + SEAL)
+            // resolves in a single lookup (docs/PQ-CHAT.md).
+            const MAX_QUERY_TYPES: usize = 4;
             let record_types: Vec<RecordType> = record_types.into_iter().take(MAX_QUERY_TYPES).collect();
             const BLOCKED: &[RecordType] = &[
                 RecordType::SS58,   // chain-managed, always returned unconditionally
@@ -238,6 +247,7 @@ pub mod pallet {
                 RecordType::AVATAR, RecordType::CONTRACT,
                 RecordType::IPFS, RecordType::CONTENT,
                 RecordType::CHAT, RecordType::MESSAGE, RecordType::NODE,
+                RecordType::PREKEY, RecordType::SEAL,
             ];
             ensure!(
                 USER_SETTABLE.contains(&record_type),
@@ -250,6 +260,22 @@ pub mod pallet {
             // `ContentPublicKey` (its curve tag self-describes StrongBox vs TPM).
             if record_type == RecordType::CHAT {
                 ensure!(content.len() == 32, Error::<T>::InvalidChatKey);
+            }
+            // Prekey-home records (pq-chat P3b): the chain validates SHAPE only
+            // (exact length); the identity signatures inside are verified by the
+            // initiating client, which must check them against the `CHAT` key
+            // before use regardless of what the chain accepted.
+            if record_type == RecordType::PREKEY {
+                ensure!(
+                    content.len() == rns_types::ddns::codec_type::PREKEY_RECORD_BYTES,
+                    Error::<T>::InvalidPrekeyRecord
+                );
+            }
+            if record_type == RecordType::SEAL {
+                ensure!(
+                    content.len() == rns_types::ddns::codec_type::SEAL_RECORD_BYTES,
+                    Error::<T>::InvalidSealRecord
+                );
             }
             let node = Self::name_to_node(&name)?;
             ensure!(
@@ -375,11 +401,11 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_record(s: Linear<0, 1024>) {
+    fn set_record(s: Linear<0, 1536>) {
         let caller: T::AccountId = whitelisted_caller();
         setup_owned_name::<T>(&caller);
         let content: Content<T> = BoundedVec::try_from(vec![0u8; s as usize])
-            .unwrap_or_else(|_| BoundedVec::try_from(vec![0u8; 1024]).unwrap());
+            .unwrap_or_else(|_| BoundedVec::try_from(vec![0u8; 1536]).unwrap());
 
         #[extrinsic_call]
         _(
@@ -391,11 +417,11 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_text(s: Linear<0, 1024>) {
+    fn set_text(s: Linear<0, 1536>) {
         let caller: T::AccountId = whitelisted_caller();
         setup_owned_name::<T>(&caller);
         let content: Content<T> = BoundedVec::try_from(vec![0u8; s as usize])
-            .unwrap_or_else(|_| BoundedVec::try_from(vec![0u8; 1024]).unwrap());
+            .unwrap_or_else(|_| BoundedVec::try_from(vec![0u8; 1536]).unwrap());
 
         #[extrinsic_call]
         _(
