@@ -28,6 +28,10 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# Leaf hybrid crate: the keystore roundtrip test verifies domain-framed
+# signatures under the caller's domain, which sp-core's Pair (pinned to
+# the finality domain) deliberately cannot do.
+rostro-hybrid-sig = { workspace = true, default-features = true }
 
 [features]
 # This feature adds BLS crypto primitives.

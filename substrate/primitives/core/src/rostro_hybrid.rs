@@ -146,21 +146,27 @@ impl Pair {
 		self.seed
 	}
 
-	/// The ed25519 component of the public key: the first 32 bytes of the
-	/// hybrid encoding. Consumers with hard byte budgets (the
-	/// validator-channel cert, docs/PQ-FINALITY.md D5) authenticate
-	/// against this component.
-	pub fn public_ed25519_component(public: &Public) -> [u8; 32] {
-		let mut out = [0u8; 32];
-		out.copy_from_slice(&(public.as_ref() as &[u8])[..32]);
-		out
-	}
-
-	/// Sign with ONLY the ed25519 component over the raw message (no
-	/// hybrid framing; the caller's preimage carries its own domain).
-	/// D5 path: the validator-channel cert stays 64 bytes.
-	pub fn sign_ed25519_component(&self, message: &[u8]) -> crate::ed25519::Signature {
-		crate::ed25519::Signature::from_raw(self.inner.sign_ed25519_component(message))
+	/// Sign `message` with BOTH components under an explicit protocol
+	/// `domain` (the FIPS 205 context) instead of the pinned finality-vote
+	/// scheme domain. For non-consensus consumers of a hybrid key — the
+	/// validator-channel cert and handshake (docs/PQ-TRANSPORT.md).
+	///
+	/// Returns `None` if the domain is refused: the finality-vote domain
+	/// itself (this path must never mint a signature that verifies as a
+	/// finality vote) or a domain over the 255-byte FIPS 205 context
+	/// limit.
+	#[cfg(feature = "full_crypto")]
+	pub fn sign_with_domain(&self, domain: &[u8], message: &[u8]) -> Option<Signature> {
+		if domain == SCHEME_DOMAIN {
+			return None;
+		}
+		let sig = self.inner.sign(domain, message).ok()?;
+		let bytes: alloc::boxed::Box<[u8; SIGNATURE_SERIALIZED_SIZE]> = sig
+			.to_vec()
+			.into_boxed_slice()
+			.try_into()
+			.expect("hybrid signature length is pinned by rostro-hybrid-sig tests; qed");
+		Some(Signature::from_raw(*bytes))
 	}
 }
 
@@ -230,6 +236,31 @@ mod tests {
 		let public = pair.public();
 		let public_bytes: &[u8] = public.as_ref();
 		assert_eq!(public_bytes.len(), PUBLIC_KEY_SERIALIZED_SIZE);
+	}
+
+	#[test]
+	fn sign_with_domain_is_domain_separated_and_refuses_finality_domain() {
+		let pair = Pair::from_seed(&[7u8; 32]);
+		let msg = b"channel cert bytes";
+		const TEST_DOMAIN: &[u8] = b"rostro/test/some-protocol/v1";
+
+		// The finality-vote domain is refused outright: this path can
+		// never mint a signature that verifies as a finality vote.
+		assert!(pair.sign_with_domain(SCHEME_DOMAIN, msg).is_none());
+		// Over the FIPS 205 context limit is refused, not truncated.
+		assert!(pair.sign_with_domain(&[0x61; 256], msg).is_none());
+
+		let sig = pair.sign_with_domain(TEST_DOMAIN, msg).expect("domain is valid");
+		// Verifies under the same domain via the leaf crate...
+		let vk = HybridVerifyingKey::from_bytes(pair.public().as_ref() as &[u8]).unwrap();
+		let leaf_sig = HybridSignature::from_bytes(sig.as_ref() as &[u8]).unwrap();
+		assert!(vk.verify(TEST_DOMAIN, msg, &leaf_sig).is_ok());
+		// ...but NOT under the scheme (finality) domain, and a scheme
+		// signature does not verify under the explicit domain either.
+		assert!(!Pair::verify(&sig, msg, &pair.public()));
+		let vote_sig = pair.sign(msg);
+		let vote_leaf = HybridSignature::from_bytes(vote_sig.as_ref() as &[u8]).unwrap();
+		assert!(vk.verify(TEST_DOMAIN, msg, &vote_leaf).is_err());
 	}
 
 	#[test]
