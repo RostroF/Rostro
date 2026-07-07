@@ -805,6 +805,53 @@ pub fn verify_pqspk(bundle: &PrekeyBundle) -> Result<(), HandshakeError> {
 	Ok(())
 }
 
+/// SEAL-key signature domain: the sealed-sender hybrid sealing key
+/// (RNS `SEAL` record, docs/PQ-CHAT.md). A DIFFERENT domain from the
+/// PQSPK's even though both sign an ML-KEM-768 ek: a prekey signature
+/// must never validate as a sealing-key signature or vice versa — the
+/// two keys have deliberately different lifecycles.
+pub const SEAL_SIGNATURE_DOMAIN: &[u8] = b"rostro/chat-channel/seal/v1";
+
+/// Canonical SEAL-key signature preimage.
+pub fn seal_ek_preimage(
+	seal_ek: &[u8; rostro_hybrid_kex::MLKEM768_EK_BYTES],
+) -> Vec<u8> {
+	let mut buf = Vec::with_capacity(SEAL_SIGNATURE_DOMAIN.len() + seal_ek.len());
+	buf.extend_from_slice(SEAL_SIGNATURE_DOMAIN);
+	buf.extend_from_slice(seal_ek);
+	buf
+}
+
+/// Sign a sealed-sender hybrid sealing key (ML-KEM-768 encapsulation
+/// key) with the identity key, for publication in the RNS `SEAL`
+/// record.
+#[cfg(feature = "std")]
+pub fn sign_seal_ek(
+	seal_ek: &[u8; rostro_hybrid_kex::MLKEM768_EK_BYTES],
+	identity_signing: &ed25519_zebra::SigningKey,
+) -> [u8; 64] {
+	let sig: ed25519_zebra::Signature =
+		identity_signing.sign(&seal_ek_preimage(seal_ek));
+	sig.into()
+}
+
+/// Verify a resolved SEAL record's signature under the publisher's
+/// identity key (the `CHAT` record). Senders MUST run this before
+/// `hybrid_seal`ing an envelope to the key: an unsigned/forged sealing
+/// key hands the outer envelope to an attacker.
+pub fn verify_seal_ek(
+	identity_ed25519: &[u8; 32],
+	seal_ek: &[u8; rostro_hybrid_kex::MLKEM768_EK_BYTES],
+	signature: &[u8; 64],
+) -> Result<(), HandshakeError> {
+	let vk = ed25519_zebra::VerificationKey::try_from(*identity_ed25519)
+		.map_err(|_| HandshakeError::InvalidPubkey)?;
+	let sig = ed25519_zebra::Signature::from(*signature);
+	vk.verify(&sig, &seal_ek_preimage(seal_ek))
+		.map_err(|_| HandshakeError::SignatureInvalid)?;
+	Ok(())
+}
+
 impl SignedOneTimePrekey {
 	/// Verify this OPK's signature under the publisher's identity key.
 	pub fn verify(&self, identity_ed25519: &[u8; 32]) -> Result<(), HandshakeError> {
@@ -1399,6 +1446,39 @@ mod tests {
 		verify_pqspk(&bundle).expect("genuine PQSPK verifies");
 		bundle.pqspk_ek[0] ^= 0xFF; // flip a byte of the signed KEM key
 		assert_eq!(verify_pqspk(&bundle), Err(HandshakeError::SignatureInvalid));
+	}
+
+	#[test]
+	fn seal_ek_signature_roundtrip_and_tamper() {
+		let mut rng = ChaCha20Rng::seed_from_u64(0x74);
+		let identity = ed25519_zebra::SigningKey::new(&mut rng);
+		let identity_ed: [u8; 32] = ed25519_zebra::VerificationKey::from(&identity).into();
+		let (_, mut ek) = test_pqspk(0xE6);
+		let sig = sign_seal_ek(&ek, &identity);
+		verify_seal_ek(&identity_ed, &ek, &sig).expect("genuine SEAL key verifies");
+		ek[0] ^= 0xFF; // flip a byte of the signed sealing key
+		assert_eq!(
+			verify_seal_ek(&identity_ed, &ek, &sig),
+			Err(HandshakeError::SignatureInvalid),
+		);
+	}
+
+	#[test]
+	fn seal_and_pqspk_signatures_are_not_interchangeable() {
+		// Same ML-KEM ek signed as a PQSPK must NOT verify as a SEAL
+		// key (and vice versa): the domains keep the two lifecycles
+		// cryptographically apart.
+		let mut rng = ChaCha20Rng::seed_from_u64(0x75);
+		let identity = ed25519_zebra::SigningKey::new(&mut rng);
+		let identity_ed: [u8; 32] = ed25519_zebra::VerificationKey::from(&identity).into();
+		let (_, ek) = test_pqspk(0xE7);
+		let pqspk_sig = sign_pqspk(&ek, &identity);
+		let seal_sig = sign_seal_ek(&ek, &identity);
+		assert_ne!(pqspk_sig, seal_sig);
+		assert_eq!(
+			verify_seal_ek(&identity_ed, &ek, &pqspk_sig),
+			Err(HandshakeError::SignatureInvalid),
+		);
 	}
 
 	#[test]

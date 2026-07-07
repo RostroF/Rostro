@@ -20,6 +20,7 @@ hkdf = { workspace = true }
 sha2 = { workspace = true }
 zeroize = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }
+rostro-hybrid-kex = { workspace = true }
 
 [dev-dependencies]
 rand_chacha = { workspace = true, default-features = true }
@@ -32,4 +33,5 @@ std = [
 	"hkdf/std",
 	"sha2/std",
 	"zeroize/std",
+	"rostro-hybrid-kex/std",
 ]
