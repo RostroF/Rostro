@@ -94,8 +94,8 @@ done
 echo "injecting Sassafras + GRANDPA keys for the 2 validators..."
 "$NODE_BIN" insert-sassafras-key --suri //Alice --base-path "$ALICE_BASE" --chain-id gemini-star
 "$NODE_BIN" insert-sassafras-key --suri //Bob   --base-path "$BOB_BASE"   --chain-id gemini-star
-"$NODE_BIN" key insert --suri //Alice --key-type gran --scheme ed25519 --base-path "$ALICE_BASE" --chain star
-"$NODE_BIN" key insert --suri //Bob   --key-type gran --scheme ed25519 --base-path "$BOB_BASE"   --chain star
+"$NODE_BIN" key insert --suri //Alice --key-type gran --scheme rostro-hybrid --base-path "$ALICE_BASE" --chain star
+"$NODE_BIN" key insert --suri //Bob   --key-type gran --scheme rostro-hybrid --base-path "$BOB_BASE"   --chain star
 
 BOOTNODES_MULTIADDR="/ip4/127.0.0.1/tcp/30333/p2p/${ALICE_PEER_ID}"
 

@@ -82,7 +82,7 @@ echo "injecting Sassafras + GRANDPA keys for 5 validators..."
 for pair in "//Alice:alice" "//Bob:bob" "//Charlie:charlie" "//Dave:dave" "//Eve:eve"; do
 	suri="${pair%%:*}"; name="${pair##*:}"; base="$STAR_DIR/$name"
 	"$NODE_BIN" insert-sassafras-key --suri "$suri" --base-path "$base" --chain-id gemini-star
-	"$NODE_BIN" key insert --suri "$suri" --key-type gran --scheme ed25519 --base-path "$base" --chain star
+	"$NODE_BIN" key insert --suri "$suri" --key-type gran --scheme rostro-hybrid --base-path "$base" --chain star
 done
 
 # Genesis GRANDPA public keys + secret seeds (dev keys; the canary phase
@@ -162,7 +162,7 @@ rotate_validator() {
 	local name="$1" ws="$2" suri="$3"
 	local seed
 	seed="0x$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
-	"$NODE_BIN" key insert --suri "$seed" --key-type gran --scheme ed25519 \
+	"$NODE_BIN" key insert --suri "$seed" --key-type gran --scheme rostro-hybrid \
 		--base-path "$STAR_DIR/$name" --chain star
 	"$PROBE" rotate --ws "$ws" --suri "$suri" --seed "$seed"
 }

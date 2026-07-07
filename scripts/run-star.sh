@@ -116,11 +116,11 @@ echo "injecting Sassafras bandersnatch keys for all 5 nodes..."
 # validator-channel asker thinks we're not a validator (no GRANDPA
 # pubkey in the keystore to claim).
 echo "injecting GRANDPA Ed25519 keys for all 5 nodes..."
-"$NODE_BIN" key insert --suri //Alice   --key-type gran --scheme ed25519 --base-path "$ALICE_BASE"   --chain star
-"$NODE_BIN" key insert --suri //Bob     --key-type gran --scheme ed25519 --base-path "$BOB_BASE"     --chain star
-"$NODE_BIN" key insert --suri //Charlie --key-type gran --scheme ed25519 --base-path "$CHARLIE_BASE" --chain star
-"$NODE_BIN" key insert --suri //Dave    --key-type gran --scheme ed25519 --base-path "$DAVE_BASE"    --chain star
-"$NODE_BIN" key insert --suri //Eve     --key-type gran --scheme ed25519 --base-path "$EVE_BASE"     --chain star
+"$NODE_BIN" key insert --suri //Alice   --key-type gran --scheme rostro-hybrid --base-path "$ALICE_BASE"   --chain star
+"$NODE_BIN" key insert --suri //Bob     --key-type gran --scheme rostro-hybrid --base-path "$BOB_BASE"     --chain star
+"$NODE_BIN" key insert --suri //Charlie --key-type gran --scheme rostro-hybrid --base-path "$CHARLIE_BASE" --chain star
+"$NODE_BIN" key insert --suri //Dave    --key-type gran --scheme rostro-hybrid --base-path "$DAVE_BASE"    --chain star
+"$NODE_BIN" key insert --suri //Eve     --key-type gran --scheme rostro-hybrid --base-path "$EVE_BASE"     --chain star
 
 # `--canonical-files-dir` makes the running binary advertise the heal-
 # fetch server and serve canonical bytes to peers. Same dir is the

@@ -108,9 +108,9 @@ echo "injecting Sassafras keys for 3 validators (NOT dave)..."
 # channel asker thinks we're not a validator (no GRANDPA pubkey to
 # claim).
 echo "injecting GRANDPA Ed25519 keys for 3 validators..."
-"$NODE_BIN" key insert --suri //Alice   --key-type gran --scheme ed25519 --base-path "$ALICE_BASE"   --chain star
-"$NODE_BIN" key insert --suri //Bob     --key-type gran --scheme ed25519 --base-path "$BOB_BASE"     --chain star
-"$NODE_BIN" key insert --suri //Charlie --key-type gran --scheme ed25519 --base-path "$CHARLIE_BASE" --chain star
+"$NODE_BIN" key insert --suri //Alice   --key-type gran --scheme rostro-hybrid --base-path "$ALICE_BASE"   --chain star
+"$NODE_BIN" key insert --suri //Bob     --key-type gran --scheme rostro-hybrid --base-path "$BOB_BASE"     --chain star
+"$NODE_BIN" key insert --suri //Charlie --key-type gran --scheme rostro-hybrid --base-path "$CHARLIE_BASE" --chain star
 
 COMMON_VALIDATOR=(--chain star --no-mdns --validator --rpc-cors=all -l "$LOG_FILTER")
 COMMON_EAVESDROPPER=(--chain star --no-mdns --rpc-cors=all -l "$LOG_FILTER")
