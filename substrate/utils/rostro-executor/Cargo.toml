@@ -56,3 +56,16 @@ rostro-executor-fixture-storage-roundtrip = { workspace = true, default-features
 # `SUBSTRATE_RUNTIME_TARGET`; the B5 test is `#[ignore]`-gated so the
 # default `cargo test` run on a WASM-built workspace doesn't trip on it.
 rostro-runtime = { workspace = true, default-features = true }
+# Executor-isolation throughput harness (tests/isolation_loop.rs): drives
+# TaggedTransactionQueue_validate_transaction on the real gemini-runtime
+# blob with in-memory signed transfers — no RPC, no txpool, no DB — to
+# split executor+runtime cost from node-side overhead. `#[ignore]`-gated
+# like the B5/B6 tests (needs SUBSTRATE_RUNTIME_TARGET=riscv).
+gemini-runtime = { workspace = true, default-features = true }
+rostro-multi-key = { path = "../rostro-multi-key", default-features = true }
+sp-keyring = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+frame-system = { workspace = true, default-features = true }
+pallet-balances = { workspace = true, default-features = true }
+pallet-transaction-payment = { workspace = true, default-features = true }
+frame-metadata-hash-extension = { workspace = true, default-features = true }
