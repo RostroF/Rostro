@@ -92,12 +92,40 @@ pub mod codec_type {
         /// signs onion forwards and witnessed-spend records with. Exactly 32
         /// raw bytes. (IANA private use 65295.)
         NODE,
+        /// PQXDH prekey bundle — the two signed prekeys a conversation
+        /// initiator bootstraps against, published as ONE record because they
+        /// share one lifecycle (rotate together, verified together, consumed
+        /// together; decap secrets deleted after the rotation window for
+        /// bootstrap forward secrecy). Layout, exactly 1344 bytes:
+        /// 32-byte X25519 SPK ‖ 64-byte Ed25519 sig ‖ 1184-byte ML-KEM-768
+        /// PQSPK ek ‖ 64-byte Ed25519 sig. Both signed by the `CHAT` identity
+        /// key under their own domains; the initiator MUST verify both before
+        /// use (docs/PQ-CHAT.md). (IANA private use 65296.)
+        PREKEY,
+        /// Sealed-sender KEM sealing key — the ML-KEM-768 encapsulation key
+        /// senders hybrid-seal the OUTER (sealed-sender) envelope to, signed
+        /// by the `CHAT` identity key. Layout: 1184-byte ek ‖ 64-byte Ed25519
+        /// signature = exactly 1248 bytes. DELIBERATELY not part of `PREKEY`:
+        /// its decap secret must live the full dead-drop TTL, while prekey
+        /// decap secrets are deleted on rotation — one key cannot serve both
+        /// lifecycles (docs/PQ-CHAT.md). (IANA private use 65297.)
+        SEAL,
         /// Unknown Record type, or unsupported
         Unknown(u16),
     }
 
+    /// Exact content length of a `PREKEY` record: 32-byte X25519 SPK ‖
+    /// 64-byte sig ‖ 1184-byte ML-KEM-768 PQSPK ek ‖ 64-byte sig. The chain
+    /// validates length only; signature verification is the initiating
+    /// client's job (it must verify both against the `CHAT` key before
+    /// bootstrapping regardless of what the chain accepted).
+    pub const PREKEY_RECORD_BYTES: usize = 32 + 64 + 1184 + 64;
+    /// Exact content length of a `SEAL` record: 1184-byte ML-KEM-768
+    /// encapsulation key ‖ 64-byte Ed25519 signature.
+    pub const SEAL_RECORD_BYTES: usize = 1184 + 64;
+
     impl RecordType {
-        pub fn all() -> [Self; 18] {
+        pub fn all() -> [Self; 20] {
             [
                 RecordType::A,
                 RecordType::AAAA,
@@ -117,6 +145,8 @@ pub mod codec_type {
                 RecordType::CHAT,
                 RecordType::MESSAGE,
                 RecordType::NODE,
+                RecordType::PREKEY,
+                RecordType::SEAL,
             ]
         }
     }
@@ -140,8 +170,11 @@ mod tests {
         assert_eq!(RecordType::MESSAGE.encode(), vec![16]);
         // NODE appended after MESSAGE, before Unknown; existing 0..=16 unchanged.
         assert_eq!(RecordType::NODE.encode(), vec![17]);
-        // Unknown moved 17 -> 18; safe because nothing is ever stored under it.
-        let mut expected = vec![18u8];
+        // Prekey-home records (pq-chat P3b) appended after NODE, before Unknown.
+        assert_eq!(RecordType::PREKEY.encode(), vec![18]);
+        assert_eq!(RecordType::SEAL.encode(), vec![19]);
+        // Unknown moved 18 -> 20; safe because nothing is ever stored under it.
+        let mut expected = vec![20u8];
         expected.extend_from_slice(&65_293u16.encode());
         assert_eq!(RecordType::Unknown(65_293).encode(), expected);
     }
@@ -149,9 +182,11 @@ mod tests {
     #[test]
     fn all_includes_chat_and_message() {
         let all = RecordType::all();
-        assert_eq!(all.len(), 18);
+        assert_eq!(all.len(), 20);
         assert!(all.contains(&RecordType::CHAT));
         assert!(all.contains(&RecordType::MESSAGE));
         assert!(all.contains(&RecordType::NODE));
+        assert!(all.contains(&RecordType::PREKEY));
+        assert!(all.contains(&RecordType::SEAL));
     }
 }

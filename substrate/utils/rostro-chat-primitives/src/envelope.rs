@@ -22,11 +22,11 @@
 //!    domain-separated preimage. The signature + sender pubkey +
 //!    `inner_ciphertext` together form [`UnsealedInner`].
 //! 4. Sealed Sender outer-layer (separate from this crate's
-//!    responsibility) encrypts the encoded [`UnsealedInner`] under
-//!    an ephemeral-static ECDH derived key to produce
-//!    `outer_ciphertext`.
-//! 5. [`SealedEnvelope`] wraps `outer_ciphertext` along with the
-//!    [`EnvelopeKind`] tag, ephemeral pubkey, and message id.
+//!    responsibility) encrypts the encoded [`UnsealedInner`]: hybrid
+//!    X25519 + ML-KEM-768 for pairwise (docs/PQ-CHAT.md), the MLS
+//!    epoch key for groups — producing `outer_ciphertext`.
+//! 5. [`SealedEnvelope`] wraps `outer_ciphertext` in the variant for
+//!    its seal, with the seal's public material and the message id.
 //! 6. The encoded [`SealedEnvelope`] is the input to the chunk
 //!    layer; tagged chunks fan out to relays.
 //!
@@ -61,44 +61,71 @@ use crate::descriptor::{GroupId, MessageId};
 /// verifier.
 pub const SENDER_PREIMAGE_DOMAIN: &[u8] = b"rostro/chat/sender-sig/v1";
 
-/// Tag distinguishing pairwise DMs from group messages on the
-/// recipient side. Invisible to relays (the entire
-/// [`SealedEnvelope`] is chunked across relays, so relays see
-/// only noise shares).
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub enum EnvelopeKind {
-	/// One-to-one DM. Outer-layer Sealed Sender uses
-	/// ephemeral-X25519 ECDH against the recipient's identity key.
-	Pairwise,
-	/// Group message addressed to `GroupId`. Outer layer uses the
-	/// MLS group's current epoch key.
-	Group(GroupId),
-}
+/// ML-KEM-768 ciphertext length carried by hybrid pairwise envelopes.
+/// This crate stays crypto-free (wire types only), so the value is
+/// pinned here rather than importing the KEM crate; it MUST equal
+/// `rostro_hybrid_kex::MLKEM768_CT_BYTES` (asserted by the consumers
+/// that hold both, e.g. rostro-chat-sealed-sender's wire-size test).
+pub const PAIRWISE_PQ_CT_BYTES: usize = 1088;
 
 /// Outer-layer wire envelope. After the chunk split, pieces of the
-/// SCALE-encoded form of this struct travel over the network; only
-/// the recipient who assembles all N shares reconstructs the
-/// envelope.
+/// SCALE-encoded form travel over the network; only the recipient who
+/// assembles all N shares reconstructs the envelope. The variant tag
+/// replaced the old `EnvelopeKind` field at the PQXDH cutover (hard
+/// cutover, docs/PQ-CHAT.md): the variant IS the decrypt path, and
+/// each variant carries exactly the fields its seal needs — a
+/// pairwise envelope without a KEM ciphertext is unrepresentable, and
+/// the old Group-side `[0u8; 32]` ephemeral sentinel is gone.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct SealedEnvelope {
-	/// Pairwise/group tag for recipient's decrypt path.
-	pub kind: EnvelopeKind,
-	/// Opaque outer ciphertext. Upper-layer Sealed Sender produces
-	/// these bytes by encrypting an encoded [`UnsealedInner`] under
-	/// an ephemeral-static ECDH derived key. This crate treats it
-	/// as opaque.
-	pub outer_ciphertext: Vec<u8>,
-	/// Sender's ephemeral X25519 public key for outer-layer ECDH.
-	/// For [`EnvelopeKind::Group`] messages where the outer key
-	/// derives from MLS group state, this is the zero sentinel
-	/// `[0u8; 32]` (the receiver knows from `kind` that the
-	/// ephemeral key is unused).
-	pub ephemeral_pubkey: [u8; 32],
-	/// Stable message id. Echoed in the share descriptors so the
-	/// recipient can correlate (DHT descriptor → assembled envelope)
-	/// and so the sender's signature binds to a per-message identity
-	/// rather than to a session.
-	pub message_id: MessageId,
+pub enum SealedEnvelope {
+	/// One-to-one DM, hybrid-sealed (X25519 + ML-KEM-768): outer
+	/// layer is `rostro-chat-sealed-sender::hybrid_seal` against the
+	/// recipient's identity key (classical leg) and published SEAL
+	/// key (PQ leg).
+	Pairwise {
+		/// Sender's ephemeral X25519 public key (classical leg).
+		ephemeral_pubkey: [u8; 32],
+		/// ML-KEM-768 ciphertext against the recipient's SEAL key
+		/// (PQ leg). AAD-bound by the seal.
+		pq_ct: [u8; PAIRWISE_PQ_CT_BYTES],
+		/// Opaque hybrid-AEAD ciphertext over the encoded
+		/// [`UnsealedInner`].
+		outer_ciphertext: Vec<u8>,
+		/// Stable message id. Echoed in the share descriptors so the
+		/// recipient can correlate (descriptor → assembled envelope)
+		/// and the sender's signature binds per-message.
+		message_id: MessageId,
+	},
+	/// Group message addressed to `GroupId`. Outer layer uses the
+	/// MLS group's current epoch key (classical until the MLS-PQ
+	/// thread; no ephemeral, no KEM ciphertext).
+	Group {
+		group_id: GroupId,
+		/// Opaque group-sealed ciphertext over the encoded
+		/// [`UnsealedInner`].
+		outer_ciphertext: Vec<u8>,
+		/// Stable message id (as above).
+		message_id: MessageId,
+	},
+}
+
+impl SealedEnvelope {
+	/// The per-message id, uniform across variants (descriptor
+	/// correlation + signature binding).
+	pub fn message_id(&self) -> &MessageId {
+		match self {
+			SealedEnvelope::Pairwise { message_id, .. } => message_id,
+			SealedEnvelope::Group { message_id, .. } => message_id,
+		}
+	}
+
+	/// The opaque outer ciphertext, uniform across variants.
+	pub fn outer_ciphertext(&self) -> &[u8] {
+		match self {
+			SealedEnvelope::Pairwise { outer_ciphertext, .. } => outer_ciphertext,
+			SealedEnvelope::Group { outer_ciphertext, .. } => outer_ciphertext,
+		}
+	}
 }
 
 /// Post-outer-decrypt view. The recipient produces this by decrypting
@@ -173,42 +200,47 @@ mod tests {
 	use crate::descriptor::GroupId;
 
 	#[test]
-	fn envelope_kind_pairwise_scale_roundtrip() {
-		let k = EnvelopeKind::Pairwise;
-		let bytes = k.encode();
-		assert_eq!(EnvelopeKind::decode(&mut &bytes[..]).unwrap(), k);
-	}
-
-	#[test]
-	fn envelope_kind_group_scale_roundtrip() {
-		let k = EnvelopeKind::Group(GroupId([0x42; 32]));
-		let bytes = k.encode();
-		assert_eq!(EnvelopeKind::decode(&mut &bytes[..]).unwrap(), k);
-	}
-
-	#[test]
 	fn sealed_envelope_pairwise_scale_roundtrip() {
-		let e = SealedEnvelope {
-			kind: EnvelopeKind::Pairwise,
-			outer_ciphertext: alloc::vec![0xAB; 64],
+		let e = SealedEnvelope::Pairwise {
 			ephemeral_pubkey: [0xCD; 32],
+			pq_ct: [0x5A; PAIRWISE_PQ_CT_BYTES],
+			outer_ciphertext: alloc::vec![0xAB; 64],
 			message_id: MessageId([0xEF; 32]),
 		};
 		let bytes = e.encode();
 		assert_eq!(SealedEnvelope::decode(&mut &bytes[..]).unwrap(), e);
+		assert_eq!(e.message_id(), &MessageId([0xEF; 32]));
+		assert_eq!(e.outer_ciphertext(), &[0xAB; 64][..]);
 	}
 
 	#[test]
 	fn sealed_envelope_group_scale_roundtrip() {
-		let e = SealedEnvelope {
-			kind: EnvelopeKind::Group(GroupId([0x11; 32])),
+		let e = SealedEnvelope::Group {
+			group_id: GroupId([0x11; 32]),
 			outer_ciphertext: alloc::vec![0x22; 128],
-			// Group envelopes use the zero sentinel for ephemeral_pubkey.
-			ephemeral_pubkey: [0u8; 32],
 			message_id: MessageId([0x33; 32]),
 		};
 		let bytes = e.encode();
 		assert_eq!(SealedEnvelope::decode(&mut &bytes[..]).unwrap(), e);
+		assert_eq!(e.message_id(), &MessageId([0x33; 32]));
+	}
+
+	#[test]
+	fn pairwise_and_group_wire_forms_are_distinct() {
+		// The variant tag is the first byte: a pairwise envelope can
+		// never decode as a group envelope or vice versa.
+		let p = SealedEnvelope::Pairwise {
+			ephemeral_pubkey: [0; 32],
+			pq_ct: [0; PAIRWISE_PQ_CT_BYTES],
+			outer_ciphertext: alloc::vec![],
+			message_id: MessageId([0; 32]),
+		};
+		let g = SealedEnvelope::Group {
+			group_id: GroupId([0; 32]),
+			outer_ciphertext: alloc::vec![],
+			message_id: MessageId([0; 32]),
+		};
+		assert_ne!(p.encode()[0], g.encode()[0]);
 	}
 
 	#[test]
@@ -288,13 +320,13 @@ mod tests {
 
 		// Outer envelope built with a placeholder ciphertext that
 		// does NOT contain the sender_pubkey pattern. In real use,
-		// outer_ciphertext is AEAD(inner_encoded) under the Sealed
-		// Sender outer key; the pubkey is no longer in plaintext.
+		// outer_ciphertext is AEAD(inner_encoded) under the hybrid
+		// sealed-sender key; the pubkey is no longer in plaintext.
 		let outer_placeholder_ciphertext = alloc::vec![0xAB; 100];
-		let env = SealedEnvelope {
-			kind: EnvelopeKind::Pairwise,
-			outer_ciphertext: outer_placeholder_ciphertext,
+		let env = SealedEnvelope::Pairwise {
 			ephemeral_pubkey: [0xEE; 32],
+			pq_ct: [0x5B; PAIRWISE_PQ_CT_BYTES],
+			outer_ciphertext: outer_placeholder_ciphertext,
 			message_id: MessageId([0xFF; 32]),
 		};
 		let outer_encoded = env.encode();
@@ -322,10 +354,10 @@ mod tests {
 			"sanity: UnsealedInner SHOULD contain sender_signature when encoded raw",
 		);
 
-		let env = SealedEnvelope {
-			kind: EnvelopeKind::Pairwise,
-			outer_ciphertext: alloc::vec![0x11; 80],
+		let env = SealedEnvelope::Pairwise {
 			ephemeral_pubkey: [0x22; 32],
+			pq_ct: [0x5C; PAIRWISE_PQ_CT_BYTES],
+			outer_ciphertext: alloc::vec![0x11; 80],
 			message_id: MessageId([0x33; 32]),
 		};
 		let outer_encoded = env.encode();

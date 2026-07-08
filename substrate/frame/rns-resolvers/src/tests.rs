@@ -200,3 +200,127 @@ fn guard_set_enumerates_all_enrolled_nodes() {
         assert_eq!(got, vec![k1, k2]);
     });
 }
+
+// ─────────────────── PREKEY / SEAL prekey-home records ─────────────────────
+// (pq-chat P3b, docs/PQ-CHAT.md: the chain validates SHAPE only; the identity
+// signatures inside the records are the initiating client's job to verify.
+// PREKEY bundles SPK + PQSPK — one lifecycle, one record, one rotation tx;
+// SEAL is deliberately separate — its decap secret lives the dead-drop TTL.)
+
+use rns_types::ddns::codec_type::{PREKEY_RECORD_BYTES, SEAL_RECORD_BYTES};
+
+#[test]
+fn publishes_prekey_and_seal_records() {
+    new_test_ext().execute_with(|| {
+        let prekey = vec![0x44u8; PREKEY_RECORD_BYTES];
+        let seal = vec![0x66u8; SEAL_RECORD_BYTES];
+        for (rt, bytes) in [(RecordType::PREKEY, &prekey), (RecordType::SEAL, &seal)] {
+            assert_ok!(RnsResolvers::set_record(
+                RawOrigin::Signed(1).into(),
+                NAME.to_vec(),
+                rt,
+                content(bytes.clone()),
+            ));
+        }
+        assert_eq!(Records::<Test>::get(node(), RecordType::PREKEY).to_vec(), prekey);
+        assert_eq!(Records::<Test>::get(node(), RecordType::SEAL).to_vec(), seal);
+    });
+}
+
+#[test]
+fn malformed_prekey_record_is_rejected() {
+    new_test_ext().execute_with(|| {
+        // PREKEY = spk(32) ‖ sig(64) ‖ pqspk_ek(1184) ‖ sig(64), exactly 1344.
+        // 96 (SPK half only) and 1248 (PQSPK half only) are the likely client
+        // bugs — must reject.
+        for bad_len in [0usize, 96, 1248, 1343, 1345] {
+            assert_noop!(
+                RnsResolvers::set_record(
+                    RawOrigin::Signed(1).into(),
+                    NAME.to_vec(),
+                    RecordType::PREKEY,
+                    content(vec![0x77u8; bad_len]),
+                ),
+                Error::<Test>::InvalidPrekeyRecord
+            );
+        }
+        assert!(Records::<Test>::get(node(), RecordType::PREKEY).is_empty());
+    });
+}
+
+#[test]
+fn malformed_seal_record_is_rejected() {
+    new_test_ext().execute_with(|| {
+        // SEAL = ek(1184) ‖ sig(64), exactly 1248. 1184 (ek without sig) is
+        // the likely client bug — must reject.
+        for bad_len in [0usize, 1184, 1247, 1249, PREKEY_RECORD_BYTES] {
+            assert_noop!(
+                RnsResolvers::set_record(
+                    RawOrigin::Signed(1).into(),
+                    NAME.to_vec(),
+                    RecordType::SEAL,
+                    content(vec![0x88u8; bad_len]),
+                ),
+                Error::<Test>::InvalidSealRecord
+            );
+        }
+        assert!(Records::<Test>::get(node(), RecordType::SEAL).is_empty());
+    });
+}
+
+#[test]
+fn prekey_rotation_replaces_in_place() {
+    new_test_ext().execute_with(|| {
+        // Rotation = set_record on the same type: replaces content, does not
+        // consume a second record slot (RecordCount stays at 1 per type).
+        let old = vec![0xAAu8; PREKEY_RECORD_BYTES];
+        let new = vec![0xBBu8; PREKEY_RECORD_BYTES];
+        for bytes in [&old, &new] {
+            assert_ok!(RnsResolvers::set_record(
+                RawOrigin::Signed(1).into(),
+                NAME.to_vec(),
+                RecordType::PREKEY,
+                content(bytes.clone()),
+            ));
+        }
+        assert_eq!(Records::<Test>::get(node(), RecordType::PREKEY).to_vec(), new);
+        assert_eq!(crate::resolvers::RecordCount::<Test>::get(node()), 1);
+    });
+}
+
+#[test]
+fn full_chat_identity_resolves_in_one_lookup() {
+    new_test_ext().execute_with(|| {
+        // The whole point of MAX_QUERY_TYPES = 4: CHAT + MESSAGE + PREKEY +
+        // SEAL come back from a single lookup call.
+        let chat = vec![0x11u8; 32];
+        let msg = vec![0x01u8, 0xAA];
+        let prekey = vec![0x22u8; PREKEY_RECORD_BYTES];
+        let seal = vec![0x33u8; SEAL_RECORD_BYTES];
+        for (rt, bytes) in [
+            (RecordType::CHAT, &chat),
+            (RecordType::MESSAGE, &msg),
+            (RecordType::PREKEY, &prekey),
+            (RecordType::SEAL, &seal),
+        ] {
+            assert_ok!(RnsResolvers::set_record(
+                RawOrigin::Signed(1).into(),
+                NAME.to_vec(),
+                rt,
+                content(bytes.clone()),
+            ));
+        }
+        let got = RnsResolvers::lookup(
+            node(),
+            vec![RecordType::CHAT, RecordType::MESSAGE, RecordType::PREKEY, RecordType::SEAL],
+        );
+        for (rt, bytes) in [
+            (RecordType::CHAT, chat),
+            (RecordType::MESSAGE, msg),
+            (RecordType::PREKEY, prekey),
+            (RecordType::SEAL, seal),
+        ] {
+            assert!(got.contains(&(rt, bytes)), "{rt:?} missing from single lookup");
+        }
+    });
+}

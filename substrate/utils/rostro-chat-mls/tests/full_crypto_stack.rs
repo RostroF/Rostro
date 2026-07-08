@@ -17,7 +17,7 @@
 //!   → sign_inner → UnsealedInner       (rostro-chat-primitives)
 //!   → SCALE encode UnsealedInner
 //!   → seal under recipient's X25519 id (rostro-chat-sealed-sender)
-//!   → SealedEnvelope { Pairwise }      (rostro-chat-primitives)
+//!   → SealedEnvelope::Pairwise         (rostro-chat-primitives)
 //!   → SCALE encode SealedEnvelope
 //!   → prepare_batch (chunk + checksum) (rostro-chat-primitives)
 //!   → N tagged chunks over the wire
@@ -31,7 +31,7 @@
 //! plaintext
 //!   → MLS Group::encrypt_application_message  (rostro-chat-mls)
 //!   → MLS wire bytes (outer_ciphertext directly)
-//!   → SealedEnvelope { Group(group_id), ephemeral_pubkey=[0;32] }
+//!   → SealedEnvelope::Group { group_id, .. }
 //!   → SCALE encode + prepare_batch (chunk + checksum)
 //!   → N tagged chunks over the wire
 //! ```
@@ -55,10 +55,10 @@ use rostro_chat_primitives::{
 		TaggedChunk,
 	},
 	descriptor::{GroupId, MessageId, PickupKey, CHAT_TTL_SECONDS},
-	envelope::{sign_inner, EnvelopeKind, SealedEnvelope, UnsealedInner},
+	envelope::{sign_inner, SealedEnvelope, UnsealedInner},
 	verify::verify_sender,
 };
-use rostro_chat_sealed_sender::{seal as ss_seal, unseal as ss_unseal, SealedOutput};
+use rostro_chat_sealed_sender::{hybrid_seal, hybrid_unseal, HybridSealedOutput};
 
 use codec::{Decode, Encode};
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519SecretKey};
@@ -96,6 +96,12 @@ fn fresh_x25519_identity(seed: u64) -> ([u8; 32], [u8; 32]) {
 /// device" — the prepare-side pipeline of the chunk cutover
 /// (docs/CHAT-SHARE-CHUNKING.md). Returns (encoded_envelope_bytes,
 /// batch) so the test can inspect both sides of the wire.
+fn fresh_seal_keypair(
+	seed: u8,
+) -> (rostro_hybrid_kex::MlKemDecapKey, [u8; rostro_hybrid_kex::MLKEM768_EK_BYTES]) {
+	rostro_hybrid_kex::mlkem_keypair_from_seed(&[seed; 64])
+}
+
 fn chunk_and_checksum(
 	envelope: &SealedEnvelope,
 	pickup_key: PickupKey,
@@ -104,7 +110,7 @@ fn chunk_and_checksum(
 	let batch = prepare_batch(
 		&encoded,
 		CHUNK_COUNT,
-		envelope.message_id,
+		*envelope.message_id(),
 		pickup_key,
 		NOW_TS + CHAT_TTL_SECONDS,
 	)
@@ -143,6 +149,7 @@ fn pairwise_full_crypto_stack_roundtrip() {
 
 	// Bob's X25519 identity (for Sealed Sender outer ECDH).
 	let (bob_x_sk, bob_x_pk) = fresh_x25519_identity(0x22);
+	let (bob_seal_dk, bob_seal_ek) = fresh_seal_keypair(0x23);
 
 	// DR session pair — established via an X3DH-lite handshake.
 	let (mut alice_dr, mut bob_dr) = fresh_dr_pair(0x33, 0x44);
@@ -164,14 +171,16 @@ fn pairwise_full_crypto_stack_roundtrip() {
 	// 3. Encode UnsealedInner → bytes that Sealed Sender will encrypt.
 	let unsealed_encoded = unsealed.encode();
 
-	// 4. Sealed-Sender-seal to Bob's X25519 identity pubkey.
-	let ss: SealedOutput = ss_seal(&bob_x_pk, &unsealed_encoded, &mut rng);
+	// 4. Hybrid-Sealed-Sender-seal to Bob's X25519 identity pubkey
+	//    + his ML-KEM-768 SEAL key (docs/PQ-CHAT.md).
+	let ss: HybridSealedOutput =
+		hybrid_seal(&bob_x_pk, &bob_seal_ek, &unsealed_encoded, &mut rng).unwrap();
 
 	// 5. Build the outer SealedEnvelope.
-	let envelope = SealedEnvelope {
-		kind: EnvelopeKind::Pairwise,
-		outer_ciphertext: ss.ciphertext,
+	let envelope = SealedEnvelope::Pairwise {
 		ephemeral_pubkey: ss.ephemeral_pub,
+		pq_ct: ss.pq_ct,
+		outer_ciphertext: ss.ciphertext,
 		message_id,
 	};
 
@@ -190,14 +199,24 @@ fn pairwise_full_crypto_stack_roundtrip() {
 	// 2. Decode SealedEnvelope.
 	let recovered_envelope =
 		SealedEnvelope::decode(&mut &recovered_envelope_bytes[..]).unwrap();
-	assert_eq!(recovered_envelope.kind, EnvelopeKind::Pairwise);
-
-	// 3. Sealed-Sender-unseal with Bob's X25519 identity secret.
-	let ss_recovered = SealedOutput {
-		ephemeral_pub: recovered_envelope.ephemeral_pubkey,
-		ciphertext: recovered_envelope.outer_ciphertext.clone(),
+	let SealedEnvelope::Pairwise {
+		ephemeral_pubkey: rec_eph,
+		pq_ct: rec_pq_ct,
+		outer_ciphertext: rec_outer,
+		message_id: rec_mid,
+	} = recovered_envelope
+	else {
+		panic!("expected a Pairwise envelope");
 	};
-	let unsealed_bytes = ss_unseal(&bob_x_sk, &ss_recovered).unwrap();
+
+	// 3. Hybrid-Sealed-Sender-unseal with Bob's X25519 identity
+	//    secret + SEAL decapsulation key.
+	let ss_recovered = HybridSealedOutput {
+		ephemeral_pub: rec_eph,
+		pq_ct: rec_pq_ct,
+		ciphertext: rec_outer,
+	};
+	let unsealed_bytes = hybrid_unseal(&bob_x_sk, &bob_seal_dk, &ss_recovered).unwrap();
 
 	// 4. Decode UnsealedInner.
 	let recovered_unsealed =
@@ -206,7 +225,7 @@ fn pairwise_full_crypto_stack_roundtrip() {
 	// 5. Verify the sender signature against the outer envelope's
 	//    message_id.
 	let verified_sender_pubkey =
-		verify_sender(&recovered_unsealed, &recovered_envelope.message_id).unwrap();
+		verify_sender(&recovered_unsealed, &rec_mid).unwrap();
 	let expected_sender_pubkey: [u8; 32] =
 		ed25519_zebra::VerificationKey::from(&alice_signing).into();
 	assert_eq!(verified_sender_pubkey, expected_sender_pubkey);
@@ -260,13 +279,12 @@ fn group_full_crypto_stack_roundtrip() {
 		.encrypt_application_message(&alice, plaintext)
 		.unwrap();
 
-	// 2. Build SealedEnvelope { Group }. ephemeral_pubkey is the
-	//    zero sentinel (group flow doesn't use outer ECDH).
+	// 2. Build SealedEnvelope::Group (no ephemeral, no KEM ct — the
+	//    group outer key comes from MLS epoch state).
 	let message_id = MessageId::generate(&mut rng);
-	let envelope = SealedEnvelope {
-		kind: EnvelopeKind::Group(gid),
+	let envelope = SealedEnvelope::Group {
+		group_id: gid,
 		outer_ciphertext: mls_wire,
-		ephemeral_pubkey: [0u8; 32],
 		message_id,
 	};
 
@@ -280,9 +298,9 @@ fn group_full_crypto_stack_roundtrip() {
 	let bob_recovered =
 		combine_chunks_verified(&message_id, &pickup_key, &refs).unwrap();
 	let bob_envelope = SealedEnvelope::decode(&mut &bob_recovered[..]).unwrap();
-	assert!(matches!(bob_envelope.kind, EnvelopeKind::Group(g) if g == gid));
+	assert!(matches!(bob_envelope, SealedEnvelope::Group { group_id: g, .. } if g == gid));
 	let bob_plaintext = bob_group
-		.decrypt_or_process(&bob, &bob_envelope.outer_ciphertext)
+		.decrypt_or_process(&bob, bob_envelope.outer_ciphertext())
 		.unwrap();
 	assert_eq!(bob_plaintext, plaintext);
 
@@ -293,7 +311,7 @@ fn group_full_crypto_stack_roundtrip() {
 	let charlie_envelope =
 		SealedEnvelope::decode(&mut &charlie_recovered[..]).unwrap();
 	let charlie_plaintext = charlie_group
-		.decrypt_or_process(&charlie, &charlie_envelope.outer_ciphertext)
+		.decrypt_or_process(&charlie, charlie_envelope.outer_ciphertext())
 		.unwrap();
 	assert_eq!(charlie_plaintext, plaintext);
 }
@@ -335,10 +353,9 @@ fn group_removed_member_cannot_decrypt_via_full_stack() {
 		.encrypt_application_message(&alice, plaintext)
 		.unwrap();
 	let message_id = MessageId::generate(&mut rng);
-	let envelope = SealedEnvelope {
-		kind: EnvelopeKind::Group(gid),
+	let envelope = SealedEnvelope::Group {
+		group_id: gid,
 		outer_ciphertext: mls_wire,
-		ephemeral_pubkey: [0; 32],
 		message_id,
 	};
 	let pickup_key = PickupKey::for_group(&gid);
@@ -351,7 +368,7 @@ fn group_removed_member_cannot_decrypt_via_full_stack() {
 	let bob_envelope = SealedEnvelope::decode(&mut &bob_recovered[..]).unwrap();
 	assert_eq!(
 		bob_group
-			.decrypt_or_process(&bob, &bob_envelope.outer_ciphertext)
+			.decrypt_or_process(&bob, bob_envelope.outer_ciphertext())
 			.unwrap(),
 		plaintext,
 	);
@@ -367,7 +384,7 @@ fn group_removed_member_cannot_decrypt_via_full_stack() {
 		SealedEnvelope::decode(&mut &charlie_recovered[..]).unwrap();
 	assert!(
 		charlie_group
-			.decrypt_or_process(&charlie, &charlie_envelope.outer_ciphertext)
+			.decrypt_or_process(&charlie, charlie_envelope.outer_ciphertext())
 			.is_err(),
 		"removed member must not be able to decrypt a post-remove message",
 	);
@@ -378,6 +395,7 @@ fn corrupt_chunk_localized_in_full_stack() {
 	let mut rng = ChaCha20Rng::seed_from_u64(0x12);
 	let alice_signing = ed25519_zebra::SigningKey::from([0x44u8; 32]);
 	let (_bob_x_sk, bob_x_pk) = fresh_x25519_identity(0x55);
+	let (_bob_seal_dk, bob_seal_ek) = fresh_seal_keypair(0x56);
 	let (mut alice_dr, _bob_dr) = fresh_dr_pair(0x66, 0x77);
 
 	let plaintext = b"corruption detection at the chunk layer";
@@ -385,11 +403,11 @@ fn corrupt_chunk_localized_in_full_stack() {
 	let inner_ciphertext = dr_msg.encode();
 	let message_id = MessageId::generate(&mut rng);
 	let unsealed = sign_inner(inner_ciphertext, &message_id, &alice_signing);
-	let ss = ss_seal(&bob_x_pk, &unsealed.encode(), &mut rng);
-	let envelope = SealedEnvelope {
-		kind: EnvelopeKind::Pairwise,
-		outer_ciphertext: ss.ciphertext,
+	let ss = hybrid_seal(&bob_x_pk, &bob_seal_ek, &unsealed.encode(), &mut rng).unwrap();
+	let envelope = SealedEnvelope::Pairwise {
 		ephemeral_pubkey: ss.ephemeral_pub,
+		pq_ct: ss.pq_ct,
+		outer_ciphertext: ss.ciphertext,
 		message_id,
 	};
 	let pickup_key = PickupKey::for_pairwise(&bob_x_pk);

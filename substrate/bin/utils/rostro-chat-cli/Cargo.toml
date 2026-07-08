@@ -31,3 +31,5 @@ log = { workspace = true, default-features = true }
 
 rostro-chat-primitives = { path = "../../../utils/rostro-chat-primitives" }
 rostro-chat-sealed-sender = { path = "../../../utils/rostro-chat-sealed-sender" }
+rostro-hybrid-kex = { workspace = true, default-features = true }
+sha2 = { workspace = true, default-features = true }

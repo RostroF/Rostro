@@ -37,7 +37,7 @@ impl pallet_rns_resolvers::resolvers::RegistryChecker for MockRegistryChecker {
 impl pallet_rns_resolvers::resolvers::Config for Test {
     const OFFCHAIN_PREFIX: &'static [u8] = b"rns/";
     type WeightInfo = ();
-    type MaxContentLen = ConstU32<1024>;
+    type MaxContentLen = ConstU32<1536>;
     type RegistryChecker = MockRegistryChecker;
 }
 

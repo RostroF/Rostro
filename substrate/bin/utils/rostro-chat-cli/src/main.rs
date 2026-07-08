@@ -18,8 +18,9 @@
 //!   + the pickup key.
 //! - `pickup-key --pubkey <hex>` — compute a pickup key from a
 //!   chat-identity Ed25519 pubkey. Utility for scripts.
-//! - `send --node-rpc <url> --sender-seed <hex> --recipient-pubkey <hex> --message <text>`
-//!   — build + sign + sealed-sender-seal an envelope locally, chunk +
+//! - `send --node-rpc <url> --sender-seed <hex> --recipient-pubkey <hex> --recipient-seal-ek <hex> --message <text>`
+//!   — build + sign + HYBRID-sealed-sender-seal (X25519 + ML-KEM-768,
+//!   docs/PQ-CHAT.md) an envelope locally, chunk +
 //!   checksum it on-device (`prepare_batch`), then call
 //!   `chat_send_prepared` against the named gemini-node.
 //! - `fetch --node-rpc <url> --recipient-seed <hex> [--relay-peer <peer_id>]`
@@ -43,11 +44,12 @@ use rand_core::{OsRng, RngCore};
 use rostro_chat_primitives::{
 	chunk::{combine_chunks_verified, prepare_batch, TaggedChunk},
 	descriptor::{MessageId, PickupKey, CHAT_TTL_SECONDS},
-	envelope::{sign_inner, EnvelopeKind, SealedEnvelope, UnsealedInner},
+	envelope::{sign_inner, SealedEnvelope, UnsealedInner},
 	identity_key::{ed25519_seed_to_x25519_secret, ed25519_to_x25519_pubkey},
 	verify::{verify_sender, ChunkChecksum},
 };
-use rostro_chat_sealed_sender::{seal as ss_seal, unseal as ss_unseal, SealedOutput};
+use rostro_chat_sealed_sender::{hybrid_seal, hybrid_unseal, HybridSealedOutput};
+use sha2::{Digest, Sha512};
 
 // ── response-type mirrors (must match gemini-node/src/chat_rpc.rs) ──
 
@@ -125,9 +127,15 @@ enum Cmd {
 		sender_seed: String,
 
 		/// 32-byte (64-char hex) recipient chat-identity Ed25519
-		/// pubkey. Converted to X25519 for sealed-sender ECDH.
+		/// pubkey. Converted to X25519 for the classical seal leg.
 		#[arg(long)]
 		recipient_pubkey: String,
+
+		/// 1184-byte (2368-char hex) recipient SEAL encapsulation key
+		/// (the PQ seal leg; printed by `gen-identity`, published via
+		/// the RNS `SEAL` record in production).
+		#[arg(long)]
+		recipient_seal_ek: String,
 
 		/// UTF-8 plaintext message body.
 		#[arg(long)]
@@ -183,15 +191,39 @@ fn identity_from_seed(seed: &[u8; 32]) -> Result<([u8; 32], [u8; 32], [u8; 32])>
 	Ok((ed_pubkey, x25519_pubkey, pickup))
 }
 
+/// Domain for deriving the SEAL (sealed-sender KEM) keypair from the
+/// chat-identity seed. Lab-tool convenience mirroring dotwave's
+/// `spk_secret_from_identity_seed` pattern: production devices
+/// generate + publish the SEAL key via the RNS `SEAL` record; the CLI
+/// derives it deterministically so two scripted parties only exchange
+/// seeds/pubkeys.
+const SEAL_SEED_DOMAIN: &[u8] = b"rostro/chat/seal-seed/v1";
+
+/// Derive the ML-KEM-768 SEAL keypair from a chat-identity seed:
+/// `kem_seed = SHA-512(domain || seed)` (64 bytes, the FIPS 203 d||z).
+fn seal_keypair_from_seed(
+	seed: &[u8; 32],
+) -> (rostro_hybrid_kex::MlKemDecapKey, [u8; rostro_hybrid_kex::MLKEM768_EK_BYTES]) {
+	let mut h = Sha512::new();
+	h.update(SEAL_SEED_DOMAIN);
+	h.update(seed);
+	let digest = h.finalize();
+	let mut kem_seed = [0u8; rostro_hybrid_kex::MLKEM768_SEED_BYTES];
+	kem_seed.copy_from_slice(&digest);
+	rostro_hybrid_kex::mlkem_keypair_from_seed(&kem_seed)
+}
+
 // ── subcommand: gen-identity ────────────────────────────────────────
 
 fn cmd_gen_identity(seed_hex: &str) -> Result<()> {
 	let seed = decode_hex32(seed_hex)?;
 	let (ed_pub, x_pub, pickup) = identity_from_seed(&seed)?;
+	let (_seal_dk, seal_ek) = seal_keypair_from_seed(&seed);
 	println!("seed_hex:            {}", hex::encode(seed));
 	println!("ed25519_pubkey_hex:  {}", hex::encode(ed_pub));
 	println!("x25519_pubkey_hex:   {}", hex::encode(x_pub));
 	println!("pickup_key_hex:      {}", hex::encode(pickup));
+	println!("seal_ek_hex:         {}", hex::encode(seal_ek));
 	Ok(())
 }
 
@@ -212,6 +244,7 @@ async fn cmd_send(
 	node_rpc: &str,
 	sender_seed_hex: &str,
 	recipient_pubkey_hex: &str,
+	recipient_seal_ek_hex: &str,
 	message: &str,
 	total_chunks: u8,
 ) -> Result<()> {
@@ -219,6 +252,11 @@ async fn cmd_send(
 	let recipient_ed = decode_hex32(recipient_pubkey_hex)?;
 	let recipient_x = ed25519_to_x25519_pubkey(&recipient_ed)
 		.ok_or_else(|| anyhow!("recipient pubkey not on Edwards curve"))?;
+	let seal_ek_bytes = hex::decode(recipient_seal_ek_hex.trim_start_matches("0x"))
+		.context("recipient_seal_ek not valid hex")?;
+	let recipient_seal_ek: [u8; rostro_hybrid_kex::MLKEM768_EK_BYTES] = seal_ek_bytes
+		.try_into()
+		.map_err(|_| anyhow!("recipient_seal_ek must be exactly 1184 bytes"))?;
 
 	let signing = ed25519_zebra::SigningKey::from(sender_seed);
 
@@ -236,15 +274,17 @@ async fn cmd_send(
 	let unsealed = sign_inner(inner_ciphertext, &message_id, &signing);
 	let unsealed_encoded = unsealed.encode();
 
-	// Sealed-sender-seal to the recipient's X25519 pubkey.
+	// Hybrid-sealed-sender-seal: X25519 to the recipient's identity
+	// key + ML-KEM-768 to its SEAL key (docs/PQ-CHAT.md).
 	let mut rng = OsRng;
-	let sealed = ss_seal(&recipient_x, &unsealed_encoded, &mut rng);
+	let sealed = hybrid_seal(&recipient_x, &recipient_seal_ek, &unsealed_encoded, &mut rng)
+		.map_err(|e| anyhow!("hybrid seal failed: {e:?}"))?;
 
 	// Build SealedEnvelope.
-	let envelope = SealedEnvelope {
-		kind: EnvelopeKind::Pairwise,
-		outer_ciphertext: sealed.ciphertext,
+	let envelope = SealedEnvelope::Pairwise {
 		ephemeral_pubkey: sealed.ephemeral_pub,
+		pq_ct: sealed.pq_ct,
+		outer_ciphertext: sealed.ciphertext,
 		message_id,
 	};
 	let envelope_bytes = envelope.encode();
@@ -304,6 +344,7 @@ async fn cmd_fetch(
 	let (recipient_ed, _recipient_x_pub, pickup_bytes) =
 		identity_from_seed(&recipient_seed)?;
 	let recipient_x_secret = ed25519_seed_to_x25519_secret(&recipient_seed);
+	let (seal_dk, _seal_ek) = seal_keypair_from_seed(&recipient_seed);
 	let pickup_key = PickupKey(pickup_bytes);
 
 	// Call chat_fetch_shares.
@@ -381,17 +422,27 @@ async fn cmd_fetch(
 		let envelope = SealedEnvelope::decode(&mut &envelope_bytes[..])
 			.context("decode SealedEnvelope failed")?;
 
-		if !matches!(envelope.kind, EnvelopeKind::Pairwise) {
-			eprintln!("message {mid_hex}: not a Pairwise envelope; skipping (group flow not yet wired)");
-			continue;
-		}
-
-		// Sealed-sender-unseal.
-		let sealed = SealedOutput {
-			ephemeral_pub: envelope.ephemeral_pubkey,
-			ciphertext: envelope.outer_ciphertext,
+		let (ephemeral_pubkey, pq_ct, outer_ciphertext, message_id) = match envelope {
+			SealedEnvelope::Pairwise {
+				ephemeral_pubkey,
+				pq_ct,
+				outer_ciphertext,
+				message_id,
+			} => (ephemeral_pubkey, pq_ct, outer_ciphertext, message_id),
+			SealedEnvelope::Group { .. } => {
+				eprintln!("message {mid_hex}: not a Pairwise envelope; skipping (group flow not yet wired)");
+				continue;
+			},
 		};
-		let unsealed_bytes = match ss_unseal(&recipient_x_secret, &sealed) {
+
+		// Hybrid-sealed-sender-unseal (X25519 identity secret + SEAL
+		// decapsulation key).
+		let sealed = HybridSealedOutput {
+			ephemeral_pub: ephemeral_pubkey,
+			pq_ct,
+			ciphertext: outer_ciphertext,
+		};
+		let unsealed_bytes = match hybrid_unseal(&recipient_x_secret, &seal_dk, &sealed) {
 			Ok(b) => b,
 			Err(e) => {
 				eprintln!("message {mid_hex}: unseal failed ({e:?}); skipping");
@@ -402,7 +453,7 @@ async fn cmd_fetch(
 			.context("decode UnsealedInner failed")?;
 
 		// Verify sender signature.
-		let sender_pubkey = match verify_sender(&unsealed, &envelope.message_id) {
+		let sender_pubkey = match verify_sender(&unsealed, &message_id) {
 			Ok(pk) => pk,
 			Err(e) => {
 				eprintln!("message {mid_hex}: signature verify failed ({e:?}); skipping");
@@ -443,10 +494,20 @@ async fn main() -> Result<()> {
 			node_rpc,
 			sender_seed,
 			recipient_pubkey,
+			recipient_seal_ek,
 			message,
 			total_chunks,
-		} => cmd_send(&node_rpc, &sender_seed, &recipient_pubkey, &message, total_chunks)
-			.await,
+		} => {
+			cmd_send(
+				&node_rpc,
+				&sender_seed,
+				&recipient_pubkey,
+				&recipient_seal_ek,
+				&message,
+				total_chunks,
+			)
+			.await
+		},
 		Cmd::Fetch { node_rpc, recipient_seed, relay_peer } => {
 			cmd_fetch(&node_rpc, &recipient_seed, relay_peer.as_deref()).await
 		},
