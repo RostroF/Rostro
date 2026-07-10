@@ -3,9 +3,7 @@
 
 #![cfg(test)]
 
-use crate::{
-	mock::*, ActiveKey, DisableReason, Disabled, Error, Event, Keys as LineageKeys, Roster,
-};
+use crate::{mock::*, ActiveKey, DisableReason, Disabled, Error, Event, Keys as LineageKeys};
 use frame_support::{assert_noop, assert_ok};
 
 type Session = pallet_session::Pallet<Test>;
@@ -32,9 +30,8 @@ fn genesis_keys_captured_at_first_rotation() {
 
 		advance_session();
 
-		// Roster captured, all four genesis validators active with their
-		// genesis keys, each key permanently recorded.
-		assert_eq!(Roster::<Test>::get().into_inner(), vec![1, 2, 3, 4]);
+		// All four genesis validators active with their genesis keys, each
+		// key permanently recorded.
 		for v in 1..=4u64 {
 			let key = gran_key(v as u8).1;
 			assert_eq!(active_grandpa_key(v), Some(key.clone()));
@@ -393,40 +390,44 @@ fn canary_duplicate_rejected_and_refund_not_repeatable() {
 	});
 }
 
-// ─── P3: roster bootstrap ───────────────────────────────────────────────────
+// ─── P3: elected-set delegation ──────────────────────────────────────────────
 
 #[test]
-fn force_roster_is_root_only_and_reshapes_planning() {
+fn elected_set_reshapes_planning_and_none_refeeds_live_set() {
 	new_test_ext().execute_with(|| {
 		advance_session();
-		assert_eq!(Roster::<Test>::get().into_inner(), vec![1, 2, 3, 4]);
+		assert_eq!(Session::validators(), vec![1, 2, 3, 4]);
 
-		assert_noop!(
-			KeyLineage::force_roster(RuntimeOrigin::signed(1), vec![1, 2].try_into().unwrap()),
-			sp_runtime::DispatchError::BadOrigin
-		);
-		assert_noop!(
-			KeyLineage::force_roster(RuntimeOrigin::root(), vec![].try_into().unwrap()),
-			Error::<Test>::EmptyRoster
-		);
-
-		// Root shrinks the roster; planning follows it (the bootstrap shape:
-		// on a live chain this call comes AFTER all members registered keys).
-		assert_ok!(KeyLineage::force_roster(
-			RuntimeOrigin::root(),
-			vec![1, 2].try_into().unwrap()
-		));
+		// An election result shrinks the planned set; it activates one
+		// session after planning.
+		prime_elected_set(vec![1, 2]);
 		advance_session();
 		advance_session();
 		assert_eq!(Session::validators(), vec![1, 2]);
 
-		// And can grow it back.
-		assert_ok!(KeyLineage::force_roster(
-			RuntimeOrigin::root(),
-			vec![1, 2, 3, 4].try_into().unwrap()
-		));
+		// No election (`None` sessions): the live set is re-fed unchanged.
+		advance_session();
+		assert_eq!(Session::validators(), vec![1, 2]);
+
+		// A later election grows it back — validators 3 and 4 still have
+		// registered keys, so enforcement passes them through.
+		prime_elected_set(vec![1, 2, 3, 4]);
 		advance_session();
 		advance_session();
 		assert_eq!(Session::validators(), vec![1, 2, 3, 4]);
+	});
+}
+
+#[test]
+fn elected_validator_without_keys_is_excluded_from_planning() {
+	new_test_ext().execute_with(|| {
+		advance_session();
+
+		// Validator 9 never registered session keys: staking may elect it,
+		// but planning excludes it (nothing to serve with).
+		prime_elected_set(vec![1, 2, 9]);
+		advance_session();
+		advance_session();
+		assert_eq!(Session::validators(), vec![1, 2]);
 	});
 }

@@ -72,8 +72,8 @@ use sp_consensus_sassafras::{
 use sp_io::hashing;
 use sp_runtime::{
 	generic::DigestItem,
-	traits::{One, Zero},
-	BoundToRuntimeAppPublic,
+	traits::{One, SaturatedConversion, Saturating, Zero},
+	BoundToRuntimeAppPublic, Permill,
 };
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -290,7 +290,12 @@ pub mod pallet {
 				debug!(target: LOG_TARGET, "Constructing dummy ring context");
 				let ring_ctx = vrf::RingContext::new_testing();
 				RingContext::<T>::put(ring_ctx);
-				Pallet::<T>::update_ring_verifier(&self.authorities);
+				// With session-driven authorities the genesis set may arrive
+				// via `on_genesis_session` instead (this pallet's genesis
+				// authorities left empty); the ring verifier is derived there.
+				if !self.authorities.is_empty() {
+					Pallet::<T>::update_ring_verifier(&self.authorities);
+				}
 			}
 		}
 	}
@@ -550,17 +555,41 @@ impl<T: Config> Pallet<T> {
 
 	pub(crate) fn update_ring_verifier(authorities: &[AuthorityId]) {
 		debug!(target: LOG_TARGET, "Loading ring context");
-		let Some(ring_ctx) = RingContext::<T>::get() else {
+		// Raw storage read: the encoded context bytes go straight to the
+		// host — decoding the ~300KB URS in-VM just to re-encode it for
+		// the host boundary would be pure waste.
+		let Some(ring_ctx_bytes) =
+			frame_support::storage::unhashed::get_raw(&RingContext::<T>::hashed_key())
+		else {
 			debug!(target: LOG_TARGET, "Ring context not initialized");
 			return;
 		};
 
-		let pks: Vec<_> = authorities.iter().map(|auth| *auth.as_ref()).collect();
+		let mut pks = Vec::with_capacity(authorities.len() * 32);
+		for auth in authorities {
+			pks.extend_from_slice(auth.as_ref());
+		}
 
-		debug!(target: LOG_TARGET, "Building ring verifier (ring size: {})", pks.len());
-		let verifier_data = ring_ctx.verifier_key(&pks);
+		// Verifier-key construction is a fixed-domain MSM (~65ms native,
+		// seconds under the RVM interpreter — longer than the proposal
+		// deadline, which would livelock the chain at every authority-set
+		// change). Delegated to the host; see
+		// sp_consensus_sassafras::ring_ops.
+		debug!(target: LOG_TARGET, "Building ring verifier (ring size: {})", authorities.len());
+		let Some(vk_bytes) =
+			sp_consensus_sassafras::ring_ops::ring_verifier_key(&ring_ctx_bytes, &pks)
+		else {
+			// Unreachable while the ring context and authority keys come
+			// from storage this pallet wrote; validate the handoff anyway.
+			error!(target: LOG_TARGET, "host ring_verifier_key rejected its inputs");
+			return;
+		};
+		let Ok(verifier_data) = codec::Decode::decode(&mut &vk_bytes[..]) else {
+			error!(target: LOG_TARGET, "host ring_verifier_key returned undecodable data");
+			return;
+		};
 
-		RingVerifierData::<T>::put(verifier_data);
+		RingVerifierData::<T>::put::<vrf::RingVerifierKey>(verifier_data);
 	}
 
 	/// Enact an epoch change.
@@ -1107,4 +1136,129 @@ impl EpochChangeTrigger for EpochChangeInternalTrigger {
 
 impl<T: Config> BoundToRuntimeAppPublic for Pallet<T> {
 	type Public = AuthorityId;
+}
+
+// ─── pallet-session integration ──────────────────────────────────────────────
+//
+// Mirrors pallet-babe: with `EpochChangeExternalTrigger` the epoch lifecycle
+// is driven by pallet-session, this pallet decides *when* sessions end (epochs
+// are slot-counted, sessions must follow the same clock or the fixed-length
+// epoch arithmetic in `epoch_start` desyncs), and the authority set for each
+// epoch comes from the session validator set's registered sassafras keys.
+//
+// ORDER REQUIREMENT: the runtime must declare this pallet BEFORE
+// pallet-session in `construct_runtime!`, so that `on_initialize` has read
+// the slot claim digest and updated `CurrentSlot` before pallet-session's
+// `on_initialize` consults `ShouldEndSession`.
+
+impl<T: Config> pallet_session::ShouldEndSession<BlockNumberFor<T>> for Pallet<T> {
+	fn should_end_session(now: BlockNumberFor<T>) -> bool {
+		Self::should_end_epoch(now)
+	}
+}
+
+impl<T: Config> frame_support::traits::FindAuthor<u32> for Pallet<T> {
+	fn find_author<'a, I>(digests: I) -> Option<u32>
+	where
+		I: 'a + IntoIterator<Item = (sp_runtime::ConsensusEngineId, &'a [u8])>,
+	{
+		digests.into_iter().find_map(|(id, mut data)| {
+			if id == SASSAFRAS_ENGINE_ID {
+				SlotClaim::decode(&mut data).ok().map(|claim| claim.authority_idx)
+			} else {
+				None
+			}
+		})
+	}
+}
+
+impl<T: Config> frame_support::traits::EstimateNextSessionRotation<BlockNumberFor<T>>
+	for Pallet<T>
+{
+	fn average_session_length() -> BlockNumberFor<T> {
+		T::EpochLength::get().saturated_into()
+	}
+
+	fn estimate_current_session_progress(
+		_now: BlockNumberFor<T>,
+	) -> (Option<Permill>, Weight) {
+		let elapsed = CurrentSlot::<T>::get().saturating_sub(Self::current_epoch_start()) + 1;
+		(
+			Some(Permill::from_rational(*elapsed, u64::from(T::EpochLength::get()))),
+			// Read: Current Slot, Epoch Index, Genesis Slot
+			T::DbWeight::get().reads(3),
+		)
+	}
+
+	fn estimate_next_session_rotation(
+		now: BlockNumberFor<T>,
+	) -> (Option<BlockNumberFor<T>>, Weight) {
+		// Best-effort upper bound: accurate only if no slots are missed
+		// (missed slots grow the slot number without growing the block
+		// number).
+		let next_epoch_slot =
+			Self::current_epoch_start().saturating_add(u64::from(T::EpochLength::get()));
+		let estimate = next_epoch_slot.checked_sub(*CurrentSlot::<T>::get()).map(
+			|slots_remaining| {
+				let blocks_remaining: BlockNumberFor<T> = slots_remaining.saturated_into();
+				now.saturating_add(blocks_remaining)
+			},
+		);
+		(
+			estimate,
+			// Read: Current Slot, Epoch Index, Genesis Slot
+			T::DbWeight::get().reads(3),
+		)
+	}
+}
+
+impl<T: Config> frame_support::traits::OneSessionHandler<T::AccountId> for Pallet<T> {
+	type Key = AuthorityId;
+
+	fn on_genesis_session<'a, I: 'a>(validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+	{
+		let authorities: Vec<_> = validators.map(|(_, k)| k).collect();
+		let was_empty = Authorities::<T>::get().is_empty();
+		// Idempotent when the chain spec seeded the same set directly into
+		// this pallet's genesis (panics on a mismatched set — the spec is
+		// self-contradictory and must not produce a genesis).
+		Self::genesis_authorities_initialize(&authorities);
+		// The chain-spec path runs `update_ring_verifier` from
+		// `genesis_build`; when the authorities arrive only via session
+		// genesis the ring verifier still has to be derived here.
+		if was_empty && !authorities.is_empty() {
+			Self::update_ring_verifier(&authorities);
+		}
+	}
+
+	fn on_new_session<'a, I: 'a>(_changed: bool, validators: I, queued_validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+	{
+		let authorities = WeakBoundedVec::force_from(
+			validators.map(|(_, k)| k).collect::<Vec<_>>(),
+			Some(
+				"Warning: The session has more validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+		let next_authorities = WeakBoundedVec::force_from(
+			queued_validators.map(|(_, k)| k).collect::<Vec<_>>(),
+			Some(
+				"Warning: The session has more queued validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+		Self::enact_epoch_change(authorities, next_authorities)
+	}
+
+	fn on_disabled(i: u32) {
+		let log = DigestItem::Consensus(
+			SASSAFRAS_ENGINE_ID,
+			ConsensusLog::OnDisabled(i).encode(),
+		);
+		<frame_system::Pallet<T>>::deposit_log(log)
+	}
 }

@@ -35,6 +35,7 @@ pub use sp_consensus_slots::{Slot, SlotDuration};
 use serde::{Deserialize, Serialize};
 
 pub mod digests;
+pub mod ring_ops;
 pub mod ticket;
 pub mod vrf;
 

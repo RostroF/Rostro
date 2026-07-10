@@ -4743,6 +4743,7 @@ dependencies = [
 name = "gemini-runtime"
 version = "0.1.0"
 dependencies = [
+ "frame-election-provider-support",
  "frame-executive",
  "frame-metadata-hash-extension",
  "frame-support",
@@ -4765,6 +4766,8 @@ dependencies = [
  "pallet-rostro-rpc-method-policy",
  "pallet-sassafras",
  "pallet-session",
+ "pallet-staking",
+ "pallet-staking-reward-curve",
  "pallet-sudo",
  "pallet-timestamp",
  "pallet-transaction-payment",
@@ -4787,6 +4790,7 @@ dependencies = [
  "sp-offchain",
  "sp-runtime",
  "sp-session",
+ "sp-staking",
  "sp-std",
  "sp-storage",
  "sp-transaction-pool",
@@ -10502,6 +10506,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
+ "pallet-session",
  "parity-scale-codec",
  "scale-info",
  "sp-consensus-sassafras",
@@ -16280,6 +16285,7 @@ dependencies = [
  "sp-consensus-slots",
  "sp-core",
  "sp-runtime",
+ "sp-runtime-interface",
 ]
 
 [[package]]

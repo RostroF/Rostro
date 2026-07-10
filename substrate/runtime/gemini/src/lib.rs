@@ -149,16 +149,16 @@ pub mod opaque {
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
 	pub type BlockId = generic::BlockId<Block>;
 
-	// pallet-sassafras manages its own authority rotation via
-	// EpochChangeInternalTrigger and doesn't implement
-	// OneSessionHandler, so we don't register a sassafras key with
-	// pallet-session. Bandersnatch authorities are set at genesis;
-	// rotating them is its own follow-up (would require either a
-	// session-historical integration or a custom rotation extrinsic).
-	// Grandpa keys still flow through session because pallet-grandpa
-	// requires the supertrait.
+	// Both consensus keys flow through pallet-session: sassafras
+	// (bandersnatch, block production) rotates via its
+	// OneSessionHandler + EpochChangeExternalTrigger — sessions ARE
+	// sassafras epochs — and grandpa (finality) schedules its
+	// authority-set change each session. The validator set behind
+	// both is produced by pallet-staking's NPoS election, filtered
+	// through KeyLineage.
 	impl_opaque_keys! {
 		pub struct SessionKeys {
+			pub sassafras: Sassafras,
 			pub grandpa: Grandpa,
 		}
 	}
@@ -180,7 +180,21 @@ pub const HOURS: BlockNumber = MINUTES * 60;
 pub const DAYS: BlockNumber = HOURS * 24;
 
 /// Sassafras epoch length in slots. 600 slots × 6s = 60 minutes.
+/// Sessions are epoch-driven (`ShouldEndSession = Sassafras`), so this is
+/// also the session length: the epoch arithmetic is slot-based and fixed
+/// -length, exactly like BABE, which is why sessions must follow the epoch
+/// clock rather than a block-counting `PeriodicSessions`.
+#[cfg(not(feature = "lab-fast-lifecycle"))]
 pub const EPOCH_LENGTH_IN_SLOTS: u32 = 600;
+
+/// Scenario-only lifecycle compression (star proofs; see
+/// scripts/star-scenarios/): 25-slot epochs make a session rotation — and
+/// with it a staking era — observable in minutes instead of hours. NEVER
+/// ship a lab-fast binary to the lab cluster or beyond: it changes
+/// consensus timing without changing spec_version, so it would fork any
+/// chain whose peers run the canonical build.
+#[cfg(feature = "lab-fast-lifecycle")]
+pub const EPOCH_LENGTH_IN_SLOTS: u32 = 25;
 
 // ─── Runtime version ───────────────────────────────────────────────────────
 
@@ -197,8 +211,12 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// 104 = history anchor (dual-hash sealing of session-boundary
 	// headers under Keccak-512);
 	// 105 = pq-chat P3b prekey record home (PREKEY/SEAL typed
-	// records, RnsMaxContentLen 1024 -> 1536; docs/PQ-CHAT.md).
-	spec_version: 105,
+	// records, RnsMaxContentLen 1024 -> 1536; docs/PQ-CHAT.md);
+	// 106 = NPoS: pallet-staking + onchain phragmen election drive
+	// the validator set; sassafras keys join SessionKeys and epochs
+	// become session-driven. Genesis-breaking (SessionKeys wire
+	// format + pallet reorder) — lands via chain reset, not set_code.
+	spec_version: 106,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -263,48 +281,42 @@ impl pallet_timestamp::Config for Runtime {
 impl pallet_sassafras::Config for Runtime {
 	type EpochLength = ConstU32<EPOCH_LENGTH_IN_SLOTS>;
 	type MaxAuthorities = ConstU32<32>;
-	type EpochChangeTrigger = pallet_sassafras::EpochChangeInternalTrigger;
+	// Epoch changes are session-driven: pallet-session ends a session
+	// exactly when `should_end_epoch` fires (`ShouldEndSession =
+	// Sassafras`) and the OneSessionHandler enacts the change with the
+	// staking-elected authority set.
+	type EpochChangeTrigger = pallet_sassafras::EpochChangeExternalTrigger;
 	type WeightInfo = ();
 }
 
 // ─── pallet_session ────────────────────────────────────────────────────────
-// Sessions rotate every 4h. The validator SET stays fixed until NPoS staking
-// lands (the key-lineage pallet re-feeds the roster each session), but session
-// KEYS registered via `set_keys` activate at the next session boundary and
-// GRANDPA schedules the authority-set change (set_id advances every session).
+// Sessions are sassafras epochs (~1h): the epoch arithmetic is slot-based, so
+// sassafras itself decides when sessions end (the BABE pattern). Each session
+// the manager chain runs: staking plans the elected set at era boundaries,
+// KeyLineage filters it (offence-disabled + deadline-missed excluded) and
+// records key lineage, historical notes the key-ownership root. Session KEYS
+// registered via `set_keys` activate at the next session boundary and GRANDPA
+// schedules the authority-set change (set_id advances every session).
 // KeyLineage vets every `set_keys` (a GRANDPA key is accepted exactly once in
 // chain history) and enforces the forced-rotation deadline by excluding
 // non-compliant validators from the next set.
 // docs/CONSENSUS-KEY-LIFECYCLE.md, workstream 1 P0+P1.
 
-#[cfg(not(feature = "lab-fast-lifecycle"))]
-parameter_types! {
-	pub const SessionPeriod: BlockNumber = 4 * 60 * 60 / 6; // 4h of 6s blocks
-	pub const SessionOffset: BlockNumber = 0;
-}
-
-// Scenario-only compression of the key lifecycle (star proofs; see
-// scripts/star-scenarios/). 25-block sessions make a rotation observable in
-// minutes instead of hours. NEVER ship a lab-fast binary to the lab cluster
-// or beyond: it changes consensus timing without changing spec_version, so
-// it would fork any chain whose peers run the canonical build. The star
-// scenarios run their own genesis with every node built the same way.
-#[cfg(feature = "lab-fast-lifecycle")]
-parameter_types! {
-	pub const SessionPeriod: BlockNumber = 25;
-	pub const SessionOffset: BlockNumber = 0;
-}
-
 impl pallet_session::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorId = AccountId;
 	type ValidatorIdOf = ConvertInto;
-	type ShouldEndSession = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
-	type NextSessionRotation = pallet_session::PeriodicSessions<SessionPeriod, SessionOffset>;
+	type ShouldEndSession = Sassafras;
+	type NextSessionRotation = Sassafras;
 	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Runtime, KeyLineage>;
 	type SessionHandler = <opaque::SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = opaque::SessionKeys;
-	type DisablingStrategy = ();
+	// In-session disabling for offenders (staking routes offence severity
+	// here via its SessionInterface): disable up to 1/3 of the set, re-enable
+	// when a worse offender needs the slot. The cross-session consequence
+	// stays with KeyLineage (roster exclusion, heal on fresh key).
+	type DisablingStrategy =
+		pallet_session::disabling::UpToLimitWithReEnablingDisablingStrategy;
 	type Currency = Balances;
 	type KeyDeposit = ConstU128<{ ROSTO / 10 }>;
 	type WeightInfo = ();
@@ -374,18 +386,56 @@ impl pallet_rostro_key_lineage::Config for Runtime {
 	type MaxKeyAgeEras = ConstU32<7>;
 	type MaxValidators = ConstU32<32>;
 	type ReportCanary = Offences;
+	// The roster source: staking's NPoS election. KeyLineage filters what
+	// staking elects; on `None` sessions (mid-era) it re-feeds its
+	// `PlannedSet` so enforcement runs every session.
+	type ElectedSet = Staking;
 }
 
 // ─── pallet_offences ───────────────────────────────────────────────────────
 // The offence sink for GRANDPA equivocations and retired-key canary reports.
-// Reports are stored permanently; the consequence is routed to KeyLineage
-// (disable-and-record, heal on fresh keys). Slash fractions flow through the
-// same seam and start meaning something when NPoS staking lands.
+// Reports are stored permanently; the consequence fans out to both sinks:
+// staking applies the economics (slash by fraction, era accounting,
+// in-session disabling via its SessionInterface) and KeyLineage applies the
+// roster consequence (disable-and-record, heal on fresh keys).
+
+/// Route every offence to staking (slash) AND key-lineage (disable-and-
+/// record). Both handlers are idempotent per offence; weights add.
+pub struct OffenceFanout;
+impl
+	sp_staking::offence::OnOffenceHandler<
+		AccountId,
+		pallet_session_historical::IdentificationTuple<Runtime>,
+		Weight,
+	> for OffenceFanout
+{
+	fn on_offence(
+		offenders: &[sp_staking::offence::OffenceDetails<
+			AccountId,
+			pallet_session_historical::IdentificationTuple<Runtime>,
+		>],
+		slash_fractions: &[Perbill],
+		slash_session: sp_staking::SessionIndex,
+	) -> Weight {
+		use sp_staking::offence::OnOffenceHandler;
+		let staking_weight = <Staking as OnOffenceHandler<
+			AccountId,
+			pallet_session_historical::IdentificationTuple<Runtime>,
+			Weight,
+		>>::on_offence(offenders, slash_fractions, slash_session);
+		let lineage_weight = <KeyLineage as OnOffenceHandler<
+			AccountId,
+			pallet_session_historical::IdentificationTuple<Runtime>,
+			Weight,
+		>>::on_offence(offenders, slash_fractions, slash_session);
+		staking_weight.saturating_add(lineage_weight)
+	}
+}
 
 impl pallet_offences::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IdentificationTuple = pallet_session_historical::IdentificationTuple<Self>;
-	type OnOffenceHandler = KeyLineage;
+	type OnOffenceHandler = OffenceFanout;
 }
 
 // ─── pallet_grandpa ────────────────────────────────────────────────────────
@@ -399,51 +449,144 @@ impl pallet_grandpa::Config for Runtime {
 	// against past authority sets. One entry per session: 2048 ≈ 341 days.
 	type MaxSetIdSessionEntries = ConstU64<2048>;
 	type KeyOwnerProof = sp_session::MembershipProof;
-	// Equivocation reports flow into pallet_offences and from there to
-	// KeyLineage's disable-and-record handler. Report validity window: the
-	// proof must land within ~3 sessions of the offence.
-	type EquivocationReportSystem =
-		pallet_grandpa::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+	// Equivocation reports flow into pallet_offences (filtered so offences
+	// older than the current bonding window are politely discarded instead
+	// of failing inside staking) and from there fan out to staking (slash)
+	// and KeyLineage (disable-and-record).
+	type EquivocationReportSystem = pallet_grandpa::EquivocationReportSystem<
+		Self,
+		pallet_staking::FilterHistoricalOffences<Staking, Offences>,
+		Historical,
+		ReportLongevity,
+	>;
 }
 
 parameter_types! {
-	pub ReportLongevity: u64 = 3 * SessionPeriod::get() as u64;
+	// Unsigned-report transaction validity window: the bonding period in
+	// blocks (a report older than that could not slash anything anyway).
+	pub ReportLongevity: u64 = BondingDuration::get() as u64 *
+		SessionsPerEra::get() as u64 *
+		EPOCH_LENGTH_IN_SLOTS as u64;
 }
 
 // ─── pallet_authorship ─────────────────────────────────────────────────────
-// FindAuthor reads the current SlotClaim's authority_idx from the digest log
-// and looks up that index in pallet_sassafras::Authorities.
+// The author is the session validator ACCOUNT: pallet-sassafras recovers the
+// SlotClaim's authority_idx from the digest log, FindAccountFromAuthorIndex
+// maps that index into pallet-session's validator list (sassafras authorities
+// are built from session validators in order, so the index is shared). This
+// is what lets staking credit era reward points — and RNS route its author
+// fee share — to the validator's real stash account.
 
-pub struct SassafrasAuthorAdapter;
-impl FindAuthor<AccountId> for SassafrasAuthorAdapter {
-	fn find_author<'a, I>(digests: I) -> Option<AccountId>
-	where
-		I: 'a + IntoIterator<Item = (sp_runtime::ConsensusEngineId, &'a [u8])>,
-	{
-		use codec::Decode;
-		use sp_consensus_sassafras::{digests::SlotClaim, SASSAFRAS_ENGINE_ID};
-
-		for (engine_id, mut data) in digests {
-			if engine_id == SASSAFRAS_ENGINE_ID {
-				if let Ok(claim) = SlotClaim::decode(&mut data) {
-					let authorities = pallet_sassafras::Authorities::<Runtime>::get();
-					let id = authorities.get(claim.authority_idx as usize)?.clone();
-					// AuthorityId wraps bandersnatch::Public(Vec/[u8;33] internally).
-					// We surface the first 32 bytes as the AccountId — same pattern
-					// rostro-runtime uses for AuraAuthorAdapter, just sourced from a
-					// different authority type.
-					let raw: [u8; 32] = id.encode().get(..32)?.try_into().ok()?;
-					return Some(AccountId::new(raw));
-				}
-			}
-		}
-		None
-	}
-}
+pub type SassafrasAuthor = pallet_session::FindAccountFromAuthorIndex<Runtime, Sassafras>;
 
 impl pallet_authorship::Config for Runtime {
-	type FindAuthor = SassafrasAuthorAdapter;
-	type EventHandler = ();
+	type FindAuthor = SassafrasAuthor;
+	// 20 era reward points per authored block.
+	type EventHandler = Staking;
+}
+
+// ─── NPoS: pallet_staking + onchain phragmen election ──────────────────────
+// Upstream-vanilla NPoS, lean shape: the election runs on-chain (sequential
+// phragmen via `OnChainExecution` — this fork culled the multi-phase
+// provider; multi-block is the scale-up path if on-chain solving ever
+// outgrows the block budget), the voter list is staking's own unsorted map
+// (no bags-list pallet), rewards follow the standard inflation curve, and
+// slashes/remainders burn (no treasury yet). Roster delivery to
+// pallet-session goes through KeyLineage (`ElectedSet = Staking`), which
+// filters offence-disabled and rotation-deadline-missed validators.
+
+parameter_types! {
+	// 6 sassafras-epoch sessions (~1h each) per era: ~6h eras, Kusama-style.
+	pub const SessionsPerEra: sp_staking::SessionIndex = 6;
+	// Bonded funds unlock 28 eras (~7 days) after unbonding; slashes computed
+	// for an era can be intervened on (cancel_deferred_slash) until they
+	// apply 27 eras later.
+	pub const BondingDuration: sp_staking::EraIndex = 28;
+	pub const SlashDeferDuration: sp_staking::EraIndex = 27;
+	// Aligned with sassafras/grandpa MaxAuthorities and KeyLineage
+	// MaxValidators: one bound chain-wide.
+	pub const MaxValidatorSet: u32 = 32;
+	pub ElectionBoundsOnChain: frame_election_provider_support::bounds::ElectionBounds =
+		frame_election_provider_support::bounds::ElectionBoundsBuilder::default()
+			.voters_count(2048.into())
+			.targets_count(256.into())
+			.build();
+}
+
+pallet_staking_reward_curve::build! {
+	// Standard substrate inflation curve: 2.5% at zero stake, 10% at the
+	// 50% ideal staking rate, exponential falloff past it.
+	const REWARD_CURVE: sp_runtime::curve::PiecewiseLinear<'static> = curve!(
+		min_inflation: 0_025_000,
+		max_inflation: 0_100_000,
+		ideal_stake: 0_500_000,
+		falloff: 0_050_000,
+		max_piece_count: 40,
+		test_precision: 0_005_000,
+	);
+}
+
+parameter_types! {
+	pub RewardCurve: &'static sp_runtime::curve::PiecewiseLinear<'static> = &REWARD_CURVE;
+}
+
+/// On-chain sequential-phragmen election, used both at genesis and every era.
+pub struct OnChainSeqPhragmen;
+impl frame_election_provider_support::onchain::Config for OnChainSeqPhragmen {
+	type Sort = ConstBool<true>;
+	type System = Runtime;
+	type Solver = frame_election_provider_support::SequentialPhragmen<AccountId, Perbill>;
+	type DataProvider = Staking;
+	type WeightInfo = frame_election_provider_support::weights::SubstrateWeight<Runtime>;
+	type MaxWinnersPerPage = MaxValidatorSet;
+	type MaxBackersPerWinner = ConstU32<256>;
+	type Bounds = ElectionBoundsOnChain;
+}
+
+pub struct StakingBenchmarkingConfig;
+impl pallet_staking::BenchmarkingConfig for StakingBenchmarkingConfig {
+	type MaxValidators = ConstU32<1000>;
+	type MaxNominators = ConstU32<1000>;
+}
+
+impl pallet_staking::Config for Runtime {
+	type OldCurrency = Balances;
+	type Currency = Balances;
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type CurrencyBalance = Balance;
+	type UnixTime = Timestamp;
+	type CurrencyToVote = sp_staking::currency_to_vote::U128CurrencyToVote;
+	type ElectionProvider =
+		frame_election_provider_support::onchain::OnChainExecution<OnChainSeqPhragmen>;
+	type GenesisElectionProvider = Self::ElectionProvider;
+	type NominationsQuota = pallet_staking::FixedNominationsQuota<16>;
+	type HistoryDepth = ConstU32<84>;
+	// No treasury yet: the non-staker share of inflation burns.
+	type RewardRemainder = ();
+	type RuntimeEvent = RuntimeEvent;
+	// Slashed funds burn.
+	type Slash = ();
+	type Reward = ();
+	type SessionsPerEra = SessionsPerEra;
+	type BondingDuration = BondingDuration;
+	type SlashDeferDuration = SlashDeferDuration;
+	// Sudo chain: root manages the less-critical staking knobs too.
+	type AdminOrigin = frame_system::EnsureRoot<AccountId>;
+	type SessionInterface = Self;
+	type EraPayout = pallet_staking::ConvertCurve<RewardCurve>;
+	type NextNewSession = Session;
+	type MaxExposurePageSize = ConstU32<64>;
+	type MaxValidatorSet = MaxValidatorSet;
+	// Staking's own unsorted maps — sufficient at testnet scale; bags-list
+	// is the upgrade path when nominator counts demand a sorted list.
+	type VoterList = pallet_staking::UseNominatorsAndValidatorsMap<Self>;
+	type TargetList = pallet_staking::UseValidatorsMap<Self>;
+	type MaxUnlockingChunks = ConstU32<32>;
+	type MaxControllersInDeprecationBatch = ConstU32<100>;
+	type EventListeners = ();
+	type Filter = frame_support::traits::Nothing;
+	type BenchmarkingConfig = StakingBenchmarkingConfig;
+	type WeightInfo = pallet_staking::weights::SubstrateWeight<Runtime>;
 }
 
 // ─── pallet_balances ───────────────────────────────────────────────────────
@@ -634,7 +777,8 @@ impl frame_support::traits::Get<AccountId> for PnsCustodianAccount {
 /// Block author for RNS fee distribution (40% of registration fee
 /// per the registrar's price oracle). Reads from
 /// `pallet_authorship::Author`, which is populated each block by
-/// the `SassafrasAuthorAdapter::find_author` lookup.
+/// the `SassafrasAuthor::find_author` lookup (the validator's
+/// session account, i.e. the stash).
 pub struct PnsBlockAuthor;
 impl pallet_rns_registrar::traits::BlockAuthor for PnsBlockAuthor {
 	type AccountId = AccountId;
@@ -897,7 +1041,7 @@ impl zk_pki_pallet::Config for Runtime {
 	type MaxTemplatesPerIssuer = PkiMaxTemplatesPerIssuer;
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type Currency = Balances;
-	type FindAuthor = SassafrasAuthorAdapter;
+	type FindAuthor = SassafrasAuthor;
 	type ProtocolFeeRecipient = PkiProtocolFeeRecipient;
 	type ProtocolFeeBasisPoints = PkiProtocolFeeBasisPoints;
 	type BlockCreatorCapBasisPoints = PkiBlockCreatorCapBasisPoints;
@@ -1054,15 +1198,26 @@ construct_runtime!(
 		Timestamp: pallet_timestamp,
 		Sudo: pallet_sudo,
 
-		// Consensus — Sassafras (block production) + GRANDPA (finality)
+		// Consensus — Sassafras (block production) + GRANDPA (finality).
+		// Sassafras MUST precede Session: its on_initialize reads the slot
+		// claim digest and updates CurrentSlot before Session's
+		// on_initialize consults ShouldEndSession (= Sassafras).
 		Sassafras: pallet_sassafras,
 		Grandpa: pallet_grandpa,
 		Authorship: pallet_authorship,
-		Session: pallet_session,
 
-		// Economic
+		// Economic. Declared before Staking: staking's genesis bonds the
+		// genesis stakers, so balances genesis must build first.
 		Balances: pallet_balances,
 		TransactionPayment: pallet_transaction_payment,
+
+		// NPoS. Staking MUST precede Session: session's genesis asks the
+		// session manager (KeyLineage → Staking) for the elected set, so
+		// staking's genesis (stakers bonded, prefs set) must build first.
+		// This reorder renumbered Session and everything after it — a
+		// genesis-breaking change that rode the spec-106 chain reset.
+		Staking: pallet_staking,
+		Session: pallet_session,
 
 		// Operational — on-chain RPC method access policy registry,
 		// consumed by the native rostro-rpc-shield middleware.

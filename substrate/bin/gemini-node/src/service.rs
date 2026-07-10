@@ -27,10 +27,17 @@ use rostro_consensus_sassafras::{
 use sp_consensus_slots::SlotDuration;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
+/// Host-function surface for the RVM executor: the substrate set plus
+/// the sassafras ring ops (native ring-verifier construction — in-VM it
+/// exceeds the proposal deadline at every authority-set change; see
+/// sp_consensus_sassafras::ring_ops).
+pub(crate) type GeminiHostFunctions =
+	(sp_io::SubstrateHostFunctions, sp_consensus_sassafras::ring_ops::HostFunctions);
+
 pub(crate) type FullClient = rc_service::TFullClient<
 	Block,
 	RuntimeApi,
-	rostro_executor::RostroCodeExecutor<sp_io::SubstrateHostFunctions>,
+	rostro_executor::RostroCodeExecutor<GeminiHostFunctions>,
 >;
 type FullBackend = rc_service::TFullBackend<Block>;
 type FullSelectChain = rc_consensus::LongestChain<FullBackend, Block>;
@@ -69,7 +76,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 	// (same swap as rostro-node in B7). `config.executor` knobs are
 	// wasmtime-specific; `RostroCodeExecutor::new()` reads `POLKAVM_*`
 	// env vars + workspace defaults instead.
-	let executor = rostro_executor::RostroCodeExecutor::<sp_io::SubstrateHostFunctions>::new()
+	let executor = rostro_executor::RostroCodeExecutor::<GeminiHostFunctions>::new()
 		.map_err(|e| ServiceError::Other(format!("rostro-executor init: {e}")))?;
 
 	let (client, backend, keystore_container, task_manager) =

@@ -30,10 +30,19 @@ use serde_json::{json, Value};
 use sp_consensus_grandpa::AuthorityId as GrandpaAuthorityId;
 use sp_consensus_sassafras::EpochConfiguration;
 use sp_core::{sr25519, Pair, Public};
-use sp_runtime::traits::{IdentifyAccount, Verify};
+use sp_runtime::{
+	traits::{IdentifyAccount, Verify},
+	Perbill,
+};
 
-/// A specialized [`ChainSpec`] for the gemini runtime.
-pub type ChainSpec = rc_service::GenericChainSpec;
+/// A specialized [`ChainSpec`] for the gemini runtime. The extra
+/// host-function parameter matters: building genesis runs the runtime's
+/// GenesisBuilder in the VM, and session genesis derives the sassafras
+/// ring verifier through the native `ring_ops` host call.
+pub type ChainSpec = rc_service::GenericChainSpec<
+	rc_service::NoExtension,
+	sp_consensus_sassafras::ring_ops::HostFunctions,
+>;
 
 type AccountPublic = <Signature as Verify>::Signer;
 
@@ -231,6 +240,9 @@ fn testnet_genesis(
 ) -> Value {
 	const ENDOWMENT: u128 = 1_000_000 * ROSTO;
 
+	// Each genesis authority self-bonds a quarter of its endowment.
+	const STASH_BOND: u128 = 250_000 * ROSTO;
+
 	json!({
 		"balances": {
 			"balances": endowed_accounts
@@ -239,22 +251,26 @@ fn testnet_genesis(
 				.map(|k| (k, ENDOWMENT))
 				.collect::<Vec<_>>(),
 		},
+		// Sassafras authorities flow through pallet_session's genesis, same
+		// as GRANDPA (below): its `on_genesis_session` initializes the
+		// pallet's authorities + ring verifier from the staking-elected
+		// validator order. Only the epoch config is seeded directly — the
+		// ring CONTEXT itself is still populated by the
+		// construct-dummy-ring-context feature at genesis-build time.
 		"sassafras": {
-			"authorities": initial_authorities.iter().map(|x| x.1.clone()).collect::<Vec<_>>(),
 			"epochConfig": EpochConfiguration {
 				redundancy_factor: 2,
 				attempts_number: 32,
 			},
 		},
-		// GRANDPA authorities flow through pallet_session's genesis (its
-		// `on_genesis_session` initializes pallet_grandpa), NOT the grandpa
-		// genesis config — session must own the (validator → GRANDPA key)
-		// mapping from block 0 or key rotation via `set_keys` is inert:
-		// with no session validators the session manager plans nothing and
-		// GRANDPA never schedules an authority-set change
-		// (docs/CONSENSUS-KEY-LIFECYCLE.md, workstream 1 P3). Sassafras
-		// stays genesis-direct: its key is not in `SessionKeys` (separate
-		// lifecycle, separate future thread).
+		// Consensus authorities flow through pallet_session's genesis (its
+		// handlers initialize pallet_grandpa AND pallet_sassafras), NOT the
+		// pallets' own genesis configs — session must own the (validator →
+		// keys) mapping from block 0 or key rotation via `set_keys` is
+		// inert: with no session validators the session manager plans
+		// nothing and GRANDPA never schedules an authority-set change
+		// (docs/CONSENSUS-KEY-LIFECYCLE.md, workstream 1 P3). The validator
+		// set itself comes from staking's genesis election over `stakers`.
 		"session": {
 			"keys": initial_authorities
 				.iter()
@@ -262,10 +278,24 @@ fn testnet_genesis(
 					(
 						x.0.clone(),
 						x.0.clone(),
-						json!({ "grandpa": x.2.clone() }),
+						json!({ "sassafras": x.1.clone(), "grandpa": x.2.clone() }),
 					)
 				})
 				.collect::<Vec<_>>(),
+		},
+		// NPoS genesis: every authority is a self-bonded validator. The
+		// genesis election (onchain phragmen) runs over these during
+		// session's genesis build and elects the initial set.
+		"staking": {
+			"validatorCount": initial_authorities.len() as u32,
+			"minimumValidatorCount": 1,
+			"stakers": initial_authorities
+				.iter()
+				.map(|x| (x.0.clone(), x.0.clone(), STASH_BOND, "Validator"))
+				.collect::<Vec<_>>(),
+			"invulnerables": [],
+			"forceEra": "NotForcing",
+			"slashRewardFraction": Perbill::from_percent(10),
 		},
 		"sudo": {
 			"key": Some(root_key.clone()),
