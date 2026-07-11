@@ -46,24 +46,20 @@ extern crate alloc;
 
 #[cfg(target_env = "polkavm")]
 mod ecalli;
-pub mod hooks;
 pub mod verify;
 
-pub use hooks::RostroCurveHooks;
+/// The curve half lives in `rostro-curve-hooks` (split so the vendored
+/// ark-vrf and sp-core can depend on the hooked curves without a cycle
+/// through sp-io); the facade remains the single import path for runtime
+/// code.
+pub mod hooks {
+	pub use rostro_curve_hooks::*;
+}
 
-/// Operand caps, mirrored from the RVM intrinsic arms
-/// (`substrate/external/rostrovm/polkavm/src/interpreter.rs`). The facade
-/// enforces them on BOTH targets so behavior is target-independent; the
-/// hooks chunk MSM and Miller-loop inputs beyond the caps (both are
-/// additive/multiplicative over their inputs, so chunked results are
-/// bit-identical).
-pub const MAX_BLS_PAIRS: usize = 8;
-pub const MAX_BLS_MSM: usize = 8192;
-pub const MAX_MUL_PROJECTIVE_LIMBS: usize = 8;
-/// ark-bls12-381 0.5's G1 `mul_projective` is GLV and asserts limbs ≤ 4;
-/// the G1 intrinsic fails closed above this and the hooks fall back to
-/// in-guest arkworks (which panics exactly as plain ark would).
-pub const MAX_G1_MUL_PROJECTIVE_LIMBS: usize = 4;
+pub use hooks::{
+	RostroCurveHooks, MAX_BLS_MSM, MAX_BLS_PAIRS, MAX_G1_MUL_PROJECTIVE_LIMBS,
+	MAX_MUL_PROJECTIVE_LIMBS,
+};
 
 /// Common hashes, delegated to sp_io host functions on both targets.
 pub mod hashing {

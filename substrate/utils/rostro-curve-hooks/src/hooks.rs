@@ -36,6 +36,10 @@ use ark_ff::{One, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 /// The hooks type. Uninhabited: it exists only as a type parameter.
+/// (`Clone`/`Copy` etc. are required transitively — e.g. ark-vrf's
+/// `RingSuite` bounds `Config: Clone`, and the ext configs' derives bound
+/// on `H`.)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RostroCurveHooks {}
 
 /// BLS12-381 with every group operation routed through the facade.

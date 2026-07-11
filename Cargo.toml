@@ -304,6 +304,7 @@ members = [
 	"substrate/utils/rostro-validator-channel",
 	"substrate/utils/rostro-canonicalize",
 	"substrate/utils/rostro-client",
+	"substrate/utils/rostro-curve-hooks",
 	"substrate/utils/rostro-curve25519",
 	"substrate/utils/rostro-executor",
 	"substrate/utils/rostro-guest-crypto",
@@ -448,7 +449,8 @@ ark-snark = { version = "0.5.0", default-features = false }
 ark-std = { version = "0.5.0", default-features = false }
 ark-vesta = { version = "0.5.0", default-features = false }
 ark-vesta-ext = { version = "0.5.0", default-features = false }
-ark-vrf = { version = "0.1.0", default-features = false }
+# Vendored with the Rostro engine switch (hooked curves) — see substrate/external/ark-vrf/VENDOR.md.
+ark-vrf = { path = "substrate/external/ark-vrf", default-features = false }
 array-bytes = { version = "6.2.2", default-features = false }
 arrayvec = { version = "0.7.4" }
 assert_cmd = { version = "2.0.14" }
@@ -719,6 +721,7 @@ zk-pki-tpm = { path = "substrate/utils/zkpki-tpm", default-features = false }
 rostro-curve25519 = { path = "substrate/utils/rostro-curve25519", default-features = false }
 rostro-executor = { path = "substrate/utils/rostro-executor", default-features = false }
 rostro-executor-fixture-storage-roundtrip = { path = "substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip", default-features = false }
+rostro-curve-hooks = { path = "substrate/utils/rostro-curve-hooks", default-features = false }
 rostro-guest-crypto = { path = "substrate/utils/rostro-guest-crypto", default-features = false }
 rostro-hybrid-kex = { path = "substrate/utils/rostro-hybrid-kex", default-features = false }
 rostro-hybrid-sig = { path = "substrate/utils/rostro-hybrid-sig", default-features = false }

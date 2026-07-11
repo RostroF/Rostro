@@ -358,7 +358,7 @@ demonstrates the pattern); differential tests pin the rest.
   on both targets, everything else falls back to the reference crates
   natively. `RostroCurveHooks` for both ext curves. Differential test
   battery: facade-native equals facade-guest equals raw-crate, per cipher.
-- **W3, vendor ark-vrf + curve switch (~1 session).** Vendor `ark-vrf
+- **W3, vendor ark-vrf + curve switch — DONE 2026-07-10 (see below).** Vendor `ark-vrf
   0.1.1` (w3f-ring-proof only if it binds the engine anywhere; it receives
   `S::Pairing`, so it should not). Functional diff: the one associated-type
   line becomes `ark_bls12_381_ext::Bls12_381<RostroCurveHooks>`, the suite
@@ -427,6 +427,43 @@ writing input at `heap_base` — without it the guest allocator's arena
 overlaps the input region and the first in-guest `Vec` allocation
 corrupts it (exports that never allocate keep passing, which disguises
 the cause).
+
+### W3 landing: vendored ark-vrf on the hooked curves
+
+`substrate/external/ark-vrf` (0.1.1, MIT, VENDOR.md carries the deviation
+table). Three deviations, all in `suites/bandersnatch.rs` + the manifest:
+the suite affine becomes the hooked ext bandersnatch, the ring pairing
+becomes the hooked ext BLS12-381, and `data_to_point` runs Elligator2 on
+the PLAIN config then coordinate-copies into the hooked type — the ext
+config cannot implement ark-ec's `Elligator2Config` (orphan rule: a local
+type argument does not make a foreign generic type local), and the map is
+pure field arithmetic with nothing for hooks to accelerate. The workspace
+`ark-vrf` pin repoints to the vendored path, so `sp-core` (feature
+`bandersnatch-experimental`) and `rostro-kzg-srs` ride the switch with
+zero code changes.
+
+Layering: `RostroCurveHooks` moved into its own crate
+`substrate/utils/rostro-curve-hooks` (ark-only deps, plus the curve-op
+ecalli imports 115-119/124-128) because `sp-core → ark-vrf → hooks`
+must not cycle back through sp-io. The facade re-exports it as
+`rostro_guest_crypto::hooks` — the import path for runtime code is
+unchanged; verify-class ecalli imports (110-114, 123) stay in the facade
+so each import symbol is declared in exactly one crate.
+
+The consensus gate, tested not assumed:
+- `rostro-guest-crypto/tests/ring_equality.rs` — hooked vs plain
+  (upstream registry 0.1.0 as the reference; 0.1.0 → 0.1.1 is
+  docs/formatting only): public keys, hash-to-curve input points (pins
+  the Elligator2 deviation), VRF outputs + hashes, IETF proofs, ring
+  proof params (URS generation itself runs group ops through the hooks),
+  ring verifier keys, ring commitments — all byte-equal; ring proofs
+  verify across stacks in both directions.
+- The vendored crate's own suite tests run on the hooked engine: 30/30
+  incl. `vectors_process` for ietf/pedersen/ring — the hooked stack
+  reproduces the upstream-published test vectors.
+
+In-guest equality and the era-boundary timing proof land with W4's
+fixtures (same fixture work).
 
 ## 7. Deliberately not done
 

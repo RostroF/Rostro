@@ -15,17 +15,14 @@ description = "The single facade through which Rostro runtime code reaches crypt
 workspace = true
 
 [dependencies]
-# The hooked curve types are the runtime's curve types — the ark stack is a
-# regular (both-target) dependency; only the group operations route away.
+# The hooked curve types (and the ark ext stack) come via rostro-curve-hooks;
+# the ark deps kept here back the native bls381_pairing_check reference path.
 ark-bls12-381 = { workspace = true, features = ["curve"] }
-ark-bls12-381-ext = { workspace = true }
 ark-ec = { workspace = true }
-ark-ed-on-bls12-381-bandersnatch = { workspace = true }
-ark-ed-on-bls12-381-bandersnatch-ext = { workspace = true }
 ark-ff = { workspace = true }
-ark-models-ext = { workspace = true }
 ark-serialize = { workspace = true }
 ark-std = { workspace = true }
+rostro-curve-hooks = { workspace = true }
 sp-core = { workspace = true }
 sp-io = { workspace = true }
 
@@ -43,6 +40,17 @@ slh-dsa = { workspace = true }
 polkavm-derive = { workspace = true }
 
 [dev-dependencies]
+# Plain + ext curve crates used directly by the differential battery
+# (hooked-vs-plain comparisons and the CurveHooks type-level assertion).
+ark-bls12-381-ext = { workspace = true, features = ["std"] }
+ark-ed-on-bls12-381-bandersnatch = { workspace = true, features = ["std"] }
+ark-ed-on-bls12-381-bandersnatch-ext = { workspace = true, features = ["std"] }
+# The W3 byte-equality gate (tests/ring_equality.rs): vendored (hooked)
+# ark-vrf vs plain upstream. Upstream reference is 0.1.0 — cargo cannot
+# hold two same-version sources of one package; 0.1.0 -> 0.1.1 is
+# docs/formatting only (verified at vendoring time).
+ark-vrf = { workspace = true, default-features = true, features = ["bandersnatch", "ring"] }
+ark-vrf-upstream = { package = "ark-vrf", version = "=0.1.0", default-features = true, features = ["bandersnatch", "ring"] }
 fips204 = { workspace = true, features = ["ml-dsa-65", "default-rng"] }
 p521 = { workspace = true, features = ["ecdsa", "arithmetic", "getrandom"] }
 
@@ -50,14 +58,11 @@ p521 = { workspace = true, features = ["ecdsa", "arithmetic", "getrandom"] }
 default = ["std"]
 std = [
 	"ark-bls12-381/std",
-	"ark-bls12-381-ext/std",
 	"ark-ec/std",
-	"ark-ed-on-bls12-381-bandersnatch/std",
-	"ark-ed-on-bls12-381-bandersnatch-ext/std",
 	"ark-ff/std",
-	"ark-models-ext/std",
 	"ark-serialize/std",
 	"ark-std/std",
+	"rostro-curve-hooks/std",
 	"k256/std",
 	"p256/std",
 	"p521/std",
