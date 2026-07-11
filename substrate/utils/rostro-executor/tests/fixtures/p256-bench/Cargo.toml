@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# BENCH-ONLY CRATE — decision input for the EcdsaP256 signature variant.
+# Never shipped; lives on the p256-bench-v0 branch only.
+
+[package]
+name = "rostro-executor-fixture-p256-bench"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+build = "build.rs"
+publish = false
+homepage.workspace = true
+repository.workspace = true
+description = "PVM bench fixture: p256 ECDSA verify inside the RVM interpreter. Measures interpreted verify cost to decide in-RVM vs host-function for the EcdsaP256 signature variant."
+
+[lints]
+workspace = true
+
+[dependencies]
+sp-io = { workspace = true }
+p256 = { workspace = true }
+sha2 = { workspace = true }
+
+[target.'cfg(target_env = "polkavm")'.dependencies]
+polkavm-derive = { workspace = true }
+
+[build-dependencies]
+substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"sp-io/std",
+	"p256/std",
+	"sha2/std",
+	"substrate-wasm-builder",
+]

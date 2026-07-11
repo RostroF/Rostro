@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# BENCH-ONLY CRATE — see ../p256-bench/Cargo.toml. Never shipped.
+
+[package]
+name = "rostro-p256-rvm-bench"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+publish = false
+homepage.workspace = true
+repository.workspace = true
+description = "Host harness for the p256-in-RVM benchmark: loads the p256-bench PVM fixture into the RVM interpreter with the executor's exact configuration and times verify variants against native."
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "p256-rvm-bench"
+path = "src/main.rs"
+
+[dependencies]
+polkavm = { workspace = true, default-features = false, features = ["std"] }
+rostro-executor = { workspace = true, default-features = true }
+rostro-executor-fixture-p256-bench = { path = "../p256-bench", default-features = true }
+sp-io = { workspace = true, default-features = true }
+sp-externalities = { workspace = true, default-features = true }
+sp-state-machine = { workspace = true, default-features = true }
+p256 = { workspace = true, features = ["std"] }
+sha2 = { workspace = true, features = ["std"] }

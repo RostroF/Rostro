@@ -11183,18 +11183,24 @@ dependencies = [
 name = "polkavm"
 version = "0.32.0"
 dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
  "blake2 0.10.6",
  "ed25519-zebra",
  "fips204",
  "k256",
  "libc",
  "log",
+ "p256",
  "p521",
  "picosimd",
  "polkavm-assembler",
  "polkavm-common 0.32.0",
  "polkavm-linux-raw",
  "sha3 0.10.8",
+ "slh-dsa",
 ]
 
 [[package]]
@@ -14048,6 +14054,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-cipher-rvm-bench"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "ed25519-zebra",
+ "fips204",
+ "k256",
+ "p521",
+ "polkavm",
+ "rostro-executor",
+ "rostro-executor-fixture-cipher-bench",
+ "schnorrkel 0.11.4",
+ "sha2 0.10.9",
+ "slh-dsa",
+ "sp-externalities",
+ "sp-io",
+ "sp-state-machine",
+]
+
+[[package]]
 name = "rostro-client"
 version = "0.1.0"
 dependencies = [
@@ -14139,6 +14168,36 @@ dependencies = [
  "sp-wasm-interface",
  "sp-weights",
  "thiserror 1.0.65",
+]
+
+[[package]]
+name = "rostro-executor-fixture-cipher-bench"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "ed25519-zebra",
+ "fips204",
+ "k256",
+ "p521",
+ "polkavm-derive",
+ "schnorrkel 0.11.4",
+ "slh-dsa",
+ "sp-io",
+ "substrate-wasm-builder",
+]
+
+[[package]]
+name = "rostro-executor-fixture-p256-bench"
+version = "0.1.0"
+dependencies = [
+ "p256",
+ "polkavm-derive",
+ "sha2 0.10.9",
+ "sp-io",
+ "substrate-wasm-builder",
 ]
 
 [[package]]
@@ -14407,6 +14466,20 @@ dependencies = [
  "parity-scale-codec",
  "thiserror 1.0.65",
  "wasmtime",
+]
+
+[[package]]
+name = "rostro-p256-rvm-bench"
+version = "0.1.0"
+dependencies = [
+ "p256",
+ "polkavm",
+ "rostro-executor",
+ "rostro-executor-fixture-p256-bench",
+ "sha2 0.10.9",
+ "sp-externalities",
+ "sp-io",
+ "sp-state-machine",
 ]
 
 [[package]]

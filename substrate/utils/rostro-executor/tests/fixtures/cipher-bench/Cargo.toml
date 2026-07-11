@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: Apache-2.0
+# BENCH-ONLY CRATE — multi-cipher decision input for the RVM intrinsic roadmap.
+# Never shipped; lives on the p256-bench-v0 branch only.
+
+[package]
+name = "rostro-executor-fixture-cipher-bench"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+build = "build.rs"
+publish = false
+homepage.workspace = true
+repository.workspace = true
+description = "PVM bench fixture: every on-hand verify-class cipher inside the RVM interpreter — soft (interpreted) vs Tier-2 intrinsic (where one exists), measured against native by the companion harness."
+
+[lints]
+workspace = true
+
+[dependencies]
+sp-io = { workspace = true }
+ed25519-zebra = { workspace = true }
+schnorrkel = { workspace = true, features = ["preaudit_deprecated"] }
+k256 = { workspace = true, features = ["ecdsa", "arithmetic"] }
+slh-dsa = { workspace = true }
+ark-bls12-381 = { workspace = true, features = ["curve"] }
+ark-ec = { workspace = true }
+ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+p521 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
+fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65"] }
+
+[target.'cfg(target_env = "polkavm")'.dependencies]
+polkavm-derive = { workspace = true }
+
+[build-dependencies]
+substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"sp-io/std",
+	"ed25519-zebra/std",
+	"schnorrkel/std",
+	"k256/std",
+	"ark-bls12-381/std",
+	"ark-ec/std",
+	"ark-ff/std",
+	"ark-serialize/std",
+	"p521/std",
+	"substrate-wasm-builder",
+]
