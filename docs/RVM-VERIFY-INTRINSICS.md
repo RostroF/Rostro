@@ -487,9 +487,22 @@ byte-equal across all legs):
 | in-guest PLAIN (interpreted) | 2.81 s | 79x |
 
 The 79x reproduces the livelock arithmetic; hooked is 29x faster than
-plain and sits comfortably inside the 4 s era-boundary deadline. The
-residual 2.8x over native is the non-MSM piop bookkeeping that stays
-interpreted — acceptable, revisit only if the deadline ever tightens.
+plain and sits comfortably inside the 4 s era-boundary deadline.
+
+At scale (`RING_SIZE=500`, domain steps 512 → 1024): native 62.4 ms /
+hooked 194 ms (3.1x) / plain 4.75 s (76x). The interpreted residue
+(hooked minus the native-speed MSM share) is ~60 ms at 255 and ~130 ms
+at 500 — it tracks the power-of-two domain, not validator count, so it
+is flat from 500 up to ~767 validators. Its composition, from
+w3f-ring-proof's `Ring::empty`/`append` + `index()`: the piop
+fixed-column interpolation over the domain (the dominant, domain-bound
+part), a sequential ~257-point G1 `.sum()` for the selector commitment
+(single adds have no intrinsic), ~253 sequential TE doublings of the
+seed point, batch-normalization inversions (all three constant in N),
+and marshalling. Levers if it ever matters: cache `Ring::empty` /use
+`verifier_key_builder` (the constant parts amortize away),
+`verifier_key_from_commitment` for verify-only paths, or a batch-add
+intrinsic — none needed at 40x deadline headroom.
 
 **Proof (b), the facade set-guard** (`facade-rvm-bench`, second bin of the
 facade-test harness): every facade entry timed in-guest vs its native

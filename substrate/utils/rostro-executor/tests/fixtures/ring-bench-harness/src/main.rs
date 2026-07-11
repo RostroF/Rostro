@@ -26,10 +26,12 @@ type HostFns = (
 	sp_io::allocator::HostFunctions,
 );
 
-/// Ring size for the proof. The NPoS PoC livelock fired on the
-/// session-boundary rebuild; testnet plans cap the active set well below
-/// this, so 255 upper-bounds the era-boundary cost.
-const RING_SIZE: usize = 255;
+/// Default ring size for the proof; override with RING_SIZE=n. The NPoS
+/// PoC livelock fired on the session-boundary rebuild; testnet plans cap
+/// the active set well below 255. The interpreted residue's domain-bound
+/// part steps at powers of two (N + ~257 rounded up), so 255 (domain 512)
+/// and 500 (domain 1024) bracket the interesting scale points.
+const DEFAULT_RING_SIZE: usize = 255;
 const SRS_SEED: [u8; 32] = [11u8; 32];
 
 fn ser<T: CanonicalSerialize>(t: &T) -> Vec<u8> {
@@ -47,10 +49,14 @@ fn fmt(d: Duration) -> String {
 }
 
 fn main() {
+	let ring_size: usize = std::env::var("RING_SIZE")
+		.ok()
+		.map(|v| v.parse().expect("RING_SIZE must be a number"))
+		.unwrap_or(DEFAULT_RING_SIZE);
 	// ── Inputs + native leg ─────────────────────────────────────────────
-	println!("building ring params (ring_size = {RING_SIZE})...");
-	let params = suite::RingProofParams::from_seed(RING_SIZE, SRS_SEED);
-	let pks: Vec<_> = (0..RING_SIZE as u64)
+	println!("building ring params (ring_size = {ring_size})...");
+	let params = suite::RingProofParams::from_seed(ring_size, SRS_SEED);
+	let pks: Vec<_> = (0..ring_size as u64)
 		.map(|i| suite::Secret::from_seed(&i.to_le_bytes()).public().0)
 		.collect();
 
