@@ -14,3 +14,22 @@ members = [
     "polkavm-linker",
     "polkavm-linux-raw",
 ]
+
+# Rostro (2026-07-10): close the workspace over the vendored copies. The
+# vendored crates inter-reference by crates.io version spec (tarball
+# normalization), which SILENTLY resolved to pristine crates.io copies — the
+# lockfile carried both a local and a registry copy of polkavm-assembler and
+# polkavm-linker, meaning the vendored engine was building against pristine
+# siblings and its integration tests exercised the pristine linker, not ours.
+# VENDOR.md's "resolves as workspace members" was aspirational until this
+# patch table. Also unblocks polkavm-disassembler 0.32.0 (test-only dev-dep),
+# whose polkavm 0.32.0 requirement was yanked upstream.
+[patch.crates-io]
+polkavm = { path = "polkavm" }
+polkavm-assembler = { path = "polkavm-assembler" }
+polkavm-common = { path = "polkavm-common" }
+polkavm-derive = { path = "polkavm-derive" }
+polkavm-derive-impl = { path = "polkavm-derive-impl" }
+polkavm-derive-impl-macro = { path = "polkavm-derive-impl-macro" }
+polkavm-linker = { path = "polkavm-linker" }
+polkavm-linux-raw = { path = "polkavm-linux-raw" }

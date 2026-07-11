@@ -2979,6 +2979,376 @@ impl InterpretedInstance {
                             self.regs[Reg::A0.to_usize()] = result;
                             offset += 1;
                         }
+                        ROSTRO_INTRINSIC_P256_ECDSA_VERIFY => {
+                            // ABI: A0=vk_ptr (33B compressed sec1: 0x02/0x03||X),
+                            //      A1=sig_ptr (64B: r||s), A2=prehash_ptr,
+                            //      A3=prehash_len. Returns A0 = 1 verified, 0 failed.
+                            // Gas: no surplus charge for now — intrinsic gas policy
+                            // is deferred until the VM-optimization pass lands
+                            // (matches goldilocks mul/add/sub; see
+                            // rostro_intrinsic_gas.rs when that changes).
+                            let vk_ptr = self.regs[Reg::A0.to_usize()] as u32;
+                            let sig_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let prehash_ptr = self.regs[Reg::A2.to_usize()] as u32;
+                            let prehash_len = self.regs[Reg::A3.to_usize()] as u32;
+                            let memory = <M as Memory>::memory_state(self);
+                            let borrow_or_empty = |ptr: u32, len: u32| -> Option<&[u8]> {
+                                if len == 0 { Some(&[]) } else { memory.borrow_bytes(ptr, len) }
+                            };
+                            let result: u64 = (|| {
+                                let vk_bytes = memory.borrow_bytes(vk_ptr, 33)?;
+                                let sig_bytes = memory.borrow_bytes(sig_ptr, 64)?;
+                                let prehash = borrow_or_empty(prehash_ptr, prehash_len)?;
+                                Some(rostro_p256_ecdsa_verify_prehash(vk_bytes, sig_bytes, prehash) as u64)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_SLHDSA_128S_VERIFY => {
+                            // ABI: A0=pk_ptr (32B), A1=msg_ptr, A2=msg_len,
+                            //      A3=sig_ptr (7856B), A4=ctx_ptr, A5=ctx_len.
+                            // Returns A0 = 1 verified, 0 failed.
+                            // Gas: no surplus charge for now (matches P-256;
+                            // policy lands with the VM-optimization pass).
+                            let pk_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let msg_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let msg_len = self.regs[Reg::A2.to_usize()] as u32;
+                            let sig_ptr = self.regs[Reg::A3.to_usize()] as u32;
+                            let ctx_ptr = self.regs[Reg::A4.to_usize()] as u32;
+                            let ctx_len = self.regs[Reg::A5.to_usize()] as u32;
+                            let memory = <M as Memory>::memory_state(self);
+                            let borrow_or_empty = |ptr: u32, len: u32| -> Option<&[u8]> {
+                                if len == 0 { Some(&[]) } else { memory.borrow_bytes(ptr, len) }
+                            };
+                            let result: u64 = (|| {
+                                let pk_bytes = memory.borrow_bytes(pk_ptr, 32)?;
+                                let sig_bytes = memory.borrow_bytes(sig_ptr, 7856)?;
+                                let msg = borrow_or_empty(msg_ptr, msg_len)?;
+                                let ctx = borrow_or_empty(ctx_ptr, ctx_len)?;
+                                Some(rostro_slhdsa_128s_verify(pk_bytes, msg, sig_bytes, ctx) as u64)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BLS381_PAIRING_CHECK => {
+                            // ABI: A0=pairs_ptr (n × 288B: G1 uncompressed 96B ‖
+                            //      G2 uncompressed 192B), A1=n_pairs.
+                            // Returns A0 = 1 when the product of pairings is the
+                            // GT identity, 0 on failure/malformed/over-cap.
+                            // Points are CHECKED on deserialize (on-curve +
+                            // subgroup) — inputs are consensus-adversarial.
+                            // Gas: none for now; MAX_BLS_PAIRS bounds the work.
+                            let pairs_ptr = self.regs[Reg::A0.to_usize()] as u32;
+                            let n_pairs = self.regs[Reg::A1.to_usize()] as u32;
+                            let memory = <M as Memory>::memory_state(self);
+                            let result: u64 = (|| {
+                                if n_pairs == 0 || n_pairs > MAX_BLS_PAIRS {
+                                    return None;
+                                }
+                                let bytes = memory.borrow_bytes(pairs_ptr, n_pairs * 288)?;
+                                Some(rostro_bls381_pairing_check(bytes, n_pairs as usize) as u64)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BLS381_G1_MSM => {
+                            // ABI: A0=points_ptr (n × 96B uncompressed G1),
+                            //      A1=scalars_ptr (n × 32B canonical Fr),
+                            //      A2=n, A3=out_ptr (96B result buffer).
+                            // Returns A0 = 1 ok, 0 failed. Owned result buffer
+                            // decouples the input borrows from the output borrow
+                            // (same pattern as secp256k1_recover).
+                            let points_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let scalars_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n           = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr     = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n == 0 || n > MAX_BLS_MSM {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 96];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let points = memory.borrow_bytes(points_ptr, n * 96)?;
+                                    let scalars = memory.borrow_bytes(scalars_ptr, n * 32)?;
+                                    rostro_bls381_g1_msm(points, scalars, n as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 96)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BLS381_G2_MSM => {
+                            // ABI: as G1 MSM but 192B points and a 192B result.
+                            let points_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let scalars_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n           = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr     = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n == 0 || n > MAX_BLS_MSM {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 192];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let points = memory.borrow_bytes(points_ptr, n * 192)?;
+                                    let scalars = memory.borrow_bytes(scalars_ptr, n * 32)?;
+                                    rostro_bls381_g2_msm(points, scalars, n as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 192)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BLS381_MULTI_MILLER_LOOP => {
+                            // ABI: A0=pairs_ptr (n × 288B: G1 96B ‖ G2 192B,
+                            //      uncompressed), A1=n ≤ MAX_BLS_PAIRS,
+                            //      A2=out_ptr (576B Fq12).
+                            // Returns A0 = 1 ok, 0 failed. UNCHECKED deser —
+                            // CurveHooks contract (caller-validated points);
+                            // the checked standalone verifier is 114.
+                            let pairs_ptr = self.regs[Reg::A0.to_usize()] as u32;
+                            let n_pairs   = self.regs[Reg::A1.to_usize()] as u32;
+                            let out_ptr   = self.regs[Reg::A2.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n_pairs == 0 || n_pairs > MAX_BLS_PAIRS {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 576];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let bytes = memory.borrow_bytes(pairs_ptr, n_pairs * 288)?;
+                                    rostro_bls381_multi_miller_loop(bytes, n_pairs as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 576)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BLS381_FINAL_EXP => {
+                            // ABI: A0=in_ptr (576B Fq12), A1=out_ptr (576B).
+                            // Returns A0 = 1 ok, 0 failed (incl. the
+                            // non-invertible zero input, mirroring arkworks'
+                            // None).
+                            let in_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let out_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                let mut out = [0u8; 576];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let input = memory.borrow_bytes(in_ptr, 576)?;
+                                    rostro_bls381_final_exponentiation(input, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 576)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BANDERSNATCH_TE_MSM => {
+                            // ABI: A0=points_ptr (n × 64B uncompressed TE
+                            //      affine), A1=scalars_ptr (n × 32B canonical
+                            //      Fr), A2=n ≤ MAX_BLS_MSM, A3=out_ptr (64B).
+                            // Returns A0 = 1 ok, 0 failed. UNCHECKED deser
+                            // (CurveHooks contract).
+                            let points_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let scalars_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n           = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr     = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n == 0 || n > MAX_BLS_MSM {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 64];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let points = memory.borrow_bytes(points_ptr, n * 64)?;
+                                    let scalars = memory.borrow_bytes(scalars_ptr, n * 32)?;
+                                    rostro_bandersnatch_te_msm(points, scalars, n as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 64)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BANDERSNATCH_SW_MSM => {
+                            // ABI: as TE MSM, over the SW representation.
+                            // SW points are 65B (flag byte; the 2-bit SW
+                            // flags overflow the 255-bit field's spare bit).
+                            let points_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let scalars_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n           = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr     = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n == 0 || n > MAX_BLS_MSM {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 65];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let points = memory.borrow_bytes(points_ptr, n * 65)?;
+                                    let scalars = memory.borrow_bytes(scalars_ptr, n * 32)?;
+                                    rostro_bandersnatch_sw_msm(points, scalars, n as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 65)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BANDERSNATCH_TE_MUL_PROJECTIVE => {
+                            // ABI: A0=base_ptr (64B uncompressed TE affine),
+                            //      A1=limbs_ptr (raw LE u64 limbs), A2=n_limbs
+                            //      ≤ MAX_MUL_PROJECTIVE_LIMBS, A3=out_ptr (64B).
+                            // Returns A0 = 1 ok, 0 failed. Integer-scalar
+                            // semantics (no mod-r reduction) — see
+                            // parse_mul_projective_limbs.
+                            let base_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let limbs_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n_limbs   = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr   = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n_limbs == 0 || n_limbs > MAX_MUL_PROJECTIVE_LIMBS {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 64];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let base = memory.borrow_bytes(base_ptr, 64)?;
+                                    let limbs = memory.borrow_bytes(limbs_ptr, n_limbs * 8)?;
+                                    rostro_bandersnatch_te_mul_projective(base, limbs, n_limbs as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 64)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BANDERSNATCH_SW_MUL_PROJECTIVE => {
+                            // ABI: as the TE form, over the SW representation
+                            // (65B points, see the SW MSM arm).
+                            let base_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let limbs_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n_limbs   = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr   = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n_limbs == 0 || n_limbs > MAX_MUL_PROJECTIVE_LIMBS {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 65];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let base = memory.borrow_bytes(base_ptr, 65)?;
+                                    let limbs = memory.borrow_bytes(limbs_ptr, n_limbs * 8)?;
+                                    rostro_bandersnatch_sw_mul_projective(base, limbs, n_limbs as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 65)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BLS381_G1_MUL_PROJECTIVE => {
+                            // ABI: A0=base_ptr (96B uncompressed G1 affine),
+                            //      A1=limbs_ptr, A2=n_limbs, A3=out_ptr (96B).
+                            let base_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let limbs_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n_limbs   = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr   = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n_limbs == 0 || n_limbs > MAX_MUL_PROJECTIVE_LIMBS {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 96];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let base = memory.borrow_bytes(base_ptr, 96)?;
+                                    let limbs = memory.borrow_bytes(limbs_ptr, n_limbs * 8)?;
+                                    rostro_bls381_g1_mul_projective(base, limbs, n_limbs as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 96)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BLS381_G2_MUL_PROJECTIVE => {
+                            // ABI: as G1 but 192B points.
+                            let base_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let limbs_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n_limbs   = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr   = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n_limbs == 0 || n_limbs > MAX_MUL_PROJECTIVE_LIMBS {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 192];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let base = memory.borrow_bytes(base_ptr, 192)?;
+                                    let limbs = memory.borrow_bytes(limbs_ptr, n_limbs * 8)?;
+                                    rostro_bls381_g2_mul_projective(base, limbs, n_limbs as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 192)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
                         ROSTRO_INTRINSIC_DILITHIUM_VERIFY => {
                             // ABI: A0=pubkey_ptr (1952B), A1=msg_ptr, A2=msg_len,
                             //      A3=sig_ptr (3309B), A4=ctx_ptr, A5=ctx_len
@@ -4599,6 +4969,43 @@ pub const ROSTRO_INTRINSIC_GOLDILOCKS_INV: u32 = 103;
 // Big-crypto intrinsics (zero-copy guest-memory access via borrow_bytes).
 pub const ROSTRO_INTRINSIC_DILITHIUM_VERIFY: u32 = 110; // ML-DSA-65 verify
 pub const ROSTRO_INTRINSIC_P521_ECDSA_VERIFY: u32 = 111; // NIST P-521 ECDSA verify (prehashed)
+pub const ROSTRO_INTRINSIC_P256_ECDSA_VERIFY: u32 = 112; // NIST P-256 ECDSA verify (prehashed)
+pub const ROSTRO_INTRINSIC_SLHDSA_128S_VERIFY: u32 = 113; // SLH-DSA-SHA2-128s verify (FIPS 205)
+pub const ROSTRO_INTRINSIC_BLS381_PAIRING_CHECK: u32 = 114; // BLS12-381 multi-pairing product == identity
+pub const ROSTRO_INTRINSIC_BLS381_G1_MSM: u32 = 115; // BLS12-381 G1 multi-scalar multiplication
+pub const ROSTRO_INTRINSIC_BLS381_G2_MSM: u32 = 116; // BLS12-381 G2 multi-scalar multiplication
+// CurveHooks-backing intrinsics (2026-07-10). Together with 115/116 these
+// cover the full ark-bls12-381-ext + ark-ed-on-bls12-381-bandersnatch-ext
+// CurveHooks surfaces (6 + 4 methods), so a hooked arkworks stack — the ring
+// VRF / Sassafras verify path — runs every group operation native. Unlike
+// 114 (standalone adversarial verification, checked deserialize), the hooks
+// contract is caller-validated points: deserialization is UNCHECKED, garbage
+// in is deterministic garbage out with no panic, exactly as if the guest ran
+// plain arkworks itself.
+pub const ROSTRO_INTRINSIC_BLS381_MULTI_MILLER_LOOP: u32 = 117; // n-pair Miller loop → Fq12
+pub const ROSTRO_INTRINSIC_BLS381_FINAL_EXP: u32 = 118; // final exponentiation Fq12 → Fq12
+pub const ROSTRO_INTRINSIC_BANDERSNATCH_TE_MSM: u32 = 119; // twisted Edwards MSM
+pub const ROSTRO_INTRINSIC_BANDERSNATCH_TE_MUL_PROJECTIVE: u32 = 124; // TE point × raw-limb scalar
+pub const ROSTRO_INTRINSIC_BANDERSNATCH_SW_MSM: u32 = 125; // short Weierstrass MSM
+pub const ROSTRO_INTRINSIC_BANDERSNATCH_SW_MUL_PROJECTIVE: u32 = 126; // SW point × raw-limb scalar
+pub const ROSTRO_INTRINSIC_BLS381_G1_MUL_PROJECTIVE: u32 = 127; // G1 point × raw-limb scalar
+pub const ROSTRO_INTRINSIC_BLS381_G2_MUL_PROJECTIVE: u32 = 128; // G2 point × raw-limb scalar
+
+/// Operand caps for the variable-length BLS intrinsics. Inputs are
+/// consensus-adversarial and the intrinsics are (for now) not gas-
+/// surcharged, so the caps bound worst-case native work per call.
+/// Revisit when the intrinsic gas policy lands.
+pub const MAX_BLS_PAIRS: u32 = 8; // Groth16 needs ≤ 4; KZG opens 2-3
+/// Sized for ring-VRF URS/verifier-key builds (ring sizes in the low
+/// thousands); the CurveHooks marshalling chunks beyond this (MSM is
+/// additive, chunked results are bit-identical).
+pub const MAX_BLS_MSM: u32 = 8192;
+/// `mul_projective` scalars arrive as raw little-endian u64 limbs (arkworks
+/// `mul_bigint` semantics: plain integer multiplication, NO mod-r reduction —
+/// this is what cofactor clearing relies on, and why these arms cannot be
+/// routed through MSM-of-1, whose scalars are canonical Fr). 8 limbs = 512
+/// bits, far above any scalar arkworks produces (4-limb Fr, 1-limb cofactor).
+pub const MAX_MUL_PROJECTIVE_LIMBS: u32 = 8;
 // Phase 1 hashing intrinsics (2026-05-14). Take a message slice from guest
 // memory, write a fixed-size digest back to a guest output buffer. Closes the
 // ~2× wasmtime-cranelift gap on the most common chain-runtime hashing ops.
@@ -4728,6 +5135,372 @@ pub fn rostro_p521_ecdsa_verify_prehash(vk_bytes: &[u8], sig_bytes: &[u8], preha
     let Ok(vk) = VerifyingKey::from_sec1_bytes(vk_bytes) else { return false };
     let Ok(sig) = Signature::from_slice(sig_bytes) else { return false };
     vk.verify_prehash(prehash, &sig).is_ok()
+}
+
+/// P-256 ECDSA verify-prehash. Pure-bytes API; same single-source-of-truth
+/// rationale as `rostro_p521_ecdsa_verify_prehash`.
+///
+/// `vk_bytes`: 33-byte compressed sec1 (`0x02/0x03 || X`). The intrinsic arm
+/// borrows exactly 33 bytes, so the compressed form is the ABI — uncompressed
+/// keys must be compressed guest-side before the call.
+/// `sig_bytes`: 64-byte raw `r || s`.
+/// `prehash`: caller-supplied prehash (any length the verifier accepts).
+///
+/// Returns `true` on verified, `false` on any failure (parse, length, or
+/// crypto), matching the on-chain semantics ("verifies or it doesn't").
+pub fn rostro_p256_ecdsa_verify_prehash(vk_bytes: &[u8], sig_bytes: &[u8], prehash: &[u8]) -> bool {
+    use p256::ecdsa::{signature::hazmat::PrehashVerifier, Signature, VerifyingKey};
+    let Ok(vk) = VerifyingKey::from_sec1_bytes(vk_bytes) else { return false };
+    let Ok(sig) = Signature::from_slice(sig_bytes) else { return false };
+    vk.verify_prehash(prehash, &sig).is_ok()
+}
+
+/// SLH-DSA-SHA2-128s verify (FIPS 205). Pure-bytes API; same single-source-
+/// of-truth rationale as the other verify helpers. Uses the SAME vendored
+/// `slh-dsa` crate the node's hybrid finality verifier trusts.
+///
+/// `pk_bytes`: 32-byte verifying key. `sig_bytes`: 7856-byte signature.
+/// `msg`, `ctx`: caller-supplied (ctx per the FIPS 205 context-string API).
+pub fn rostro_slhdsa_128s_verify(pk_bytes: &[u8], msg: &[u8], sig_bytes: &[u8], ctx: &[u8]) -> bool {
+    use slh_dsa::Sha2_128s;
+    let Ok(vk) = slh_dsa::VerifyingKey::<Sha2_128s>::try_from(pk_bytes) else { return false };
+    let Ok(sig) = slh_dsa::Signature::<Sha2_128s>::try_from(sig_bytes) else { return false };
+    vk.try_verify_with_context(msg, ctx, &sig).is_ok()
+}
+
+/// BLS12-381 multi-pairing check: true iff Π e(G1ᵢ, G2ᵢ) is the GT identity.
+///
+/// `pairs`: n × 288 bytes, each entry `G1 uncompressed (96) ‖ G2 uncompressed
+/// (192)` in arkworks canonical serialization. Points are validated on
+/// deserialize (on-curve + subgroup) — any malformed entry returns `false`.
+pub fn rostro_bls381_pairing_check(pairs: &[u8], n: usize) -> bool {
+    use ark_bls12_381::{Bls12_381, G1Affine, G2Affine};
+    use ark_ec::pairing::Pairing;
+    use ark_ff::One;
+    use ark_serialize::CanonicalDeserialize;
+    if pairs.len() != n * 288 {
+        return false;
+    }
+    let mut g1s = Vec::with_capacity(n);
+    let mut g2s = Vec::with_capacity(n);
+    for i in 0..n {
+        let off = i * 288;
+        let Ok(g1) = G1Affine::deserialize_uncompressed(&pairs[off..off + 96]) else {
+            return false;
+        };
+        let Ok(g2) = G2Affine::deserialize_uncompressed(&pairs[off + 96..off + 288]) else {
+            return false;
+        };
+        g1s.push(g1);
+        g2s.push(g2);
+    }
+    Bls12_381::multi_pairing(g1s, g2s).0.is_one()
+}
+
+/// BLS12-381 G1 multi-scalar multiplication: `out = Σ scalarᵢ · pointᵢ`
+/// (uncompressed affine). UNCHECKED point deserialization (no on-curve or
+/// subgroup check): this backs `ark_bls12_381_ext::CurveHooks::msm_g1`,
+/// whose contract is caller-validated points (its own default calls
+/// `msm_unchecked`) — garbage in is deterministic garbage out with no panic,
+/// exactly as if the guest ran plain arkworks. Subgroup-checking thousands
+/// of points would cost on the order of the MSM itself. Scalars are
+/// canonical 32-byte Fr encodings (range-checked; rejecting ≥ r is cheap).
+/// Returns `false` on malformed lengths/encodings only.
+pub fn rostro_bls381_g1_msm(points: &[u8], scalars: &[u8], n: usize, out: &mut [u8; 96]) -> bool {
+    use ark_bls12_381::{Fr, G1Affine, G1Projective};
+    use ark_ec::{CurveGroup, VariableBaseMSM};
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    if points.len() != n * 96 || scalars.len() != n * 32 {
+        return false;
+    }
+    let mut ps = Vec::with_capacity(n);
+    let mut ss = Vec::with_capacity(n);
+    for i in 0..n {
+        let Ok(p) = G1Affine::deserialize_uncompressed_unchecked(&points[i * 96..(i + 1) * 96])
+        else {
+            return false;
+        };
+        let Ok(s) = Fr::deserialize_uncompressed(&scalars[i * 32..(i + 1) * 32]) else {
+            return false;
+        };
+        ps.push(p);
+        ss.push(s);
+    }
+    let acc = G1Projective::msm_unchecked(&ps, &ss);
+    acc.into_affine().serialize_uncompressed(&mut out[..]).is_ok()
+}
+
+/// BLS12-381 G2 multi-scalar multiplication; as G1 but 192-byte points.
+pub fn rostro_bls381_g2_msm(points: &[u8], scalars: &[u8], n: usize, out: &mut [u8; 192]) -> bool {
+    use ark_bls12_381::{Fr, G2Affine, G2Projective};
+    use ark_ec::{CurveGroup, VariableBaseMSM};
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    if points.len() != n * 192 || scalars.len() != n * 32 {
+        return false;
+    }
+    let mut ps = Vec::with_capacity(n);
+    let mut ss = Vec::with_capacity(n);
+    for i in 0..n {
+        let Ok(p) = G2Affine::deserialize_uncompressed_unchecked(&points[i * 192..(i + 1) * 192])
+        else {
+            return false;
+        };
+        let Ok(s) = Fr::deserialize_uncompressed(&scalars[i * 32..(i + 1) * 32]) else {
+            return false;
+        };
+        ps.push(p);
+        ss.push(s);
+    }
+    let acc = G2Projective::msm_unchecked(&ps, &ss);
+    acc.into_affine().serialize_uncompressed(&mut out[..]).is_ok()
+}
+
+/// BLS12-381 multi Miller loop over `n` (G1, G2) pairs, writing the Fq12
+/// Miller-loop output (uncompressed, 576 bytes). Backs
+/// `ark_bls12_381_ext::CurveHooks::multi_miller_loop`; UNCHECKED point
+/// deserialization per the hooks contract (see `rostro_bls381_g1_msm`).
+/// Together with `rostro_bls381_final_exponentiation` this composes to
+/// `pairing()`; the standalone checked verifier remains
+/// `rostro_bls381_pairing_check`.
+pub fn rostro_bls381_multi_miller_loop(pairs: &[u8], n: usize, out: &mut [u8; 576]) -> bool {
+    use ark_bls12_381::{Bls12_381, G1Affine, G2Affine};
+    use ark_ec::pairing::Pairing;
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    if pairs.len() != n * 288 {
+        return false;
+    }
+    let mut g1s = Vec::with_capacity(n);
+    let mut g2s = Vec::with_capacity(n);
+    for i in 0..n {
+        let off = i * 288;
+        let Ok(g1) = G1Affine::deserialize_uncompressed_unchecked(&pairs[off..off + 96]) else {
+            return false;
+        };
+        let Ok(g2) = G2Affine::deserialize_uncompressed_unchecked(&pairs[off + 96..off + 288])
+        else {
+            return false;
+        };
+        g1s.push(g1);
+        g2s.push(g2);
+    }
+    let mlo = Bls12_381::multi_miller_loop(g1s, g2s);
+    mlo.0.serialize_uncompressed(&mut out[..]).is_ok()
+}
+
+/// BLS12-381 final exponentiation: Fq12 → Fq12 (uncompressed, 576 bytes
+/// each way). Backs `ark_bls12_381_ext::CurveHooks::final_exponentiation`.
+/// Returns `false` for the non-invertible (zero) input — arkworks returns
+/// `None` there, which cannot occur for a well-formed Miller-loop output;
+/// the guest-side hook maps the failure exactly as the ext default does.
+pub fn rostro_bls381_final_exponentiation(input: &[u8], out: &mut [u8; 576]) -> bool {
+    use ark_bls12_381::{Bls12_381, Fq12};
+    use ark_ec::pairing::{MillerLoopOutput, Pairing};
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    if input.len() != 576 {
+        return false;
+    }
+    let Ok(f) = Fq12::deserialize_uncompressed_unchecked(input) else {
+        return false;
+    };
+    let Some(po) = Bls12_381::final_exponentiation(MillerLoopOutput(f)) else {
+        return false;
+    };
+    po.0.serialize_uncompressed(&mut out[..]).is_ok()
+}
+
+/// Parse a raw little-endian u64 limb array for the `mul_projective` arms.
+/// arkworks `mul_projective`/`mul_bigint` semantics: plain integer scalar,
+/// NO mod-r reduction — cofactor clearing on subgroup-uncleared points
+/// depends on this, which is why these arms cannot be routed through
+/// MSM-of-1 (MSM scalars are canonical Fr).
+fn parse_mul_projective_limbs(bytes: &[u8], n_limbs: usize) -> Option<[u64; 8]> {
+    if n_limbs == 0 || n_limbs > MAX_MUL_PROJECTIVE_LIMBS as usize || bytes.len() != n_limbs * 8 {
+        return None;
+    }
+    let mut limbs = [0u64; 8];
+    for (i, chunk) in bytes.chunks_exact(8).enumerate() {
+        limbs[i] = u64::from_le_bytes(chunk.try_into().expect("chunks_exact(8)"));
+    }
+    Some(limbs)
+}
+
+/// Bandersnatch (ed-on-bls12-381) twisted Edwards MSM: `out = Σ sᵢ · Pᵢ`,
+/// 64-byte uncompressed TE affine points, canonical 32-byte Fr scalars.
+/// Backs `ark_ed_on_bls12_381_bandersnatch_ext::CurveHooks::msm_te`;
+/// UNCHECKED point deserialization per the hooks contract.
+pub fn rostro_bandersnatch_te_msm(
+    points: &[u8],
+    scalars: &[u8],
+    n: usize,
+    out: &mut [u8; 64],
+) -> bool {
+    use ark_ec::{CurveGroup, VariableBaseMSM};
+    use ark_ed_on_bls12_381_bandersnatch::{EdwardsAffine, EdwardsProjective, Fr};
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    if points.len() != n * 64 || scalars.len() != n * 32 {
+        return false;
+    }
+    let mut ps = Vec::with_capacity(n);
+    let mut ss = Vec::with_capacity(n);
+    for i in 0..n {
+        let Ok(p) = EdwardsAffine::deserialize_uncompressed_unchecked(&points[i * 64..(i + 1) * 64])
+        else {
+            return false;
+        };
+        let Ok(s) = Fr::deserialize_uncompressed(&scalars[i * 32..(i + 1) * 32]) else {
+            return false;
+        };
+        ps.push(p);
+        ss.push(s);
+    }
+    let acc = EdwardsProjective::msm_unchecked(&ps, &ss);
+    acc.into_affine().serialize_uncompressed(&mut out[..]).is_ok()
+}
+
+/// Bandersnatch short Weierstrass MSM; as the TE form but over the SW
+/// representation of the same curve. SW points are 65 bytes (not 64): the
+/// 2-bit SW serialization flags do not fit the single spare bit of the
+/// 255-bit base field, so arkworks appends a flag byte. Backs
+/// `ark_ed_on_bls12_381_bandersnatch_ext::CurveHooks::msm_sw`.
+pub fn rostro_bandersnatch_sw_msm(
+    points: &[u8],
+    scalars: &[u8],
+    n: usize,
+    out: &mut [u8; 65],
+) -> bool {
+    use ark_ec::{CurveGroup, VariableBaseMSM};
+    use ark_ed_on_bls12_381_bandersnatch::{Fr, SWAffine, SWProjective};
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    if points.len() != n * 65 || scalars.len() != n * 32 {
+        return false;
+    }
+    let mut ps = Vec::with_capacity(n);
+    let mut ss = Vec::with_capacity(n);
+    for i in 0..n {
+        let Ok(p) = SWAffine::deserialize_uncompressed_unchecked(&points[i * 65..(i + 1) * 65])
+        else {
+            return false;
+        };
+        let Ok(s) = Fr::deserialize_uncompressed(&scalars[i * 32..(i + 1) * 32]) else {
+            return false;
+        };
+        ps.push(p);
+        ss.push(s);
+    }
+    let acc = SWProjective::msm_unchecked(&ps, &ss);
+    acc.into_affine().serialize_uncompressed(&mut out[..]).is_ok()
+}
+
+/// Bandersnatch TE projective multiplication by a raw-limb integer scalar.
+/// Base and result travel as 64-byte uncompressed TE affine (arkworks'
+/// canonical serialization of a projective point normalizes to affine, so
+/// affine IS the wire form; the guest hook converts each way). Backs
+/// `ark_ed_on_bls12_381_bandersnatch_ext::CurveHooks::mul_projective_te`.
+pub fn rostro_bandersnatch_te_mul_projective(
+    base: &[u8],
+    limbs: &[u8],
+    n_limbs: usize,
+    out: &mut [u8; 64],
+) -> bool {
+    use ark_ec::twisted_edwards::TECurveConfig;
+    use ark_ec::CurveGroup;
+    use ark_ed_on_bls12_381_bandersnatch::{BandersnatchConfig, EdwardsAffine};
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    let Some(scalar) = parse_mul_projective_limbs(limbs, n_limbs) else {
+        return false;
+    };
+    let Ok(p) = EdwardsAffine::deserialize_uncompressed_unchecked(base) else {
+        return false;
+    };
+    let res =
+        <BandersnatchConfig as TECurveConfig>::mul_projective(&p.into(), &scalar[..n_limbs]);
+    res.into_affine().serialize_uncompressed(&mut out[..]).is_ok()
+}
+
+/// Bandersnatch SW projective multiplication; as the TE form but over the
+/// SW representation (65-byte points, see `rostro_bandersnatch_sw_msm`).
+/// Backs `CurveHooks::mul_projective_sw`.
+pub fn rostro_bandersnatch_sw_mul_projective(
+    base: &[u8],
+    limbs: &[u8],
+    n_limbs: usize,
+    out: &mut [u8; 65],
+) -> bool {
+    use ark_ec::short_weierstrass::SWCurveConfig;
+    use ark_ec::CurveGroup;
+    use ark_ed_on_bls12_381_bandersnatch::{BandersnatchConfig, SWAffine};
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    let Some(scalar) = parse_mul_projective_limbs(limbs, n_limbs) else {
+        return false;
+    };
+    let Ok(p) = SWAffine::deserialize_uncompressed_unchecked(base) else {
+        return false;
+    };
+    let res =
+        <BandersnatchConfig as SWCurveConfig>::mul_projective(&p.into(), &scalar[..n_limbs]);
+    res.into_affine().serialize_uncompressed(&mut out[..]).is_ok()
+}
+
+/// BLS12-381 G1 projective multiplication by a raw-limb scalar (96-byte
+/// uncompressed affine each way). Backs
+/// `ark_bls12_381_ext::CurveHooks::mul_projective_g1`.
+///
+/// PANIC GUARD: unlike the TE/SW/G2 arms (ark default double-and-add,
+/// arbitrary-width integer semantics), ark-bls12-381 0.5 overrides G1
+/// `mul_projective` with GLV, which converts the limbs to Fr via
+/// `from_sign_and_limbs` — that ASSERTS limbs.len() <= 4 (node-killing
+/// panic) and reduces 4-limb values mod r. We mirror plain arkworks
+/// bit-for-bit where it is defined (<= 4 limbs, byte-equality is the
+/// consensus gate) and fail closed where it would panic.
+pub fn rostro_bls381_g1_mul_projective(
+    base: &[u8],
+    limbs: &[u8],
+    n_limbs: usize,
+    out: &mut [u8; 96],
+) -> bool {
+    use ark_bls12_381::G1Affine;
+    use ark_ec::short_weierstrass::SWCurveConfig;
+    use ark_ec::CurveGroup;
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    if n_limbs > 4 {
+        return false;
+    }
+    let Some(scalar) = parse_mul_projective_limbs(limbs, n_limbs) else {
+        return false;
+    };
+    let Ok(p) = G1Affine::deserialize_uncompressed_unchecked(base) else {
+        return false;
+    };
+    let res = <ark_bls12_381::g1::Config as SWCurveConfig>::mul_projective(
+        &p.into(),
+        &scalar[..n_limbs],
+    );
+    res.into_affine().serialize_uncompressed(&mut out[..]).is_ok()
+}
+
+/// BLS12-381 G2 projective multiplication; as G1 but 192-byte points.
+/// Backs `ark_bls12_381_ext::CurveHooks::mul_projective_g2`.
+pub fn rostro_bls381_g2_mul_projective(
+    base: &[u8],
+    limbs: &[u8],
+    n_limbs: usize,
+    out: &mut [u8; 192],
+) -> bool {
+    use ark_bls12_381::G2Affine;
+    use ark_ec::short_weierstrass::SWCurveConfig;
+    use ark_ec::CurveGroup;
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    let Some(scalar) = parse_mul_projective_limbs(limbs, n_limbs) else {
+        return false;
+    };
+    let Ok(p) = G2Affine::deserialize_uncompressed_unchecked(base) else {
+        return false;
+    };
+    let res = <ark_bls12_381::g2::Config as SWCurveConfig>::mul_projective(
+        &p.into(),
+        &scalar[..n_limbs],
+    );
+    res.into_affine().serialize_uncompressed(&mut out[..]).is_ok()
 }
 
 /// ML-DSA-65 (Dilithium) verify. Pure-bytes API; same single-source-of-truth

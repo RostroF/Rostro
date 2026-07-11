@@ -260,6 +260,12 @@ impl<H: HostFunctions + 'static> RostroCodeExecutor<H> {
 		let mut linker = polkavm::Linker::<(), String>::new();
 		host_fn::register_substrate_host_functions::<(), H>(&mut linker)
 			.map_err(|e| format!("linker setup for '{method}': {e}"))?;
+		// Reserved-range intrinsic stubs: a runtime blob importing the
+		// RVM intrinsics (rostro-guest-crypto / rostro-curve-hooks) must
+		// instantiate here; the interpreter dispatches the ecalli inline,
+		// the stubs never execute.
+		host_fn::register_rostro_intrinsic_stubs::<()>(&mut linker)
+			.map_err(|e| format!("intrinsic stub setup for '{method}': {e}"))?;
 
 		let instance_pre = linker
 			.instantiate_pre(&module)

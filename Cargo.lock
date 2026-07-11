@@ -408,6 +408,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-curve25519"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d934c527bc397a2591e85dfabd3a705eaa5eed71be763c7e4b802d62ec41ae3"
+dependencies = [
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-std 0.5.0",
+]
+
+[[package]]
 name = "ark-ec"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -472,6 +483,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-ed-on-bls12-381"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba93ca6e75e5f589c139e5a41ebd783ebf2153de0025cd2b00da2963929c92ec"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-std 0.5.0",
+]
+
+[[package]]
 name = "ark-ed-on-bls12-381-bandersnatch"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -493,6 +516,30 @@ dependencies = [
  "ark-ed-on-bls12-381-bandersnatch",
  "ark-ff 0.5.0",
  "ark-models-ext",
+ "ark-std 0.5.0",
+]
+
+[[package]]
+name = "ark-ed-on-bn254"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "962e24e25cbdcaabe619c281a62bccc885f778b188129d6a02875c2671666219"
+dependencies = [
+ "ark-bn254",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-std 0.5.0",
+]
+
+[[package]]
+name = "ark-ed25519"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f7bef34b937f049401e156e80efaefce8d30a896cd927b06f9b01cdb8d5de53"
+dependencies = [
+ "ark-curve25519",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
  "ark-std 0.5.0",
 ]
 
@@ -710,6 +757,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-secp256r1"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cf8be5820de567729bfa73a410ddd07cec8ad102d9a4bf61fd6b2e60db264e8"
+dependencies = [
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-std 0.5.0",
+]
+
+[[package]]
 name = "ark-serialize"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -845,6 +903,37 @@ dependencies = [
  "digest 0.10.7",
  "rand_chacha 0.3.1",
  "rayon",
+ "sha2 0.10.9",
+ "w3f-ring-proof",
+ "zeroize",
+]
+
+[[package]]
+name = "ark-vrf"
+version = "0.1.1"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-bls12-381-ext",
+ "ark-bn254",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bls12-381",
+ "ark-ed-on-bls12-381-bandersnatch",
+ "ark-ed-on-bls12-381-bandersnatch-ext",
+ "ark-ed-on-bn254",
+ "ark-ed25519",
+ "ark-ff 0.5.0",
+ "ark-secp256r1",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
+ "digest 0.10.7",
+ "hex",
+ "hmac 0.12.1",
+ "indexmap 2.9.0",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "rostro-curve-hooks",
+ "serde",
+ "serde_json",
  "sha2 0.10.9",
  "w3f-ring-proof",
  "zeroize",
@@ -9027,6 +9116,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "primeorder",
+ "rand_core 0.6.4",
  "sha2 0.10.9",
 ]
 
@@ -11188,25 +11278,30 @@ dependencies = [
 name = "polkavm"
 version = "0.32.0"
 dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bls12-381-bandersnatch",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
  "blake2 0.10.6",
  "ed25519-zebra",
  "fips204",
  "k256",
  "libc",
  "log",
+ "p256",
  "p521",
  "picosimd",
  "polkavm-assembler",
- "polkavm-common 0.32.0",
+ "polkavm-common",
  "polkavm-linux-raw",
  "sha3 0.10.8",
+ "slh-dsa",
 ]
 
 [[package]]
 name = "polkavm-assembler"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48db9ab3568744d88514cfd8ca97f549913d17446e822fef20f9bd64598b8625"
 dependencies = [
  "log",
 ]
@@ -11218,15 +11313,6 @@ dependencies = [
  "log",
  "picosimd",
  "polkavm-assembler",
-]
-
-[[package]]
-name = "polkavm-common"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7be32b303518704bb6deda7ce5a02feedbdadccccfd03da5bd3fe8eb1cd30694"
-dependencies = [
- "picosimd",
 ]
 
 [[package]]
@@ -11239,10 +11325,8 @@ dependencies = [
 [[package]]
 name = "polkavm-derive-impl"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a396e7939ae0a723cabf639c23f0704423c8e470d01f52ad0cecf2dc283387f0"
 dependencies = [
- "polkavm-common 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "polkavm-common",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -11251,8 +11335,6 @@ dependencies = [
 [[package]]
 name = "polkavm-derive-impl-macro"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19eb3426df09ad4820b9beecd5c6754c5249b8fc5c6e94f0f559fbf7ce082fc3"
 dependencies = [
  "polkavm-derive-impl",
  "syn 2.0.117",
@@ -11267,7 +11349,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "log",
  "object 0.36.7",
- "polkavm-common 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "polkavm-common",
  "regalloc2 0.9.3",
  "rustc-demangle",
 ]
@@ -11275,8 +11357,6 @@ dependencies = [
 [[package]]
 name = "polkavm-linux-raw"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8afb212d0effe4097b7243f0828feed74ca49105e3082e9b43dd5c2e89bc91c"
 
 [[package]]
 name = "polling"
@@ -14053,6 +14133,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-cipher-rvm-bench"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "ed25519-zebra",
+ "fips204",
+ "k256",
+ "p521",
+ "polkavm",
+ "rostro-executor",
+ "rostro-executor-fixture-cipher-bench",
+ "schnorrkel 0.11.4",
+ "sha2 0.10.9",
+ "slh-dsa",
+ "sp-externalities",
+ "sp-io",
+ "sp-state-machine",
+]
+
+[[package]]
 name = "rostro-client"
 version = "0.1.0"
 dependencies = [
@@ -14098,6 +14201,22 @@ dependencies = [
  "sp-runtime",
  "thiserror 1.0.65",
  "tokio",
+]
+
+[[package]]
+name = "rostro-curve-hooks"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-bls12-381-ext",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bls12-381-bandersnatch",
+ "ark-ed-on-bls12-381-bandersnatch-ext",
+ "ark-ff 0.5.0",
+ "ark-models-ext",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
+ "polkavm-derive",
 ]
 
 [[package]]
@@ -14147,6 +14266,62 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-executor-fixture-cipher-bench"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "ed25519-zebra",
+ "fips204",
+ "k256",
+ "p521",
+ "polkavm-derive",
+ "schnorrkel 0.11.4",
+ "slh-dsa",
+ "sp-io",
+ "substrate-wasm-builder",
+]
+
+[[package]]
+name = "rostro-executor-fixture-facade-test"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bls12-381-bandersnatch",
+ "ark-serialize 0.5.0",
+ "polkavm-derive",
+ "rostro-guest-crypto",
+ "sp-io",
+ "substrate-wasm-builder",
+]
+
+[[package]]
+name = "rostro-executor-fixture-p256-bench"
+version = "0.1.0"
+dependencies = [
+ "p256",
+ "polkavm-derive",
+ "sha2 0.10.9",
+ "sp-io",
+ "substrate-wasm-builder",
+]
+
+[[package]]
+name = "rostro-executor-fixture-ring-bench"
+version = "0.1.0"
+dependencies = [
+ "ark-serialize 0.5.0",
+ "ark-vrf 0.1.0",
+ "ark-vrf 0.1.1",
+ "polkavm-derive",
+ "sp-io",
+ "substrate-wasm-builder",
+]
+
+[[package]]
 name = "rostro-executor-fixture-storage-roundtrip"
 version = "0.1.0"
 dependencies = [
@@ -14154,6 +14329,28 @@ dependencies = [
  "sp-core",
  "sp-io",
  "substrate-wasm-builder",
+]
+
+[[package]]
+name = "rostro-facade-rvm-test"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bls12-381-bandersnatch",
+ "ark-serialize 0.5.0",
+ "fips204",
+ "k256",
+ "p521",
+ "polkavm",
+ "rostro-executor",
+ "rostro-executor-fixture-facade-test",
+ "rostro-guest-crypto",
+ "slh-dsa",
+ "sp-core",
+ "sp-externalities",
+ "sp-io",
+ "sp-state-machine",
 ]
 
 [[package]]
@@ -14188,6 +14385,31 @@ dependencies = [
  "sp-storage",
  "sp-transaction-pool",
  "sp-version",
+]
+
+[[package]]
+name = "rostro-guest-crypto"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-bls12-381-ext",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bls12-381-bandersnatch",
+ "ark-ed-on-bls12-381-bandersnatch-ext",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
+ "ark-vrf 0.1.0",
+ "ark-vrf 0.1.1",
+ "fips204",
+ "k256",
+ "p256",
+ "p521",
+ "polkavm-derive",
+ "rostro-curve-hooks",
+ "slh-dsa",
+ "sp-core",
+ "sp-io",
 ]
 
 [[package]]
@@ -14274,7 +14496,7 @@ dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "ark-std 0.5.0",
- "ark-vrf",
+ "ark-vrf 0.1.1",
  "hex",
  "parity-scale-codec",
  "rand 0.8.5",
@@ -14415,6 +14637,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-p256-rvm-bench"
+version = "0.1.0"
+dependencies = [
+ "p256",
+ "polkavm",
+ "rostro-executor",
+ "rostro-executor-fixture-p256-bench",
+ "sha2 0.10.9",
+ "sp-externalities",
+ "sp-io",
+ "sp-state-machine",
+]
+
+[[package]]
 name = "rostro-poseidon-air"
 version = "0.1.0"
 dependencies = [
@@ -14479,6 +14715,20 @@ dependencies = [
  "thiserror 1.0.65",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "rostro-ring-rvm-bench"
+version = "0.1.0"
+dependencies = [
+ "ark-serialize 0.5.0",
+ "ark-vrf 0.1.1",
+ "polkavm",
+ "rostro-executor",
+ "rostro-executor-fixture-ring-bench",
+ "sp-externalities",
+ "sp-io",
+ "sp-state-machine",
 ]
 
 [[package]]
@@ -15629,6 +15879,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.9",
  "digest 0.10.7",
+ "sha2-asm",
+]
+
+[[package]]
+name = "sha2-asm"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b845214d6175804686b2bd482bcffe96651bb2d1200742b712003504a2dac1ab"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -16302,7 +16562,7 @@ dependencies = [
 name = "sp-core"
 version = "40.0.0"
 dependencies = [
- "ark-vrf",
+ "ark-vrf 0.1.1",
  "array-bytes 6.2.2",
  "bip39",
  "bitflags 1.3.2",
@@ -18834,7 +19094,7 @@ checksum = "225eaa083192400abfe78838e3089c539a361e0dd9b6884f61b5c6237676ec01"
 dependencies = [
  "ark-scale",
  "ark-serialize 0.5.0",
- "ark-vrf",
+ "ark-vrf 0.1.0",
  "bounded-collections 0.1.9",
  "derive-where",
  "parity-scale-codec",

@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+# W4 fixture (docs/RVM-VERIFY-INTRINSICS.md): the era-boundary proof.
+# Builds the Sassafras ring verifier key in-guest through BOTH stacks —
+# vendored ark-vrf (hooked curves → ecalli intrinsics) and plain upstream
+# ark-vrf (interpreted arkworks) — against the same natively computed
+# expected bytes. The harness times all three legs.
+
+[package]
+name = "rostro-executor-fixture-ring-bench"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+build = "build.rs"
+publish = false
+homepage.workspace = true
+repository.workspace = true
+description = "PVM fixture: ring-VRF verifier_key built in-guest, hooked (ecalli) vs plain (interpreted), equality-checked against native."
+
+[lints]
+workspace = true
+
+[dependencies]
+# Vendored, hooked (the engine switch under test).
+ark-vrf = { workspace = true, features = ["bandersnatch", "ring"] }
+# Plain upstream reference (0.1.0; 0.1.0 -> 0.1.1 is docs/formatting only).
+ark-vrf-plain = { package = "ark-vrf", version = "=0.1.0", default-features = false, features = ["bandersnatch", "ring"] }
+ark-serialize = { workspace = true }
+sp-io = { workspace = true }
+
+[build-dependencies]
+substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"ark-vrf/std",
+	"ark-vrf-plain/std",
+	"ark-serialize/std",
+	"sp-io/std",
+	"substrate-wasm-builder",
+]
+
+[target.'cfg(target_env = "polkavm")'.dependencies]
+polkavm-derive = { workspace = true }
