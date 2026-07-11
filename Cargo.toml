@@ -318,6 +318,8 @@ members = [
 	"substrate/utils/rostro-executor/tests/fixtures/cipher-bench-harness",
 	"substrate/utils/rostro-executor/tests/fixtures/facade-test",
 	"substrate/utils/rostro-executor/tests/fixtures/facade-test-harness",
+	"substrate/utils/rostro-executor/tests/fixtures/ring-bench",
+	"substrate/utils/rostro-executor/tests/fixtures/ring-bench-harness",
 	"substrate/utils/rostro-node-identity",
 	"substrate/utils/rostro-node-sandbox",
 	"substrate/utils/rostro-watchdog",

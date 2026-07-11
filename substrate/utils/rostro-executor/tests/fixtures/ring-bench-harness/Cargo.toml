@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# Host harness for the ring-bench fixture — see ../ring-bench/Cargo.toml.
+
+[package]
+name = "rostro-ring-rvm-bench"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+publish = false
+homepage.workspace = true
+repository.workspace = true
+description = "Host harness for the ring verifier-key fixture: three numbers (native / in-guest hooked / in-guest plain) plus byte-equality across all legs — the era-boundary proof."
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "ring-rvm-bench"
+path = "src/main.rs"
+
+[dependencies]
+polkavm = { workspace = true, default-features = false, features = ["std"] }
+rostro-executor = { workspace = true, default-features = true }
+rostro-executor-fixture-ring-bench = { path = "../ring-bench", default-features = true }
+ark-vrf = { workspace = true, default-features = true, features = ["bandersnatch", "ring"] }
+ark-serialize = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, default-features = true }
+sp-externalities = { workspace = true, default-features = true }
+sp-state-machine = { workspace = true, default-features = true }

@@ -369,7 +369,7 @@ demonstrates the pattern); differential tests pin the rest.
   plain ark-vrf's byte-for-byte, natively and in-guest (the ext types are
   repr-transparent, so this should hold trivially, and everything stands
   on it).
-- **W4, executor stubs + proofs (~half session).** Register stub host
+- **W4, executor stubs + proofs — DONE 2026-07-10 (see below).** Register stub host
   functions in rostro-executor for every intrinsic import symbol (one
   generic registration for the reserved range, not per-cipher stubs). Two
   fixture proofs: (a) ring-bench building `verifier_key(&pks)` at the PoC
@@ -464,6 +464,48 @@ The consensus gate, tested not assumed:
 
 In-guest equality and the era-boundary timing proof land with W4's
 fixtures (same fixture work).
+
+### W4 landing: executor stubs + the two proofs
+
+**Stubs on the node path.** `rostro-executor` now owns the canonical
+intrinsic-import symbol list (`ROSTRO_INTRINSIC_IMPORT_SYMBOLS`) and
+`register_rostro_intrinsic_stubs`, called on BOTH instantiation paths
+(`RostroCodeExecutor` and `call_with_host_fns`). A runtime blob importing
+the intrinsics instantiates on the node; a stub executing is a hard error
+by design. The facade-test harness instantiates through this registration,
+so a missing symbol fails loudly in CI, not at set_code time.
+
+**Proof (a), the era-boundary numbers** (`ring-bench{,-harness}` fixtures,
+`cargo run --release -p rostro-ring-rvm-bench`; WSL2, ring_size 255,
+deserialization measured separately and subtracted, verifier key
+byte-equal across all legs):
+
+| leg | verifier_key(255 pks) | vs native |
+|---|---|---|
+| native (plain arkworks) | 35.5 ms | 1x |
+| in-guest HOOKED (intrinsics) | 98 ms | 2.8x |
+| in-guest PLAIN (interpreted) | 2.81 s | 79x |
+
+The 79x reproduces the livelock arithmetic; hooked is 29x faster than
+plain and sits comfortably inside the 4 s era-boundary deadline. The
+residual 2.8x over native is the non-MSM piop bookkeeping that stays
+interpreted — acceptable, revisit only if the deadline ever tightens.
+
+**Proof (b), the facade set-guard** (`facade-rvm-bench`, second bin of the
+facade-test harness): every facade entry timed in-guest vs its native
+baseline; entries with native cost ≥ 100 µs must stay within 15x (an
+interpreted fallback lands at 50-450x, so the guard is unambiguous).
+Verify-class entries run 0.98-1.01x native in-guest; pairing paths
+1.4-1.6x; all guarded entries pass.
+
+**Finding, caught by proof (b) on its first run:** ark-ec's
+`VariableBaseMSM::msm_unchecked`/`msm_bigint` defaults do NOT route
+through the curve config — they go straight to the generic interpreted
+Pippenger, silently bypassing the hooks (results stay correct, 50-150x
+slower; the correctness fixture alone could never catch it). On hooked
+curves the entry point must be `msm()`, which w3f-pcs/ring-proof already
+use deliberately. Documented in rostro-curve-hooks' crate doc; the bench
+guard now pins it.
 
 ## 7. Deliberately not done
 

@@ -174,8 +174,13 @@ mod guest {
 					bases.push(p);
 					ss.push(s);
 				}
-				// Routes through the ext config's msm → hook (ecalli).
-				let acc = <$proj>::msm_unchecked(&bases, &ss).into_affine();
+				// VariableBaseMSM::msm routes through the ext config's msm
+				// override → hook (ecalli). msm_unchecked/msm_bigint would
+				// NOT: ark-ec's defaults go straight to the generic
+				// interpreted Pippenger, bypassing the Config seam — the
+				// bench harness exists to catch exactly that.
+				let Ok(acc) = <$proj>::msm(&bases, &ss) else { return 2 };
+				let acc = acc.into_affine();
 				let mut out = [0u8; $pt_len];
 				if acc.serialize_uncompressed(&mut out[..]).is_err() {
 					return 2;

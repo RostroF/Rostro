@@ -37,7 +37,10 @@ pub mod code_executor;
 pub mod host_fn;
 
 pub use code_executor::RostroCodeExecutor;
-pub use host_fn::{register_substrate_host_functions, RostroFunctionContext};
+pub use host_fn::{
+	register_rostro_intrinsic_stubs, register_substrate_host_functions, RostroFunctionContext,
+	ROSTRO_INTRINSIC_IMPORT_SYMBOLS,
+};
 
 use polkavm::{BackendKind, CallError, Config, Engine, GasMeteringKind, InterruptKind, Linker, Module, ModuleConfig, Reg};
 
@@ -215,6 +218,8 @@ impl RostroExecutor {
 	{
 		let mut linker = Linker::<(), String>::new();
 		host_fn::register_substrate_host_functions::<(), HF>(&mut linker)
+			.map_err(|e| Error::LinkerSetup(e.to_string()))?;
+		host_fn::register_rostro_intrinsic_stubs::<()>(&mut linker)
 			.map_err(|e| Error::LinkerSetup(e.to_string()))?;
 
 		let instance_pre = linker

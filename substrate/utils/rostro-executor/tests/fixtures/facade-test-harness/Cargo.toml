@@ -15,9 +15,17 @@ description = "Host harness for the rostro-guest-crypto correctness fixture: com
 [lints]
 workspace = true
 
+[lib]
+name = "rostro_facade_rvm_test"
+path = "src/lib.rs"
+
 [[bin]]
 name = "facade-rvm-test"
 path = "src/main.rs"
+
+[[bin]]
+name = "facade-rvm-bench"
+path = "src/bench.rs"
 
 [dependencies]
 polkavm = { workspace = true, default-features = false, features = ["std"] }

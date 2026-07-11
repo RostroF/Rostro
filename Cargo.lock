@@ -14305,6 +14305,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-executor-fixture-ring-bench"
+version = "0.1.0"
+dependencies = [
+ "ark-serialize 0.5.0",
+ "ark-vrf 0.1.0",
+ "ark-vrf 0.1.1",
+ "polkavm-derive",
+ "sp-io",
+ "substrate-wasm-builder",
+]
+
+[[package]]
 name = "rostro-executor-fixture-storage-roundtrip"
 version = "0.1.0"
 dependencies = [
@@ -14698,6 +14710,20 @@ dependencies = [
  "thiserror 1.0.65",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "rostro-ring-rvm-bench"
+version = "0.1.0"
+dependencies = [
+ "ark-serialize 0.5.0",
+ "ark-vrf 0.1.1",
+ "polkavm",
+ "rostro-executor",
+ "rostro-executor-fixture-ring-bench",
+ "sp-externalities",
+ "sp-io",
+ "sp-state-machine",
 ]
 
 [[package]]

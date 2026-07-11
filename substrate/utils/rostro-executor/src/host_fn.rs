@@ -219,6 +219,65 @@ where
 	Ok(())
 }
 
+/// Canonical import symbols of the RVM reserved-range intrinsics
+/// (`ROSTRO_INTRINSIC_*`, ecalli 100..1023). One entry per pinned import
+/// declared by runtime-side code: the verify class lives in
+/// `rostro-guest-crypto/src/ecalli.rs` (IDs 110-114, 123), the curve class
+/// in `rostro-curve-hooks/src/ecalli.rs` (IDs 115-119, 124-128) — those
+/// modules are the source of truth for names; keep this list in sync. The
+/// facade-test fixture instantiates through this registration, so a
+/// missing entry fails that harness loudly.
+pub const ROSTRO_INTRINSIC_IMPORT_SYMBOLS: &[&str] = &[
+	// verify class (rostro-guest-crypto)
+	"rostro_mldsa65_verify",
+	"rostro_p521_verify_prehash",
+	"rostro_p256_verify_prehash",
+	"rostro_slhdsa128s_verify",
+	"rostro_bls381_pairing_check",
+	"rostro_secp256k1_recover",
+	// curve class (rostro-curve-hooks)
+	"rostro_bls381_g1_msm",
+	"rostro_bls381_g2_msm",
+	"rostro_bls381_multi_miller_loop",
+	"rostro_bls381_final_exp",
+	"rostro_bandersnatch_te_msm",
+	"rostro_bandersnatch_te_mul_projective",
+	"rostro_bandersnatch_sw_msm",
+	"rostro_bandersnatch_sw_mul_projective",
+	"rostro_bls381_g1_mul_projective",
+	"rostro_bls381_g2_mul_projective",
+];
+
+/// Register inert stubs for every reserved-range intrinsic import symbol.
+///
+/// Stubs satisfy instantiation-time import resolution ONLY: the
+/// interpreter intercepts reserved-range ecalli inline in
+/// `FAST_OP_ECALLI`, so a stub actually executing means this node's VM
+/// does not implement the intrinsic the blob was built against — a hard
+/// error by design (deployment invariant: node before runtime; an old
+/// runtime on a new node just interprets, a new runtime on an old node
+/// must fail loudly, never fall back silently).
+pub fn register_rostro_intrinsic_stubs<UD>(
+	linker: &mut Linker<UD, String>,
+) -> Result<(), polkavm::Error>
+where
+	UD: 'static,
+{
+	for name in ROSTRO_INTRINSIC_IMPORT_SYMBOLS {
+		linker.define_untyped(
+			name.as_bytes().to_vec(),
+			move |_caller: Caller<UD>| -> Result<(), String> {
+				Err(format!(
+					"unreachable: {name} is a reserved-range RVM intrinsic dispatched inline \
+					 by the interpreter; a stub executing means this node's VM lacks the \
+					 intrinsic this runtime was built against"
+				))
+			},
+		)?;
+	}
+	Ok(())
+}
+
 /// Bridge a single substrate host-function call. Extracts args from
 /// `caller`'s registers per the function's [`Signature`], builds a
 /// [`RostroFunctionContext`], invokes [`Function::execute`], writes the

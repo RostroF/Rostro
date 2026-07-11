@@ -16,6 +16,17 @@
 //! depend on the hooked curves without a dependency cycle through sp-io.
 //! Runtime code should keep reaching it through the facade
 //! (`rostro_guest_crypto::hooks`).
+//!
+//! ## MSM entry-point footgun
+//!
+//! On the hooked curves, call `VariableBaseMSM::msm(bases, scalars)` — it
+//! routes through the curve config's override into the hooks. ark-ec's
+//! `msm_unchecked`/`msm_bigint` defaults go straight to the generic
+//! Pippenger implementation and BYPASS the config seam entirely: correct
+//! results, interpreted speed (50-150x). w3f-pcs/ring-proof already call
+//! `msm()` for exactly this reason; the facade bench harness
+//! (`facade-rvm-bench`) guards against regressions to the bypassing entry
+//! points.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
