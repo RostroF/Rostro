@@ -520,6 +520,23 @@ curves the entry point must be `msm()`, which w3f-pcs/ring-proof already
 use deliberately. Documented in rostro-curve-hooks' crate doc; the bench
 guard now pins it.
 
+**Second finding (the large-n MSM row):** the wire ABI charges a CONSTANT
+~30 µs of interpreted Montgomery↔bytes conversion per point (input
+deserialize in the consumer plus re-serialize in the hook marshalling),
+while Pippenger's native per-point cost FALLS with n (~6 µs at n=5,
+~1.6 µs at n=256). A pure MSM measured bytes-to-bytes therefore diverges
+from native as n grows — 8.5x at n=5, ~18-24x at n=256 — and that is
+conversion cost, not compute: a true interpreted fallback measures
+100-150x at that size, which is what the row's dedicated 60x guard
+distinguishes. This also revises the ring residue attribution: a
+meaningful share of the hooked verifier_key's ~60-130 ms residue is this
+per-point serialize inside the MSM hooks, not only piop bookkeeping.
+The lever, if an MSM-bound path ever needs true ~1x: a raw
+Montgomery-limb ABI variant (memcpy marshalling of the point structs'
+limbs; the same repr-transparency bet ark-models-ext's transmute already
+stakes, acceptable for a vendored pinned ark). Candidate follow-up, not
+scheduled — the era-boundary numbers hold regardless.
+
 ## 7. Deliberately not done
 
 - **Gas surcharges for the new intrinsics**: deferred to the

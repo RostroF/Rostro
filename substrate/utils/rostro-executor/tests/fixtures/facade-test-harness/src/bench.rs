@@ -70,10 +70,11 @@ fn main() {
 			)
 		};
 		let ratio = guest.as_secs_f64() / native.as_secs_f64();
-		let guarded = native >= GUARD_FLOOR;
+		let max_ratio = case.guard_max.unwrap_or(MAX_RATIO);
+		let guarded = native >= GUARD_FLOOR || case.guard_max.is_some();
 		let verdict = if !guarded {
 			"-"
-		} else if ratio <= MAX_RATIO {
+		} else if ratio <= max_ratio {
 			"ok"
 		} else {
 			violations += 1;
