@@ -1,7 +1,8 @@
 # RVM Verify Intrinsics: Origin, the Era-Boundary Livelock, Benchmarks, Work Done, Roadmap
 
 Status: living document. Written 2026-07-10 on branch `p256-bench-v0`
-(commits `11c159e1b7`, `b10ae65bba`, `ef091ec3c7`). Not merged, not pushed.
+(commits `11c159e1b7`, `b10ae65bba`, `ef091ec3c7`; W1 landed same day as a
+fourth commit). Not merged, not pushed.
 
 ## 1. Origin
 
@@ -236,6 +237,58 @@ sandbox and JIT-backend tests never enumerate on WSL2) are covered by the
 bare-metal runbook: `rostro-testnet-lab/notes/rvm-baremetal-test-runbook-20260710.md`,
 with a transfer bundle at `rostro-testnet-lab/binaries/p256-bench-v0.bundle`.
 
+### W1 commit: CurveHooks-surface completion
+
+Eight new intrinsics complete native coverage of both ext-crate hooks
+surfaces (ark-bls12-381-ext, 6 methods; ark-ed-on-bls12-381-bandersnatch-ext,
+4 methods), so W2's `RostroCurveHooks` never falls back to interpreted
+arkworks:
+
+| ID | intrinsic | ABI (registers) |
+|---|---|---|
+| 117 | BLS12-381 multi Miller loop | A0=pairs (n x 288B G1‖G2), A1=n ≤ 8, A2=out (576B Fq12) → A0=1/0 |
+| 118 | BLS12-381 final exponentiation | A0=in (576B Fq12), A1=out (576B) → A0=1/0 (0 incl. the non-invertible zero input) |
+| 119 | Bandersnatch TE MSM | A0=points (n x 64B), A1=scalars (n x 32B Fr), A2=n ≤ 8192, A3=out (64B) |
+| 124 | Bandersnatch TE mul_projective | A0=base (64B), A1=limbs (LE u64), A2=n_limbs ≤ 8, A3=out (64B) |
+| 125 | Bandersnatch SW MSM | as 119 with 65B points |
+| 126 | Bandersnatch SW mul_projective | as 124 with 65B points |
+| 127 | BLS12-381 G1 mul_projective | as 124 with 96B points; n_limbs ≤ 4 (GLV guard, below) |
+| 128 | BLS12-381 G2 mul_projective | as 124 with 192B points |
+
+Plus the planned revisions: 115/116 flipped to unchecked deserialization
+(and `msm_unchecked`, matching the hooks defaults), `MAX_BLS_MSM` 2048 →
+8192 with hook-side chunking beyond (MSM is additive; chunked results are
+bit-identical). 114 stays checked — it is the standalone adversarial
+verifier, not a hooks backing.
+
+The open `mul_projective` question is settled: dedicated intrinsics, not
+MSM-of-1. MSM scalars are canonical mod-r Fr; `mul_projective` takes raw
+integer limbs and is used on cofactor-uncleared points, where `k` and
+`k mod r` act differently. The KAT pins this with a 5-limb (2^256 + 7)
+scalar against ark's own `mul_bigint`.
+
+Two ABI-shaping findings, both caught by KATs:
+
+- **Bandersnatch SW points are 65 bytes, not 64.** The 2-bit SW
+  serialization flags do not fit the single spare bit of the 255-bit base
+  field, so arkworks appends a flag byte (TE flags are 1 bit and fit; TE
+  stays 64B).
+- **ark's G1 `mul_projective` is a node-killing panic surface.**
+  ark-bls12-381 0.5 GLV-overrides G1 (only G1: G2 and both bandersnatch
+  forms use the default double-and-add), converting limbs to Fr via
+  `from_sign_and_limbs`, which `assert!`s limbs.len() ≤ 4 and reduces
+  mod r. The intrinsic mirrors plain arkworks bit-for-bit where it is
+  defined (≤ 4 limbs — byte equality is the consensus gate) and fails
+  closed at 5+ instead of inheriting the panic.
+
+KATs 18 → 25: split-path Miller+final-exp equals ark's one-shot `pairing()`
+byte-for-byte AND final-exponentiates the bilinearity pair set to the GT
+identity; bandersnatch 2G+3G=5G in both forms; every `mul_projective` arm
+against `mul_bigint` on identical limbs; the G1 GLV guard; off-curve input
+under unchecked deserialization is deterministic and panic-free; bad limb
+counts fail closed. Linker suite still 71/71; full cipher matrix and the
+riscv gemini-node release build re-validated under the closed graph.
+
 ## 6. Next steps: settle runtime crypto for ALL ciphers (Backend B, generalized)
 
 Two decisions shape this section. First: no host-function shim (Backend A)
@@ -284,7 +337,7 @@ demonstrates the pattern); differential tests pin the rest.
 
 ### Work plan
 
-- **W1, RVM intrinsic completion (~1 session).** Add `multi_miller_loop =
+- **W1, RVM intrinsic completion — DONE 2026-07-10 (see section 5).** Add `multi_miller_loop =
   117` and `final_exponentiation = 118` (the hooks API needs the pairing
   split; pairing_check stays for standalone adversarial verification). Add
   the bandersnatch inner-curve set per the ed-on-bls12-381-bandersnatch-ext
