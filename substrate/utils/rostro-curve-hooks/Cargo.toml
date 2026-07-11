@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rostro-curve-hooks"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+publish = false
+homepage.workspace = true
+repository.workspace = true
+description = "RostroCurveHooks: the arkworks ext-curve CurveHooks backend (ecalli intrinsics in-guest, transmute-delegation natively). Split from rostro-guest-crypto so ark-vrf and sp-core can depend on it without a dependency cycle through sp-io."
+
+[lints]
+workspace = true
+
+[dependencies]
+ark-bls12-381 = { workspace = true, features = ["curve"] }
+ark-bls12-381-ext = { workspace = true }
+ark-ec = { workspace = true }
+ark-ed-on-bls12-381-bandersnatch = { workspace = true }
+ark-ed-on-bls12-381-bandersnatch-ext = { workspace = true }
+ark-ff = { workspace = true }
+ark-models-ext = { workspace = true }
+ark-serialize = { workspace = true }
+ark-std = { workspace = true }
+
+[target.'cfg(target_env = "polkavm")'.dependencies]
+polkavm-derive = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+	"ark-bls12-381/std",
+	"ark-bls12-381-ext/std",
+	"ark-ec/std",
+	"ark-ed-on-bls12-381-bandersnatch/std",
+	"ark-ed-on-bls12-381-bandersnatch-ext/std",
+	"ark-ff/std",
+	"ark-models-ext/std",
+	"ark-serialize/std",
+	"ark-std/std",
+]

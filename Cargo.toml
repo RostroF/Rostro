@@ -304,12 +304,22 @@ members = [
 	"substrate/utils/rostro-validator-channel",
 	"substrate/utils/rostro-canonicalize",
 	"substrate/utils/rostro-client",
+	"substrate/utils/rostro-curve-hooks",
 	"substrate/utils/rostro-curve25519",
 	"substrate/utils/rostro-executor",
+	"substrate/utils/rostro-guest-crypto",
 	"substrate/utils/rostro-history-anchor-verify",
 	"substrate/utils/rostro-hybrid-kex",
 	"substrate/utils/rostro-hybrid-sig",
 	"substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip",
+	"substrate/utils/rostro-executor/tests/fixtures/p256-bench",
+	"substrate/utils/rostro-executor/tests/fixtures/p256-bench-harness",
+	"substrate/utils/rostro-executor/tests/fixtures/cipher-bench",
+	"substrate/utils/rostro-executor/tests/fixtures/cipher-bench-harness",
+	"substrate/utils/rostro-executor/tests/fixtures/facade-test",
+	"substrate/utils/rostro-executor/tests/fixtures/facade-test-harness",
+	"substrate/utils/rostro-executor/tests/fixtures/ring-bench",
+	"substrate/utils/rostro-executor/tests/fixtures/ring-bench-harness",
 	"substrate/utils/rostro-node-identity",
 	"substrate/utils/rostro-node-sandbox",
 	"substrate/utils/rostro-watchdog",
@@ -365,6 +375,9 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 	'cfg(fuzzing)',
 	'cfg(ignore_flaky_test)',
 	'cfg(substrate_runtime)',
+	# RostroVM guest target (riscv64emac-unknown-none-polkavm) — the
+	# predicate rostro-guest-crypto routes its ecalli backend on.
+	'cfg(target_env, values("polkavm"))',
 ] }
 
 [workspace.lints.clippy]
@@ -427,6 +440,7 @@ ark-ed-on-bls12-381-bandersnatch = { version = "0.5.0", default-features = false
 ark-ed-on-bls12-381-bandersnatch-ext = { version = "0.5.0", default-features = false }
 ark-ff = { version = "0.5.0", default-features = false }
 ark-groth16 = { version = "0.5.0", default-features = false }
+ark-models-ext = { version = "0.5.0", default-features = false }
 ark-pallas = { version = "0.5.0", default-features = false }
 ark-pallas-ext = { version = "0.5.0", default-features = false }
 ark-r1cs-std = { version = "0.5.0", default-features = false }
@@ -437,7 +451,8 @@ ark-snark = { version = "0.5.0", default-features = false }
 ark-std = { version = "0.5.0", default-features = false }
 ark-vesta = { version = "0.5.0", default-features = false }
 ark-vesta-ext = { version = "0.5.0", default-features = false }
-ark-vrf = { version = "0.1.0", default-features = false }
+# Vendored with the Rostro engine switch (hooked curves) — see substrate/external/ark-vrf/VENDOR.md.
+ark-vrf = { path = "substrate/external/ark-vrf", default-features = false }
 array-bytes = { version = "6.2.2", default-features = false }
 arrayvec = { version = "0.7.4" }
 assert_cmd = { version = "2.0.14" }
@@ -519,6 +534,7 @@ finality-grandpa = { version = "0.16.3", default-features = false }
 flate2 = { version = "1.0" }
 fnv = { version = "1.0.6" }
 foldhash = { version = "0.1.5", default-features = false }
+fips204 = { version = "0.4", default-features = false }
 fork-tree = { path = "substrate/utils/fork-tree", default-features = false }
 forwarded-header-value = { version = "0.1.1" }
 fraction = { version = "0.13.1" }
@@ -707,6 +723,8 @@ zk-pki-tpm = { path = "substrate/utils/zkpki-tpm", default-features = false }
 rostro-curve25519 = { path = "substrate/utils/rostro-curve25519", default-features = false }
 rostro-executor = { path = "substrate/utils/rostro-executor", default-features = false }
 rostro-executor-fixture-storage-roundtrip = { path = "substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip", default-features = false }
+rostro-curve-hooks = { path = "substrate/utils/rostro-curve-hooks", default-features = false }
+rostro-guest-crypto = { path = "substrate/utils/rostro-guest-crypto", default-features = false }
 rostro-hybrid-kex = { path = "substrate/utils/rostro-hybrid-kex", default-features = false }
 rostro-hybrid-sig = { path = "substrate/utils/rostro-hybrid-sig", default-features = false }
 rostro-node-sandbox = { path = "substrate/utils/rostro-node-sandbox", default-features = false }
@@ -758,6 +776,7 @@ paste = { version = "1.0.15", default-features = false }
 # Versions pinned to the set the original ~/Polkadot/pki/ workspace was built
 # against; do not bump without re-validating zkpki-tpm + zkpki-integrity.
 p256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+p521 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 
 # Plonky3 — FRI-based STARK proof system, post-quantum-secure.
@@ -1150,3 +1169,18 @@ zeroize = { opt-level = 3 }
 [patch.crates-io]
 soketto = { path = "substrate/external/soketto" }
 hyper = { path = "substrate/external/hyper" }
+# Rostro (2026-07-10): close the dependency graph over the vendored RostroVM
+# crates. The vendored crates inter-reference by crates.io VERSION spec
+# (tarball normalization), so version edges inside them escaped to pristine
+# crates.io copies — the lockfile carried a registry polkavm-assembler and a
+# second registry polkavm-common, i.e. the shipped node was linking VM bytes
+# that are NOT in this tree, violating the VENDOR.md audit premise. These
+# entries force every polkavm-family edge to the vendored sources.
+polkavm = { path = "substrate/external/rostrovm/polkavm" }
+polkavm-assembler = { path = "substrate/external/rostrovm/polkavm-assembler" }
+polkavm-common = { path = "substrate/external/rostrovm/polkavm-common" }
+polkavm-derive = { path = "substrate/external/rostrovm/polkavm-derive" }
+polkavm-derive-impl = { path = "substrate/external/rostrovm/polkavm-derive-impl" }
+polkavm-derive-impl-macro = { path = "substrate/external/rostrovm/polkavm-derive-impl-macro" }
+polkavm-linker = { path = "substrate/external/rostrovm/polkavm-linker" }
+polkavm-linux-raw = { path = "substrate/external/rostrovm/polkavm-linux-raw" }

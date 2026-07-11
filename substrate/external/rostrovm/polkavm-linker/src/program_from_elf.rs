@@ -1639,12 +1639,52 @@ fn check_imports_and_assign_indexes(imports: &mut Vec<Import>, used_imports: &Ha
                 }
 
                 max_index = core::cmp::max(max_index, index);
-            } else {
-                return Err(ProgramFromElfError::other(format!(
-                    "import without a specified index: {}",
-                    ProgramSymbol::new(&*import.metadata.symbol)
-                )));
             }
+        }
+
+        // Rostro (2026-07-10): upstream refused to mix pinned-index imports
+        // with symbolic ones, which made it impossible for a substrate-built
+        // runtime blob (symbolic sp_io imports, indices assigned here) to
+        // also call a reserved-index crypto intrinsic (`polkavm_import(index
+        // = 100..1023)`, intercepted inline by the interpreter). Instead,
+        // auto-assign every symbolic import to the lowest free index BELOW
+        // the reserved intrinsic base, sorted by symbol so the assignment is
+        // deterministic. Reaching the base is a hard error: an auto-assigned
+        // import in the reserved range would be silently swallowed by the
+        // interpreter's intrinsic dispatch instead of reaching its host
+        // function.
+        const ROSTRO_RESERVED_INTRINSIC_BASE: u32 = 100;
+        let mut unpinned: Vec<usize> = imports
+            .iter()
+            .enumerate()
+            .filter(|(_, import)| import.metadata.index.is_none())
+            .map(|(nth_import, _)| nth_import)
+            .collect();
+        unpinned.sort_by(|&a, &b| imports[a].metadata.symbol.cmp(&imports[b].metadata.symbol));
+
+        let mut index_by_symbol: HashMap<Vec<u8>, u32> = HashMap::new();
+        let mut next_free: u32 = 0;
+        for nth_import in unpinned {
+            let symbol = imports[nth_import].metadata.symbol.clone();
+            let index = if let Some(&index) = index_by_symbol.get(&symbol) {
+                index
+            } else {
+                while import_by_index.contains_key(&next_free) {
+                    next_free += 1;
+                }
+                if next_free >= ROSTRO_RESERVED_INTRINSIC_BASE {
+                    return Err(ProgramFromElfError::other(format!(
+                        "too many symbolic imports: auto-assignment reached the reserved \
+                         intrinsic index range ({ROSTRO_RESERVED_INTRINSIC_BASE}..1024); \
+                         prune host-function imports or move the reserved base"
+                    )));
+                }
+                import_by_index.insert(next_free, imports[nth_import].metadata.clone());
+                index_by_symbol.insert(symbol, next_free);
+                max_index = core::cmp::max(max_index, next_free);
+                next_free
+            };
+            imports[nth_import].metadata.index = Some(index);
         }
 
         // If there are any holes in the indexes then insert dummy imports.
@@ -9921,7 +9961,15 @@ impl Default for Config {
             inline_threshold: 2,
             elide_unnecessary_loads: true,
             dispatch_table: Vec::new(),
-            min_stack_size: VM_MIN_PAGE_SIZE * 2,
+            // Rostro (2026-07-10): upstream defaulted to 8 KiB (VM_MIN_PAGE_SIZE
+            // * 2) — a smart-contract heritage. Chain-runtime guests doing real
+            // cryptography overflow it (k256 recovery lincomb traps; ML-DSA-65
+            // needs ~256 KiB), and a stack-overflow trap in consensus code is a
+            // liveness bug that only surfaces on the deepest-recursing input.
+            // Safe-by-default: 1 MiB floor, still raisable per-blob via
+            // `polkavm_derive::min_stack_size!` (the max of both wins). Baked
+            // into the blob header at link time — existing blobs unaffected.
+            min_stack_size: 1024 * 1024,
             gas_cost_model_aware_optimizations: true,
         }
     }

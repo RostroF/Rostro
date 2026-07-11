@@ -21,12 +21,41 @@
 //   - dilithium_verify:   Skipped — needs sig + key fixture extraction;
 //                         AGREE matrix is the proxy until then.
 //   - p521_ecdsa_verify:  Skipped — same reason.
+//   - p256_ecdsa_verify:  RFC 6979 §A.2.5 (P-256 + SHA-256, message
+//                         "sample") — deterministic ECDSA, so r||s are
+//                         spec-published constants.
+//   - slhdsa_128s_verify: self-consistency anchor (deterministic keygen from
+//                         fixed FIPS 205 seeds + deterministic sign, then
+//                         verify + tamper-negative). Published ACVP vectors
+//                         are large JSON blobs; extraction tracked like
+//                         dilithium's. Sign/verify drift across a vendored-
+//                         crate change surfaces here.
+//   - bls381_*:           mathematically pinned properties of the curve —
+//                         bilinearity (e(2G1,G2)·e(-2G1,G2) = 1) and MSM
+//                         (2G + 3G = 5G). No external vector needed; the
+//                         curve definition IS the spec.
+//   - miller/final-exp:   composition anchor — the split path must equal
+//                         ark's one-shot pairing byte-for-byte, natively.
+//   - bandersnatch_*:     same curve-definition anchors as bls381 (2G+3G=5G;
+//                         mul_projective against ark's own mul_bigint).
+//   - *_mul_projective:   pinned against ark mul_bigint on identical raw
+//                         limbs, including a 5-limb (> Fr-width) scalar —
+//                         the integer, non-mod-r semantics MSM cannot give.
+//   - unchecked deser:    the CurveHooks-contract arms (MSM, miller loop)
+//                         must be deterministic and panic-free on off-curve
+//                         input (garbage in = deterministic garbage out).
 //
 // See docs/SECURITY-AUDIT-TIER2-INTRINSICS.md for A6.
 
 use polkavm::rostro_intrinsics::{
-	goldilocks_add_native, goldilocks_mul_native, goldilocks_sub_native, rostro_blake2b_256,
-	rostro_ed25519_verify, rostro_keccak_256, rostro_poseidon2_permute, rostro_secp256k1_recover,
+	goldilocks_add_native, goldilocks_mul_native, goldilocks_sub_native,
+	rostro_bandersnatch_sw_msm, rostro_bandersnatch_sw_mul_projective,
+	rostro_bandersnatch_te_msm, rostro_bandersnatch_te_mul_projective, rostro_blake2b_256,
+	rostro_bls381_final_exponentiation, rostro_bls381_g1_msm, rostro_bls381_g1_mul_projective,
+	rostro_bls381_g2_msm, rostro_bls381_g2_mul_projective, rostro_bls381_multi_miller_loop,
+	rostro_bls381_pairing_check, rostro_ed25519_verify, rostro_keccak_256,
+	rostro_p256_ecdsa_verify_prehash, rostro_poseidon2_permute, rostro_secp256k1_recover,
+	rostro_slhdsa_128s_verify,
 };
 
 fn hex32(s: &str) -> [u8; 32] {
@@ -180,6 +209,365 @@ fn kat_secp256k1_recover_rejects_recid_2() {
 	sig_65[64] = 2; // x-reduced bit; Ethereum strict mode rejects.
 	let mut out_pk = [0u8; 64];
 	assert!(!rostro_secp256k1_recover(&msg_hash, &sig_65, &mut out_pk));
+}
+
+#[test]
+fn kat_p256_ecdsa_verify_rfc6979_a_2_5() {
+	// RFC 6979 §A.2.5: P-256 + SHA-256, message "sample". Deterministic
+	// ECDSA, so the signature is a spec-published constant.
+	//   Ux = 60FED4BA255A9D31C961EB74C6356D68C049B8923B61FA6CE669622E60F29FB6
+	//   Uy = 7903FE1008B8BC99A41AE9E95628BC64F2F1B20C2D7E9F5177A3C294D4462299
+	// Uy is odd → compressed SEC1 prefix 0x03.
+	let ux = hex32("60FED4BA255A9D31C961EB74C6356D68C049B8923B61FA6CE669622E60F29FB6");
+	let mut vk = [0u8; 33];
+	vk[0] = 0x03;
+	vk[1..].copy_from_slice(&ux);
+	let sig = hex64(
+		"EFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8",
+	);
+	// prehash = SHA-256("sample").
+	let digest = hex32("AF2BDBE1AA9B6EC1E2ADE1D694F41FC71A831D0268E9891562113D8A62ADD1BF");
+	assert!(rostro_p256_ecdsa_verify_prehash(&vk, &sig, &digest));
+}
+
+#[test]
+fn kat_p256_ecdsa_verify_rejects_tampered() {
+	// Negative cases against the RFC 6979 §A.2.5 vector: corrupt one byte of
+	// the signature, then of the digest — both must fail.
+	let ux = hex32("60FED4BA255A9D31C961EB74C6356D68C049B8923B61FA6CE669622E60F29FB6");
+	let mut vk = [0u8; 33];
+	vk[0] = 0x03;
+	vk[1..].copy_from_slice(&ux);
+	let sig = hex64(
+		"EFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8",
+	);
+	let digest = hex32("AF2BDBE1AA9B6EC1E2ADE1D694F41FC71A831D0268E9891562113D8A62ADD1BF");
+	let mut bad_sig = sig;
+	bad_sig[0] ^= 1;
+	assert!(!rostro_p256_ecdsa_verify_prehash(&vk, &bad_sig, &digest));
+	let mut bad_digest = digest;
+	bad_digest[31] ^= 1;
+	assert!(!rostro_p256_ecdsa_verify_prehash(&vk, &sig, &bad_digest));
+	// Wrong parity prefix = different point (or invalid) — must not verify.
+	let mut vk_even = vk;
+	vk_even[0] = 0x02;
+	assert!(!rostro_p256_ecdsa_verify_prehash(&vk_even, &sig, &digest));
+}
+
+#[test]
+fn kat_slhdsa_128s_self_consistent() {
+	// Deterministic keygen from fixed FIPS 205 seeds (sk_seed, sk_prf,
+	// pk_seed) + deterministic sign (no randomizer), then verify through
+	// the intrinsic body. Tamper-negatives on both signature and message.
+	let sk = slh_dsa::SigningKey::<slh_dsa::Sha2_128s>::slh_keygen_internal(
+		&[0x01u8; 16],
+		&[0x02u8; 16],
+		&[0x03u8; 16],
+	);
+	let vk_bytes = sk.as_ref().to_bytes();
+	let msg = b"rostro finality vote";
+	let sig = sk.try_sign_with_context(msg, &[], None).expect("sign");
+	let sig_bytes = sig.to_bytes();
+	assert_eq!(sig_bytes.len(), 7856);
+	assert!(rostro_slhdsa_128s_verify(&vk_bytes, msg, &sig_bytes, &[]));
+	let mut bad_sig = sig_bytes.clone();
+	bad_sig[0] ^= 1;
+	assert!(!rostro_slhdsa_128s_verify(&vk_bytes, msg, &bad_sig, &[]));
+	assert!(!rostro_slhdsa_128s_verify(&vk_bytes, b"rostro finality vot3", &sig_bytes, &[]));
+	// Context string is part of the signed content (FIPS 205): wrong ctx fails.
+	assert!(!rostro_slhdsa_128s_verify(&vk_bytes, msg, &sig_bytes, b"ctx"));
+}
+
+fn bls_g1(k: i64) -> Vec<u8> {
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_serialize::CanonicalSerialize;
+	let p = (ark_bls12_381::G1Affine::generator() * ark_bls12_381::Fr::from(k)).into_affine();
+	let mut buf = Vec::new();
+	p.serialize_uncompressed(&mut buf).expect("serialize");
+	buf
+}
+
+fn bls_g2(k: i64) -> Vec<u8> {
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_serialize::CanonicalSerialize;
+	let p = (ark_bls12_381::G2Affine::generator() * ark_bls12_381::Fr::from(k)).into_affine();
+	let mut buf = Vec::new();
+	p.serialize_uncompressed(&mut buf).expect("serialize");
+	buf
+}
+
+#[test]
+fn kat_bls381_pairing_check_bilinearity() {
+	// e(2·G1, G2) · e(-2·G1, G2) = e((2-2)·G1, G2) = 1 — pinned by
+	// bilinearity; the curve definition is the spec.
+	let mut pairs = Vec::new();
+	pairs.extend_from_slice(&bls_g1(2));
+	pairs.extend_from_slice(&bls_g2(1));
+	pairs.extend_from_slice(&bls_g1(-2));
+	pairs.extend_from_slice(&bls_g2(1));
+	assert!(rostro_bls381_pairing_check(&pairs, 2));
+
+	// Non-identity product must fail.
+	let mut bad = Vec::new();
+	bad.extend_from_slice(&bls_g1(2));
+	bad.extend_from_slice(&bls_g2(1));
+	bad.extend_from_slice(&bls_g1(1));
+	bad.extend_from_slice(&bls_g2(1));
+	assert!(!rostro_bls381_pairing_check(&bad, 2));
+
+	// Malformed point (corrupted byte) must fail closed.
+	let mut corrupt = pairs.clone();
+	corrupt[3] ^= 1;
+	assert!(!rostro_bls381_pairing_check(&corrupt, 2));
+}
+
+#[test]
+fn kat_bls381_msm_known() {
+	// 2·G + 3·G = 5·G in both groups.
+	let mut points = Vec::new();
+	points.extend_from_slice(&bls_g1(1));
+	points.extend_from_slice(&bls_g1(1));
+	let mut scalars = Vec::new();
+	{
+		use ark_serialize::CanonicalSerialize;
+		for k in [2i64, 3i64] {
+			let mut buf = Vec::new();
+			ark_bls12_381::Fr::from(k).serialize_uncompressed(&mut buf).expect("fr");
+			assert_eq!(buf.len(), 32);
+			scalars.extend_from_slice(&buf);
+		}
+	}
+	let mut out = [0u8; 96];
+	assert!(rostro_bls381_g1_msm(&points, &scalars, 2, &mut out));
+	assert_eq!(&out[..], &bls_g1(5)[..]);
+
+	let mut points2 = Vec::new();
+	points2.extend_from_slice(&bls_g2(1));
+	points2.extend_from_slice(&bls_g2(1));
+	let mut out2 = [0u8; 192];
+	assert!(rostro_bls381_g2_msm(&points2, &scalars, 2, &mut out2));
+	assert_eq!(&out2[..], &bls_g2(5)[..]);
+}
+
+fn bls_fr(k: i64) -> [u8; 32] {
+	use ark_serialize::CanonicalSerialize;
+	let mut buf = [0u8; 32];
+	ark_bls12_381::Fr::from(k)
+		.serialize_uncompressed(&mut buf[..])
+		.expect("fr");
+	buf
+}
+
+#[test]
+fn kat_bls381_miller_final_exp_composes_to_pairing() {
+	// Split-path anchor: multi_miller_loop + final_exponentiation must equal
+	// ark's one-shot pairing byte-for-byte. This is the exact composition the
+	// CurveHooks pairing path performs in two ecalli round-trips.
+	use ark_ec::pairing::Pairing;
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_serialize::CanonicalSerialize;
+	let mut pair = Vec::new();
+	pair.extend_from_slice(&bls_g1(2));
+	pair.extend_from_slice(&bls_g2(3));
+	let mut mlo = [0u8; 576];
+	assert!(rostro_bls381_multi_miller_loop(&pair, 1, &mut mlo));
+	let mut gt = [0u8; 576];
+	assert!(rostro_bls381_final_exponentiation(&mlo, &mut gt));
+
+	let g1 = (ark_bls12_381::G1Affine::generator() * ark_bls12_381::Fr::from(2)).into_affine();
+	let g2 = (ark_bls12_381::G2Affine::generator() * ark_bls12_381::Fr::from(3)).into_affine();
+	let expected = ark_bls12_381::Bls12_381::pairing(g1, g2);
+	let mut expected_bytes = Vec::new();
+	expected.0.serialize_uncompressed(&mut expected_bytes).expect("gt");
+	assert_eq!(&gt[..], &expected_bytes[..]);
+
+	// And the bilinearity identity through the split path: the 2-pair Miller
+	// loop over e(2G1,G2)·e(-2G1,G2) final-exponentiates to the GT identity —
+	// the same property 114 verifies in one shot.
+	use ark_ff::One;
+	let mut pairs = Vec::new();
+	pairs.extend_from_slice(&bls_g1(2));
+	pairs.extend_from_slice(&bls_g2(1));
+	pairs.extend_from_slice(&bls_g1(-2));
+	pairs.extend_from_slice(&bls_g2(1));
+	let mut mlo2 = [0u8; 576];
+	assert!(rostro_bls381_multi_miller_loop(&pairs, 2, &mut mlo2));
+	let mut gt2 = [0u8; 576];
+	assert!(rostro_bls381_final_exponentiation(&mlo2, &mut gt2));
+	let mut one_bytes = Vec::new();
+	ark_bls12_381::Fq12::one().serialize_uncompressed(&mut one_bytes).expect("one");
+	assert_eq!(&gt2[..], &one_bytes[..]);
+}
+
+#[test]
+fn kat_bls381_final_exp_rejects_zero() {
+	// The zero Fq12 element is the one non-invertible input; arkworks returns
+	// None there and the intrinsic must map it to failure, not panic.
+	let zero = [0u8; 576];
+	let mut out = [0u8; 576];
+	assert!(!rostro_bls381_final_exponentiation(&zero, &mut out));
+}
+
+#[test]
+fn kat_bls381_msm_unchecked_offcurve_deterministic() {
+	// 115/116 deserialize UNCHECKED per the CurveHooks contract. The pinned
+	// behavior for an off-curve (but in-field) point is: no panic, and the
+	// same bytes out on every call — deterministic garbage, exactly as if the
+	// guest ran plain arkworks on the same bad point.
+	let mut points = Vec::new();
+	points.extend_from_slice(&bls_g1(1));
+	points.extend_from_slice(&bls_g1(1));
+	// Corrupt the low limb of the second point's y coordinate (LE field
+	// serialization): stays a valid field element, leaves the curve.
+	points[96 + 48] ^= 1;
+	let mut scalars = Vec::new();
+	scalars.extend_from_slice(&bls_fr(2));
+	scalars.extend_from_slice(&bls_fr(3));
+	let mut out_a = [0u8; 96];
+	let mut out_b = [0u8; 96];
+	let ok_a = rostro_bls381_g1_msm(&points, &scalars, 2, &mut out_a);
+	let ok_b = rostro_bls381_g1_msm(&points, &scalars, 2, &mut out_b);
+	assert_eq!(ok_a, ok_b);
+	assert_eq!(out_a, out_b);
+	// And it must not silently equal the honest answer.
+	assert_ne!(&out_a[..], &bls_g1(5)[..]);
+}
+
+fn bander_te(k: i64) -> Vec<u8> {
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_serialize::CanonicalSerialize;
+	let p = (ark_ed_on_bls12_381_bandersnatch::EdwardsAffine::generator()
+		* ark_ed_on_bls12_381_bandersnatch::Fr::from(k))
+	.into_affine();
+	let mut buf = Vec::new();
+	p.serialize_uncompressed(&mut buf).expect("serialize");
+	buf
+}
+
+fn bander_sw(k: i64) -> Vec<u8> {
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_serialize::CanonicalSerialize;
+	let p = (ark_ed_on_bls12_381_bandersnatch::SWAffine::generator()
+		* ark_ed_on_bls12_381_bandersnatch::Fr::from(k))
+	.into_affine();
+	let mut buf = Vec::new();
+	p.serialize_uncompressed(&mut buf).expect("serialize");
+	buf
+}
+
+fn bander_fr(k: i64) -> [u8; 32] {
+	use ark_serialize::CanonicalSerialize;
+	let mut buf = [0u8; 32];
+	ark_ed_on_bls12_381_bandersnatch::Fr::from(k)
+		.serialize_uncompressed(&mut buf[..])
+		.expect("fr");
+	buf
+}
+
+#[test]
+fn kat_bandersnatch_msm_known() {
+	// 2·G + 3·G = 5·G in both representations of the curve.
+	let mut te_points = Vec::new();
+	te_points.extend_from_slice(&bander_te(1));
+	te_points.extend_from_slice(&bander_te(1));
+	let mut scalars = Vec::new();
+	scalars.extend_from_slice(&bander_fr(2));
+	scalars.extend_from_slice(&bander_fr(3));
+	let mut out = [0u8; 64];
+	assert!(rostro_bandersnatch_te_msm(&te_points, &scalars, 2, &mut out));
+	assert_eq!(&out[..], &bander_te(5)[..]);
+
+	let mut sw_points = Vec::new();
+	sw_points.extend_from_slice(&bander_sw(1));
+	sw_points.extend_from_slice(&bander_sw(1));
+	// SW points are 65 bytes: the 2-bit SW flags overflow the 255-bit
+	// field's single spare bit, so arkworks appends a flag byte.
+	let mut out_sw = [0u8; 65];
+	assert!(rostro_bandersnatch_sw_msm(&sw_points, &scalars, 2, &mut out_sw));
+	assert_eq!(&out_sw[..], &bander_sw(5)[..]);
+}
+
+#[test]
+fn kat_mul_projective_matches_mul_bigint() {
+	// Every mul_projective arm pinned against ark's own mul_bigint on
+	// identical raw limbs. TE / SW / G2 use ark's default double-and-add
+	// (arbitrary-width integer semantics — pinned here with a 5-limb scalar,
+	// 2^256 + 7, wider than any Fr; the non-mod-r behavior that makes these
+	// arms irreducible to MSM-of-1). G1 is different: ark-bls12-381 0.5
+	// GLV-overrides it with a `from_sign_and_limbs` conversion that PANICS
+	// above 4 limbs, so the intrinsic mirrors ark for <= 4 limbs and fails
+	// closed at 5+ (see kat_bls381_g1_mul_projective_glv_guard).
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_serialize::CanonicalSerialize;
+	let limbs_5: [u64; 5] = [7, 0, 0, 0, 1]; // little-endian: 2^256 + 7
+	let limbs_bytes: Vec<u8> = limbs_5.iter().flat_map(|l| l.to_le_bytes()).collect();
+	let reference = |g: Vec<u8>, expected: Vec<u8>| (g, expected);
+
+	// Bandersnatch TE.
+	let g = ark_ed_on_bls12_381_bandersnatch::EdwardsAffine::generator();
+	let mut expected = Vec::new();
+	g.mul_bigint(limbs_5).into_affine().serialize_uncompressed(&mut expected).expect("te");
+	let (base, expected) = reference(bander_te(1), expected);
+	let mut out = [0u8; 64];
+	assert!(rostro_bandersnatch_te_mul_projective(&base, &limbs_bytes, 5, &mut out));
+	assert_eq!(&out[..], &expected[..]);
+
+	// Bandersnatch SW.
+	let g = ark_ed_on_bls12_381_bandersnatch::SWAffine::generator();
+	let mut expected = Vec::new();
+	g.mul_bigint(limbs_5).into_affine().serialize_uncompressed(&mut expected).expect("sw");
+	let (base, expected) = reference(bander_sw(1), expected);
+	let mut out = [0u8; 65];
+	assert!(rostro_bandersnatch_sw_mul_projective(&base, &limbs_bytes, 5, &mut out));
+	assert_eq!(&out[..], &expected[..]);
+
+	// BLS12-381 G1 — 4-limb scalar (within ark's GLV limit), pinned against
+	// ark's own GLV mul on the same limbs.
+	let limbs_4: [u64; 4] = [7, 0, 0, 1]; // little-endian: 2^192 + 7
+	let limbs_4_bytes: Vec<u8> = limbs_4.iter().flat_map(|l| l.to_le_bytes()).collect();
+	let g = ark_bls12_381::G1Affine::generator();
+	let mut expected = Vec::new();
+	g.mul_bigint(limbs_4).into_affine().serialize_uncompressed(&mut expected).expect("g1");
+	let (base, expected) = reference(bls_g1(1), expected);
+	let mut out = [0u8; 96];
+	assert!(rostro_bls381_g1_mul_projective(&base, &limbs_4_bytes, 4, &mut out));
+	assert_eq!(&out[..], &expected[..]);
+
+	// BLS12-381 G2 (default double-and-add — 5-limb integer semantics hold).
+	let g = ark_bls12_381::G2Affine::generator();
+	let mut expected = Vec::new();
+	g.mul_bigint(limbs_5).into_affine().serialize_uncompressed(&mut expected).expect("g2");
+	let (base, expected) = reference(bls_g2(1), expected);
+	let mut out = [0u8; 192];
+	assert!(rostro_bls381_g2_mul_projective(&base, &limbs_bytes, 5, &mut out));
+	assert_eq!(&out[..], &expected[..]);
+}
+
+#[test]
+fn kat_bls381_g1_mul_projective_glv_guard() {
+	// ark-bls12-381 0.5's G1 mul_projective converts limbs to Fr via
+	// `from_sign_and_limbs`, which asserts limbs.len() <= 4 — a node-killing
+	// panic if forwarded raw. The intrinsic must fail CLOSED (false, no
+	// panic) at 5+ limbs. If a future ark bump lifts the GLV limit, this
+	// test documents the ABI decision to keep the guard.
+	let limbs_5: [u64; 5] = [7, 0, 0, 0, 1];
+	let limbs_bytes: Vec<u8> = limbs_5.iter().flat_map(|l| l.to_le_bytes()).collect();
+	let base = bls_g1(1);
+	let mut out = [0u8; 96];
+	assert!(!rostro_bls381_g1_mul_projective(&base, &limbs_bytes, 5, &mut out));
+}
+
+#[test]
+fn kat_mul_projective_rejects_bad_limb_counts() {
+	// Zero limbs and over-cap limb counts must fail closed; a limb byte
+	// slice whose length disagrees with n_limbs must fail closed.
+	let base = bander_te(1);
+	let mut out = [0u8; 64];
+	assert!(!rostro_bandersnatch_te_mul_projective(&base, &[], 0, &mut out));
+	let limbs_9: Vec<u8> = (0..9u64).flat_map(|l| l.to_le_bytes()).collect();
+	assert!(!rostro_bandersnatch_te_mul_projective(&base, &limbs_9, 9, &mut out));
+	let limbs_2: Vec<u8> = (0..2u64).flat_map(|l| l.to_le_bytes()).collect();
+	assert!(!rostro_bandersnatch_te_mul_projective(&base, &limbs_2, 3, &mut out));
 }
 
 #[test]
