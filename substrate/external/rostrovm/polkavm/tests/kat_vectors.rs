@@ -21,12 +21,27 @@
 //   - dilithium_verify:   Skipped — needs sig + key fixture extraction;
 //                         AGREE matrix is the proxy until then.
 //   - p521_ecdsa_verify:  Skipped — same reason.
+//   - p256_ecdsa_verify:  RFC 6979 §A.2.5 (P-256 + SHA-256, message
+//                         "sample") — deterministic ECDSA, so r||s are
+//                         spec-published constants.
+//   - slhdsa_128s_verify: self-consistency anchor (deterministic keygen from
+//                         fixed FIPS 205 seeds + deterministic sign, then
+//                         verify + tamper-negative). Published ACVP vectors
+//                         are large JSON blobs; extraction tracked like
+//                         dilithium's. Sign/verify drift across a vendored-
+//                         crate change surfaces here.
+//   - bls381_*:           mathematically pinned properties of the curve —
+//                         bilinearity (e(2G1,G2)·e(-2G1,G2) = 1) and MSM
+//                         (2G + 3G = 5G). No external vector needed; the
+//                         curve definition IS the spec.
 //
 // See docs/SECURITY-AUDIT-TIER2-INTRINSICS.md for A6.
 
 use polkavm::rostro_intrinsics::{
 	goldilocks_add_native, goldilocks_mul_native, goldilocks_sub_native, rostro_blake2b_256,
-	rostro_ed25519_verify, rostro_keccak_256, rostro_poseidon2_permute, rostro_secp256k1_recover,
+	rostro_bls381_g1_msm, rostro_bls381_g2_msm, rostro_bls381_pairing_check,
+	rostro_ed25519_verify, rostro_keccak_256, rostro_p256_ecdsa_verify_prehash,
+	rostro_poseidon2_permute, rostro_secp256k1_recover, rostro_slhdsa_128s_verify,
 };
 
 fn hex32(s: &str) -> [u8; 32] {
@@ -180,6 +195,144 @@ fn kat_secp256k1_recover_rejects_recid_2() {
 	sig_65[64] = 2; // x-reduced bit; Ethereum strict mode rejects.
 	let mut out_pk = [0u8; 64];
 	assert!(!rostro_secp256k1_recover(&msg_hash, &sig_65, &mut out_pk));
+}
+
+#[test]
+fn kat_p256_ecdsa_verify_rfc6979_a_2_5() {
+	// RFC 6979 §A.2.5: P-256 + SHA-256, message "sample". Deterministic
+	// ECDSA, so the signature is a spec-published constant.
+	//   Ux = 60FED4BA255A9D31C961EB74C6356D68C049B8923B61FA6CE669622E60F29FB6
+	//   Uy = 7903FE1008B8BC99A41AE9E95628BC64F2F1B20C2D7E9F5177A3C294D4462299
+	// Uy is odd → compressed SEC1 prefix 0x03.
+	let ux = hex32("60FED4BA255A9D31C961EB74C6356D68C049B8923B61FA6CE669622E60F29FB6");
+	let mut vk = [0u8; 33];
+	vk[0] = 0x03;
+	vk[1..].copy_from_slice(&ux);
+	let sig = hex64(
+		"EFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8",
+	);
+	// prehash = SHA-256("sample").
+	let digest = hex32("AF2BDBE1AA9B6EC1E2ADE1D694F41FC71A831D0268E9891562113D8A62ADD1BF");
+	assert!(rostro_p256_ecdsa_verify_prehash(&vk, &sig, &digest));
+}
+
+#[test]
+fn kat_p256_ecdsa_verify_rejects_tampered() {
+	// Negative cases against the RFC 6979 §A.2.5 vector: corrupt one byte of
+	// the signature, then of the digest — both must fail.
+	let ux = hex32("60FED4BA255A9D31C961EB74C6356D68C049B8923B61FA6CE669622E60F29FB6");
+	let mut vk = [0u8; 33];
+	vk[0] = 0x03;
+	vk[1..].copy_from_slice(&ux);
+	let sig = hex64(
+		"EFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8",
+	);
+	let digest = hex32("AF2BDBE1AA9B6EC1E2ADE1D694F41FC71A831D0268E9891562113D8A62ADD1BF");
+	let mut bad_sig = sig;
+	bad_sig[0] ^= 1;
+	assert!(!rostro_p256_ecdsa_verify_prehash(&vk, &bad_sig, &digest));
+	let mut bad_digest = digest;
+	bad_digest[31] ^= 1;
+	assert!(!rostro_p256_ecdsa_verify_prehash(&vk, &sig, &bad_digest));
+	// Wrong parity prefix = different point (or invalid) — must not verify.
+	let mut vk_even = vk;
+	vk_even[0] = 0x02;
+	assert!(!rostro_p256_ecdsa_verify_prehash(&vk_even, &sig, &digest));
+}
+
+#[test]
+fn kat_slhdsa_128s_self_consistent() {
+	// Deterministic keygen from fixed FIPS 205 seeds (sk_seed, sk_prf,
+	// pk_seed) + deterministic sign (no randomizer), then verify through
+	// the intrinsic body. Tamper-negatives on both signature and message.
+	let sk = slh_dsa::SigningKey::<slh_dsa::Sha2_128s>::slh_keygen_internal(
+		&[0x01u8; 16],
+		&[0x02u8; 16],
+		&[0x03u8; 16],
+	);
+	let vk_bytes = sk.as_ref().to_bytes();
+	let msg = b"rostro finality vote";
+	let sig = sk.try_sign_with_context(msg, &[], None).expect("sign");
+	let sig_bytes = sig.to_bytes();
+	assert_eq!(sig_bytes.len(), 7856);
+	assert!(rostro_slhdsa_128s_verify(&vk_bytes, msg, &sig_bytes, &[]));
+	let mut bad_sig = sig_bytes.clone();
+	bad_sig[0] ^= 1;
+	assert!(!rostro_slhdsa_128s_verify(&vk_bytes, msg, &bad_sig, &[]));
+	assert!(!rostro_slhdsa_128s_verify(&vk_bytes, b"rostro finality vot3", &sig_bytes, &[]));
+	// Context string is part of the signed content (FIPS 205): wrong ctx fails.
+	assert!(!rostro_slhdsa_128s_verify(&vk_bytes, msg, &sig_bytes, b"ctx"));
+}
+
+fn bls_g1(k: i64) -> Vec<u8> {
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_serialize::CanonicalSerialize;
+	let p = (ark_bls12_381::G1Affine::generator() * ark_bls12_381::Fr::from(k)).into_affine();
+	let mut buf = Vec::new();
+	p.serialize_uncompressed(&mut buf).expect("serialize");
+	buf
+}
+
+fn bls_g2(k: i64) -> Vec<u8> {
+	use ark_ec::{AffineRepr, CurveGroup};
+	use ark_serialize::CanonicalSerialize;
+	let p = (ark_bls12_381::G2Affine::generator() * ark_bls12_381::Fr::from(k)).into_affine();
+	let mut buf = Vec::new();
+	p.serialize_uncompressed(&mut buf).expect("serialize");
+	buf
+}
+
+#[test]
+fn kat_bls381_pairing_check_bilinearity() {
+	// e(2·G1, G2) · e(-2·G1, G2) = e((2-2)·G1, G2) = 1 — pinned by
+	// bilinearity; the curve definition is the spec.
+	let mut pairs = Vec::new();
+	pairs.extend_from_slice(&bls_g1(2));
+	pairs.extend_from_slice(&bls_g2(1));
+	pairs.extend_from_slice(&bls_g1(-2));
+	pairs.extend_from_slice(&bls_g2(1));
+	assert!(rostro_bls381_pairing_check(&pairs, 2));
+
+	// Non-identity product must fail.
+	let mut bad = Vec::new();
+	bad.extend_from_slice(&bls_g1(2));
+	bad.extend_from_slice(&bls_g2(1));
+	bad.extend_from_slice(&bls_g1(1));
+	bad.extend_from_slice(&bls_g2(1));
+	assert!(!rostro_bls381_pairing_check(&bad, 2));
+
+	// Malformed point (corrupted byte) must fail closed.
+	let mut corrupt = pairs.clone();
+	corrupt[3] ^= 1;
+	assert!(!rostro_bls381_pairing_check(&corrupt, 2));
+}
+
+#[test]
+fn kat_bls381_msm_known() {
+	// 2·G + 3·G = 5·G in both groups.
+	let mut points = Vec::new();
+	points.extend_from_slice(&bls_g1(1));
+	points.extend_from_slice(&bls_g1(1));
+	let mut scalars = Vec::new();
+	{
+		use ark_serialize::CanonicalSerialize;
+		for k in [2i64, 3i64] {
+			let mut buf = Vec::new();
+			ark_bls12_381::Fr::from(k).serialize_uncompressed(&mut buf).expect("fr");
+			assert_eq!(buf.len(), 32);
+			scalars.extend_from_slice(&buf);
+		}
+	}
+	let mut out = [0u8; 96];
+	assert!(rostro_bls381_g1_msm(&points, &scalars, 2, &mut out));
+	assert_eq!(&out[..], &bls_g1(5)[..]);
+
+	let mut points2 = Vec::new();
+	points2.extend_from_slice(&bls_g2(1));
+	points2.extend_from_slice(&bls_g2(1));
+	let mut out2 = [0u8; 192];
+	assert!(rostro_bls381_g2_msm(&points2, &scalars, 2, &mut out2));
+	assert_eq!(&out2[..], &bls_g2(5)[..]);
 }
 
 #[test]

@@ -95,6 +95,40 @@ version = "0.13"
 default-features = false
 features = ["ecdsa", "arithmetic"]
 
+[dependencies.p256]
+version = "0.13"
+default-features = false
+features = ["ecdsa", "arithmetic"]
+
+# SLH-DSA-SHA2-128s verify intrinsic (2026-07-10). Path-dep on the SAME
+# vendored crate the node's finality votes trust (rostro-hybrid-sig) so the
+# intrinsic and the hybrid verifier can never diverge.
+[dependencies.slh-dsa]
+path = "../../slh-dsa"
+default-features = false
+features = ["alloc"]
+
+# BLS12-381 primitive intrinsics (2026-07-10): pairing-check + G1/G2 MSM.
+# Ethereum-precompile-shaped cut — composes into Groth16 verify, BLS sig
+# verify, and KZG opening checks (ring-VRF building block) without baking
+# any proof system into the node.
+[dependencies.ark-bls12-381]
+version = "0.5.0"
+default-features = false
+features = ["curve"]
+
+[dependencies.ark-ec]
+version = "0.5.0"
+default-features = false
+
+[dependencies.ark-ff]
+version = "0.5.0"
+default-features = false
+
+[dependencies.ark-serialize]
+version = "0.5.0"
+default-features = false
+
 # Phase 3 signature-verify precompile deps (2026-05-15).
 # ed25519-zebra is the Zcash Foundation's ZIP-215 reference implementation
 # (Apache-2.0 + MIT). Chosen over ed25519-compact (MIT-only, malleability-
@@ -121,6 +155,26 @@ default-features = false
 
 [dependencies.sha3]
 version = "0.10"
+default-features = false
+
+# KAT fixture construction (tests/kat_vectors.rs): deterministic SLH-DSA
+# keygen+sign, and BLS12-381 point arithmetic for the bilinearity/MSM anchors.
+[dev-dependencies.slh-dsa]
+path = "../../slh-dsa"
+default-features = false
+features = ["alloc"]
+
+[dev-dependencies.ark-bls12-381]
+version = "0.5.0"
+default-features = false
+features = ["curve"]
+
+[dev-dependencies.ark-ec]
+version = "0.5.0"
+default-features = false
+
+[dev-dependencies.ark-serialize]
+version = "0.5.0"
 default-features = false
 
 [dev-dependencies.env_logger]

@@ -72,7 +72,12 @@ Re-vendor procedure:
 
 | Change | Where | Justification | Tier |
 |---|---|---|---|
-| (none yet) | | | |
+| (NOTE: this table missed the 2026-05 H1/Tier-2 arc — dispatch rewrite + intrinsics 100-130. See memory/docs for that history.) | | | |
+| P-256 ECDSA verify intrinsic (`ROSTRO_INTRINSIC_P256_ECDSA_VERIFY = 112`) | `polkavm/src/interpreter.rs`, `polkavm/src/lib.rs`, `polkavm/Cargo.toml`, `polkavm/tests/kat_vectors.rs` | EcdsaP256 signature-variant verify at native speed (245 µs vs 13.8 ms interpreted, 1.0x native); RFC 6979 §A.2.5 KAT | Tier 2 |
+| Mixed pinned/symbolic import indexing | `polkavm-linker/src/program_from_elf.rs` (`check_imports_and_assign_indexes`) | Upstream refused blobs mixing pinned-index imports with symbolic ones, making it impossible for a substrate-built runtime (symbolic sp_io imports) to call a reserved-index intrinsic. Symbolic imports now auto-assign below the reserved base (100), deterministic by symbol; reaching the base is a hard error (prevents silent intrinsic-range collision). | Tier 2 enabler |
+| Default guest stack 8 KiB → 1 MiB | `polkavm-linker/src/program_from_elf.rs` (`Config::default`) | Upstream's 8 KiB default is smart-contract heritage; chain-runtime guests doing real crypto overflow it (k256 recovery traps, ML-DSA needs ~256 KiB) and a stack-overflow trap in consensus code is a liveness bug. Link-time only — existing blobs unaffected; `min_stack_size!` still raises per-blob. | Safety default |
+| SLH-DSA-SHA2-128s verify intrinsic (`ROSTRO_INTRINSIC_SLHDSA_128S_VERIFY = 113`) | `polkavm/src/interpreter.rs`, `lib.rs`, `Cargo.toml` (path-dep on vendored `slh-dsa`), `tests/kat_vectors.rs` | Finality-vote scheme; worst measured interpreted ratio (450x, hash-dominated). Intrinsic = 183 µs, 0.99x native. Same vendored crate rostro-hybrid-sig trusts. | Tier 2 |
+| BLS12-381 primitive intrinsics (`PAIRING_CHECK = 114`, `G1_MSM = 115`, `G2_MSM = 116`; caps `MAX_BLS_PAIRS = 8`, `MAX_BLS_MSM = 2048`) | same files; ark-bls12-381/-ec/-ff/-serialize 0.5.0 deps | Ethereum-precompile-shaped primitives composing into Groth16 verify, BLS sig verify, KZG opening checks (ring-VRF building block) without freezing any proof system into the node. Checked deserialization (curve + subgroup) — inputs consensus-adversarial. pairing_check(2) = 1.37 ms, 0.96x native vs 115 ms interpreted. | Tier 2 |
 
 ## Pre-existing constraints carried forward
 
