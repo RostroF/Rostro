@@ -74,6 +74,18 @@ version = "0.9.3"
 [dependencies.rustc-demangle]
 version = "0.1.23"
 
+# Rostro (2026-07-10): restore the dev-deps crates.io tarball normalization
+# stripped at vendoring (upstream declared them as versionless path deps, which
+# the publish process drops). Without these the in-file #[cfg(test)] module has
+# never compiled in the vendored tree. `polkavm` by path so the tests execute
+# blobs on OUR fork; `polkavm-disassembler` is test-only from crates.io (never
+# shipped; the disassembler crate itself is not vendored).
+[dev-dependencies.polkavm]
+path = "../polkavm"
+
+[dev-dependencies.polkavm-disassembler]
+version = "0.32.0"
+
 [dev-dependencies.diff]
 version = "0.1.13"
 

@@ -1154,3 +1154,18 @@ zeroize = { opt-level = 3 }
 [patch.crates-io]
 soketto = { path = "substrate/external/soketto" }
 hyper = { path = "substrate/external/hyper" }
+# Rostro (2026-07-10): close the dependency graph over the vendored RostroVM
+# crates. The vendored crates inter-reference by crates.io VERSION spec
+# (tarball normalization), so version edges inside them escaped to pristine
+# crates.io copies — the lockfile carried a registry polkavm-assembler and a
+# second registry polkavm-common, i.e. the shipped node was linking VM bytes
+# that are NOT in this tree, violating the VENDOR.md audit premise. These
+# entries force every polkavm-family edge to the vendored sources.
+polkavm = { path = "substrate/external/rostrovm/polkavm" }
+polkavm-assembler = { path = "substrate/external/rostrovm/polkavm-assembler" }
+polkavm-common = { path = "substrate/external/rostrovm/polkavm-common" }
+polkavm-derive = { path = "substrate/external/rostrovm/polkavm-derive" }
+polkavm-derive-impl = { path = "substrate/external/rostrovm/polkavm-derive-impl" }
+polkavm-derive-impl-macro = { path = "substrate/external/rostrovm/polkavm-derive-impl-macro" }
+polkavm-linker = { path = "substrate/external/rostrovm/polkavm-linker" }
+polkavm-linux-raw = { path = "substrate/external/rostrovm/polkavm-linux-raw" }

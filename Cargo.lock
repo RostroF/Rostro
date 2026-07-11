@@ -11197,7 +11197,7 @@ dependencies = [
  "p521",
  "picosimd",
  "polkavm-assembler",
- "polkavm-common 0.32.0",
+ "polkavm-common",
  "polkavm-linux-raw",
  "sha3 0.10.8",
  "slh-dsa",
@@ -11206,8 +11206,6 @@ dependencies = [
 [[package]]
 name = "polkavm-assembler"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48db9ab3568744d88514cfd8ca97f549913d17446e822fef20f9bd64598b8625"
 dependencies = [
  "log",
 ]
@@ -11222,15 +11220,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "polkavm-common"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7be32b303518704bb6deda7ce5a02feedbdadccccfd03da5bd3fe8eb1cd30694"
-dependencies = [
- "picosimd",
-]
-
-[[package]]
 name = "polkavm-derive"
 version = "0.32.0"
 dependencies = [
@@ -11240,10 +11229,8 @@ dependencies = [
 [[package]]
 name = "polkavm-derive-impl"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a396e7939ae0a723cabf639c23f0704423c8e470d01f52ad0cecf2dc283387f0"
 dependencies = [
- "polkavm-common 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "polkavm-common",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -11252,8 +11239,6 @@ dependencies = [
 [[package]]
 name = "polkavm-derive-impl-macro"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19eb3426df09ad4820b9beecd5c6754c5249b8fc5c6e94f0f559fbf7ce082fc3"
 dependencies = [
  "polkavm-derive-impl",
  "syn 2.0.117",
@@ -11268,7 +11253,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "log",
  "object 0.36.7",
- "polkavm-common 0.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "polkavm-common",
  "regalloc2 0.9.3",
  "rustc-demangle",
 ]
@@ -11276,8 +11261,6 @@ dependencies = [
 [[package]]
 name = "polkavm-linux-raw"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8afb212d0effe4097b7243f0828feed74ca49105e3082e9b43dd5c2e89bc91c"
 
 [[package]]
 name = "polling"
