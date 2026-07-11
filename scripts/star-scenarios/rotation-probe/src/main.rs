@@ -18,13 +18,14 @@
 //!                 validators.
 //!   wait-event    watch finalized blocks until Pallet::Variant appears
 //!                 (exit 0) or timeout (exit 2).
-//!   force-roster  sudo(KeyLineage::force_roster([...])) — live-chain
-//!                 roster bootstrap.
+//!
+//! (`force-roster` was removed with the NPoS cutover: the roster is
+//! produced by pallet-staking's election, not a sudo bootstrap.)
 //!
 //! Exit codes: 0 ok, 1 error, 2 timeout, 3 extrinsic rejected.
 
 use anyhow::{bail, Context, Result};
-use codec::{Compact, Decode, Encode};
+use codec::{Decode, Encode};
 
 use subxt::utils::AccountId32;
 use subxt::{OnlineClient, SubstrateConfig};
@@ -212,25 +213,43 @@ async fn cmd_rotate(args: Args) -> Result<()> {
 		eprintln!("[probe] inserted gran key 0x{} via RPC", hex::encode(new_pub));
 	}
 
-	// 2. Proof of possession: new key signs "POP_" ++ owner-account bytes
-	//    (sp_core::proof_of_possession::statement_of_ownership layout).
-	//    The hybrid scheme's PoP goes through TraitPair::sign, which
-	//    frames under the finality-vote domain — mirror that exactly or
-	//    the runtime rejects the registration.
+	// 2. Proof of possession: each session key signs "POP_" ++
+	//    owner-account bytes (sp_core::proof_of_possession::
+	//    statement_of_ownership layout). Since NPoS (spec 106) the
+	//    SessionKeys struct is { sassafras, grandpa }, and the proof is
+	//    the SCALE tuple of one PoP per key in field order. The sassafras
+	//    (bandersnatch) key is NOT rotated here — same public re-signed;
+	//    lineage's reuse ban covers GRANDPA keys only. Its pair derives
+	//    from --sass-suri (default: --suri, matching the star scripts'
+	//    `key insert --key-type sass --suri //Name`). The hybrid GRANDPA
+	//    PoP goes through TraitPair::sign, which frames under the
+	//    finality-vote domain — mirror that exactly or the runtime
+	//    rejects the registration.
 	let mut statement = b"POP_".to_vec();
 	statement.extend_from_slice(&account.0);
+
+	let sass_suri = args.get("--sass-suri").unwrap_or_else(|| suri.clone());
+	let band_pair = <sp_core::bandersnatch::Pair as sp_core::Pair>::from_string(&sass_suri, None)
+		.map_err(|e| anyhow::anyhow!("bad --sass-suri: {e:?}"))?;
+	let band_pub = <sp_core::bandersnatch::Pair as sp_core::Pair>::public(&band_pair);
+	let band_pop = <sp_core::bandersnatch::Pair as sp_core::Pair>::sign(&band_pair, &statement);
+
 	let pop = sk
 		.sign(rostro_hybrid_sig::FINALITY_VOTE_DOMAIN, &statement)
 		.expect("domain is under the 255-byte limit")
 		.to_vec(); // 17152 bytes
 
-	// 3. Account-signed Session::set_keys(SessionKeys { grandpa }, proof).
+	// 3. Account-signed Session::set_keys(SessionKeys, proof).
 	let api = connect(&ws).await?;
 	let metadata = api.metadata();
 	let (p, c) = call_indices(&metadata, "Session", "set_keys")?;
 	let mut call = vec![p, c];
-	call.extend_from_slice(&new_pub); // SessionKeys = { grandpa: [u8; 64] }
-	pop.encode_to(&mut call); // proof: Vec<u8>
+	call.extend_from_slice(band_pub.as_ref()); // SessionKeys.sassafras: [u8; 32]
+	call.extend_from_slice(&new_pub); // SessionKeys.grandpa: [u8; 64]
+	let mut proof: Vec<u8> = Vec::with_capacity(64 + pop.len());
+	proof.extend_from_slice(band_pop.as_ref()); // tuple.0: bandersnatch sig, 64 raw
+	proof.extend_from_slice(&pop); // tuple.1: hybrid sig, 17152 raw
+	proof.encode_to(&mut call); // proof: Vec<u8>
 	let events = submit(&api, RawCall(call), &signer, 90).await?;
 
 	for ev in events.iter() {
@@ -456,32 +475,87 @@ async fn cmd_wait_event(args: Args) -> Result<()> {
 	}
 }
 
-async fn cmd_force_roster(args: Args) -> Result<()> {
+/// NPoS joiner driver: account-signed Staking::bond + Staking::validate.
+/// Combined with `rotate` (which registers the session keys) this is the
+/// full "candidate validator" flow the VM-farm scenarios drive; the era
+/// election then decides admission. Bond value in ROS (12 decimals applied
+/// here).
+async fn cmd_bond_validate(args: Args) -> Result<()> {
+	const ROSTO: u128 = 1_000_000_000_000;
+	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
+	let signer = dev_keypair(&args.require("--suri")?)?;
+	let bond_ros: u128 = args.get_or("--bond-ros", "100000").parse()?;
+
+	let api = connect(&ws).await?;
+	let metadata = api.metadata();
+
+	// Staking::bond(#[compact] value, payee: RewardDestination::Staked)
+	let (p, c) = call_indices(&metadata, "Staking", "bond")?;
+	let mut call = vec![p, c];
+	codec::Compact(bond_ros * ROSTO).encode_to(&mut call);
+	call.push(0); // RewardDestination::Staked
+	submit(&api, RawCall(call), &signer, 90).await?;
+	eprintln!("[probe] bonded {bond_ros} ROS (payee: Staked)");
+
+	// Staking::validate(ValidatorPrefs { #[compact] commission, blocked })
+	let commission_percent: u32 = args.get_or("--commission", "10").parse()?;
+	let (p, c) = call_indices(&metadata, "Staking", "validate")?;
+	let mut call = vec![p, c];
+	codec::Compact(commission_percent.saturating_mul(10_000_000)).encode_to(&mut call); // Perbill
+	call.push(0); // blocked: false
+	submit(&api, RawCall(call), &signer, 90).await?;
+	eprintln!("[probe] validating (commission {commission_percent}%)");
+	println!(
+		"{}",
+		serde_json::json!({ "bonded_ros": bond_ros, "commission_percent": commission_percent })
+	);
+	Ok(())
+}
+
+/// Staking era/count state: ActiveEra, CurrentEra, ValidatorCount, and the
+/// staking Validators (candidate) key count.
+async fn cmd_staking_state(args: Args) -> Result<()> {
+	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
+	let api = connect(&ws).await?;
+
+	// ActiveEra: Option storage of ActiveEraInfo { index: u32, start: Option<u64> }
+	let active = fetch_storage(&api, "Staking", "ActiveEra", vec![]).await?;
+	let active_era = active.as_deref().map(|mut b| {
+		let info: (u32, Option<u64>) =
+			Decode::decode(&mut b).expect("ActiveEraInfo layout: (u32, Option<u64>)");
+		info.0
+	});
+	let current = fetch_storage(&api, "Staking", "CurrentEra", vec![]).await?;
+	let current_era = current.as_deref().map(|mut b| u32::decode(&mut b).expect("u32"));
+	let count = fetch_storage(&api, "Staking", "ValidatorCount", vec![]).await?;
+	let validator_count = count.as_deref().map(|mut b| u32::decode(&mut b).expect("u32"));
+
+	println!(
+		"{}",
+		serde_json::json!({
+			"active_era": active_era,
+			"current_era": current_era,
+			"validator_count": validator_count,
+		})
+	);
+	Ok(())
+}
+
+/// sudo(Staking::set_validator_count(#[compact] new)) — the churn knob the
+/// farm scenarios turn to admit waiting candidates.
+async fn cmd_set_validator_count(args: Args) -> Result<()> {
 	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
 	let signer = dev_keypair(&args.get_or("--suri", "//Alice"))?;
-	let members: Vec<AccountId32> = args
-		.require("--members")?
-		.split(',')
-		.map(|m| dev_account(m.trim()))
-		.collect::<Result<_>>()?;
+	let count: u32 = args.require("--count")?.parse()?;
 
 	let api = connect(&ws).await?;
 	let metadata = api.metadata();
 	let (sudo_p, sudo_c) = call_indices(&metadata, "Sudo", "sudo")?;
-	let (kl_p, kl_c) = call_indices(&metadata, "KeyLineage", "force_roster")?;
-	let mut call = vec![sudo_p, sudo_c, kl_p, kl_c];
-	Compact(members.len() as u32).encode_to(&mut call);
-	for m in &members {
-		call.extend_from_slice(&m.0);
-	}
-	let events = submit(&api, RawCall(call), &signer, 90).await?;
-	for ev in events.iter() {
-		let ev = ev?;
-		if ev.pallet_name() == "Sudo" || ev.pallet_name() == "KeyLineage" {
-			eprintln!("[probe] event: {}::{}", ev.pallet_name(), ev.variant_name());
-		}
-	}
-	println!("{}", serde_json::json!({ "roster": members.len() }));
+	let (st_p, st_c) = call_indices(&metadata, "Staking", "set_validator_count")?;
+	let mut call = vec![sudo_p, sudo_c, st_p, st_c];
+	codec::Compact(count).encode_to(&mut call);
+	submit(&api, RawCall(call), &signer, 90).await?;
+	println!("{}", serde_json::json!({ "validator_count": count }));
 	Ok(())
 }
 
@@ -489,18 +563,20 @@ async fn cmd_force_roster(args: Args) -> Result<()> {
 async fn main() -> Result<()> {
 	let mut argv: Vec<String> = std::env::args().skip(1).collect();
 	if argv.is_empty() {
-		bail!("usage: rotation-probe <rotate|canary|lineage-key|session-state|wait-event|force-roster|derive> [flags]");
+		bail!("usage: rotation-probe <rotate|bond-validate|set-validator-count|canary|lineage-key|session-state|wait-event|derive> [flags]");
 	}
 	let cmd = argv.remove(0);
 	let args = Args(argv);
 	match cmd.as_str() {
 		"rotate" => cmd_rotate(args).await,
+		"bond-validate" => cmd_bond_validate(args).await,
+		"set-validator-count" => cmd_set_validator_count(args).await,
+		"staking-state" => cmd_staking_state(args).await,
 		"canary" => cmd_canary(args).await,
 		"lineage-key" => cmd_lineage_key(args).await,
 		"session-state" => cmd_session_state(args).await,
 		"disabled" => cmd_disabled(args).await,
 		"wait-event" => cmd_wait_event(args).await,
-		"force-roster" => cmd_force_roster(args).await,
 		"derive" => cmd_derive(args),
 		other => bail!("unknown subcommand: {other}"),
 	}

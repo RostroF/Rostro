@@ -18,17 +18,18 @@
 //!    records the *last authority set the key served*, so any signature over
 //!    a GRANDPA-domain preimage scoped to a later set is definitionally
 //!    evidence of key compromise (the retired-key canary offence, P2).
-//! 3. **Forced-rotation deadline.** As session manager, the pallet re-feeds
-//!    the fixed validator roster each session (NPoS staking replaces this
-//!    later) minus validators whose *next* key is older than
+//! 3. **Forced-rotation deadline.** As session manager, the pallet plans each
+//!    session from the elected set produced by [`Config::ElectedSet`] (NPoS
+//!    staking in the runtime; sessions where staking plans no new era re-feed
+//!    the live set) minus validators whose *next* key is older than
 //!    [`Config::MaxKeyAgeEras`] eras and minus validators disabled by an
 //!    offence. Hard cutover, no grace window; re-entry is automatic on
 //!    registering a fresh key, which is also the post-compromise healing
 //!    path (the account key, not the session key, authorizes `set_keys`).
 //!
 //! An **era** here is the 24h membership epoch ([`Config::CurrentEra`] binds
-//! to the same clock as the zkpki `membership_epoch`); with 4h sessions a key
-//! serves at most 6 sessions per era.
+//! to the same clock as the zkpki `membership_epoch`) — NOT pallet-staking's
+//! election era, which is a shorter multiple of the session length.
 //!
 //! ## Liveness floor
 //!
@@ -47,6 +48,7 @@ use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{
 	dispatch::DispatchResult, ensure, traits::Get, weights::Weight, BoundedVec,
 };
+use pallet_session::SessionManager;
 use scale_info::TypeInfo;
 use sp_consensus_grandpa::{AuthorityId, AuthoritySignature};
 use sp_runtime::{
@@ -213,7 +215,26 @@ pub mod pallet {
 			IdentificationTuple<Self>,
 			RetiredKeyOffence<IdentificationTuple<Self>>,
 		>;
+
+		/// The producer of each session's intended validator set, filtered by
+		/// this pallet's enforcement before it reaches `pallet_session`
+		/// (pallet-staking's NPoS election in the runtime). `None` from the
+		/// producer means "no new set planned this session"; this pallet then
+		/// re-feeds [`PlannedSet`] — NOT the live session set, so a healed
+		/// validator re-enters at the next session instead of waiting out the
+		/// era — and every session stays `changed` (historical trie-root
+		/// regeneration + GRANDPA set-id advance).
+		type ElectedSet: pallet_session::SessionManager<Self::ValidatorId>;
 	}
+
+	/// The intended validator set: the most recent election result from
+	/// [`Config::ElectedSet`]. On chains where no election has run yet it is
+	/// captured lazily from the live session set at the first rotation.
+	/// Enforcement filters this set each session; it is the stable base that
+	/// lets an excluded validator re-enter on healing mid-era.
+	#[pallet::storage]
+	pub type PlannedSet<T: Config> =
+		StorageValue<_, BoundedVec<T::ValidatorId, T::MaxValidators>, ValueQuery>;
 
 	/// Permanent lineage, keyed by GRANDPA key. Entries are never removed.
 	#[pallet::storage]
@@ -225,13 +246,6 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type ActiveKey<T: Config> =
 		StorageMap<_, Blake2_128Concat, T::ValidatorId, AuthorityId, OptionQuery>;
-
-	/// The intended validator set, captured from `pallet_session` at the
-	/// first rotation this pallet manages. Enforcement filters this roster;
-	/// it never shrinks it. NPoS staking replaces this wholesale.
-	#[pallet::storage]
-	pub type Roster<T: Config> =
-		StorageValue<_, BoundedVec<T::ValidatorId, T::MaxValidators>, ValueQuery>;
 
 	/// Validators currently excluded from new authority sets. Cleared by a
 	/// fresh `set_keys` registration (healing).
@@ -252,11 +266,6 @@ pub mod pallet {
 		ValidatorDisabled { validator: T::ValidatorId, reason: DisableReason },
 		/// A previously excluded validator healed by registering a fresh key.
 		ValidatorHealed { validator: T::ValidatorId },
-		/// The fixed roster was captured from the live session validator set.
-		RosterCaptured { count: u32 },
-		/// The roster was set by root (live-chain bootstrap; see
-		/// [`Pallet::force_roster`]).
-		RosterForced { count: u32 },
 		/// Enforcement would have emptied the validator set; the previous
 		/// set was kept instead. This is an operator-visible alarm, not a
 		/// pardon: exclusion resumes as soon as at least one validator is
@@ -299,9 +308,6 @@ pub mod pallet {
 		DuplicateEvidence,
 		/// The offence sink rejected the report.
 		ReportRejected,
-		/// `force_roster` with an empty list; an empty roster would plan an
-		/// empty authority set.
-		EmptyRoster,
 	}
 
 	#[pallet::call]
@@ -372,28 +378,6 @@ pub mod pallet {
 
 			Ok(if newly_disabling { Pays::No.into() } else { Pays::Yes.into() })
 		}
-
-		/// Root-only roster bootstrap for a live chain whose genesis predates
-		/// session-owned validators (pre-spec-103 chains seeded GRANDPA
-		/// authorities directly, leaving `pallet_session` empty — on such a
-		/// chain the lazy roster capture has nothing to capture and rotation
-		/// is inert). Ops order matters: every listed validator must have
-		/// registered session keys via `set_keys` BEFORE this call takes
-		/// effect at the next rotation — roster members without registered
-		/// keys are excluded from planning, so forcing a roster ahead of the
-		/// registrations would shrink the authority set to whoever has keys.
-		#[pallet::call_index(1)]
-		#[pallet::weight(T::DbWeight::get().reads_writes(0, 1))]
-		pub fn force_roster(
-			origin: OriginFor<T>,
-			validators: BoundedVec<T::ValidatorId, T::MaxValidators>,
-		) -> DispatchResult {
-			ensure_root(origin)?;
-			ensure!(!validators.is_empty(), Error::<T>::EmptyRoster);
-			Roster::<T>::put(&validators);
-			Self::deposit_event(Event::RosterForced { count: validators.len() as u32 });
-			Ok(())
-		}
 	}
 }
 
@@ -401,6 +385,25 @@ impl<T: Config> Pallet<T> {
 	/// Extract the GRANDPA key from a session-keys bundle.
 	fn grandpa_key(keys: &T::Keys) -> Option<AuthorityId> {
 		keys.get::<AuthorityId>(sp_consensus_grandpa::KEY_TYPE)
+	}
+
+	/// Record an election result as [`PlannedSet`]. Truncates defensively at
+	/// `MaxValidators`; the runtime aligns staking's `MaxValidatorSet` with
+	/// it, so truncation firing means a misconfigured runtime.
+	fn note_planned_set(
+		elected: Vec<T::ValidatorId>,
+	) -> BoundedVec<T::ValidatorId, T::MaxValidators> {
+		if elected.len() > T::MaxValidators::get() as usize {
+			log::warn!(
+				target: LOG_TARGET,
+				"elected set ({}) exceeds MaxValidators ({}); truncating",
+				elected.len(),
+				T::MaxValidators::get(),
+			);
+		}
+		let bounded = BoundedVec::truncate_from(elected);
+		PlannedSet::<T>::put(&bounded);
+		bounded
 	}
 
 	/// Mark `key` retired as of the rotation being processed. `set_id` must
@@ -500,20 +503,31 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	/// Plan the next session's validator set: the fixed roster minus
-	/// deadline-missed and offence-disabled validators. Returns `None` (keep
-	/// the previous set) if enforcement would empty the set.
-	fn plan_next_set() -> Option<Vec<T::ValidatorId>> {
-		let mut roster = Roster::<T>::get();
-		if roster.is_empty() {
-			let current = pallet_session::Pallet::<T>::validators();
-			if current.is_empty() {
-				return None;
-			}
-			roster = BoundedVec::truncate_from(current);
-			Roster::<T>::put(&roster);
-			Self::deposit_event(Event::RosterCaptured { count: roster.len() as u32 });
-		}
+	/// Plan the next session's validator set: the elected set from
+	/// [`Config::ElectedSet`] minus deadline-missed and offence-disabled
+	/// validators. Sessions where the producer plans no new set (`None` —
+	/// mid-era sessions under staking) re-feed [`PlannedSet`], so enforcement
+	/// runs every session and healed validators re-enter without waiting for
+	/// the next election. Returns `None` (keep the previous set) if
+	/// enforcement would empty the set.
+	fn plan_next_set(new_index: SessionIndex) -> Option<Vec<T::ValidatorId>> {
+		let roster = match T::ElectedSet::new_session(new_index) {
+			Some(elected) => Self::note_planned_set(elected),
+			None => {
+				let mut planned = PlannedSet::<T>::get();
+				if planned.is_empty() {
+					// No election has ever run: capture the live set once so
+					// enforcement and healing have a stable base.
+					let current = pallet_session::Pallet::<T>::validators();
+					if current.is_empty() {
+						return None;
+					}
+					planned = BoundedVec::truncate_from(current);
+					PlannedSet::<T>::put(&planned);
+				}
+				planned
+			},
+		};
 
 		let era = T::CurrentEra::get();
 		let session = pallet_session::Pallet::<T>::current_index();
@@ -646,18 +660,26 @@ impl<T: Config> pallet_session::KeyProvenance<T::ValidatorId, T::Keys> for Palle
 }
 
 impl<T: Config> pallet_session::SessionManager<T::ValidatorId> for Pallet<T> {
-	fn new_session(_new_index: SessionIndex) -> Option<Vec<T::ValidatorId>> {
+	fn new_session(new_index: SessionIndex) -> Option<Vec<T::ValidatorId>> {
 		Self::account_rotation();
-		Self::plan_next_set()
+		Self::plan_next_set(new_index)
 	}
-	fn new_session_genesis(_new_index: SessionIndex) -> Option<Vec<T::ValidatorId>> {
-		// Fall back to the genesis session keys; `Validators` storage is not
-		// populated while genesis is being built. Lineage capture happens
-		// lazily at the first rotation.
-		None
+	fn new_session_genesis(new_index: SessionIndex) -> Option<Vec<T::ValidatorId>> {
+		// The elected-set producer plans the genesis set (staking runs its
+		// genesis election over the genesis stakers; `None` falls back to
+		// the genesis session keys). No enforcement at genesis — there is
+		// no lineage yet; capture happens lazily at the first rotation.
+		T::ElectedSet::new_session_genesis(new_index)
+			.map(|elected| Self::note_planned_set(elected).into_inner())
 	}
-	fn start_session(_start_index: SessionIndex) {}
-	fn end_session(_end_index: SessionIndex) {}
+	// Era lifecycle: the producer (staking) tracks session starts/ends to
+	// activate and close eras.
+	fn start_session(start_index: SessionIndex) {
+		T::ElectedSet::start_session(start_index)
+	}
+	fn end_session(end_index: SessionIndex) {
+		T::ElectedSet::end_session(end_index)
+	}
 }
 
 /// The offence sink's consequence: disable-and-record, for every offence
@@ -701,12 +723,24 @@ impl<T: Config>
 		)
 	}
 	fn new_session_genesis(
-		_new_index: SessionIndex,
+		new_index: SessionIndex,
 	) -> Option<Vec<(T::ValidatorId, T::FullIdentification)>> {
-		None
+		<Self as pallet_session::SessionManager<T::ValidatorId>>::new_session_genesis(new_index)
+			.map(|validators| {
+				validators
+					.into_iter()
+					.filter_map(|v| {
+						T::FullIdentificationOf::convert(v.clone()).map(|full| (v, full))
+					})
+					.collect()
+			})
 	}
-	fn start_session(_start_index: SessionIndex) {}
-	fn end_session(_end_index: SessionIndex) {}
+	fn start_session(start_index: SessionIndex) {
+		<Self as pallet_session::SessionManager<T::ValidatorId>>::start_session(start_index)
+	}
+	fn end_session(end_index: SessionIndex) {
+		<Self as pallet_session::SessionManager<T::ValidatorId>>::end_session(end_index)
+	}
 }
 
 sp_api::decl_runtime_apis! {

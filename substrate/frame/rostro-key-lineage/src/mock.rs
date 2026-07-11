@@ -104,6 +104,28 @@ impl pallet_session_historical::Config for Test {
 thread_local! {
 	static ERA: Cell<u32> = Cell::new(0);
 	static SET_ID: Cell<u64> = Cell::new(0);
+	static ELECTED: std::cell::RefCell<Option<Vec<AccountId>>> = std::cell::RefCell::new(None);
+}
+
+/// Stand-in for pallet-staking's session manager: yields the set primed via
+/// [`prime_elected_set`] exactly once, otherwise `None` ("no new era planned
+/// this session"), which is the path where lineage re-feeds the live set.
+pub struct MockElectedSet;
+impl pallet_session::SessionManager<AccountId> for MockElectedSet {
+	fn new_session(_: sp_staking::SessionIndex) -> Option<Vec<AccountId>> {
+		ELECTED.with(|e| e.borrow_mut().take())
+	}
+	fn new_session_genesis(_: sp_staking::SessionIndex) -> Option<Vec<AccountId>> {
+		None
+	}
+	fn start_session(_: sp_staking::SessionIndex) {}
+	fn end_session(_: sp_staking::SessionIndex) {}
+}
+
+/// Make the next session plan from `set` (a staking election result); later
+/// sessions revert to `None` until primed again.
+pub fn prime_elected_set(set: Vec<AccountId>) {
+	ELECTED.with(|e| *e.borrow_mut() = Some(set));
 }
 
 pub struct MockEra;
@@ -139,6 +161,7 @@ impl pallet_rostro_key_lineage::Config for Test {
 	type MaxKeyAgeEras = ConstU32<7>;
 	type MaxValidators = ConstU32<32>;
 	type ReportCanary = Offences;
+	type ElectedSet = MockElectedSet;
 }
 
 /// Deterministic hybrid GRANDPA key for test seed `n`.

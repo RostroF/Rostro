@@ -162,6 +162,22 @@ only, deployable to the live lab cluster via the proven set_code path
   observed organically on the lab chain (it reads live authority state
   the same way the channel does; the channel is now rotation-proven).
 
+### 3.0.1 NPoS cutover (spec 106) — roster is now staking-elected
+
+The fixed-roster era described above ended with the NPoS wiring
+(docs/NPOS.md): `KeyLineage` no longer captures/freezes a roster and the
+root-only `force_roster` bootstrap call is gone. The pallet's session-manager
+seat is unchanged, but each session it now asks `Config::ElectedSet`
+(pallet-staking) for the intended set; staking answers at era boundaries and
+`None` mid-era, where KeyLineage re-feeds its `PlannedSet` (the last election
+result) so key-age enforcement still runs every session and healed validators
+re-enter without waiting out the era. Everything else in this document —
+fresh-key primitive, lineage records, canary, deadline, healing, the
+liveness floor — is unchanged. Sessions themselves are now sassafras-epoch
+-driven (~1h) rather than 4h `PeriodicSessions`, and `set_keys` registers a
+`{ sassafras, grandpa }` bundle with a two-signature proof-of-possession
+tuple (the GRANDPA reuse ban applies to the grandpa key only).
+
 ### 3.1 Operational invariant: rotation keys must be node-*readable*
 
 Surfaced deploying spec 103 to the lab cluster 2026-07-04, and load-bearing
