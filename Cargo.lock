@@ -9023,6 +9023,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "primeorder",
+ "rand_core 0.6.4",
  "sha2 0.10.9",
 ]
 
@@ -14174,6 +14175,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-executor-fixture-facade-test"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bls12-381-bandersnatch",
+ "ark-serialize 0.5.0",
+ "polkavm-derive",
+ "rostro-guest-crypto",
+ "sp-io",
+ "substrate-wasm-builder",
+]
+
+[[package]]
 name = "rostro-executor-fixture-p256-bench"
 version = "0.1.0"
 dependencies = [
@@ -14192,6 +14207,28 @@ dependencies = [
  "sp-core",
  "sp-io",
  "substrate-wasm-builder",
+]
+
+[[package]]
+name = "rostro-facade-rvm-test"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bls12-381-bandersnatch",
+ "ark-serialize 0.5.0",
+ "fips204",
+ "k256",
+ "p521",
+ "polkavm",
+ "rostro-executor",
+ "rostro-executor-fixture-facade-test",
+ "rostro-guest-crypto",
+ "slh-dsa",
+ "sp-core",
+ "sp-externalities",
+ "sp-io",
+ "sp-state-machine",
 ]
 
 [[package]]
@@ -14226,6 +14263,29 @@ dependencies = [
  "sp-storage",
  "sp-transaction-pool",
  "sp-version",
+]
+
+[[package]]
+name = "rostro-guest-crypto"
+version = "0.1.0"
+dependencies = [
+ "ark-bls12-381 0.5.0",
+ "ark-bls12-381-ext",
+ "ark-ec 0.5.0",
+ "ark-ed-on-bls12-381-bandersnatch",
+ "ark-ed-on-bls12-381-bandersnatch-ext",
+ "ark-ff 0.5.0",
+ "ark-models-ext",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
+ "fips204",
+ "k256",
+ "p256",
+ "p521",
+ "polkavm-derive",
+ "slh-dsa",
+ "sp-core",
+ "sp-io",
 ]
 
 [[package]]

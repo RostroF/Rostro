@@ -306,6 +306,7 @@ members = [
 	"substrate/utils/rostro-client",
 	"substrate/utils/rostro-curve25519",
 	"substrate/utils/rostro-executor",
+	"substrate/utils/rostro-guest-crypto",
 	"substrate/utils/rostro-history-anchor-verify",
 	"substrate/utils/rostro-hybrid-kex",
 	"substrate/utils/rostro-hybrid-sig",
@@ -314,6 +315,8 @@ members = [
 	"substrate/utils/rostro-executor/tests/fixtures/p256-bench-harness",
 	"substrate/utils/rostro-executor/tests/fixtures/cipher-bench",
 	"substrate/utils/rostro-executor/tests/fixtures/cipher-bench-harness",
+	"substrate/utils/rostro-executor/tests/fixtures/facade-test",
+	"substrate/utils/rostro-executor/tests/fixtures/facade-test-harness",
 	"substrate/utils/rostro-node-identity",
 	"substrate/utils/rostro-node-sandbox",
 	"substrate/utils/rostro-watchdog",
@@ -369,6 +372,9 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 	'cfg(fuzzing)',
 	'cfg(ignore_flaky_test)',
 	'cfg(substrate_runtime)',
+	# RostroVM guest target (riscv64emac-unknown-none-polkavm) — the
+	# predicate rostro-guest-crypto routes its ecalli backend on.
+	'cfg(target_env, values("polkavm"))',
 ] }
 
 [workspace.lints.clippy]
@@ -431,6 +437,7 @@ ark-ed-on-bls12-381-bandersnatch = { version = "0.5.0", default-features = false
 ark-ed-on-bls12-381-bandersnatch-ext = { version = "0.5.0", default-features = false }
 ark-ff = { version = "0.5.0", default-features = false }
 ark-groth16 = { version = "0.5.0", default-features = false }
+ark-models-ext = { version = "0.5.0", default-features = false }
 ark-pallas = { version = "0.5.0", default-features = false }
 ark-pallas-ext = { version = "0.5.0", default-features = false }
 ark-r1cs-std = { version = "0.5.0", default-features = false }
@@ -523,6 +530,7 @@ finality-grandpa = { version = "0.16.3", default-features = false }
 flate2 = { version = "1.0" }
 fnv = { version = "1.0.6" }
 foldhash = { version = "0.1.5", default-features = false }
+fips204 = { version = "0.4", default-features = false }
 fork-tree = { path = "substrate/utils/fork-tree", default-features = false }
 forwarded-header-value = { version = "0.1.1" }
 fraction = { version = "0.13.1" }
@@ -711,6 +719,7 @@ zk-pki-tpm = { path = "substrate/utils/zkpki-tpm", default-features = false }
 rostro-curve25519 = { path = "substrate/utils/rostro-curve25519", default-features = false }
 rostro-executor = { path = "substrate/utils/rostro-executor", default-features = false }
 rostro-executor-fixture-storage-roundtrip = { path = "substrate/utils/rostro-executor/tests/fixtures/storage-roundtrip", default-features = false }
+rostro-guest-crypto = { path = "substrate/utils/rostro-guest-crypto", default-features = false }
 rostro-hybrid-kex = { path = "substrate/utils/rostro-hybrid-kex", default-features = false }
 rostro-hybrid-sig = { path = "substrate/utils/rostro-hybrid-sig", default-features = false }
 rostro-node-sandbox = { path = "substrate/utils/rostro-node-sandbox", default-features = false }
@@ -762,6 +771,7 @@ paste = { version = "1.0.15", default-features = false }
 # Versions pinned to the set the original ~/Polkadot/pki/ workspace was built
 # against; do not bump without re-validating zkpki-tpm + zkpki-integrity.
 p256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+p521 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 
 # Plonky3 — FRI-based STARK proof system, post-quantum-secure.

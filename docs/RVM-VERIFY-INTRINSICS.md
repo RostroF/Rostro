@@ -352,7 +352,7 @@ demonstrates the pattern); differential tests pin the rest.
   `pairing()`; inner-curve MSM known answers). Decide whether
   `mul_projective` (raw `&[u64]` limbs) routes through MSM-of-1 or needs
   its own intrinsic.
-- **W2, the facade (~1 session).** `rostro-guest-crypto` with the full
+- **W2, the facade — DONE 2026-07-10 (see below).** `rostro-guest-crypto` with the full
   cipher table above: `cfg(target_env = "polkavm")` marshals to ecalli
   (canonical uncompressed wire format), sp_io-backed ops delegate to sp_io
   on both targets, everything else falls back to the reference crates
@@ -391,6 +391,42 @@ Deployment invariants:
 - **Byte equality is the consensus gate.** Any divergence between the
   hooked and plain construction of ring artifacts is a consensus split;
   the W3/W4 equality tests are the non-negotiable acceptance criteria.
+
+### W2 landing: `rostro-guest-crypto`
+
+`substrate/utils/rostro-guest-crypto` (Apache-2.0, no_std): the facade
+crate per the table above. `verify::*` covers P-256/P-521/ML-DSA-65/
+SLH-DSA-128s/secp256k1-recover/BLS pairing-check plus sp_io delegations
+(ed25519, sr25519, ecdsa, hashes); `hooks::RostroCurveHooks` implements
+both ext-crate CurveHooks traits. On `target_env = "polkavm"` operations
+marshal to the ecalli intrinsics (`src/ecalli.rs` pins the canonical
+import symbols the executor stubs must match); natively the hooks
+replicate the ext defaults via transmute-delegation and the verify fns
+call the same reference crates the intrinsic bodies use. Over-cap inputs
+chunk (MSM additive, Miller loop multiplicative over pairs); over-cap
+`mul_projective` limb counts fall back to in-guest plain arkworks
+(preserving ark's own semantics, including its G1 GLV panic).
+
+Goldilocks/Poseidon2 deliberately not surfaced yet: no runtime consumer,
+and their native halves live only in the VM crate — they join with their
+first consumer.
+
+Test battery, all three legs:
+- facade-native == raw crate, and hooked == plain arkworks byte-equality
+  (pairing, MSM G1/G2/TE/SW, mul_projective ×4):
+  `rostro-guest-crypto/tests/differential.rs`, 12/12.
+- facade-guest == facade-native inside the real interpreter:
+  `rostro-executor/tests/fixtures/facade-test{,-harness}` — 16 guest
+  cases, every facade entry executed in-guest against natively computed
+  expected bytes, including a 10-pair multi-pairing that exercises the
+  Miller-loop chunking path. Run:
+  `cargo run --release -p rostro-facade-rvm-test`.
+
+Harness gotcha, paid once: the harness must `sbrk(input_len)` before
+writing input at `heap_base` — without it the guest allocator's arena
+overlaps the input region and the first in-guest `Vec` allocation
+corrupts it (exports that never allocate keep passing, which disguises
+the cause).
 
 ## 7. Deliberately not done
 

@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rostro-guest-crypto"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+publish = false
+homepage.workspace = true
+repository.workspace = true
+description = "The single facade through which Rostro runtime code reaches cryptography: per-cipher backend routing (sp_io host functions / RVM ecalli intrinsics / reference crates) plus RostroCurveHooks for the arkworks ext curves."
+
+[lints]
+workspace = true
+
+[dependencies]
+# The hooked curve types are the runtime's curve types — the ark stack is a
+# regular (both-target) dependency; only the group operations route away.
+ark-bls12-381 = { workspace = true, features = ["curve"] }
+ark-bls12-381-ext = { workspace = true }
+ark-ec = { workspace = true }
+ark-ed-on-bls12-381-bandersnatch = { workspace = true }
+ark-ed-on-bls12-381-bandersnatch-ext = { workspace = true }
+ark-ff = { workspace = true }
+ark-models-ext = { workspace = true }
+ark-serialize = { workspace = true }
+ark-std = { workspace = true }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+
+# Native / test backends: the SAME crates the RVM intrinsic bodies use
+# (single-source-of-truth requirement, docs/RVM-VERIFY-INTRINSICS.md §6).
+# Gated off the polkavm target — guest code uses the intrinsics, period.
+[target.'cfg(not(target_env = "polkavm"))'.dependencies]
+fips204 = { workspace = true, features = ["ml-dsa-65"] }
+k256 = { workspace = true, features = ["ecdsa", "arithmetic"] }
+p256 = { workspace = true, features = ["arithmetic"] }
+p521 = { workspace = true, features = ["ecdsa", "arithmetic"] }
+slh-dsa = { workspace = true }
+
+[target.'cfg(target_env = "polkavm")'.dependencies]
+polkavm-derive = { workspace = true }
+
+[dev-dependencies]
+fips204 = { workspace = true, features = ["ml-dsa-65", "default-rng"] }
+p521 = { workspace = true, features = ["ecdsa", "arithmetic", "getrandom"] }
+
+[features]
+default = ["std"]
+std = [
+	"ark-bls12-381/std",
+	"ark-bls12-381-ext/std",
+	"ark-ec/std",
+	"ark-ed-on-bls12-381-bandersnatch/std",
+	"ark-ed-on-bls12-381-bandersnatch-ext/std",
+	"ark-ff/std",
+	"ark-models-ext/std",
+	"ark-serialize/std",
+	"ark-std/std",
+	"k256/std",
+	"p256/std",
+	"p521/std",
+	"sp-core/std",
+	"sp-io/std",
+]
