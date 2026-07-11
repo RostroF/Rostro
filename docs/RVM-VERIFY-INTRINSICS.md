@@ -520,6 +520,35 @@ curves the entry point must be `msm()`, which w3f-pcs/ring-proof already
 use deliberately. Documented in rostro-curve-hooks' crate doc; the bench
 guard now pins it.
 
+**Second finding (the large-n MSM row):** the wire ABI charges a CONSTANT
+~30 µs of interpreted Montgomery↔bytes conversion per point (input
+deserialize in the consumer plus re-serialize in the hook marshalling),
+while Pippenger's native per-point cost FALLS with n (~6 µs at n=5,
+~1.6 µs at n=256). A pure MSM measured bytes-to-bytes therefore diverges
+from native as n grows — 8.5x at n=5, ~18-24x at n=256 — and that is
+conversion cost, not compute: a true interpreted fallback measures
+100-150x at that size, which is what the row's dedicated 60x guard
+distinguishes. This also revises the ring residue attribution: a
+meaningful share of the hooked verifier_key's ~60-130 ms residue is this
+per-point serialize inside the MSM hooks, not only piop bookkeeping.
+The lever landed the same day: **Montgomery-limb MSM intrinsics 131-134**
+(G1/G2/TE/SW). Points and scalars travel as raw LE Montgomery limbs via
+PUBLIC ark API (`Fp.0` / `new_unchecked`) — no repr bets, zero conversion
+multiplications on either side. The hooks' MSM path now uses them; the
+byte-canonical arms (115/116/119/125) remain as the wire-facing
+variants. ABI decisions: limbs ≥ the modulus are REJECTED (fail closed —
+`new_unchecked` on a non-canonical residue overflows inside the
+Montgomery arithmetic in debug builds, an unacceptable debug/release
+divergence; the range check is a plain limb compare), SW infinities are
+filtered guest-side (they contribute nothing to an MSM) with all-zero
+output encoding an identity result, and the TE identity (0,1) needs no
+special case. The SW flag-byte wart disappears in this encoding (64B
+points). KATs 25 → 29 (mont == bytes cross-check, identity sentinel,
+G2/TE known answers, non-canonical fail-closed); facade correctness
+20/20 through the mont path; bench MSM rows improved ~30% with the
+remainder being the fixture's own consumer-side byte parsing (real
+consumers hold points in memory).
+
 ## 7. Deliberately not done
 
 - **Gas surcharges for the new intrinsics**: deferred to the

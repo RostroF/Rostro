@@ -76,4 +76,40 @@ extern "C" {
 		n_limbs: u32,
 		out_ptr: u32,
 	) -> u32;
+	// Montgomery-limb MSM variants: points/scalars travel as raw LE
+	// Montgomery limbs (zero conversion multiplications on either side).
+	// These are the hooks' MSM path; the byte-canonical MSMs above remain
+	// the wire-facing variants.
+	// ROSTRO_INTRINSIC_BLS381_G1_MSM_MONT
+	#[polkavm_import(index = 131)]
+	pub fn rostro_bls381_g1_msm_mont(
+		points_ptr: u32,
+		scalars_ptr: u32,
+		n: u32,
+		out_ptr: u32,
+	) -> u32;
+	// ROSTRO_INTRINSIC_BLS381_G2_MSM_MONT
+	#[polkavm_import(index = 132)]
+	pub fn rostro_bls381_g2_msm_mont(
+		points_ptr: u32,
+		scalars_ptr: u32,
+		n: u32,
+		out_ptr: u32,
+	) -> u32;
+	// ROSTRO_INTRINSIC_BANDERSNATCH_TE_MSM_MONT
+	#[polkavm_import(index = 133)]
+	pub fn rostro_bandersnatch_te_msm_mont(
+		points_ptr: u32,
+		scalars_ptr: u32,
+		n: u32,
+		out_ptr: u32,
+	) -> u32;
+	// ROSTRO_INTRINSIC_BANDERSNATCH_SW_MSM_MONT
+	#[polkavm_import(index = 134)]
+	pub fn rostro_bandersnatch_sw_msm_mont(
+		points_ptr: u32,
+		scalars_ptr: u32,
+		n: u32,
+		out_ptr: u32,
+	) -> u32;
 }

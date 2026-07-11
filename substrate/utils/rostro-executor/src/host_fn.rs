@@ -246,6 +246,10 @@ pub const ROSTRO_INTRINSIC_IMPORT_SYMBOLS: &[&str] = &[
 	"rostro_bandersnatch_sw_mul_projective",
 	"rostro_bls381_g1_mul_projective",
 	"rostro_bls381_g2_mul_projective",
+	"rostro_bls381_g1_msm_mont",
+	"rostro_bls381_g2_msm_mont",
+	"rostro_bandersnatch_te_msm_mont",
+	"rostro_bandersnatch_sw_msm_mont",
 ];
 
 /// Register inert stubs for every reserved-range intrinsic import symbol.

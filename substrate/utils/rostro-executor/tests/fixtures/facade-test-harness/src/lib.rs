@@ -32,6 +32,8 @@ pub struct Case {
 	/// Native baseline: the same operation through the facade's native
 	/// backend (used by the bench bin; the correctness bin ignores it).
 	pub native: Box<dyn FnMut()>,
+	/// Per-case override of the bench guard ratio (None = the default).
+	pub guard_max: Option<f64>,
 }
 
 pub fn build_cases() -> Vec<Case> {
@@ -50,7 +52,7 @@ pub fn build_cases() -> Vec<Case> {
 		let native = Box::new(move || {
 			std::hint::black_box(hooks::Bls12_381::pairing(g1, g2));
 		});
-		cases.push(Case { name: "ft_pairing", input, native });
+		cases.push(Case { name: "ft_pairing", input, native, guard_max: None });
 	}
 
 	// ── ft_multi_pairing with n = 10 > MAX_BLS_PAIRS: chunking path ────
@@ -73,13 +75,13 @@ pub fn build_cases() -> Vec<Case> {
 		let native = Box::new(move || {
 			std::hint::black_box(hooks::Bls12_381::multi_pairing(g1s.clone(), g2s.clone()));
 		});
-		cases.push(Case { name: "ft_multi_pairing", input, native });
+		cases.push(Case { name: "ft_multi_pairing", input, native, guard_max: None });
 	}
 
 	// ── MSM cases (n = 5), expected via the facade's native msm ────────
 	macro_rules! msm_case {
-		($name:literal, $affine:ty, $proj:ty, $fr:ty) => {{
-			let n = 5usize;
+		($name:literal, $affine:ty, $proj:ty, $fr:ty, $n:expr, $guard:expr) => {{
+			let n: usize = $n;
 			let bases: Vec<$affine> = (1..=n)
 				.map(|k| (<$affine>::generator() * <$fr>::from(k as u64)).into_affine())
 				.collect();
@@ -96,13 +98,22 @@ pub fn build_cases() -> Vec<Case> {
 			let native = Box::new(move || {
 				std::hint::black_box(<$proj>::msm(&bases, &scalars).unwrap());
 			});
-			cases.push(Case { name: $name, input, native });
+			cases.push(Case { name: $name, input, native, guard_max: $guard });
 		}};
 	}
-	msm_case!("ft_msm_g1", hooks::BlsG1Affine, hooks::BlsG1Projective, BlsFr);
-	msm_case!("ft_msm_g2", hooks::BlsG2Affine, hooks::BlsG2Projective, BlsFr);
-	msm_case!("ft_te_msm", hooks::EdwardsAffine, hooks::EdwardsProjective, BanderFr);
-	msm_case!("ft_sw_msm", hooks::SWAffine, hooks::SWProjective, BanderFr);
+	msm_case!("ft_msm_g1", hooks::BlsG1Affine, hooks::BlsG1Projective, BlsFr, 5, None);
+	// Same export at ring-scale n. The wire ABI charges a CONSTANT ~30 µs of
+	// interpreted Montgomery↔bytes conversion per point while Pippenger's
+	// native per-point cost FALLS with n, so a pure MSM measured
+	// bytes-to-bytes diverges from native as n grows (~24x at n=256) — that
+	// is conversion cost, not compute. A true interpreted fallback measures
+	// 100-150x at this n; the 60x guard splits the two regimes. Killing the
+	// conversion needs a raw Montgomery-limb ABI (memcpy marshalling) — a
+	// candidate follow-up, see the doc.
+	msm_case!("ft_msm_g1", hooks::BlsG1Affine, hooks::BlsG1Projective, BlsFr, 256, Some(60.0));
+	msm_case!("ft_msm_g2", hooks::BlsG2Affine, hooks::BlsG2Projective, BlsFr, 5, None);
+	msm_case!("ft_te_msm", hooks::EdwardsAffine, hooks::EdwardsProjective, BanderFr, 5, None);
+	msm_case!("ft_sw_msm", hooks::SWAffine, hooks::SWProjective, BanderFr, 5, None);
 
 	// ── mul_projective cases, expected via the facade's native path ────
 	// G1 stays within ark's 4-limb GLV bound; the others take a 5-limb
@@ -122,7 +133,7 @@ pub fn build_cases() -> Vec<Case> {
 			let native = Box::new(move || {
 				std::hint::black_box(base.mul_bigint(&limbs[..]));
 			});
-			cases.push(Case { name: $name, input, native });
+			cases.push(Case { name: $name, input, native, guard_max: None });
 		}};
 	}
 	mul_case!("ft_mul_g1", hooks::BlsG1Affine, &[0xdead_beef, 42, 7, 1]);
@@ -157,7 +168,7 @@ pub fn build_cases() -> Vec<Case> {
 				assert!(verify::p256_verify_prehash(vk, sig, &input[97..]));
 			})
 		};
-		cases.push(Case { name: "ft_p256", input, native });
+		cases.push(Case { name: "ft_p256", input, native, guard_max: None });
 	}
 	{
 		use p521::ecdsa::signature::hazmat::PrehashSigner;
@@ -177,7 +188,7 @@ pub fn build_cases() -> Vec<Case> {
 				assert!(verify::p521_verify_prehash(vk, sig, &input[265..]));
 			})
 		};
-		cases.push(Case { name: "ft_p521", input, native });
+		cases.push(Case { name: "ft_p521", input, native, guard_max: None });
 	}
 	{
 		use fips204::ml_dsa_65;
@@ -196,7 +207,7 @@ pub fn build_cases() -> Vec<Case> {
 				assert!(verify::mldsa65_verify(pk, &input[5261..], sig, &[]));
 			})
 		};
-		cases.push(Case { name: "ft_mldsa", input, native });
+		cases.push(Case { name: "ft_mldsa", input, native, guard_max: None });
 	}
 	{
 		let sk = slh_dsa::SigningKey::<slh_dsa::Sha2_128s>::slh_keygen_internal(
@@ -217,7 +228,7 @@ pub fn build_cases() -> Vec<Case> {
 				assert!(verify::slhdsa128s_verify(pk, &input[7888..], sig, &[]));
 			})
 		};
-		cases.push(Case { name: "ft_slhdsa", input, native });
+		cases.push(Case { name: "ft_slhdsa", input, native, guard_max: None });
 	}
 	{
 		use k256::ecdsa::SigningKey;
@@ -236,7 +247,7 @@ pub fn build_cases() -> Vec<Case> {
 				assert!(verify::secp256k1_recover(hash, sig).is_some());
 			})
 		};
-		cases.push(Case { name: "ft_recover", input, native });
+		cases.push(Case { name: "ft_recover", input, native, guard_max: None });
 	}
 	{
 		// Bilinearity pair set through the checked standalone verifier.
@@ -253,7 +264,7 @@ pub fn build_cases() -> Vec<Case> {
 				assert!(verify::bls381_pairing_check(&input));
 			})
 		};
-		cases.push(Case { name: "ft_pairing_check", input, native });
+		cases.push(Case { name: "ft_pairing_check", input, native, guard_max: None });
 	}
 	{
 		use sp_core::Pair;
@@ -270,7 +281,7 @@ pub fn build_cases() -> Vec<Case> {
 				assert!(verify::ed25519_verify(sig, &input[96..], pk));
 			})
 		};
-		cases.push(Case { name: "ft_ed25519", input, native });
+		cases.push(Case { name: "ft_ed25519", input, native, guard_max: None });
 
 		let pair = sp_core::sr25519::Pair::from_seed(&[2u8; 32]);
 		let mut input = pair.public().0.to_vec();
@@ -284,7 +295,7 @@ pub fn build_cases() -> Vec<Case> {
 				assert!(verify::sr25519_verify(sig, &input[96..], pk));
 			})
 		};
-		cases.push(Case { name: "ft_sr25519", input, native });
+		cases.push(Case { name: "ft_sr25519", input, native, guard_max: None });
 
 		let pair = sp_core::ecdsa::Pair::from_seed(&[3u8; 32]);
 		let hash = [0x11u8; 32];
@@ -300,7 +311,7 @@ pub fn build_cases() -> Vec<Case> {
 				assert!(verify::ecdsa_verify_prehashed(sig, hash, pk));
 			})
 		};
-		cases.push(Case { name: "ft_ecdsa", input, native });
+		cases.push(Case { name: "ft_ecdsa", input, native, guard_max: None });
 	}
 
 	cases
