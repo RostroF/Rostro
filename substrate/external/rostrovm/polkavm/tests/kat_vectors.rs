@@ -50,9 +50,11 @@
 use polkavm::rostro_intrinsics::{
 	goldilocks_add_native, goldilocks_mul_native, goldilocks_sub_native,
 	rostro_bandersnatch_sw_msm, rostro_bandersnatch_sw_mul_projective,
-	rostro_bandersnatch_te_msm, rostro_bandersnatch_te_mul_projective, rostro_blake2b_256,
-	rostro_bls381_final_exponentiation, rostro_bls381_g1_msm, rostro_bls381_g1_mul_projective,
-	rostro_bls381_g2_msm, rostro_bls381_g2_mul_projective, rostro_bls381_multi_miller_loop,
+	rostro_bandersnatch_te_msm, rostro_bandersnatch_te_msm_mont,
+	rostro_bandersnatch_te_mul_projective, rostro_blake2b_256,
+	rostro_bls381_final_exponentiation, rostro_bls381_g1_msm, rostro_bls381_g1_msm_mont,
+	rostro_bls381_g1_mul_projective, rostro_bls381_g2_msm, rostro_bls381_g2_msm_mont,
+	rostro_bls381_g2_mul_projective, rostro_bls381_multi_miller_loop,
 	rostro_bls381_pairing_check, rostro_ed25519_verify, rostro_keccak_256,
 	rostro_p256_ecdsa_verify_prehash, rostro_poseidon2_permute, rostro_secp256k1_recover,
 	rostro_slhdsa_128s_verify,
@@ -629,4 +631,132 @@ fn kat_poseidon2_perm_deadbeef() {
 	// Sanity: at minimum, state must have changed.
 	let unchanged_deadbeef = state[0] == 0xdeadbeef_00000000;
 	assert!(!unchanged_deadbeef, "poseidon2_perm did not modify state[0]");
+}
+
+fn mont_limbs_g1(k: i64) -> Vec<u8> {
+	use ark_ec::{AffineRepr, CurveGroup};
+	let p = (ark_bls12_381::G1Affine::generator() * ark_bls12_381::Fr::from(k)).into_affine();
+	let mut out = Vec::with_capacity(96);
+	for l in p.x.0 .0.iter().chain(p.y.0 .0.iter()) {
+		out.extend_from_slice(&l.to_le_bytes());
+	}
+	out
+}
+
+fn mont_limbs_fr(k: i64) -> Vec<u8> {
+	let f = ark_bls12_381::Fr::from(k);
+	let mut out = Vec::with_capacity(32);
+	for l in f.0 .0.iter() {
+		out.extend_from_slice(&l.to_le_bytes());
+	}
+	out
+}
+
+#[test]
+fn kat_bls381_g1_msm_mont_matches_bytes_abi() {
+	// 2·G + 3·G = 5·G through the Montgomery-limb ABI, cross-checked against
+	// the byte-canonical ABI's answer converted to limb form.
+	let mut points = mont_limbs_g1(1);
+	points.extend_from_slice(&mont_limbs_g1(1));
+	let mut scalars = mont_limbs_fr(2);
+	scalars.extend_from_slice(&mont_limbs_fr(3));
+	let mut out = [0u8; 96];
+	assert!(rostro_bls381_g1_msm_mont(&points, &scalars, 2, &mut out));
+	assert_eq!(&out[..], &mont_limbs_g1(5)[..]);
+}
+
+#[test]
+fn kat_msm_mont_identity_sentinel() {
+	// Scalars 2 and -2 on the same base cancel: the SW result is the
+	// identity, which the mont ABI encodes as all-zero output.
+	let mut points = mont_limbs_g1(1);
+	points.extend_from_slice(&mont_limbs_g1(1));
+	let mut scalars = mont_limbs_fr(2);
+	scalars.extend_from_slice(&mont_limbs_fr(-2));
+	let mut out = [0xAAu8; 96];
+	assert!(rostro_bls381_g1_msm_mont(&points, &scalars, 2, &mut out));
+	assert_eq!(out, [0u8; 96]);
+}
+
+#[test]
+fn kat_msm_mont_bandersnatch_and_g2() {
+	use ark_ec::{AffineRepr, CurveGroup};
+	// TE: 2G + 3G = 5G; identity (0,1) is representable, no sentinel.
+	let te = |k: i64| -> Vec<u8> {
+		let p = (ark_ed_on_bls12_381_bandersnatch::EdwardsAffine::generator()
+			* ark_ed_on_bls12_381_bandersnatch::Fr::from(k))
+		.into_affine();
+		let mut out = Vec::with_capacity(64);
+		for l in p.x.0 .0.iter().chain(p.y.0 .0.iter()) {
+			out.extend_from_slice(&l.to_le_bytes());
+		}
+		out
+	};
+	let bander_fr_limbs = |k: i64| -> Vec<u8> {
+		let f = ark_ed_on_bls12_381_bandersnatch::Fr::from(k);
+		let mut out = Vec::with_capacity(32);
+		for l in f.0 .0.iter() {
+			out.extend_from_slice(&l.to_le_bytes());
+		}
+		out
+	};
+	let mut points = te(1);
+	points.extend_from_slice(&te(1));
+	let mut scalars = bander_fr_limbs(2);
+	scalars.extend_from_slice(&bander_fr_limbs(3));
+	let mut out = [0u8; 64];
+	assert!(rostro_bandersnatch_te_msm_mont(&points, &scalars, 2, &mut out));
+	assert_eq!(&out[..], &te(5)[..]);
+
+	// G2: 2G + 3G = 5G.
+	let g2 = |k: i64| -> Vec<u8> {
+		let p = (ark_bls12_381::G2Affine::generator() * ark_bls12_381::Fr::from(k)).into_affine();
+		let mut out = Vec::with_capacity(192);
+		for l in p
+			.x
+			.c0
+			.0
+			 .0
+			.iter()
+			.chain(p.x.c1.0 .0.iter())
+			.chain(p.y.c0.0 .0.iter())
+			.chain(p.y.c1.0 .0.iter())
+		{
+			out.extend_from_slice(&l.to_le_bytes());
+		}
+		out
+	};
+	let mut points = g2(1);
+	points.extend_from_slice(&g2(1));
+	let mut scalars = mont_limbs_fr(2);
+	scalars.extend_from_slice(&mont_limbs_fr(3));
+	let mut out = [0u8; 192];
+	assert!(rostro_bls381_g2_msm_mont(&points, &scalars, 2, &mut out));
+	assert_eq!(&out[..], &g2(5)[..]);
+}
+
+#[test]
+fn kat_msm_mont_noncanonical_limbs_fail_closed() {
+	// Limbs ≥ the modulus must be REJECTED, not computed on: new_unchecked
+	// on a non-canonical residue can overflow inside the Montgomery
+	// arithmetic (debug-build panic / debug-release divergence). The mont
+	// ABI range-checks with a plain limb compare and fails closed.
+	let mut points = mont_limbs_g1(1);
+	points.extend_from_slice(&[0xFFu8; 96]); // limbs ≥ p
+	let mut scalars = mont_limbs_fr(2);
+	scalars.extend_from_slice(&mont_limbs_fr(3));
+	let mut out = [0u8; 96];
+	assert!(!rostro_bls381_g1_msm_mont(&points, &scalars, 2, &mut out));
+	// Off-curve but in-field limbs remain accepted (unchecked class):
+	// deterministic garbage, no panic.
+	let mut off_curve = mont_limbs_g1(1);
+	let mut p2 = mont_limbs_g1(1);
+	p2[48] ^= 1; // tweak y's low limb, stays < p
+	off_curve.extend_from_slice(&p2);
+	let mut out_a = [0u8; 96];
+	let mut out_b = [0u8; 96];
+	let ok_a = rostro_bls381_g1_msm_mont(&off_curve, &scalars, 2, &mut out_a);
+	let ok_b = rostro_bls381_g1_msm_mont(&off_curve, &scalars, 2, &mut out_b);
+	assert_eq!(ok_a, ok_b);
+	assert_eq!(out_a, out_b);
 }

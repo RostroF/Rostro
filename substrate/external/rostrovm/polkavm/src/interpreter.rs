@@ -3349,6 +3349,126 @@ impl InterpretedInstance {
                             self.regs[Reg::A0.to_usize()] = result;
                             offset += 1;
                         }
+                        ROSTRO_INTRINSIC_BLS381_G1_MSM_MONT => {
+                            // ABI: as the byte-canonical MSM but points and
+                            // scalars travel as raw LE Montgomery limbs
+                            // (96B points); all-zero out = identity.
+                            let points_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let scalars_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n           = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr     = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n == 0 || n > MAX_BLS_MSM {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 96];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let points = memory.borrow_bytes(points_ptr, n * 96)?;
+                                    let scalars = memory.borrow_bytes(scalars_ptr, n * 32)?;
+                                    rostro_bls381_g1_msm_mont(points, scalars, n as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 96)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BLS381_G2_MSM_MONT => {
+                            // ABI: as the byte-canonical MSM but points and
+                            // scalars travel as raw LE Montgomery limbs
+                            // (192B points); all-zero out = identity.
+                            let points_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let scalars_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n           = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr     = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n == 0 || n > MAX_BLS_MSM {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 192];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let points = memory.borrow_bytes(points_ptr, n * 192)?;
+                                    let scalars = memory.borrow_bytes(scalars_ptr, n * 32)?;
+                                    rostro_bls381_g2_msm_mont(points, scalars, n as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 192)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BANDERSNATCH_TE_MSM_MONT => {
+                            // ABI: as the byte-canonical MSM but points and
+                            // scalars travel as raw LE Montgomery limbs
+                            // (64B points); all-zero out = identity.
+                            let points_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let scalars_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n           = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr     = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n == 0 || n > MAX_BLS_MSM {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 64];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let points = memory.borrow_bytes(points_ptr, n * 64)?;
+                                    let scalars = memory.borrow_bytes(scalars_ptr, n * 32)?;
+                                    rostro_bandersnatch_te_msm_mont(points, scalars, n as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 64)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
+                        ROSTRO_INTRINSIC_BANDERSNATCH_SW_MSM_MONT => {
+                            // ABI: as the byte-canonical MSM but points and
+                            // scalars travel as raw LE Montgomery limbs
+                            // (64B points); all-zero out = identity.
+                            let points_ptr  = self.regs[Reg::A0.to_usize()] as u32;
+                            let scalars_ptr = self.regs[Reg::A1.to_usize()] as u32;
+                            let n           = self.regs[Reg::A2.to_usize()] as u32;
+                            let out_ptr     = self.regs[Reg::A3.to_usize()] as u32;
+                            let result: u64 = (|| -> Option<u64> {
+                                if n == 0 || n > MAX_BLS_MSM {
+                                    return Some(0);
+                                }
+                                let mut out = [0u8; 64];
+                                let ok = {
+                                    let memory = <M as Memory>::memory_state(self);
+                                    let points = memory.borrow_bytes(points_ptr, n * 64)?;
+                                    let scalars = memory.borrow_bytes(scalars_ptr, n * 32)?;
+                                    rostro_bandersnatch_sw_msm_mont(points, scalars, n as usize, &mut out)
+                                };
+                                if !ok {
+                                    return Some(0);
+                                }
+                                let memory_mut = <M as Memory>::memory_state_mut(self);
+                                let dst = memory_mut.borrow_bytes_mut(out_ptr, 64)?;
+                                dst.copy_from_slice(&out);
+                                Some(1)
+                            })().unwrap_or(0);
+                            self.regs[Reg::A0.to_usize()] = result;
+                            offset += 1;
+                        }
                         ROSTRO_INTRINSIC_DILITHIUM_VERIFY => {
                             // ABI: A0=pubkey_ptr (1952B), A1=msg_ptr, A2=msg_len,
                             //      A3=sig_ptr (3309B), A4=ctx_ptr, A5=ctx_len
@@ -4990,6 +5110,23 @@ pub const ROSTRO_INTRINSIC_BANDERSNATCH_SW_MSM: u32 = 125; // short Weierstrass 
 pub const ROSTRO_INTRINSIC_BANDERSNATCH_SW_MUL_PROJECTIVE: u32 = 126; // SW point × raw-limb scalar
 pub const ROSTRO_INTRINSIC_BLS381_G1_MUL_PROJECTIVE: u32 = 127; // G1 point × raw-limb scalar
 pub const ROSTRO_INTRINSIC_BLS381_G2_MUL_PROJECTIVE: u32 = 128; // G2 point × raw-limb scalar
+// Montgomery-limb MSM variants (2026-07-10). Same operations as 115/116/
+// 119/125 but the wire format is raw little-endian Montgomery-form limbs
+// ([u64; N] per field element, public ark API on both sides — no repr
+// bets), eliminating the per-point Montgomery↔bytes conversions that
+// dominate the byte-canonical ABI as n grows (constant ~30 µs/point
+// interpreted vs Pippenger's falling native per-point cost). Points:
+// G1 = 96B (12 limbs), G2 = 192B (24 limbs), bandersnatch TE/SW = 64B
+// (8 limbs — no SW flag byte in this encoding); scalars = 32B Fr limbs.
+// SW infinities are filtered by the caller (they contribute nothing to
+// an MSM); an all-zero output point encodes an identity result ((0,0)
+// is on none of these curves). TE needs no special case: its identity
+// (0,1) is a representable point. The byte-canonical arms remain as the
+// wire-facing variants.
+pub const ROSTRO_INTRINSIC_BLS381_G1_MSM_MONT: u32 = 131;
+pub const ROSTRO_INTRINSIC_BLS381_G2_MSM_MONT: u32 = 132;
+pub const ROSTRO_INTRINSIC_BANDERSNATCH_TE_MSM_MONT: u32 = 133;
+pub const ROSTRO_INTRINSIC_BANDERSNATCH_SW_MSM_MONT: u32 = 134;
 
 /// Operand caps for the variable-length BLS intrinsics. Inputs are
 /// consensus-adversarial and the intrinsics are (for now) not gas-
@@ -5501,6 +5638,173 @@ pub fn rostro_bls381_g2_mul_projective(
         &scalar[..n_limbs],
     );
     res.into_affine().serialize_uncompressed(&mut out[..]).is_ok()
+}
+
+/// Montgomery-limb decoding helpers for the `_MONT` MSM intrinsics: raw
+/// little-endian `[u64; N]` limb arrays reconstructed via `new_unchecked`
+/// (already in Montgomery form — zero conversion multiplications). Limbs
+/// ≥ the field modulus are REJECTED (fail closed): unlike the
+/// byte-canonical arms, whose deserializer range-checks even in unchecked
+/// mode, `new_unchecked` on a non-canonical residue can overflow inside
+/// the Montgomery arithmetic (a debug-build panic / debug-release
+/// divergence — unacceptable). The range check is a plain limb compare,
+/// preserving the zero-conversion property.
+#[inline]
+fn mont_field<T: ark_ff::MontConfig<N>, const N: usize>(
+    bytes: &[u8],
+) -> Option<ark_ff::Fp<ark_ff::MontBackend<T, N>, N>> {
+    let mut limbs = ark_ff::BigInt::<N>([0u64; N]);
+    for (i, c) in bytes.chunks_exact(8).enumerate() {
+        limbs.0[i] = u64::from_le_bytes(c.try_into().expect("chunks_exact(8)"));
+    }
+    (limbs < T::MODULUS).then(|| ark_ff::Fp::new_unchecked(limbs))
+}
+
+#[inline]
+fn mont_limbs_out<const N: usize>(big: &ark_ff::BigInt<N>, out: &mut [u8]) {
+    for (i, l) in big.0.iter().enumerate() {
+        out[i * 8..(i + 1) * 8].copy_from_slice(&l.to_le_bytes());
+    }
+}
+
+/// BLS12-381 G1 MSM over raw Montgomery limbs (96B points = x‖y, 32B Fr
+/// scalars). All-zero output encodes the identity result.
+pub fn rostro_bls381_g1_msm_mont(
+    points: &[u8],
+    scalars: &[u8],
+    n: usize,
+    out: &mut [u8; 96],
+) -> bool {
+    use ark_bls12_381::{Fq, Fr, G1Affine, G1Projective};
+    use ark_ec::{CurveGroup, VariableBaseMSM};
+    use ark_ff::Zero;
+    if points.len() != n * 96 || scalars.len() != n * 32 {
+        return false;
+    }
+    let mut ps = Vec::with_capacity(n);
+    let mut ss = Vec::with_capacity(n);
+    for i in 0..n {
+        let Some(x) = mont_field(&points[i * 96..i * 96 + 48]) else { return false };
+        let Some(y) = mont_field(&points[i * 96 + 48..(i + 1) * 96]) else { return false };
+        ps.push(G1Affine::new_unchecked(x, y));
+        let Some(s) = mont_field(&scalars[i * 32..(i + 1) * 32]) else { return false };
+        ss.push(s);
+    }
+    let acc = G1Projective::msm_unchecked(&ps, &ss);
+    if acc.is_zero() {
+        out.fill(0);
+        return true;
+    }
+    let affine = acc.into_affine();
+    mont_limbs_out(&affine.x.0, &mut out[..48]);
+    mont_limbs_out(&affine.y.0, &mut out[48..]);
+    true
+}
+
+/// BLS12-381 G2 MSM over raw Montgomery limbs (192B points = x.c0‖x.c1‖
+/// y.c0‖y.c1).
+pub fn rostro_bls381_g2_msm_mont(
+    points: &[u8],
+    scalars: &[u8],
+    n: usize,
+    out: &mut [u8; 192],
+) -> bool {
+    use ark_bls12_381::{Fq, Fq2, Fr, G2Affine, G2Projective};
+    use ark_ec::{CurveGroup, VariableBaseMSM};
+    use ark_ff::Zero;
+    if points.len() != n * 192 || scalars.len() != n * 32 {
+        return false;
+    }
+    let mut ps = Vec::with_capacity(n);
+    let mut ss = Vec::with_capacity(n);
+    for i in 0..n {
+        let p = &points[i * 192..(i + 1) * 192];
+        let Some(xc0) = mont_field(&p[..48]) else { return false };
+        let Some(xc1) = mont_field(&p[48..96]) else { return false };
+        let Some(yc0) = mont_field(&p[96..144]) else { return false };
+        let Some(yc1) = mont_field(&p[144..192]) else { return false };
+        ps.push(G2Affine::new_unchecked(Fq2::new(xc0, xc1), Fq2::new(yc0, yc1)));
+        let Some(s) = mont_field(&scalars[i * 32..(i + 1) * 32]) else { return false };
+        ss.push(s);
+    }
+    let acc = G2Projective::msm_unchecked(&ps, &ss);
+    if acc.is_zero() {
+        out.fill(0);
+        return true;
+    }
+    let affine = acc.into_affine();
+    mont_limbs_out(&affine.x.c0.0, &mut out[..48]);
+    mont_limbs_out(&affine.x.c1.0, &mut out[48..96]);
+    mont_limbs_out(&affine.y.c0.0, &mut out[96..144]);
+    mont_limbs_out(&affine.y.c1.0, &mut out[144..192]);
+    true
+}
+
+/// Bandersnatch TE MSM over raw Montgomery limbs (64B points). The TE
+/// identity (0, 1) is a representable point — no sentinel needed on input
+/// or output; the all-zero output is still reserved for the (unreachable
+/// on TE) zero projective normalization edge.
+pub fn rostro_bandersnatch_te_msm_mont(
+    points: &[u8],
+    scalars: &[u8],
+    n: usize,
+    out: &mut [u8; 64],
+) -> bool {
+    use ark_ec::{CurveGroup, VariableBaseMSM};
+    use ark_ed_on_bls12_381_bandersnatch::{EdwardsAffine, EdwardsProjective, Fq, Fr};
+    if points.len() != n * 64 || scalars.len() != n * 32 {
+        return false;
+    }
+    let mut ps = Vec::with_capacity(n);
+    let mut ss = Vec::with_capacity(n);
+    for i in 0..n {
+        let p = &points[i * 64..(i + 1) * 64];
+        let Some(x) = mont_field(&p[..32]) else { return false };
+        let Some(y) = mont_field(&p[32..64]) else { return false };
+        ps.push(EdwardsAffine::new_unchecked(x, y));
+        let Some(s) = mont_field(&scalars[i * 32..(i + 1) * 32]) else { return false };
+        ss.push(s);
+    }
+    let affine = EdwardsProjective::msm_unchecked(&ps, &ss).into_affine();
+    mont_limbs_out(&affine.x.0, &mut out[..32]);
+    mont_limbs_out(&affine.y.0, &mut out[32..]);
+    true
+}
+
+/// Bandersnatch SW MSM over raw Montgomery limbs (64B points — no flag
+/// byte in this encoding; SW infinities are filtered by the caller and an
+/// all-zero output encodes the identity result).
+pub fn rostro_bandersnatch_sw_msm_mont(
+    points: &[u8],
+    scalars: &[u8],
+    n: usize,
+    out: &mut [u8; 64],
+) -> bool {
+    use ark_ec::{CurveGroup, VariableBaseMSM};
+    use ark_ed_on_bls12_381_bandersnatch::{Fq, Fr, SWAffine, SWProjective};
+    use ark_ff::Zero;
+    if points.len() != n * 64 || scalars.len() != n * 32 {
+        return false;
+    }
+    let mut ps = Vec::with_capacity(n);
+    let mut ss = Vec::with_capacity(n);
+    for i in 0..n {
+        let p = &points[i * 64..(i + 1) * 64];
+        let Some(x) = mont_field(&p[..32]) else { return false };
+        let Some(y) = mont_field(&p[32..64]) else { return false };
+        ps.push(SWAffine::new_unchecked(x, y));
+        let Some(s) = mont_field(&scalars[i * 32..(i + 1) * 32]) else { return false };
+        ss.push(s);
+    }
+    let acc = SWProjective::msm_unchecked(&ps, &ss);
+    if acc.is_zero() {
+        out.fill(0);
+        return true;
+    }
+    let affine = acc.into_affine();
+    mont_limbs_out(&affine.x.0, &mut out[..32]);
+    mont_limbs_out(&affine.y.0, &mut out[32..]);
+    true
 }
 
 /// ML-DSA-65 (Dilithium) verify. Pure-bytes API; same single-source-of-truth

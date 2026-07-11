@@ -64,6 +64,9 @@ mod wire {
 	pub const G2: usize = 192;
 	pub const TE: usize = 64;
 	pub const SW: usize = 65;
+	/// SW point in the Montgomery-limb MSM encoding — raw x‖y limbs, no
+	/// flag byte (infinities are filtered before marshalling).
+	pub const MONT_SW: usize = 64;
 	pub const FQ12: usize = 576;
 }
 
@@ -160,13 +163,104 @@ mod plain {
 	}
 }
 
-/// Guest MSM marshalling: serialize a chunk of (points, scalars), one ecalli
-/// per chunk, sum the partial results (MSM is additive over input chunks).
-/// Length mismatch mirrors `msm_unchecked`'s zip semantics: excess of either
-/// slice is ignored.
+/// Montgomery-limb marshalling helpers for the guest MSM path: field
+/// elements travel as raw LE `[u64; N]` limb arrays via the PUBLIC
+/// `Fp.0`/`new_unchecked` API — zero conversion multiplications, no layout
+/// bets. This is what makes in-guest MSM cost track the native MSM instead
+/// of diverging with n (the byte-canonical ABI pays a constant ~30 µs of
+/// interpreted Montgomery↔bytes conversion per point, while Pippenger's
+/// native per-point cost falls with n).
+#[cfg(target_env = "polkavm")]
+mod mont {
+	use super::*;
+	use ark_ec::AffineRepr;
+	use ark_ff::{MontBackend, MontConfig, Zero};
+
+	pub fn write_fp<T: MontConfig<N>, const N: usize>(
+		f: &ark_ff::Fp<MontBackend<T, N>, N>,
+		buf: &mut Vec<u8>,
+	) {
+		for l in f.0 .0.iter() {
+			buf.extend_from_slice(&l.to_le_bytes());
+		}
+	}
+
+	pub fn read_fp<T: MontConfig<N>, const N: usize>(
+		bytes: &[u8],
+	) -> ark_ff::Fp<MontBackend<T, N>, N> {
+		let mut limbs = ark_ff::BigInt::<N>([0u64; N]);
+		for (i, c) in bytes.chunks_exact(8).enumerate() {
+			limbs.0[i] = u64::from_le_bytes(c.try_into().expect("chunks_exact(8)"));
+		}
+		// Intrinsic output is always canonical; no range check needed here.
+		ark_ff::Fp::new_unchecked(limbs)
+	}
+
+	pub fn g1_write(p: &BlsG1Affine, buf: &mut Vec<u8>) {
+		write_fp(&p.x, buf);
+		write_fp(&p.y, buf);
+	}
+
+	pub fn g1_read(out: &[u8]) -> BlsG1Projective {
+		if out.iter().all(|b| *b == 0) {
+			return BlsG1Projective::zero();
+		}
+		ark_ec::short_weierstrass::Affine::new_unchecked(read_fp(&out[..48]), read_fp(&out[48..]))
+			.into_group()
+	}
+
+	pub fn g2_write(p: &BlsG2Affine, buf: &mut Vec<u8>) {
+		write_fp(&p.x.c0, buf);
+		write_fp(&p.x.c1, buf);
+		write_fp(&p.y.c0, buf);
+		write_fp(&p.y.c1, buf);
+	}
+
+	pub fn g2_read(out: &[u8]) -> BlsG2Projective {
+		if out.iter().all(|b| *b == 0) {
+			return BlsG2Projective::zero();
+		}
+		let x = ark_bls12_381::Fq2::new(read_fp(&out[..48]), read_fp(&out[48..96]));
+		let y = ark_bls12_381::Fq2::new(read_fp(&out[96..144]), read_fp(&out[144..192]));
+		ark_ec::short_weierstrass::Affine::new_unchecked(x, y).into_group()
+	}
+
+	pub fn te_write(p: &EdwardsAffine, buf: &mut Vec<u8>) {
+		write_fp(&p.x, buf);
+		write_fp(&p.y, buf);
+	}
+
+	pub fn te_read(out: &[u8]) -> EdwardsProjective {
+		// TE identity is the representable (0, 1); the intrinsic never
+		// emits an all-zero TE point.
+		ark_ec::twisted_edwards::Affine::new_unchecked(read_fp(&out[..32]), read_fp(&out[32..]))
+			.into_group()
+	}
+
+	pub fn sw_write(p: &SWAffine, buf: &mut Vec<u8>) {
+		write_fp(&p.x, buf);
+		write_fp(&p.y, buf);
+	}
+
+	pub fn sw_read(out: &[u8]) -> SWProjective {
+		if out.iter().all(|b| *b == 0) {
+			return SWProjective::zero();
+		}
+		ark_ec::short_weierstrass::Affine::new_unchecked(read_fp(&out[..32]), read_fp(&out[32..]))
+			.into_group()
+	}
+}
+
+/// Guest MSM marshalling over the Montgomery-limb ABI: copy limbs of a
+/// chunk of (points, scalars), one ecalli per chunk, sum the partial
+/// results (MSM is additive over input chunks). Identity points are
+/// filtered out (they contribute nothing; the SW wire encoding has no
+/// infinity representation). Length mismatch mirrors `msm_unchecked`'s
+/// zip semantics: excess of either slice is ignored.
 #[cfg(target_env = "polkavm")]
 macro_rules! guest_msm {
-	($ecalli:path, $bases:expr, $scalars:expr, $pt_len:expr, $affine:ty, $proj:ty) => {{
+	($ecalli:path, $bases:expr, $scalars:expr, $pt_len:expr, $write:path, $read:path, $proj:ty) => {{
+		use ark_ff::Zero as _;
 		let n = core::cmp::min($bases.len(), $scalars.len());
 		let mut acc = <$proj>::zero();
 		let mut pbuf: Vec<u8> = Vec::new();
@@ -176,27 +270,30 @@ macro_rules! guest_msm {
 			let end = core::cmp::min(start + crate::MAX_BLS_MSM, n);
 			pbuf.clear();
 			sbuf.clear();
-			for p in &$bases[start..end] {
-				p.serialize_uncompressed(&mut pbuf).expect("serialize into Vec cannot fail");
+			let mut m = 0u32;
+			for i in start..end {
+				if ark_ec::AffineRepr::is_zero(&$bases[i]) {
+					continue;
+				}
+				$write(&$bases[i], &mut pbuf);
+				mont::write_fp(&$scalars[i], &mut sbuf);
+				m += 1;
 			}
-			for s in &$scalars[start..end] {
-				s.serialize_uncompressed(&mut sbuf).expect("serialize into Vec cannot fail");
+			if m > 0 {
+				let mut out = [0u8; $pt_len];
+				let ok = unsafe {
+					$ecalli(
+						pbuf.as_ptr() as u32,
+						sbuf.as_ptr() as u32,
+						m,
+						out.as_mut_ptr() as u32,
+					)
+				};
+				if ok != 1 {
+					panic!("rostro-guest-crypto: MSM intrinsic failed");
+				}
+				acc += $read(&out[..]);
 			}
-			let mut out = [0u8; $pt_len];
-			let ok = unsafe {
-				$ecalli(
-					pbuf.as_ptr() as u32,
-					sbuf.as_ptr() as u32,
-					(end - start) as u32,
-					out.as_mut_ptr() as u32,
-				)
-			};
-			if ok != 1 {
-				panic!("rostro-guest-crypto: MSM intrinsic failed");
-			}
-			let part = <$affine>::deserialize_uncompressed_unchecked(&out[..])
-				.expect("intrinsic output is canonical");
-			acc += part.into_group();
 			start = end;
 		}
 		acc
@@ -313,11 +410,12 @@ impl ark_bls12_381_ext::CurveHooks for RostroCurveHooks {
 		#[cfg(target_env = "polkavm")]
 		{
 			guest_msm!(
-				crate::ecalli::rostro_bls381_g1_msm,
+				crate::ecalli::rostro_bls381_g1_msm_mont,
 				bases,
 				scalars,
 				wire::G1,
-				BlsG1Affine,
+				mont::g1_write,
+				mont::g1_read,
 				BlsG1Projective
 			)
 		}
@@ -334,11 +432,12 @@ impl ark_bls12_381_ext::CurveHooks for RostroCurveHooks {
 		#[cfg(target_env = "polkavm")]
 		{
 			guest_msm!(
-				crate::ecalli::rostro_bls381_g2_msm,
+				crate::ecalli::rostro_bls381_g2_msm_mont,
 				bases,
 				scalars,
 				wire::G2,
-				BlsG2Affine,
+				mont::g2_write,
+				mont::g2_read,
 				BlsG2Projective
 			)
 		}
@@ -401,11 +500,12 @@ impl ark_ed_on_bls12_381_bandersnatch_ext::CurveHooks for RostroCurveHooks {
 		#[cfg(target_env = "polkavm")]
 		{
 			guest_msm!(
-				crate::ecalli::rostro_bandersnatch_te_msm,
+				crate::ecalli::rostro_bandersnatch_te_msm_mont,
 				bases,
 				scalars,
 				wire::TE,
-				EdwardsAffine,
+				mont::te_write,
+				mont::te_read,
 				EdwardsProjective
 			)
 		}
@@ -444,11 +544,12 @@ impl ark_ed_on_bls12_381_bandersnatch_ext::CurveHooks for RostroCurveHooks {
 		#[cfg(target_env = "polkavm")]
 		{
 			guest_msm!(
-				crate::ecalli::rostro_bandersnatch_sw_msm,
+				crate::ecalli::rostro_bandersnatch_sw_msm_mont,
 				bases,
 				scalars,
-				wire::SW,
-				SWAffine,
+				wire::MONT_SW,
+				mont::sw_write,
+				mont::sw_read,
 				SWProjective
 			)
 		}
