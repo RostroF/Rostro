@@ -29,7 +29,6 @@ sp-application-crypto = { features = ["bandersnatch-experimental"], workspace = 
 sp-consensus-slots = { workspace = true }
 sp-core = { features = ["bandersnatch-experimental"], workspace = true }
 sp-runtime = { workspace = true }
-sp-runtime-interface = { workspace = true }
 
 [features]
 default = ["std"]
@@ -41,7 +40,6 @@ std = [
 	"sp-application-crypto/std",
 	"sp-consensus-slots/std",
 	"sp-core/std",
-	"sp-runtime-interface/std",
 	"sp-runtime/std",
 ]
 

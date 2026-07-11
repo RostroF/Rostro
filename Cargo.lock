@@ -16545,7 +16545,6 @@ dependencies = [
  "sp-consensus-slots",
  "sp-core",
  "sp-runtime",
- "sp-runtime-interface",
 ]
 
 [[package]]

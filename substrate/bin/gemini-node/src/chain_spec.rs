@@ -35,14 +35,12 @@ use sp_runtime::{
 	Perbill,
 };
 
-/// A specialized [`ChainSpec`] for the gemini runtime. The extra
-/// host-function parameter matters: building genesis runs the runtime's
-/// GenesisBuilder in the VM, and session genesis derives the sassafras
-/// ring verifier through the native `ring_ops` host call.
-pub type ChainSpec = rc_service::GenericChainSpec<
-	rc_service::NoExtension,
-	sp_consensus_sassafras::ring_ops::HostFunctions,
->;
+/// A specialized [`ChainSpec`] for the gemini runtime. Building genesis
+/// runs the runtime's GenesisBuilder in the VM; the ring-verifier
+/// derivation in session genesis runs in-VM through the curve-op
+/// intrinsics (resolved by rostro-executor's stub registration, not an
+/// extra host-function parameter here).
+pub type ChainSpec = rc_service::GenericChainSpec<rc_service::NoExtension>;
 
 type AccountPublic = <Signature as Verify>::Signer;
 

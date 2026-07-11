@@ -555,41 +555,21 @@ impl<T: Config> Pallet<T> {
 
 	pub(crate) fn update_ring_verifier(authorities: &[AuthorityId]) {
 		debug!(target: LOG_TARGET, "Loading ring context");
-		// Raw storage read: the encoded context bytes go straight to the
-		// host — decoding the ~300KB URS in-VM just to re-encode it for
-		// the host boundary would be pure waste.
-		let Some(ring_ctx_bytes) =
-			frame_support::storage::unhashed::get_raw(&RingContext::<T>::hashed_key())
-		else {
+		let Some(ring_ctx) = RingContext::<T>::get() else {
 			debug!(target: LOG_TARGET, "Ring context not initialized");
 			return;
 		};
 
-		let mut pks = Vec::with_capacity(authorities.len() * 32);
-		for auth in authorities {
-			pks.extend_from_slice(auth.as_ref());
-		}
+		let pks: Vec<_> = authorities.iter().map(|auth| *auth.as_ref()).collect();
 
-		// Verifier-key construction is a fixed-domain MSM (~65ms native,
-		// seconds under the RVM interpreter — longer than the proposal
-		// deadline, which would livelock the chain at every authority-set
-		// change). Delegated to the host; see
-		// sp_consensus_sassafras::ring_ops.
-		debug!(target: LOG_TARGET, "Building ring verifier (ring size: {})", authorities.len());
-		let Some(vk_bytes) =
-			sp_consensus_sassafras::ring_ops::ring_verifier_key(&ring_ctx_bytes, &pks)
-		else {
-			// Unreachable while the ring context and authority keys come
-			// from storage this pallet wrote; validate the handoff anyway.
-			error!(target: LOG_TARGET, "host ring_verifier_key rejected its inputs");
-			return;
-		};
-		let Ok(verifier_data) = codec::Decode::decode(&mut &vk_bytes[..]) else {
-			error!(target: LOG_TARGET, "host ring_verifier_key returned undecodable data");
-			return;
-		};
+		// Runs in-VM: the heavy group ops (BLS12-381 MSM / Miller loop /
+		// final exponentiation) route through RostroCurveHooks to native
+		// intrinsics, so the rebuild fits the block-proposal deadline at
+		// every authority-set change (live-proven; docs/NPOS.md).
+		debug!(target: LOG_TARGET, "Building ring verifier (ring size: {})", pks.len());
+		let verifier_data = ring_ctx.verifier_key(&pks);
 
-		RingVerifierData::<T>::put::<vrf::RingVerifierKey>(verifier_data);
+		RingVerifierData::<T>::put(verifier_data);
 	}
 
 	/// Enact an epoch change.

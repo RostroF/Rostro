@@ -27,12 +27,11 @@ use rostro_consensus_sassafras::{
 use sp_consensus_slots::SlotDuration;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
-/// Host-function surface for the RVM executor: the substrate set plus
-/// the sassafras ring ops (native ring-verifier construction — in-VM it
-/// exceeds the proposal deadline at every authority-set change; see
-/// sp_consensus_sassafras::ring_ops).
-pub(crate) type GeminiHostFunctions =
-	(sp_io::SubstrateHostFunctions, sp_consensus_sassafras::ring_ops::HostFunctions);
+/// Host-function surface for the RVM executor: the substrate set. The
+/// ring-verifier build runs in-VM on the hooked curve stack (BLS12-381
+/// group ops reach native intrinsics via RostroCurveHooks); the executor
+/// registers the intrinsic import stubs itself.
+pub(crate) type GeminiHostFunctions = sp_io::SubstrateHostFunctions;
 
 pub(crate) type FullClient = rc_service::TFullClient<
 	Block,
