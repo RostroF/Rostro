@@ -531,11 +531,23 @@ conversion cost, not compute: a true interpreted fallback measures
 distinguishes. This also revises the ring residue attribution: a
 meaningful share of the hooked verifier_key's ~60-130 ms residue is this
 per-point serialize inside the MSM hooks, not only piop bookkeeping.
-The lever, if an MSM-bound path ever needs true ~1x: a raw
-Montgomery-limb ABI variant (memcpy marshalling of the point structs'
-limbs; the same repr-transparency bet ark-models-ext's transmute already
-stakes, acceptable for a vendored pinned ark). Candidate follow-up, not
-scheduled — the era-boundary numbers hold regardless.
+The lever landed the same day: **Montgomery-limb MSM intrinsics 131-134**
+(G1/G2/TE/SW). Points and scalars travel as raw LE Montgomery limbs via
+PUBLIC ark API (`Fp.0` / `new_unchecked`) — no repr bets, zero conversion
+multiplications on either side. The hooks' MSM path now uses them; the
+byte-canonical arms (115/116/119/125) remain as the wire-facing
+variants. ABI decisions: limbs ≥ the modulus are REJECTED (fail closed —
+`new_unchecked` on a non-canonical residue overflows inside the
+Montgomery arithmetic in debug builds, an unacceptable debug/release
+divergence; the range check is a plain limb compare), SW infinities are
+filtered guest-side (they contribute nothing to an MSM) with all-zero
+output encoding an identity result, and the TE identity (0,1) needs no
+special case. The SW flag-byte wart disappears in this encoding (64B
+points). KATs 25 → 29 (mont == bytes cross-check, identity sentinel,
+G2/TE known answers, non-canonical fail-closed); facade correctness
+20/20 through the mont path; bench MSM rows improved ~30% with the
+remainder being the fixture's own consumer-side byte parsing (real
+consumers hold points in memory).
 
 ## 7. Deliberately not done
 
