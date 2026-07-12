@@ -213,3 +213,164 @@ fn eip191_hash_matches_canonical_test_vector() {
 		"b453bd4e271eed985cbab8231da609c4ce0a9cf1f763b6c1594e76315510e0f1",
 	);
 }
+
+// ---------------------------------------------------------------------------
+// P-256 (secp256r1) — EcdsaP256 variant
+// ---------------------------------------------------------------------------
+
+/// secp256r1 group order n, big-endian (SEC2). Used only to synthesize the
+/// high-s malleable twin and to cross-check `P256_HALF_ORDER`.
+const P256_ORDER: [u8; 32] = [
+	0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51,
+];
+
+/// Fixed P-256 test secret, well below the group order.
+const P256_TEST_SECRET: [u8; 32] = [0x42u8; 32];
+
+/// Right-shift a 32-byte big-endian integer by one bit.
+fn be_shr1(a: &[u8; 32]) -> [u8; 32] {
+	let mut out = [0u8; 32];
+	let mut carry = 0u8;
+	for i in 0..32 {
+		out[i] = (carry << 7) | (a[i] >> 1);
+		carry = a[i] & 1;
+	}
+	out
+}
+
+/// Big-endian `a - b` (assumes `a >= b`).
+fn be_sub(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
+	let mut out = [0u8; 32];
+	let mut borrow = 0i16;
+	for i in (0..32).rev() {
+		let mut d = a[i] as i16 - b[i] as i16 - borrow;
+		if d < 0 {
+			d += 256;
+			borrow = 1;
+		} else {
+			borrow = 0;
+		}
+		out[i] = d as u8;
+	}
+	out
+}
+
+fn p256_test_key() -> (p256::ecdsa::SigningKey, [u8; 33]) {
+	let sk = p256::ecdsa::SigningKey::from_slice(&P256_TEST_SECRET).expect("valid P-256 scalar");
+	let pt = sk.verifying_key().to_encoded_point(true);
+	let pubkey: [u8; 33] = pt.as_bytes().try_into().expect("compressed sec1 is 33 bytes");
+	(sk, pubkey)
+}
+
+/// Sign `msg` the way StrongBox's `SHA256withECDSA` does: SHA-256 the
+/// payload, ECDSA over the digest. RustCrypto's signer does NOT force
+/// low-s (roughly half its signatures are high-s), so we normalize to
+/// low-s here — exactly the step the wallet/dotwave owns before submission
+/// and the canonical form `verify_p256` requires.
+fn p256_sign(sk: &p256::ecdsa::SigningKey, msg: &[u8]) -> [u8; 64] {
+	use p256::ecdsa::{signature::Signer, Signature};
+	let sig: Signature = sk.sign(msg);
+	let sig = sig.normalize_s().unwrap_or(sig);
+	sig.to_bytes().as_slice().try_into().expect("64-byte r||s")
+}
+
+#[test]
+fn ecdsa_p256_derivation_is_blake2_of_pubkey() {
+	let (_sk, pubkey) = p256_test_key();
+	let derived = ecdsa_p256_to_account(&pubkey);
+	let derived_bytes: &[u8; 32] = derived.as_ref();
+	assert_eq!(
+		derived_bytes,
+		&blake2_256(&pubkey),
+		"P-256 account MUST be blake2_256(compressed pubkey) — deterministic on chain and in wallet"
+	);
+	assert_eq!(ecdsa_p256_to_account(&pubkey), derived, "derivation must be a pure function of the bytes");
+}
+
+#[test]
+fn ecdsa_p256_signature_verifies() {
+	let (sk, pubkey) = p256_test_key();
+	let account = ecdsa_p256_to_account(&pubkey);
+	// Several payloads: deterministic ECDSA samples s across (0, n/2], so a
+	// wrong P256_HALF_ORDER would trip at least one of these.
+	for m in [
+		&b"hello rostro"[..],
+		&b""[..],
+		&b"a second payload"[..],
+		&b"strongbox p256 native signing"[..],
+	] {
+		let sig = p256_sign(&sk, m);
+		let rs = RostroSignature::EcdsaP256 { pubkey, sig };
+		assert!(rs.verify(m, &account), "valid low-s P-256 signature must verify");
+	}
+}
+
+#[test]
+fn ecdsa_p256_rejects_wrong_account() {
+	let (sk, pubkey) = p256_test_key();
+	let msg = b"hello rostro";
+	let sig = p256_sign(&sk, msg);
+	let attacker: AccountId32 = [0x99u8; 32].into();
+	let rs = RostroSignature::EcdsaP256 { pubkey, sig };
+	assert!(
+		!rs.verify(&msg[..], &attacker),
+		"P-256 verify must reject when the account isn't blake2_256(pubkey)"
+	);
+}
+
+#[test]
+fn ecdsa_p256_rejects_pubkey_swap() {
+	// A signature carrying a different (valid) pubkey than the account
+	// derives from must fail — the pubkey-in-signature is bound by hash.
+	let (sk, pubkey) = p256_test_key();
+	let account = ecdsa_p256_to_account(&pubkey);
+	let msg = b"hello rostro";
+	let sig = p256_sign(&sk, msg);
+	let sk2 = p256::ecdsa::SigningKey::from_slice(&[0x07u8; 32]).unwrap();
+	let pt2 = sk2.verifying_key().to_encoded_point(true);
+	let pubkey2: [u8; 33] = pt2.as_bytes().try_into().unwrap();
+	let rs = RostroSignature::EcdsaP256 { pubkey: pubkey2, sig };
+	assert!(!rs.verify(&msg[..], &account), "swapping the carried pubkey must break account binding");
+}
+
+#[test]
+fn ecdsa_p256_rejects_high_s() {
+	let (sk, pubkey) = p256_test_key();
+	let account = ecdsa_p256_to_account(&pubkey);
+	let msg = b"hello rostro";
+	let low = p256_sign(&sk, msg);
+	// s' = n - s is the valid high-s malleable twin: same r, verifies under
+	// raw ECDSA, but the low-s gate must reject it.
+	let s_low: [u8; 32] = low[32..].try_into().unwrap();
+	let s_high = be_sub(&P256_ORDER, &s_low);
+	let mut high = low;
+	high[32..].copy_from_slice(&s_high);
+	let rs_high = RostroSignature::EcdsaP256 { pubkey, sig: high };
+	assert!(!rs_high.verify(&msg[..], &account), "high-s (malleable) P-256 signature must be rejected");
+	// Isolate the cause: the low-s original does verify.
+	let rs_low = RostroSignature::EcdsaP256 { pubkey, sig: low };
+	assert!(rs_low.verify(&msg[..], &account));
+}
+
+#[test]
+fn p256_half_order_is_group_order_shifted() {
+	// Frozen-constant guard: n/2 == n >> 1.
+	assert_eq!(
+		be_shr1(&P256_ORDER),
+		P256_HALF_ORDER,
+		"P256_HALF_ORDER must equal the secp256r1 group order shifted right one bit"
+	);
+}
+
+#[test]
+fn p256_low_s_boundary() {
+	assert!(!is_low_s_p256(&[0u8; 32]), "s == 0 is not a valid scalar");
+	let mut one = [0u8; 32];
+	one[31] = 1;
+	assert!(is_low_s_p256(&one), "s == 1 is low");
+	assert!(is_low_s_p256(&P256_HALF_ORDER), "s == n/2 is the accepted boundary");
+	let mut half_plus = P256_HALF_ORDER;
+	half_plus[31] += 1; // 0xa8 -> 0xa9, no carry
+	assert!(!is_low_s_p256(&half_plus), "s == n/2 + 1 is high");
+}

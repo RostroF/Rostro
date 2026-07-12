@@ -14538,7 +14538,9 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "k256",
+ "p256",
  "parity-scale-codec",
+ "rostro-guest-crypto",
  "scale-info",
  "serde",
  "sp-core",
