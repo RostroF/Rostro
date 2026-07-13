@@ -2100,10 +2100,20 @@ fn convert_instruction(
             }
 
             let Some(base) = cast_reg_non_zero(base)? else {
-                return Err(ProgramFromElfError::other(format!(
-                    "found an unrelocated absolute load at {}",
+                // Rostro: LLVM materializes provably-unreachable (poison) paths as
+                // absolute loads at near-null addresses (first seen as `lbu 0(zero)` /
+                // `lbu -1(zero)` / `lhu 6(zero)` in substrate-test-runtime's genesis
+                // presets, 2026-07-12). No static can live at those addresses in our
+                // PIE blobs, so this is the same family as the zero-dst "poor man's
+                // trap" above: emit a trap instead of failing the link. A genuinely
+                // lost relocation would surface as a deterministic trap at the same
+                // spot, not silent corruption.
+                log::warn!(
+                    "treating unrelocated absolute load as a trap at {}",
                     current_location.fmt_human_readable(elf)
-                )));
+                );
+                emit(InstExt::Control(ControlInst::Unimplemented));
+                return Ok(());
             };
 
             // LLVM riscv-enable-dead-defs pass may rewrite dst to the zero register.
@@ -2121,10 +2131,13 @@ fn convert_instruction(
             }
 
             let Some(base) = cast_reg_non_zero(base)? else {
-                return Err(ProgramFromElfError::other(format!(
-                    "found an unrelocated absolute store at {}",
+                // Rostro: same poison-path materialization as the load case above.
+                log::warn!(
+                    "treating unrelocated absolute store as a trap at {}",
                     current_location.fmt_human_readable(elf)
-                )));
+                );
+                emit(InstExt::Control(ControlInst::Unimplemented));
+                return Ok(());
             };
 
             let src = cast_reg_any(src)?;

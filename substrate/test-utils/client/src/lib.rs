@@ -24,8 +24,9 @@ pub mod client_ext;
 pub use self::client_ext::{BlockOrigin, ClientBlockImportExt, ClientExt};
 pub use rc_client_api::{execution_extensions::ExecutionExtensions, BadBlocks, ForkBlocks};
 pub use rc_client_db::{self, Backend, BlocksPruning};
-pub use rc_executor::{self, WasmExecutionMethod, WasmExecutor};
+pub use rc_executor;
 pub use rc_service::{client, RpcHandlers};
+pub use rostro_executor::RostroCodeExecutor;
 pub use sp_consensus;
 pub use sp_keyring::{Ed25519Keyring, Sr25519Keyring};
 pub use sp_keystore::{Keystore, KeystorePtr};
@@ -244,27 +245,39 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 }
 
 impl<Block: BlockT, H, Backend, G: GenesisInit>
-	TestClientBuilder<Block, client::LocalCallExecutor<Block, Backend, WasmExecutor<H>>, Backend, G>
+	TestClientBuilder<
+		Block,
+		client::LocalCallExecutor<Block, Backend, RostroCodeExecutor<H>>,
+		Backend,
+		G,
+	> where
+	H: rc_executor::HostFunctions + 'static,
 {
-	/// Build the test client with the given native executor.
-	pub fn build_with_native_executor<RuntimeApi, I>(
+	/// Build the test client with the given RostroVM executor.
+	///
+	/// wasm-cull W1: this was `build_with_native_executor`, specialized to
+	/// `WasmExecutor`. Test clients now run the same executor the chain
+	/// ships: `RostroCodeExecutor` over the riscv-built test runtime.
+	pub fn build_with_rostro_executor<RuntimeApi, I>(
 		self,
 		executor: I,
 	) -> (
 		client::Client<
 			Backend,
-			client::LocalCallExecutor<Block, Backend, WasmExecutor<H>>,
+			client::LocalCallExecutor<Block, Backend, RostroCodeExecutor<H>>,
 			Block,
 			RuntimeApi,
 		>,
 		rc_consensus::LongestChain<Backend, Block>,
 	)
 	where
-		I: Into<Option<WasmExecutor<H>>>,
+		I: Into<Option<RostroCodeExecutor<H>>>,
 		Backend: rc_client_api::backend::Backend<Block> + 'static,
-		H: rc_executor::HostFunctions,
 	{
-		let executor = executor.into().unwrap_or_else(|| WasmExecutor::<H>::builder().build());
+		let executor = executor.into().unwrap_or_else(|| {
+			RostroCodeExecutor::<H>::new()
+				.expect("RostroCodeExecutor init: polkavm engine setup must succeed")
+		});
 		let executor = LocalCallExecutor::new(
 			self.backend.clone(),
 			executor.clone(),

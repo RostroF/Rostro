@@ -41,9 +41,7 @@ pub mod prelude {
 		TestClientBuilderExt,
 	};
 	// Client structs
-	pub use super::{
-		Backend, ExecutorDispatch, TestClient, TestClientBuilder, WasmExecutionMethod,
-	};
+	pub use super::{Backend, ExecutorDispatch, TestClient, TestClientBuilder};
 	// Keyring
 	pub use super::Sr25519Keyring;
 	pub use futures::executor::block_on;
@@ -54,14 +52,17 @@ pub mod prelude {
 /// Test client database backend.
 pub type Backend = substrate_test_client::Backend<substrate_test_runtime::Block>;
 
-/// Test client executor.
-pub type ExecutorDispatch =
-	client::LocalCallExecutor<substrate_test_runtime::Block, Backend, WasmExecutor>;
+/// Test client executor. wasm-cull W1: the same RostroVM executor the
+/// chain ships, over the riscv-built test runtime.
+pub type ExecutorDispatch = client::LocalCallExecutor<
+	substrate_test_runtime::Block,
+	Backend,
+	RostroCodeExecutor<sp_io::SubstrateHostFunctions>,
+>;
 
 /// Parameters of test-client builder with test-runtime.
 #[derive(Default)]
 pub struct GenesisParameters {
-	heap_pages_override: Option<u64>,
 	extra_storage: Storage,
 	wasm_code: Option<Vec<u8>>,
 }
@@ -81,7 +82,6 @@ impl GenesisParameters {
 impl GenesisInit for GenesisParameters {
 	fn genesis_storage(&self) -> Storage {
 		GenesisStorageBuilder::default()
-			.with_heap_pages(self.heap_pages_override)
 			.with_wasm_code(&self.wasm_code)
 			.with_extra_storage(self.extra_storage.clone())
 			.build()
@@ -96,10 +96,14 @@ pub type TestClientBuilder<E, B> = substrate_test_client::TestClientBuilder<
 	GenesisParameters,
 >;
 
-/// Test client type with `WasmExecutor` and generic Backend.
+/// Test client type with `RostroCodeExecutor` and generic Backend.
 pub type Client<B> = client::Client<
 	B,
-	client::LocalCallExecutor<substrate_test_runtime::Block, B, WasmExecutor>,
+	client::LocalCallExecutor<
+		substrate_test_runtime::Block,
+		B,
+		RostroCodeExecutor<sp_io::SubstrateHostFunctions>,
+	>,
 	substrate_test_runtime::Block,
 	substrate_test_runtime::RuntimeApi,
 >;
@@ -123,12 +127,6 @@ impl DefaultTestClientBuilderExt for TestClientBuilder<ExecutorDispatch, Backend
 pub trait TestClientBuilderExt<B>: Sized {
 	/// Returns a mutable reference to the genesis parameters.
 	fn genesis_init_mut(&mut self) -> &mut GenesisParameters;
-
-	/// Override the default value for Wasm heap pages.
-	fn set_heap_pages(mut self, heap_pages: u64) -> Self {
-		self.genesis_init_mut().heap_pages_override = Some(heap_pages);
-		self
-	}
 
 	/// Add an extra value into the genesis storage.
 	///
@@ -185,8 +183,14 @@ pub trait TestClientBuilderExt<B>: Sized {
 }
 
 impl<B> TestClientBuilderExt<B>
-	for TestClientBuilder<client::LocalCallExecutor<substrate_test_runtime::Block, B, WasmExecutor>, B>
-where
+	for TestClientBuilder<
+		client::LocalCallExecutor<
+			substrate_test_runtime::Block,
+			B,
+			RostroCodeExecutor<sp_io::SubstrateHostFunctions>,
+		>,
+		B,
+	> where
 	B: rc_client_api::backend::Backend<substrate_test_runtime::Block> + 'static,
 {
 	fn genesis_init_mut(&mut self) -> &mut GenesisParameters {
@@ -196,22 +200,16 @@ where
 	fn build_with_longest_chain(
 		self,
 	) -> (Client<B>, rc_consensus::LongestChain<B, substrate_test_runtime::Block>) {
-		self.build_with_native_executor(None)
+		self.build_with_rostro_executor(None)
 	}
 
 	fn build_with_backend(self) -> (Client<B>, Arc<B>) {
 		let backend = self.backend();
-		(self.build_with_native_executor(None).0, backend)
+		(self.build_with_rostro_executor(None).0, backend)
 	}
 }
 
 /// Creates new client instance used for tests.
 pub fn new() -> Client<Backend> {
 	TestClientBuilder::new().build()
-}
-
-/// Create a new native executor.
-#[deprecated(note = "Switch to `WasmExecutor:default()`.")]
-pub fn new_native_or_wasm_executor() -> WasmExecutor {
-	WasmExecutor::default()
 }

@@ -16,16 +16,19 @@
 // limitations under the License.
 
 fn main() {
+	// wasm-cull W1: this runtime is only useful as a PVM blob — force the
+	// riscv target regardless of what the workspace was invoked with, same
+	// as the rostro-executor storage-roundtrip fixture. The wasm32 build
+	// (and its metadata-hash step, which executed the blob through the
+	// removed WasmExecutor) is gone; RostroCodeExecutor is the only
+	// consumer.
+	std::env::set_var("SUBSTRATE_RUNTIME_TARGET", "riscv");
+
 	#[cfg(feature = "std")]
 	{
 		substrate_wasm_builder::WasmBuilder::new()
 			.with_current_project()
 			.export_heap_base()
-			// Note that we set the stack-size to 1MB explicitly even though it is set
-			// to this value by default. This is because some of our tests
-			// (`restoration_of_globals`) depend on the stack-size.
-			.append_to_rust_flags("-Clink-arg=-zstack-size=1048576")
-			.enable_metadata_hash("TOKEN", 10)
 			.import_memory()
 			.build();
 	}

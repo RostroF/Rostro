@@ -41,8 +41,6 @@ pub struct GenesisStorageBuilder {
 	authorities: Vec<AccountId>,
 	/// Accounts to be endowed with some funds.
 	balances: Vec<(AccountId, u64)>,
-	/// Override default number of heap pages.
-	heap_pages_override: Option<u64>,
 	/// Additional storage key pairs that will be added to the genesis map.
 	extra_storage: Storage,
 	/// Optional wasm code override.
@@ -85,7 +83,6 @@ impl GenesisStorageBuilder {
 		GenesisStorageBuilder {
 			authorities,
 			balances: endowed_accounts.into_iter().map(|a| (a, balance)).collect(),
-			heap_pages_override: None,
 			extra_storage: Default::default(),
 			wasm_code: None,
 		}
@@ -94,11 +91,6 @@ impl GenesisStorageBuilder {
 	/// Override default wasm code to be placed into RuntimeGenesisConfig.
 	pub fn with_wasm_code(mut self, wasm_code: &Option<Vec<u8>>) -> Self {
 		self.wasm_code = wasm_code.clone();
-		self
-	}
-
-	pub fn with_heap_pages(mut self, heap_pages_override: Option<u64>) -> Self {
-		self.heap_pages_override = heap_pages_override;
 		self
 	}
 
@@ -150,10 +142,6 @@ impl GenesisStorageBuilder {
 			.genesis_config()
 			.build_storage()
 			.expect("Build storage from substrate-test-runtime RuntimeGenesisConfig");
-
-		if let Some(heap_pages) = self.heap_pages_override {
-			storage.top.insert(well_known_keys::HEAP_PAGES.into(), heap_pages.encode());
-		}
 
 		storage.top.insert(
 			well_known_keys::CODE.into(),
