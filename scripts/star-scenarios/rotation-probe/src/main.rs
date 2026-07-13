@@ -124,9 +124,12 @@ fn grandpa_domain_payload(message: &[u8], round: u64, set_id: u64) -> Vec<u8> {
 }
 
 async fn connect(ws: &str) -> Result<OnlineClient<SubstrateConfig>> {
-	OnlineClient::<SubstrateConfig>::from_url(ws)
+	// from_insecure_url: the VM farm drives plain ws:// over the lab LAN
+	// (driver at 192.168.50.100); subxt's from_url rejects non-localhost
+	// ws. Lab tool, lab posture.
+	OnlineClient::<SubstrateConfig>::from_insecure_url(ws)
 		.await
-		.context("OnlineClient::from_url failed (node up? RPC reachable?)")
+		.context("OnlineClient::from_insecure_url failed (node up? RPC reachable?)")
 }
 
 async fn submit(
@@ -151,7 +154,19 @@ async fn submit(
 	)
 	.await
 	{
-		Ok(Ok(events)) => Ok(events),
+		Ok(Ok(events)) => {
+			// Weight capture (farm churn runs record the real "gas" of
+			// every exercised call): ExtrinsicSuccess carries
+			// dispatch_info { weight { ref_time, proof_size }, class }.
+			for ev in events.iter().flatten() {
+				if ev.pallet_name() == "System" && ev.variant_name() == "ExtrinsicSuccess" {
+					if let Ok(fields) = ev.field_values() {
+						eprintln!("[probe] weight: {}", fields);
+					}
+				}
+			}
+			Ok(events)
+		},
 		Ok(Err(e)) => {
 			eprintln!("[probe] REJECTED: {e:?}");
 			std::process::exit(3);
@@ -161,6 +176,37 @@ async fn submit(
 			std::process::exit(2);
 		},
 	}
+}
+
+/// Best-block hash via raw RPC — subxt's `at_latest()` resolves to the
+/// latest FINALIZED block, which on a finality-stalled chain (farm before
+/// the 7/10 GRANDPA quorum) pins every read to genesis state. Reads that
+/// diagnose a live-but-unfinalized chain must query at the BEST block.
+async fn best_hash(ws: &str) -> Result<subxt::utils::H256> {
+	let rpc = RpcClient::from_insecure_url(ws).await.context("raw RPC connect")?;
+	let hash: String = rpc
+		.request("chain_getBlockHash", rpc_params![])
+		.await
+		.context("chain_getBlockHash")?;
+	hash.trim_start_matches("0x")
+		.parse::<subxt::utils::H256>()
+		.or_else(|_| {
+			let b = hex::decode(hash.trim_start_matches("0x")).context("hash hex")?;
+			let arr: [u8; 32] = b.as_slice().try_into().context("hash len")?;
+			Ok(subxt::utils::H256::from(arr))
+		})
+}
+
+async fn fetch_storage_at(
+	api: &OnlineClient<SubstrateConfig>,
+	at: subxt::utils::H256,
+	pallet: &str,
+	entry: &str,
+	keys: Vec<subxt::dynamic::Value>,
+) -> Result<Option<Vec<u8>>> {
+	let addr = subxt::dynamic::storage(pallet, entry, keys);
+	let thunk = api.storage().at(at).fetch(&addr).await?;
+	Ok(thunk.map(|t| t.encoded().to_vec()))
 }
 
 async fn fetch_storage(
@@ -363,26 +409,49 @@ async fn cmd_lineage_key(args: Args) -> Result<()> {
 async fn cmd_session_state(args: Args) -> Result<()> {
 	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
 	let api = connect(&ws).await?;
-	let session = fetch_storage(&api, "Session", "CurrentIndex", vec![])
+	let at = best_hash(&ws).await?;
+	let session = fetch_storage_at(&api, at, "Session", "CurrentIndex", vec![])
 		.await?
 		.map(|b| u32::decode(&mut &b[..]))
 		.transpose()?
 		.unwrap_or(0);
-	let set_id = fetch_storage(&api, "Grandpa", "CurrentSetId", vec![])
+	let set_id = fetch_storage_at(&api, at, "Grandpa", "CurrentSetId", vec![])
 		.await?
 		.map(|b| u64::decode(&mut &b[..]))
 		.transpose()?
 		.unwrap_or(0);
-	let validators = fetch_storage(&api, "Session", "Validators", vec![])
+	let validators = fetch_storage_at(&api, at, "Session", "Validators", vec![])
 		.await?
 		.map(|b| Vec::<AccountId32>::decode(&mut &b[..]))
 		.transpose()?
 		.unwrap_or_default();
+	// Farm diagnostics: the on-chain sassafras epoch — under
+	// EpochChangeExternalTrigger this should move in lockstep with the
+	// session index; divergence = session wiring problem.
+	let epoch_index = fetch_storage_at(&api, at, "Sassafras", "EpochIndex", vec![])
+		.await?
+		.map(|b| u64::decode(&mut &b[..]))
+		.transpose()?
+		.unwrap_or(0);
+	let genesis_slot = fetch_storage_at(&api, at, "Sassafras", "GenesisSlot", vec![])
+		.await?
+		.map(|b| u64::decode(&mut &b[..]))
+		.transpose()?;
+	let current_slot = fetch_storage_at(&api, at, "Sassafras", "CurrentSlot", vec![])
+		.await?
+		.map(|b| u64::decode(&mut &b[..]))
+		.transpose()?;
 	println!(
 		"{}",
 		serde_json::json!({
 			"session": session,
 			"set_id": set_id,
+			"epoch_index": epoch_index,
+			"genesis_slot": genesis_slot,
+			"current_slot": current_slot,
+			"slots_since_genesis": current_slot
+				.zip(genesis_slot)
+				.map(|(c, g)| c.saturating_sub(g)),
 			"validators": validators.iter().map(|v| v.to_string()).collect::<Vec<_>>(),
 			"validator_count": validators.len(),
 		})
@@ -391,6 +460,9 @@ async fn cmd_session_state(args: Args) -> Result<()> {
 }
 
 fn dev_account(name: &str) -> Result<AccountId32> {
+	// Match dev names case-insensitively, but parse a real address/suri from
+	// the ORIGINAL string — SS58 is case-sensitive (lowercasing it corrupts
+	// the checksum) and `//FarmVal09`-style suris carry case too.
 	Ok(match name.to_lowercase().as_str() {
 		"alice" => dev_keypair("//Alice")?.public_key().to_account_id(),
 		"bob" => dev_keypair("//Bob")?.public_key().to_account_id(),
@@ -398,7 +470,8 @@ fn dev_account(name: &str) -> Result<AccountId32> {
 		"dave" => dev_keypair("//Dave")?.public_key().to_account_id(),
 		"eve" => dev_keypair("//Eve")?.public_key().to_account_id(),
 		"ferdie" => dev_keypair("//Ferdie")?.public_key().to_account_id(),
-		other => other.parse().map_err(|e| anyhow::anyhow!("bad account {other}: {e:?}"))?,
+		_ if name.starts_with("//") => dev_keypair(name)?.public_key().to_account_id(),
+		_ => name.parse().map_err(|e| anyhow::anyhow!("bad account {name}: {e:?}"))?,
 	})
 }
 
@@ -514,20 +587,57 @@ async fn cmd_bond_validate(args: Args) -> Result<()> {
 
 /// Staking era/count state: ActiveEra, CurrentEra, ValidatorCount, and the
 /// staking Validators (candidate) key count.
+/// System.Account balance for a stash: free + frozen. The FROZEN amount
+/// is the staking lock — bonding freezes it, unbond keeps it frozen
+/// (unlocking), withdraw_unbonded RELEASES it. So frozen is the clean
+/// observable for the unbond→withdraw lifecycle (P6). Reads at BEST block.
+async fn cmd_balance(args: Args) -> Result<()> {
+	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
+	let who = dev_account(&args.require("--account")?)?;
+	let api = connect(&ws).await?;
+	let at = best_hash(&ws).await?;
+	let bytes = fetch_storage_at(
+		&api, at, "System", "Account",
+		vec![subxt::dynamic::Value::from_bytes(who.0)],
+	)
+	.await?;
+	match bytes {
+		None => println!("{}", serde_json::json!({ "free": 0, "frozen": 0 })),
+		Some(b) => {
+			// AccountInfo: nonce(4)+consumers(4)+providers(4)+sufficients(4)=16,
+			// then AccountData { free u128, reserved u128, frozen u128, .. }.
+			let free = u128::from_le_bytes(b[16..32].try_into().unwrap());
+			let frozen = u128::from_le_bytes(b[48..64].try_into().unwrap());
+			const ROSTO: u128 = 1_000_000_000_000;
+			println!(
+				"{}",
+				serde_json::json!({
+					"free_ros": free / ROSTO,
+					"frozen_ros": frozen / ROSTO,
+					"free_planck": free.to_string(),
+					"frozen_planck": frozen.to_string(),
+				})
+			);
+		},
+	}
+	Ok(())
+}
+
 async fn cmd_staking_state(args: Args) -> Result<()> {
 	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
 	let api = connect(&ws).await?;
+	let at = best_hash(&ws).await?;
 
 	// ActiveEra: Option storage of ActiveEraInfo { index: u32, start: Option<u64> }
-	let active = fetch_storage(&api, "Staking", "ActiveEra", vec![]).await?;
+	let active = fetch_storage_at(&api, at, "Staking", "ActiveEra", vec![]).await?;
 	let active_era = active.as_deref().map(|mut b| {
 		let info: (u32, Option<u64>) =
 			Decode::decode(&mut b).expect("ActiveEraInfo layout: (u32, Option<u64>)");
 		info.0
 	});
-	let current = fetch_storage(&api, "Staking", "CurrentEra", vec![]).await?;
+	let current = fetch_storage_at(&api, at, "Staking", "CurrentEra", vec![]).await?;
 	let current_era = current.as_deref().map(|mut b| u32::decode(&mut b).expect("u32"));
-	let count = fetch_storage(&api, "Staking", "ValidatorCount", vec![]).await?;
+	let count = fetch_storage_at(&api, at, "Staking", "ValidatorCount", vec![]).await?;
 	let validator_count = count.as_deref().map(|mut b| u32::decode(&mut b).expect("u32"));
 
 	println!(
@@ -559,6 +669,116 @@ async fn cmd_set_validator_count(args: Args) -> Result<()> {
 	Ok(())
 }
 
+
+/// Resolve --suri or an SS58 --account into AccountId32 bytes.
+fn target_account(spec: &str) -> Result<AccountId32> {
+	if spec.starts_with("//") {
+		Ok(dev_keypair(spec)?.public_key().to_account_id())
+	} else {
+		spec.parse().map_err(|e| anyhow::anyhow!("bad account {spec}: {e:?}"))
+	}
+}
+
+/// Staking::nominate(targets) — comma-separated //suris or SS58 in --targets.
+async fn cmd_nominate(args: Args) -> Result<()> {
+	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
+	let signer = dev_keypair(&args.require("--suri")?)?;
+	let targets: Vec<AccountId32> = args
+		.require("--targets")?
+		.split(',')
+		.map(|t| target_account(t.trim()))
+		.collect::<Result<_>>()?;
+	let api = connect(&ws).await?;
+	let (p, c) = call_indices(&api.metadata(), "Staking", "nominate")?;
+	let mut call = vec![p, c];
+	codec::Compact(targets.len() as u32).encode_to(&mut call);
+	for t in &targets {
+		call.push(0); // MultiAddress::Id
+		call.extend_from_slice(&t.0);
+	}
+	submit(&api, RawCall(call), &signer, 90).await?;
+	println!(
+		"{}",
+		serde_json::json!({ "nominated": targets.iter().map(|t| t.to_string()).collect::<Vec<_>>() })
+	);
+	Ok(())
+}
+
+/// Staking::chill() — stop validating/nominating (stays bonded).
+async fn cmd_chill(args: Args) -> Result<()> {
+	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
+	let signer = dev_keypair(&args.require("--suri")?)?;
+	let api = connect(&ws).await?;
+	let (p, c) = call_indices(&api.metadata(), "Staking", "chill")?;
+	submit(&api, RawCall(vec![p, c]), &signer, 90).await?;
+	println!("{}", serde_json::json!({ "chilled": true }));
+	Ok(())
+}
+
+/// Staking::validate(ValidatorPrefs) — re-declare validator intent for an
+/// ALREADY-bonded stash (the rejoin path after a chill; bond-validate
+/// would fail on the redundant bond). Commission via --commission.
+async fn cmd_validate(args: Args) -> Result<()> {
+	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
+	let signer = dev_keypair(&args.require("--suri")?)?;
+	let commission_percent: u32 = args.get_or("--commission", "10").parse()?;
+	let api = connect(&ws).await?;
+	let (p, c) = call_indices(&api.metadata(), "Staking", "validate")?;
+	let mut call = vec![p, c];
+	codec::Compact(commission_percent.saturating_mul(10_000_000)).encode_to(&mut call); // Perbill
+	call.push(0); // blocked: false
+	submit(&api, RawCall(call), &signer, 90).await?;
+	println!("{}", serde_json::json!({ "validating": true, "commission_percent": commission_percent }));
+	Ok(())
+}
+
+/// Staking::unbond(#[compact] value) — value in ROS via --ros.
+async fn cmd_unbond(args: Args) -> Result<()> {
+	const ROSTO: u128 = 1_000_000_000_000;
+	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
+	let signer = dev_keypair(&args.require("--suri")?)?;
+	let ros: u128 = args.require("--ros")?.parse()?;
+	let api = connect(&ws).await?;
+	let (p, c) = call_indices(&api.metadata(), "Staking", "unbond")?;
+	let mut call = vec![p, c];
+	codec::Compact(ros * ROSTO).encode_to(&mut call);
+	submit(&api, RawCall(call), &signer, 90).await?;
+	println!("{}", serde_json::json!({ "unbonded_ros": ros }));
+	Ok(())
+}
+
+/// Staking::withdraw_unbonded(num_slashing_spans) — after BondingDuration.
+async fn cmd_withdraw_unbonded(args: Args) -> Result<()> {
+	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
+	let signer = dev_keypair(&args.require("--suri")?)?;
+	let spans: u32 = args.get_or("--spans", "0").parse()?;
+	let api = connect(&ws).await?;
+	let (p, c) = call_indices(&api.metadata(), "Staking", "withdraw_unbonded")?;
+	let mut call = vec![p, c];
+	spans.encode_to(&mut call);
+	submit(&api, RawCall(call), &signer, 90).await?;
+	println!("{}", serde_json::json!({ "withdrew": true }));
+	Ok(())
+}
+
+/// Balances::transfer_keep_alive — faucet plumbing (--to //suri|SS58, --ros N).
+async fn cmd_transfer(args: Args) -> Result<()> {
+	const ROSTO: u128 = 1_000_000_000_000;
+	let ws = args.get_or("--ws", "ws://127.0.0.1:9944");
+	let signer = dev_keypair(&args.get_or("--suri", "//Alice"))?;
+	let dest = target_account(&args.require("--to")?)?;
+	let ros: u128 = args.require("--ros")?.parse()?;
+	let api = connect(&ws).await?;
+	let (p, c) = call_indices(&api.metadata(), "Balances", "transfer_keep_alive")?;
+	let mut call = vec![p, c];
+	call.push(0); // MultiAddress::Id
+	call.extend_from_slice(&dest.0);
+	codec::Compact(ros * ROSTO).encode_to(&mut call);
+	submit(&api, RawCall(call), &signer, 90).await?;
+	println!("{}", serde_json::json!({ "to": dest.to_string(), "ros": ros }));
+	Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
 	let mut argv: Vec<String> = std::env::args().skip(1).collect();
@@ -578,6 +798,14 @@ async fn main() -> Result<()> {
 		"disabled" => cmd_disabled(args).await,
 		"wait-event" => cmd_wait_event(args).await,
 		"derive" => cmd_derive(args),
+		"derive-authority" => cmd_derive_authority(args),
+		"nominate" => cmd_nominate(args).await,
+		"chill" => cmd_chill(args).await,
+		"validate" => cmd_validate(args).await,
+		"balance" => cmd_balance(args).await,
+		"unbond" => cmd_unbond(args).await,
+		"withdraw-unbonded" => cmd_withdraw_unbonded(args).await,
+		"transfer" => cmd_transfer(args).await,
 		other => bail!("unknown subcommand: {other}"),
 	}
 }
@@ -609,6 +837,39 @@ fn cmd_derive(args: Args) -> Result<()> {
 		serde_json::json!({
 			"public": format!("0x{}", hex::encode(<sp_core::rostro_hybrid::Public as AsRef<[u8]>>::as_ref(&public))),
 			"seed": format!("0x{}", hex::encode(seed)),
+		})
+	);
+	Ok(())
+}
+
+/// Derive the full genesis-authority triple for a suri: the sr25519
+/// stash account (SS58), the bandersnatch sassafras public, and the
+/// hybrid GRANDPA public. Mirrors chain_spec.rs::authority_keys_from_seed
+/// so the VM-farm chainspec generator can populate `session.keys` +
+/// `staking.stakers` for arbitrary `//FarmValNN` suris without touching
+/// the node binary.
+fn cmd_derive_authority(args: Args) -> Result<()> {
+	use sp_core::crypto::{Pair as _, Ss58Codec as _};
+	let suri = args.require("--suri")?;
+	let sr_pair = <sp_core::sr25519::Pair as sp_core::Pair>::from_string(&suri, None)
+		.map_err(|e| anyhow::anyhow!("sr25519 derive: {e:?}"))?;
+	// sr25519 public bytes ARE the AccountId32 bytes (MultiSigner::into_account).
+	let account = sp_core::crypto::AccountId32::from(sr_pair.public());
+	let band_pair = <sp_core::bandersnatch::Pair as sp_core::Pair>::from_string(&suri, None)
+		.map_err(|e| anyhow::anyhow!("bandersnatch derive: {e:?}"))?;
+	let hybrid_pair = <sp_core::rostro_hybrid::Pair as sp_core::Pair>::from_string(&suri, None)
+		.map_err(|e| anyhow::anyhow!("hybrid derive: {e:?}"))?;
+	let band_pub = <sp_core::bandersnatch::Pair as sp_core::Pair>::public(&band_pair);
+	let hybrid_pub = hybrid_pair.public();
+	// SS58 throughout — chain-spec genesis JSON serializes session keys
+	// as SS58 strings (see `build-spec --chain local` output), so emit
+	// the exact format the genesis deserializer round-trips.
+	println!(
+		"{}",
+		serde_json::json!({
+			"account": account.to_ss58check(),
+			"sassafras": band_pub.to_ss58check(),
+			"grandpa": hybrid_pub.to_ss58check(),
 		})
 	);
 	Ok(())

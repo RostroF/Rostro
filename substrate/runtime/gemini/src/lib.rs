@@ -198,25 +198,42 @@ pub const EPOCH_LENGTH_IN_SLOTS: u32 = 25;
 
 // ─── Runtime version ───────────────────────────────────────────────────────
 
+// Bumped per forkless set_code upgrade — Substrate requires strict
+// increase. 101 = first live upgrade (dev chain, 2026-07-02);
+// 102 = first 3-node lab-cluster upgrade (2026-07-02);
+// 103 = consensus-key lifecycle workstream 1 (session rotation,
+// key lineage, offences; docs/CONSENSUS-KEY-LIFECYCLE.md);
+// 104 = history anchor (dual-hash sealing of session-boundary
+// headers under Keccak-512);
+// 105 = pq-chat P3b prekey record home (PREKEY/SEAL typed
+// records, RnsMaxContentLen 1024 -> 1536; docs/PQ-CHAT.md);
+// 106 = NPoS: pallet-staking + onchain phragmen election drive
+// the validator set; sassafras keys join SessionKeys and epochs
+// become session-driven. Genesis-breaking (SessionKeys wire
+// format + pallet reorder) — lands via chain reset, not set_code.
+// 107 = KeyLineage::plan_next_set returns None on no-op sessions, so
+// GRANDPA set_id stops bumping every session on a stable validator set.
+// Root cause of a finality-wedge amplifier found on the NPoS VM farm
+// (2026-07-13): pallet_session treats ANY Some(_) as changed=true, and
+// this pallet planned every session for enforcement, so the authority
+// set rotated every session even when membership was unchanged — turning
+// any finality lag into a queued-set-change backlog / voter wedge.
+// Proven: set_code across the fix is finality-clean at 2- and 5-validator
+// scale; set_id then bumps ONLY on real membership changes. Ships via
+// set_code (genesis-compatible).
+//
+// lab-fast-lifecycle keeps the SAME spec_version but cfg-gates
+// BondingDuration (28→1) + the membership-epoch clock (block/25→block/
+// 10000) for scenario runs. It shares the number by design — the two
+// builds are never on one chain (operational "never mix lab-fast with a
+// canonical cluster" rule), and sp_version::runtime_version needs a
+// numeric literal so it cannot branch on the feature.
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gemini"),
 	impl_name: Cow::Borrowed("gemini-runtime"),
 	authoring_version: 1,
-	// Bumped per forkless set_code upgrade — Substrate requires strict
-	// increase. 101 = first live upgrade (dev chain, 2026-07-02);
-	// 102 = first 3-node lab-cluster upgrade (2026-07-02);
-	// 103 = consensus-key lifecycle workstream 1 (session rotation,
-	// key lineage, offences; docs/CONSENSUS-KEY-LIFECYCLE.md);
-	// 104 = history anchor (dual-hash sealing of session-boundary
-	// headers under Keccak-512);
-	// 105 = pq-chat P3b prekey record home (PREKEY/SEAL typed
-	// records, RnsMaxContentLen 1024 -> 1536; docs/PQ-CHAT.md);
-	// 106 = NPoS: pallet-staking + onchain phragmen election drive
-	// the validator set; sassafras keys join SessionKeys and epochs
-	// become session-driven. Genesis-breaking (SessionKeys wire
-	// format + pallet reorder) — lands via chain reset, not set_code.
-	spec_version: 106,
+	spec_version: 107,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -360,7 +377,17 @@ impl Get<u32> for MembershipEpochEra {
 	fn get() -> u32 {
 		#[cfg(feature = "lab-fast-lifecycle")]
 		{
-			(frame_system::Pallet::<Runtime>::block_number() / 25) as u32
+			// The forced-rotation deadline (MaxKeyAgeEras=7) counts THIS
+			// clock, not the staking era. At block/25 (= one epoch) a
+			// membership era was 2.5 min, so K=7 fired every ~17 min and
+			// culled every validator that hadn't just rotated — a farm
+			// treadmill that inverted the production ordering (membership
+			// epoch 24h ≫ staking era). block/10000 = ~16.7h per era, so
+			// K=7 ≈ 4.9 days: outlasts a multi-day churn run + the 72h
+			// traffic window while staying compressed vs the 7-day prod
+			// deadline. The deadline itself was already proven live (farm
+			// churn 2026-07-12) — this stops it firing UNintentionally.
+			(frame_system::Pallet::<Runtime>::block_number() / 10000) as u32
 		}
 		#[cfg(not(feature = "lab-fast-lifecycle"))]
 		{
@@ -495,14 +522,29 @@ impl pallet_authorship::Config for Runtime {
 // pallet-session goes through KeyLineage (`ElectedSet = Staking`), which
 // filters offence-disabled and rotation-deadline-missed validators.
 
+/// Bonded funds unlock this many eras after unbonding. Canonical: 28
+/// (~7 days). Under lab-fast-lifecycle (scenario builds only) bonding
+/// compresses to 1 era so a farm churn run can watch withdraw_unbonded
+/// complete in minutes instead of hours.
+#[cfg(not(feature = "lab-fast-lifecycle"))]
+pub const BONDING_DURATION_ERAS: sp_staking::EraIndex = 28;
+#[cfg(feature = "lab-fast-lifecycle")]
+pub const BONDING_DURATION_ERAS: sp_staking::EraIndex = 1;
+
+/// Slash deferral must stay strictly below BondingDuration
+/// (cancel_deferred_slash window); with 1-era lab bonding it drops to 0
+/// (slashes apply immediately).
+#[cfg(not(feature = "lab-fast-lifecycle"))]
+pub const SLASH_DEFER_ERAS: sp_staking::EraIndex = 27;
+#[cfg(feature = "lab-fast-lifecycle")]
+pub const SLASH_DEFER_ERAS: sp_staking::EraIndex = 0;
+
 parameter_types! {
 	// 6 sassafras-epoch sessions (~1h each) per era: ~6h eras, Kusama-style.
 	pub const SessionsPerEra: sp_staking::SessionIndex = 6;
-	// Bonded funds unlock 28 eras (~7 days) after unbonding; slashes computed
-	// for an era can be intervened on (cancel_deferred_slash) until they
-	// apply 27 eras later.
-	pub const BondingDuration: sp_staking::EraIndex = 28;
-	pub const SlashDeferDuration: sp_staking::EraIndex = 27;
+	// See BONDING_DURATION_ERAS / SLASH_DEFER_ERAS above (lab-fast-gated).
+	pub const BondingDuration: sp_staking::EraIndex = BONDING_DURATION_ERAS;
+	pub const SlashDeferDuration: sp_staking::EraIndex = SLASH_DEFER_ERAS;
 	// Aligned with sassafras/grandpa MaxAuthorities and KeyLineage
 	// MaxValidators: one bound chain-wide.
 	pub const MaxValidatorSet: u32 = 32;

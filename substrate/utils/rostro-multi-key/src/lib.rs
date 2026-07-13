@@ -40,6 +40,20 @@
 //!   as `"\x19Ethereum Signed Message:\n<len>" ‖ msg`, keccak256-hashed
 //!   before recovery.
 //!
+//! A fifth scheme, **EcdsaP256** (NIST secp256r1), is the
+//! hardware-secure-element variant: the signing key lives in device
+//! silicon (StrongBox, TPM2, and the zkpki/PoP stack all speak P-256) and
+//! never leaves it. It breaks the raw-pubkey-as-address mould because a
+//! P-256 pubkey is 33 bytes: the account is `blake2_256(compressed
+//! pubkey)`, so the pubkey rides *in* the signature and gets a pubkey-hash
+//! shield for free. Verify routes through `rostro-guest-crypto` (RVM
+//! ecalli 112 in the runtime, the `p256` crate natively), over
+//! `sha256(payload)`, with low-s canonicalization enforced on-chain. It is
+//! append-only variant index 4 on `RostroSignature` (after `EcdsaEip191`);
+//! the `WebAuthnP256` envelope reserves index 5 next to it. A device key
+//! is never a *sole* authority — the wallet enrolls a recoverable key
+//! beside it (client-enforced in Stage A; see docs/PQ-SIGNATURES.md).
+//!
 //! Both chain (`gemini-runtime`) and wallet (`dotwave`) MUST import this
 //! crate's `RostroSigner::into_account()` directly. Parallel
 //! reimplementation in either layer would risk address-derivation drift
@@ -57,9 +71,28 @@ use scale_info::TypeInfo;
 use sp_core::{crypto::AccountId32, ecdsa, ed25519, sr25519};
 use sp_io::{
 	crypto::secp256k1_ecdsa_recover,
-	hashing::{blake2_256, keccak_256},
+	hashing::{blake2_256, keccak_256, sha2_256},
 };
 use sp_runtime::traits::{IdentifyAccount, Lazy, Verify};
+
+/// serde `with` adapter for byte arrays longer than 32 (serde's blanket
+/// impls stop at 32). Serializes as the raw byte sequence; used for the
+/// P-256 compressed pubkey (33) and raw signature (64). std-only, matching
+/// the enum's `cfg_attr(std, derive(Serialize, Deserialize))`.
+#[cfg(feature = "std")]
+mod serde_bytes_array {
+	use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+	pub fn serialize<S: Serializer, const N: usize>(bytes: &[u8; N], s: S) -> Result<S::Ok, S::Error> {
+		bytes[..].serialize(s)
+	}
+
+	pub fn deserialize<'de, D: Deserializer<'de>, const N: usize>(d: D) -> Result<[u8; N], D::Error> {
+		let v = alloc::vec::Vec::<u8>::deserialize(d)?;
+		v.try_into()
+			.map_err(|v: alloc::vec::Vec<u8>| serde::de::Error::invalid_length(v.len(), &"N bytes"))
+	}
+}
 
 /// Multi-scheme signer enum. Variant order mirrors substrate's
 /// `MultiSigner` (`Ed25519`, `Sr25519`, `Ecdsa`); the `IdentifyAccount`
@@ -70,6 +103,12 @@ pub enum RostroSigner {
 	Ed25519(ed25519::Public),
 	Sr25519(sr25519::Public),
 	Ecdsa(ecdsa::Public),
+	/// NIST P-256 (secp256r1) compressed SEC1 pubkey (`0x02/0x03 ‖ X`).
+	/// One signer arm for both P-256 signature envelopes (`EcdsaP256`,
+	/// `WebAuthnP256`) — same curve, same device key, same account. Kept
+	/// as raw bytes: sp_core has no P-256 type, and the account is a hash
+	/// of these bytes regardless.
+	EcdsaP256(#[cfg_attr(feature = "std", serde(with = "serde_bytes_array"))] [u8; 33]),
 }
 
 impl From<sr25519::Public> for RostroSigner {
@@ -90,6 +129,12 @@ impl From<ecdsa::Public> for RostroSigner {
 	}
 }
 
+impl From<[u8; 33]> for RostroSigner {
+	fn from(pk: [u8; 33]) -> Self {
+		RostroSigner::EcdsaP256(pk)
+	}
+}
+
 impl IdentifyAccount for RostroSigner {
 	type AccountId = AccountId32;
 	fn into_account(self) -> AccountId32 {
@@ -97,6 +142,7 @@ impl IdentifyAccount for RostroSigner {
 			RostroSigner::Ed25519(pk) => ed25519_to_account(&pk),
 			RostroSigner::Sr25519(pk) => sr25519_to_account(&pk),
 			RostroSigner::Ecdsa(pk) => ecdsa_compressed_to_account(&pk),
+			RostroSigner::EcdsaP256(pk) => ecdsa_p256_to_account(&pk),
 		}
 	}
 }
@@ -124,6 +170,21 @@ pub fn ecdsa_compressed_to_account(pk: &ecdsa::Public) -> AccountId32 {
 	let mut bytes = [0u8; 32];
 	bytes[12..].copy_from_slice(&h160);
 	bytes.into()
+}
+
+/// Standalone derivation for a P-256 (secp256r1) compressed SEC1 pubkey →
+/// AccountId32: `blake2_256(compressed_33_byte_pubkey)`.
+///
+/// Unlike Sr25519/Ed25519 (raw-pubkey-as-address), a P-256 pubkey is 33
+/// bytes and cannot *be* the 32-byte account. Hashing also gives the
+/// P-256 class a pubkey-hash shield the raw-25519 classes lack: the
+/// address never reveals the pubkey, only a spend does. Deterministic by
+/// construction — the same 33 bytes map to the same account on-chain and
+/// in the wallet, which is the invariant the fixture tests pin. No
+/// on-curve validation here: an off-curve pubkey simply never verifies
+/// (its account is unspendable), and derivation must stay total.
+pub fn ecdsa_p256_to_account(pk: &[u8; 33]) -> AccountId32 {
+	blake2_256(pk).into()
 }
 
 /// Decompress a 33-byte secp256k1 compressed pubkey to 64-byte
@@ -163,6 +224,30 @@ pub enum RostroSignature {
 	/// The `v` byte must be 0 or 1 (not 27 or 28); the wallet/dotwave
 	/// is responsible for normalizing the recovery ID before submission.
 	EcdsaEip191(ecdsa::Signature),
+	/// NIST P-256 (secp256r1) raw ECDSA — the hardware-secure-element
+	/// scheme (StrongBox, TPM2, the zkpki/PoP stack all speak P-256). The
+	/// signature is over `sha256(payload)` (Android Keystore
+	/// `SHA256withECDSA` / the TPM ECDSA convention). The account is
+	/// `blake2_256(pubkey)`, so the pubkey is not recoverable from the
+	/// address, and P-256 verify is not recovery-based — hence the 33-byte
+	/// compressed pubkey rides in the signature; `verify` re-derives the
+	/// account from it and rejects any mismatch with the signer.
+	///
+	/// Canonicalization: `sig` is raw `r ‖ s` and **must be low-s**
+	/// (`s ≤ n/2`); high-s is rejected so exactly one signature verifies
+	/// per `(payload, pubkey)` (same non-malleability discipline as the
+	/// secp256k1 recover path). StrongBox emits DER with an unnormalized
+	/// s, so the wallet/dotwave converts DER→`r‖s` and normalizes s to
+	/// low-s before submission — the P-256 analogue of the EcdsaEip191
+	/// `v`-normalization contract above.
+	EcdsaP256 {
+		/// Compressed SEC1 pubkey (`0x02/0x03 ‖ X`).
+		#[cfg_attr(feature = "std", serde(with = "serde_bytes_array"))]
+		pubkey: [u8; 33],
+		/// Raw ECDSA signature `r ‖ s`, low-s canonical.
+		#[cfg_attr(feature = "std", serde(with = "serde_bytes_array"))]
+		sig: [u8; 64],
+	},
 }
 
 impl Verify for RostroSignature {
@@ -195,8 +280,60 @@ impl Verify for RostroSignature {
 				let sig_bytes: &[u8; 65] = sig.as_ref();
 				verify_ecdsa_eth(sig_bytes, &eip191_hash(m), signer)
 			},
+			RostroSignature::EcdsaP256 { pubkey, sig } => {
+				let m = msg.get();
+				verify_p256(pubkey, sig, m, signer)
+			},
 		}
 	}
+}
+
+/// P-256 raw-ECDSA verify for the `EcdsaP256` variant:
+///  1. re-derive the account from the carried pubkey and bind it to
+///     `signer` — a signature carrying any other pubkey is rejected, so
+///     the pubkey riding in the signature can't be swapped;
+///  2. enforce low-s canonicalization (`0 < s ≤ n/2`) so exactly one
+///     signature verifies per `(payload, pubkey)`;
+///  3. verify `r ‖ s` over `sha256(payload)` through the crypto facade —
+///     ecalli 112 in the runtime, the p256 crate natively.
+fn verify_p256(pubkey: &[u8; 33], sig: &[u8; 64], payload: &[u8], signer: &AccountId32) -> bool {
+	if ecdsa_p256_to_account(pubkey) != *signer {
+		return false;
+	}
+	if !is_low_s_p256(&sig[32..64]) {
+		return false;
+	}
+	let prehash = sha2_256(payload);
+	rostro_guest_crypto::verify::p256_verify_prehash(pubkey, sig, &prehash)
+}
+
+/// P-256 group order `n` halved (floor), big-endian. A signature with
+/// `s > n/2` is the malleable high-s twin of a canonical low-s signature;
+/// rejecting it makes `(payload, pubkey) → sig` one-to-one. The constant
+/// is self-verified against the `p256` crate's curve order in `tests`, so
+/// a transcription error fails CI rather than shipping.
+const P256_HALF_ORDER: [u8; 32] = [
+	0x7f, 0xff, 0xff, 0xff, 0x80, 0x00, 0x00, 0x00, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	0xde, 0x73, 0x7d, 0x56, 0xd3, 0x8b, 0xcf, 0x42, 0x79, 0xdc, 0xe5, 0x61, 0x7e, 0x31, 0x92, 0xa8,
+];
+
+/// True iff `s` (big-endian 32 bytes) is a canonical low-s scalar,
+/// `0 < s ≤ n/2`. `s == 0` is not a valid ECDSA scalar; `s > n/2` is the
+/// malleable high-s form the wallet must normalize away before submission.
+fn is_low_s_p256(s: &[u8]) -> bool {
+	if s.len() != 32 || s.iter().all(|&b| b == 0) {
+		return false;
+	}
+	for (a, b) in s.iter().zip(P256_HALF_ORDER.iter()) {
+		if a < b {
+			return true;
+		}
+		if a > b {
+			return false;
+		}
+	}
+	// s == n/2 exactly: the canonical low-s boundary, accepted.
+	true
 }
 
 /// Recover an uncompressed pubkey from `(sig, hash)`, derive the

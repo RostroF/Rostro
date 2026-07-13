@@ -6,7 +6,7 @@ edition.workspace = true
 license = "Apache-2.0"
 homepage.workspace = true
 repository.workspace = true
-description = "Multi-scheme signer + signature primitive for Rostro. Supports Sr25519, Ed25519, and Ecdsa, with Option-C AccountId derivation: Ed25519 source-matches Solana/Aptos/Sui/Cosmos (raw pubkey); Ecdsa source-matches Ethereum (last 20 bytes of keccak256(uncompressed pubkey), zero-padded to 32); Sr25519 uses domain-separated blake2_256(0x01 || pubkey) to keep its namespace distinct from Ed25519. EIP-191 wrap variant for MetaMask-style personal_sign."
+description = "Multi-scheme signer + signature primitive for Rostro. Sr25519/Ed25519 are raw-pubkey-as-address (Polkadot / Solana parity); Ecdsa (secp256k1) source-matches Ethereum (last 20 bytes of keccak256(uncompressed pubkey), zero-padded), with an EIP-191 wrap variant for MetaMask personal_sign; EcdsaP256 (secp256r1) is the hardware-secure-element scheme (StrongBox/TPM2), account = blake2_256(compressed pubkey), pubkey rides in the signature, verify routed through the RVM P-256 intrinsic via rostro-guest-crypto."
 publish = false
 
 [lints]
@@ -24,16 +24,25 @@ serde = { workspace = true, optional = true, features = ["derive"] }
 # Eth-style AccountId derivation. sp-core itself uses k256 for no_std
 # ecdsa recovery, so this is the same crate substrate already vendors.
 k256 = { workspace = true, features = ["alloc", "ecdsa"] }
+# The single crypto facade: P-256 verify routes to the RVM ecalli
+# intrinsic in the runtime (target_env = "polkavm") and to the p256
+# reference crate natively — the split lives entirely in this crate, so
+# rostro-multi-key stays target-agnostic.
+rostro-guest-crypto = { workspace = true }
 
 [dev-dependencies]
 hex = "0.4"
 sp-core = { workspace = true, default-features = true }
+# Native-only: mint P-256 keypairs and canonical (low-s) signatures for
+# the verify roundtrip + KAT vectors. Never compiled into the runtime.
+p256 = { workspace = true, features = ["ecdsa", "arithmetic", "std"] }
 
 [features]
 default = ["std"]
 std = [
 	"codec/std",
 	"k256/std",
+	"rostro-guest-crypto/std",
 	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",

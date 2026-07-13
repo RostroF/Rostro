@@ -604,6 +604,25 @@ impl<T: Config> Pallet<T> {
 			Self::deposit_event(Event::EnforcementFloorHit);
 			return None;
 		}
+
+		// Signal a session change to `pallet_session` ONLY when the enforced
+		// set actually differs from the currently active one. `pallet_session`
+		// treats ANY `Some(_)` as `changed = true` (it cannot see that the
+		// membership is identical), and `pallet_grandpa` bumps `set_id` on
+		// every `changed` session. Because this pallet plans EVERY session
+		// (to run enforcement + healing continuously), returning `Some` on
+		// no-op sessions rotated the GRANDPA authority set every session even
+		// on a stable validator set — a per-session stream of
+		// finality-sensitive set changes that turns any finality lag into a
+		// change backlog and, at worst, an unrecoverable voter wedge
+		// (observed on the VM farm 2026-07-12). Returning `None` when nothing
+		// changed keeps enforcement running (we still computed `included` and
+		// re-fed `PlannedSet` above) while collapsing `set_id` churn from
+		// per-session to per-actual-change. Order-sensitive: session compares
+		// the exact Vec, so an ordering-only delta is still a real change.
+		if included == pallet_session::Pallet::<T>::validators() {
+			return None;
+		}
 		Some(included)
 	}
 
