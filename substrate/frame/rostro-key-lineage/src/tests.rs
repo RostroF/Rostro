@@ -23,6 +23,43 @@ fn lineage_events() -> Vec<Event<Test>> {
 }
 
 #[test]
+fn noop_session_returns_none_but_real_change_returns_some() {
+	// Regression (VM farm 2026-07-12): `pallet_session` treats ANY
+	// `Some(_)` from the SessionManager as `changed=true`, and
+	// `pallet_grandpa` bumps `set_id` on every changed session. Planning
+	// every session (for enforcement/healing) must therefore return `None`
+	// when the enforced set is unchanged, or GRANDPA rotates its authority
+	// set every session on a stable validator set — the finality-wedge
+	// amplifier. A session that DOES change the set must still return Some.
+	use pallet_session::SessionManager;
+	new_test_ext().execute_with(|| {
+		advance_session(); // capture genesis keys; set = [1,2,3,4]
+		assert_eq!(Session::validators(), vec![1, 2, 3, 4]);
+
+		// No-op session: nothing culled, healed, or re-elected → None, so
+		// pallet_session sees no change and GRANDPA leaves set_id alone.
+		let idx = Session::current_index() + 1;
+		assert_eq!(
+			<KeyLineage as SessionManager<u64>>::new_session(idx),
+			None,
+			"a session that changes nothing must not signal a set change"
+		);
+
+		// Force a real change: validator 4 misses the rotation deadline.
+		set_era(8);
+		assert_ok!(set_keys(1, 21));
+		assert_ok!(set_keys(2, 22));
+		assert_ok!(set_keys(3, 23));
+		let idx2 = Session::current_index() + 1;
+		assert_eq!(
+			<KeyLineage as SessionManager<u64>>::new_session(idx2),
+			Some(vec![1, 2, 3]),
+			"a session that drops a validator must signal the new set"
+		);
+	});
+}
+
+#[test]
 fn genesis_keys_captured_at_first_rotation() {
 	new_test_ext().execute_with(|| {
 		// Nothing recorded before the first rotation.
