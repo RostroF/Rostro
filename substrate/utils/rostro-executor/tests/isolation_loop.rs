@@ -86,7 +86,7 @@ fn signed_transfer(nonce: u32) -> UncheckedExtrinsic {
 	UncheckedExtrinsic::new_signed(
 		call,
 		alice.to_account_id().into(),
-		RostroSignature::Sr25519(signature),
+		RostroSignature::Sr25519(signature).into(),
 		extra,
 	)
 }

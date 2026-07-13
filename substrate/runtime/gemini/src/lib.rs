@@ -72,6 +72,9 @@ use sp_runtime::{
 };
 use pallet_session::historical as pallet_session_historical;
 use rostro_multi_key::{RostroSignature, RostroSigner};
+
+mod keyring_signature;
+pub use keyring_signature::KeyringSignature;
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
@@ -126,8 +129,11 @@ pub type SignedExtra = (
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 );
 
+// The extrinsic signature type is the keyring-aware wrapper, NOT the
+// bare `Signature` alias: SCALE-identical on the wire, but `Checkable`
+// consults the account keyring (docs/KEYRING.md) during verification.
 pub type UncheckedExtrinsic =
-	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, SignedExtra>;
+	generic::UncheckedExtrinsic<Address, RuntimeCall, KeyringSignature, SignedExtra>;
 pub type CheckedExtrinsic = generic::CheckedExtrinsic<AccountId, RuntimeCall, SignedExtra>;
 
 pub type Executive = frame_executive::Executive<
@@ -216,7 +222,12 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	// the validator set; sassafras keys join SessionKeys and epochs
 	// become session-driven. Genesis-breaking (SessionKeys wire
 	// format + pallet reorder) — lands via chain reset, not set_code.
-	spec_version: 106,
+	// 107 = account keyring: revocable multi-key authority overlay
+	// (pallet-rostro-keyring + KeyringSignature stateful verify;
+	// docs/KEYRING.md), and the EcdsaP256 extrinsic-signing variant
+	// (which landed without its own bump and rides here). Signed
+	// extrinsics are wire-identical; pure set_code, no new host fns.
+	spec_version: 107,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -1189,6 +1200,16 @@ impl pallet_rostro_personhood::Config for Runtime {
 	type SrtOrigin = frame_system::EnsureRoot<AccountId>;
 }
 
+// ─── pallet_rostro_keyring ─────────────────────────────────────────────────
+// Account keyring: revocable multi-key authority overlay
+// (docs/KEYRING.md). Consulted once per signed extrinsic via
+// KeyringSignature's Verify impl.
+
+impl pallet_rostro_keyring::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type MaxKeys = ConstU32<5>;
+}
+
 // ─── construct_runtime ─────────────────────────────────────────────────────
 
 construct_runtime!(
@@ -1287,6 +1308,11 @@ construct_runtime!(
 		// schedule, so the incoming set seals the outgoing set's final
 		// header in the rotation block itself.
 		HistoryAnchor: pallet_rostro_history_anchor,
+
+		// Account keyring: revocable multi-key authority overlay
+		// consulted by extrinsic signature verification
+		// (docs/KEYRING.md). Positional append, same as above.
+		Keyring: pallet_rostro_keyring,
 	}
 );
 

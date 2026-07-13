@@ -1,0 +1,52 @@
+[package]
+name = "pallet-rostro-keyring"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+homepage.workspace = true
+repository.workspace = true
+description = "On-chain account keyring: a revocable set of authorized signing keys per account, overlaying the derived-key default (docs/KEYRING.md). An account enrolls additional (scheme, pubkey) signers — e.g. a StrongBox/TPM P-256 device key beside a 25519 root — with proof of possession; either can be rescinded, at least one authority always remains. Extrinsic signature verification consults the keyring via Pallet::verify_extrinsic_signature (stateful Checkable — we own the stack)."
+publish = false
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { features = ["derive", "max-encoded-len"], workspace = true }
+scale-info = { features = ["derive"], workspace = true }
+
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+
+rostro-multi-key = { path = "../../utils/rostro-multi-key", default-features = false }
+
+[dev-dependencies]
+sp-core = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
+# Mint P-256 keypairs + canonical (low-s) signatures for enroll/verify
+# tests — the same dev-only role it plays in rostro-multi-key.
+p256 = { workspace = true, features = ["ecdsa", "arithmetic", "std"] }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"frame-support/std",
+	"frame-system/std",
+	"rostro-multi-key/std",
+	"scale-info/std",
+	"sp-core/std",
+	"sp-runtime/std",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]
