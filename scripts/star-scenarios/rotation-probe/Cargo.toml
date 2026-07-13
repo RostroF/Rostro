@@ -30,3 +30,12 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 [profile.release]
 opt-level = 1
+
+# The Rostro stack's subxt is NOT crates.io subxt-at-face-value: the
+# workspace patches soketto + hyper (substrate/external/) with the PQ
+# hybrid X25519+ML-KEM transport, and every ws client is expected to
+# ride it. Mirror the workspace patch here or this probe silently
+# speaks classic websocket to a PQ-channel stack.
+[patch.crates-io]
+soketto = { path = "../../../substrate/external/soketto" }
+hyper = { path = "../../../substrate/external/hyper" }
