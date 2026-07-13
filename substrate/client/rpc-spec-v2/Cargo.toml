@@ -57,7 +57,6 @@ rc-utils = { default-features = true, workspace = true }
 serde_json = { workspace = true, default-features = true }
 sp-consensus = { default-features = true, workspace = true }
 sp-externalities = { default-features = true, workspace = true }
-sp-maybe-compressed-blob = { default-features = true, workspace = true }
 substrate-test-runtime = { workspace = true }
 substrate-test-runtime-client = { workspace = true }
 substrate-test-runtime-transaction-pool = { workspace = true }

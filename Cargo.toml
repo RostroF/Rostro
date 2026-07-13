@@ -257,7 +257,6 @@ members = [
 	"substrate/primitives/runtime-interface/proc-macro",
 	"substrate/primitives/runtime-interface/test",
 	"substrate/primitives/runtime-interface/test-wasm",
-	"substrate/primitives/runtime-interface/test-wasm-deprecated",
 	"substrate/primitives/session",
 	"substrate/primitives/staking",
 	"substrate/primitives/state-machine",
@@ -986,7 +985,6 @@ sp-runtime = { path = "substrate/primitives/runtime", default-features = false }
 sp-runtime-interface = { path = "substrate/primitives/runtime-interface", default-features = false }
 sp-runtime-interface-proc-macro = { path = "substrate/primitives/runtime-interface/proc-macro", default-features = false }
 sp-runtime-interface-test-wasm = { path = "substrate/primitives/runtime-interface/test-wasm" }
-sp-runtime-interface-test-wasm-deprecated = { path = "substrate/primitives/runtime-interface/test-wasm-deprecated" }
 sp-session = { path = "substrate/primitives/session", default-features = false }
 sp-staking = { path = "substrate/primitives/staking", default-features = false }
 sp-state-machine = { path = "substrate/primitives/state-machine", default-features = false }

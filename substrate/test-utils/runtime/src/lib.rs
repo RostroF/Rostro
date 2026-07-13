@@ -96,6 +96,13 @@ pub mod wasm_binary_logging_disabled {
 	include!(concat!(env!("OUT_DIR"), "/wasm_binary_logging_disabled.rs"));
 }
 
+/// The runtime blob built with `increment-spec-version` (`spec_version: 3`),
+/// for runtime-upgrade tests. See the note on the second `VERSION` const.
+#[cfg(feature = "std")]
+pub mod wasm_binary_spec_version_incremented {
+	include!(concat!(env!("OUT_DIR"), "/wasm_binary_spec_version_incremented.rs"));
+}
+
 /// Wasm binary unwrapped. If built with `SKIP_WASM_BUILD`, the function panics.
 #[cfg(feature = "std")]
 pub fn wasm_binary_unwrap() -> &'static [u8] {
@@ -115,12 +122,36 @@ pub fn wasm_binary_logging_disabled_unwrap() -> &'static [u8] {
 }
 
 /// Test runtime version.
+#[cfg(not(feature = "increment-spec-version"))]
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: alloc::borrow::Cow::Borrowed("test"),
 	impl_name: alloc::borrow::Cow::Borrowed("parity-test"),
 	authoring_version: 1,
 	spec_version: 2,
+	impl_version: 2,
+	apis: RUNTIME_API_VERSIONS,
+	transaction_version: 1,
+	system_version: 1,
+};
+
+/// Test runtime version with a bumped `spec_version`.
+///
+/// wasm-cull W2: runtime-upgrade tests used to fake a version bump by
+/// rewriting the wasm blob's `runtime_version` section
+/// (`sp_version::embed`), which cannot work on a PVM blob — the version
+/// is read by executing `Core_version`. Instead build.rs produces a
+/// second blob with this feature enabled
+/// (`wasm_binary_spec_version_incremented`); the feature only ever
+/// exists inside that inner wbuild, so lib consumers always see
+/// `spec_version: 2`.
+#[cfg(feature = "increment-spec-version")]
+#[sp_version::runtime_version]
+pub const VERSION: RuntimeVersion = RuntimeVersion {
+	spec_name: alloc::borrow::Cow::Borrowed("test"),
+	impl_name: alloc::borrow::Cow::Borrowed("parity-test"),
+	authoring_version: 1,
+	spec_version: 3,
 	impl_version: 2,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -501,10 +532,17 @@ impl<AId> pallet_session::SessionHandler<AId> for NoopSessionHandler {
 }
 
 parameter_types! {
-	/// Session period in blocks. Arbitrary for the test runtime — `SessionManager = ()` means
-	/// the validator set never rotates, so this only feeds the informational
-	/// `EstimateNextSessionRotation` API.
-	pub const Period: BlockNumber = 100;
+	/// Session period in blocks. `SessionManager = ()` means the validator set
+	/// never rotates, so this only feeds the informational
+	/// `EstimateNextSessionRotation` API — but `PeriodicSessions` still fires
+	/// `should_end_session` every `Period` blocks, and
+	/// `pallet_session::on_initialize` reports `max_block` weight on those
+	/// blocks, which makes every rotation block reject all Normal extrinsics.
+	/// The original value of 100 silently broke every client test that builds
+	/// an extrinsic-carrying chain past block 100 (first bitten:
+	/// rc-network-sync's fork tests at block 2100). Keep this beyond any
+	/// realistic test chain length.
+	pub const Period: BlockNumber = 10_000_000;
 	pub const Offset: BlockNumber = 0;
 }
 

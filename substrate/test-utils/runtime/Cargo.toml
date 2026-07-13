@@ -123,6 +123,10 @@ std = [
 
 # Special feature to disable logging
 disable-logging = ["sp-api/disable-logging"]
+# Only ever enabled by build.rs for the `wasm_binary_spec_version_incremented`
+# inner wbuild; never enable on the lib (feature unification would bump every
+# consumer's VERSION).
+increment-spec-version = []
 
 # This feature adds BLS crypto primitives.
 # It should not be used in production since the implementation and interface may still

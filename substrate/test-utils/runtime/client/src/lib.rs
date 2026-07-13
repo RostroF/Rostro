@@ -213,3 +213,12 @@ impl<B> TestClientBuilderExt<B>
 pub fn new() -> Client<Backend> {
 	TestClientBuilder::new().build()
 }
+
+/// Construct the RostroVM executor test clients run on.
+///
+/// wasm-cull W2: replaces the `WasmExecutor::default()` idiom at test call
+/// sites — `RostroCodeExecutor` has no `Default` (construction can fail on
+/// engine setup) and no default host-function set.
+pub fn new_test_executor() -> RostroCodeExecutor<sp_io::SubstrateHostFunctions> {
+	RostroCodeExecutor::new().expect("RostroCodeExecutor init: polkavm engine setup must succeed")
+}

@@ -26,13 +26,10 @@
 //!
 //! As any transaction extension you will need to add it to your runtime transaction extensions:
 #![doc = docify::embed!("src/tests.rs", add_metadata_hash_extension)]
-//! As the extension requires the `RUNTIME_METADATA_HASH` environment variable to be present at
-//! compile time, it requires a little bit more setup. To have this environment variable available
-//! at compile time required to tell the `substrate-wasm-builder` to do so:
-#![doc = docify::embed!("src/tests.rs", enable_metadata_hash_in_wasm_builder)]
-//! As generating the metadata hash requires to compile the runtime twice, it is
-//! recommended to only enable the metadata hash generation when doing a build for a release or when
-//! you want to test this feature.
+//! On Rostro the extension always runs in disabled mode (`mode: 0`): build-time
+//! metadata-hash generation was removed with the wasm runtime path (wasm-cull D1,
+//! docs/WASM-SURFACE-AUDIT.md). If enabled mode is ever needed for offline
+//! signers, hash extraction has to be ported to `rostro-executor` first.
 
 extern crate alloc;
 /// For our tests

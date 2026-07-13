@@ -182,6 +182,7 @@ pub(crate) fn create_and_compile(
 		&crate_metadata,
 		crate_metadata.workspace_root.as_ref(),
 		features_to_enable,
+		blob_out_name_override.as_deref(),
 	);
 	let wasm_project_cargo_toml = project.join("Cargo.toml");
 
@@ -717,10 +718,30 @@ fn create_project(
 	crate_metadata: &Metadata,
 	workspace_root_path: &Path,
 	features_to_enable: Vec<String>,
+	variant: Option<&str>,
 ) -> PathBuf {
 	let crate_name = get_crate_name(project_cargo_toml);
 	let crate_path = project_cargo_toml.parent().expect("Parent path exists; qed");
-	let wasm_project_folder = wasm_workspace.join(&crate_name);
+	// wasm-cull W2: variant builds of the same runtime (e.g. a build script
+	// invoking WasmBuilder multiple times with different `enable_feature`
+	// calls + `set_file_name`s) must NOT share one inner project. A shared
+	// project leaks the previous variant's feature set through the rewritten
+	// manifest + fingerprint state, and all variants silently resolve to one
+	// blob (first bitten: substrate-test-runtime's three riscv blobs were
+	// byte-identical, all carrying the `increment-spec-version` build).
+	// Isolate each named variant in its own project folder.
+	let folder_name = match variant {
+		Some(name) => {
+			let sanitized: String = name
+				.trim_end_matches(".rs")
+				.chars()
+				.map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+				.collect();
+			format!("{crate_name}-{sanitized}")
+		},
+		None => crate_name.clone(),
+	};
+	let wasm_project_folder = wasm_workspace.join(&folder_name);
 
 	fs::create_dir_all(wasm_project_folder.join("src"))
 		.expect("Wasm project dir create can not fail; qed");

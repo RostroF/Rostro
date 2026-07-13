@@ -4315,7 +4315,6 @@ dependencies = [
  "sp-tracing",
  "sp-transaction-pool",
  "substrate-test-runtime-client",
- "substrate-wasm-builder",
 ]
 
 [[package]]
@@ -13227,7 +13226,6 @@ dependencies = [
  "sp-consensus",
  "sp-core",
  "sp-externalities",
- "sp-maybe-compressed-blob",
  "sp-rpc",
  "sp-runtime",
  "sp-version",
@@ -16597,6 +16595,7 @@ dependencies = [
  "sp-crypto-hashing 0.1.0",
  "sp-debug-derive",
  "sp-externalities",
+ "sp-runtime-interface",
  "sp-std",
  "sp-storage",
  "ss58-registry",
@@ -16957,13 +16956,13 @@ dependencies = [
 name = "sp-runtime-interface-test"
 version = "2.0.0"
 dependencies = [
- "rc-executor",
- "rc-executor-common",
+ "rostro-executor",
+ "sp-core",
+ "sp-crypto-hashing 0.1.0",
  "sp-io",
  "sp-runtime",
  "sp-runtime-interface",
  "sp-runtime-interface-test-wasm",
- "sp-runtime-interface-test-wasm-deprecated",
  "sp-state-machine",
  "tracing",
  "tracing-core",
@@ -16974,16 +16973,6 @@ name = "sp-runtime-interface-test-wasm"
 version = "2.0.0"
 dependencies = [
  "bytes",
- "sp-core",
- "sp-io",
- "sp-runtime-interface",
- "substrate-wasm-builder",
-]
-
-[[package]]
-name = "sp-runtime-interface-test-wasm-deprecated"
-version = "2.0.0"
-dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime-interface",

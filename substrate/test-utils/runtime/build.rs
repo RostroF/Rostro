@@ -43,4 +43,18 @@ fn main() {
 			.enable_feature("disable-logging")
 			.build();
 	}
+
+	// wasm-cull W2: runtime-upgrade tests need a blob whose `Core_version`
+	// reports a bumped spec_version; the wasm-era section-surgery
+	// (`sp_version::embed`) cannot produce one for PVM blobs.
+	#[cfg(feature = "std")]
+	{
+		substrate_wasm_builder::WasmBuilder::new()
+			.with_current_project()
+			.export_heap_base()
+			.import_memory()
+			.set_file_name("wasm_binary_spec_version_incremented.rs")
+			.enable_feature("increment-spec-version")
+			.build();
+	}
 }

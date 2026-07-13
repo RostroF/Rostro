@@ -413,23 +413,14 @@ async fn follow_with_runtime() {
 	assert_eq!(event, expected);
 
 	let finalized_hash = best_hash;
-	// The `RuntimeVersion` is embedded into the WASM blob at the `runtime_version`
-	// section. Modify the `RuntimeVersion` and commit the changes to a new block.
-	// The RPC must notify the runtime event change.
-	let wasm = sp_maybe_compressed_blob::decompress(
-		runtime::wasm_binary_unwrap(),
-		sp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
-	)
-	.unwrap();
-	// Update the runtime spec version.
+	// wasm-cull W2: on the wasm path this test rewrote the blob's
+	// `runtime_version` section to fake a spec bump; a PVM blob's version is
+	// read by executing `Core_version`, so use the fixture blob built with
+	// `increment-spec-version` (`spec_version + 1`, all other fields equal).
+	// Committing it as `:code` must make the RPC notify the runtime change.
+	let wasm = runtime::wasm_binary_spec_version_incremented::WASM_BINARY.unwrap().to_vec();
 	let mut runtime = runtime;
 	runtime.spec_version += 1;
-	let embedded = sp_version::embed::embed_runtime_version(&wasm, runtime.clone()).unwrap();
-	let wasm = sp_maybe_compressed_blob::compress_strongly(
-		&embedded,
-		sp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
-	)
-	.unwrap();
 
 	let mut builder = BlockBuilderBuilder::new(&*client)
 		.on_parent_block(best_hash)
@@ -2664,7 +2655,7 @@ async fn follow_report_multiple_pruned_block() {
 async fn pin_block_references() {
 	// Manually construct an in-memory backend and client.
 	let backend = Arc::new(rc_client_api::in_mem::Backend::new());
-	let executor = substrate_test_runtime_client::WasmExecutor::default();
+	let executor = substrate_test_runtime_client::new_test_executor();
 	let client_config = rc_service::ClientConfig::default();
 
 	let genesis_block_builder = rc_service::GenesisBlockBuilder::new(

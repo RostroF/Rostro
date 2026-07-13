@@ -109,6 +109,17 @@ pub use sp_storage as storage;
 #[doc(hidden)]
 pub use sp_std;
 
+/// Hidden re-exports for [`wasm_export_functions!`]. Internal API, can
+/// change at any point. wasm-cull W2: carries the polkavm export
+/// attribute + ABI module into the macro expansion so `#[no_mangle]`
+/// guest entry points become PVM exports, mirroring sp-api's
+/// `__private` (polkavm-linker treats bare `#[no_mangle]` as internal).
+#[doc(hidden)]
+pub mod __private {
+	#[cfg(all(any(target_arch = "riscv32", target_arch = "riscv64"), substrate_runtime))]
+	pub use sp_runtime_interface::polkavm::{polkavm_abi, polkavm_export};
+}
+
 /// Hex-serialized shim for `Vec<u8>`.
 #[derive(PartialEq, Eq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize, Hash, PartialOrd, Ord))]

@@ -30,7 +30,7 @@ use sp_runtime::{
 	DispatchError, DispatchErrorWithPostInfo,
 };
 use std::collections::BTreeSet;
-use substrate_test_runtime_client::WasmExecutor;
+use substrate_test_runtime_client::new_test_executor;
 
 #[test]
 fn check_whitelist() {
@@ -675,8 +675,8 @@ fn assert_runtime_updated_digest(num: usize) {
 }
 
 #[test]
-fn set_code_with_real_wasm_blob() {
-	let executor = WasmExecutor::default();
+fn set_code_with_real_runtime_blob() {
+	let executor = new_test_executor();
 	let mut ext = new_test_ext();
 	ext.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(executor));
 	ext.execute_with(|| {
@@ -702,7 +702,7 @@ fn set_code_with_real_wasm_blob() {
 fn set_code_rejects_during_mbm() {
 	Ongoing::set(true);
 
-	let executor = substrate_test_runtime_client::WasmExecutor::default();
+	let executor = substrate_test_runtime_client::new_test_executor();
 	let mut ext = new_test_ext();
 	ext.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(executor));
 	ext.execute_with(|| {
@@ -722,7 +722,7 @@ fn set_code_rejects_during_mbm() {
 
 #[test]
 fn set_code_via_authorization_works() {
-	let executor = substrate_test_runtime_client::WasmExecutor::default();
+	let executor = substrate_test_runtime_client::new_test_executor();
 	let mut ext = new_test_ext();
 	ext.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(executor));
 	ext.execute_with(|| {
@@ -762,7 +762,7 @@ fn set_code_via_authorization_works() {
 
 #[test]
 fn runtime_upgraded_with_set_storage() {
-	let executor = substrate_test_runtime_client::WasmExecutor::default();
+	let executor = substrate_test_runtime_client::new_test_executor();
 	let mut ext = new_test_ext();
 	ext.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(executor));
 	ext.execute_with(|| {

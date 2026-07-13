@@ -40,7 +40,7 @@ use substrate_test_runtime_client::{
 
 use codec::Encode;
 use sp_consensus::SelectChain;
-use substrate_test_runtime_client::rc_executor::WasmExecutor;
+use substrate_test_runtime_client::new_test_executor;
 
 #[test]
 fn calling_runtime_function() {
@@ -131,7 +131,7 @@ fn record_proof_works() {
 
 	// Use the proof backend to execute `execute_block`.
 	let mut overlay = Default::default();
-	let executor: WasmExecutor = WasmExecutor::builder().build();
+	let executor = new_test_executor();
 	execution_proof_check_on_trie_backend(
 		&backend,
 		&mut overlay,

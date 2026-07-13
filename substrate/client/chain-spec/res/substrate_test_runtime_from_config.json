@@ -113,6 +113,10 @@
             ]
           ]
         },
+        "session": {
+          "keys": [],
+          "nonAuthorityKeys": []
+        },
         "substrateTest": {
           "authorities": [
             "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
