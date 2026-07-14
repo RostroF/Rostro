@@ -762,7 +762,6 @@ pallet-utility = { path = "substrate/frame/utility", default-features = false }
 pallet-verify-signature = { path = "substrate/frame/verify-signature", default-features = false }
 pallet-vesting = { path = "substrate/frame/vesting", default-features = false }
 parity-db = { path = "substrate/external/parity-db" }
-parity-wasm = { version = "0.45.0" }
 parking_lot = { version = "0.12.1", default-features = false }
 partial_sort = { version = "0.2.0" }
 paste = { version = "1.0.15", default-features = false }
@@ -1061,7 +1060,6 @@ void = { version = "1.0.2" }
 w3f-bls = { version = "0.1.9", default-features = false }
 wait-timeout = { version = "0.2" }
 walkdir = { version = "2.5.0" }
-wasm-opt = { version = "0.116" }
 wasmtime = { version = "36.0.7", default-features = false }
 x25519-dalek = { version = "2.0" }
 x509-cert = { version = "0.2", default-features = false }
