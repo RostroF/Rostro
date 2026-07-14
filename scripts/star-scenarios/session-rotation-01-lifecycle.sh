@@ -7,7 +7,7 @@
 # REQUIRES a gemini-node built with the lab-fast-lifecycle feature
 # (25-block sessions, 25-block lineage eras):
 #
-#   SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release \
+#   cargo build --release \
 #     -p gemini-node -p rostro-supervisor --features gemini-node/lab-fast-lifecycle
 #
 # and the rotation probe:
@@ -61,7 +61,6 @@ done
 
 GEMINI_NODE_HASH="$(python3 -c "import hashlib,sys;print(hashlib.blake2b(open(sys.argv[1],'rb').read(),digest_size=32).hexdigest())" "$NODE_BIN")"
 export ROSTRO_CANONICAL_GEMINI_NODE_HASH="$GEMINI_NODE_HASH"
-export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
 echo "canonical hash (seeded): 0x${GEMINI_NODE_HASH}"
 
 STAR_DIR="$REPO_ROOT/.star/rotation"

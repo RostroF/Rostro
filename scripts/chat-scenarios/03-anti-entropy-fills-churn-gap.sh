@@ -45,13 +45,12 @@ MESSAGE="anti-entropy demo: charlie was offline at send-time"
 
 # Mirror run-chat-trio.sh constants so we can boot alice/bob first,
 # then charlie after a delay.
-export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
 LOG_FILTER="${LOG_FILTER:-info,rostro-chat-gossip=debug,rostro-chat-anti-entropy=debug,rostro-chat-rpc=debug,rostro-chat-stripe=debug,rostro-chat-fetch=debug}"
 
 for bin in "$NODE_BIN" "$SUPERVISOR_BIN" "$CLI_BIN"; do
 	if [[ ! -x "$bin" ]]; then
 		echo "binary not found at $bin" >&2
-		echo "  build first:  SUBSTRATE_ENABLE_POLKAVM=1 SUBSTRATE_RUNTIME_TARGET=riscv \\" >&2
+		echo "  build first:  \\" >&2
 		echo "                  cargo build --release -p gemini-node -p rostro-supervisor -p rostro-chat-cli" >&2
 		exit 1
 	fi

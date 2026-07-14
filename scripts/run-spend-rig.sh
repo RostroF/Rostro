@@ -25,7 +25,6 @@
 
 set -euo pipefail
 
-export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
 LOG_FILTER="${LOG_FILTER:-info,rostro-chat-rpc=debug,rostro-chat-spend=debug,rostro-chat-gossip=info}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,7 +33,7 @@ MEMBERSHIP_VK="${MEMBERSHIP_VK:-/home/coder/rostro-testnet-lab/binaries/membersh
 
 if [[ ! -x "$NODE_BIN" ]]; then
 	echo "binary not found at $NODE_BIN — build first:" >&2
-	echo "  SUBSTRATE_ENABLE_POLKAVM=1 SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p gemini-node" >&2
+	echo "  cargo build --release -p gemini-node" >&2
 	exit 1
 fi
 if [[ ! -f "$MEMBERSHIP_VK" ]]; then

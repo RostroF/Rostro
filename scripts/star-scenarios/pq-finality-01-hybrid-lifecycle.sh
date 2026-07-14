@@ -9,7 +9,7 @@
 # layers the PQ-specific claims on the rotation machinery already proven
 # classically by session-rotation-01. Requires the lab-fast build:
 #
-#   SUBSTRATE_ENABLE_POLKAVM=1 SUBSTRATE_RUNTIME_TARGET=riscv \
+#   \
 #     cargo build --release -p gemini-node -p rostro-supervisor \
 #     --features gemini-node/lab-fast-lifecycle
 #   (cd scripts/star-scenarios/rotation-probe && cargo build --release)
@@ -64,7 +64,6 @@ done
 
 GEMINI_NODE_HASH="$(python3 -c "import hashlib,sys;print(hashlib.blake2b(open(sys.argv[1],'rb').read(),digest_size=32).hexdigest())" "$NODE_BIN")"
 export ROSTRO_CANONICAL_GEMINI_NODE_HASH="$GEMINI_NODE_HASH"
-export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
 echo "canonical hash (seeded): 0x${GEMINI_NODE_HASH}"
 
 STAR_DIR="$REPO_ROOT/.star/pq-finality"

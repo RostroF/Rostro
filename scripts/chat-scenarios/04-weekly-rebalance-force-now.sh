@@ -39,7 +39,6 @@ CLI_BIN="${ROSTRO_CHAT_CLI:-${REPO_ROOT}/target/release/rostro-chat-cli}"
 REBALANCE_WAIT_SECS="${REBALANCE_WAIT_SECS:-45}"
 TARGET="${CHAT_BUCKET_TARGET_COUNT:-64}"
 
-export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
 LOG_FILTER="${LOG_FILTER:-info,rostro-chat-gossip=debug,rostro-chat-rebalance=info,rostro-chat-anti-entropy=info}"
 
 for bin in "$NODE_BIN" "$SUPERVISOR_BIN" "$CLI_BIN"; do

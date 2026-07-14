@@ -19,9 +19,9 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${GEMINI_NODE:-${REPO_ROOT}/target/release/gemini-node}"
 DIR="${REPO_ROOT}/.chat-local"
-# RISC-V / RostroVM is the DEFAULT runtime executor as of deb6333634.
-# No SUBSTRATE_ENABLE_POLKAVM (obsolete); set ROSTRO_DISABLE_POLKAVM=1
-# only if you ever want to turn RISC-V off.
+# RISC-V / RostroVM is the ONLY runtime executor (wasm-cull W4/W5);
+# the old SUBSTRATE_ENABLE_POLKAVM / ROSTRO_DISABLE_POLKAVM toggles no
+# longer exist.
 
 ALICE_KEY="000000000000000000000000000000000000000000000000000000000000000a"
 BOB_KEY="000000000000000000000000000000000000000000000000000000000000000b"

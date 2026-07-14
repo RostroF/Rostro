@@ -32,7 +32,6 @@
 
 set -euo pipefail
 
-export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
 LOG_FILTER="${LOG_FILTER:-info,rostro-chat-gossip=debug,rostro-chat-rpc=debug,rostro-chat-stripe=debug,rostro-chat-fetch=debug,rostro-chat-onion-forward=debug}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,7 +44,7 @@ NODE_BIN="${GEMINI_NODE:-${REPO_ROOT}/target/release/gemini-node}"
 # irrelevant to a chat send-test, so we skip the supervisor entirely.
 if [[ ! -x "$NODE_BIN" ]]; then
 	echo "binary not found at $NODE_BIN" >&2
-	echo "  build first:  SUBSTRATE_ENABLE_POLKAVM=1 SUBSTRATE_RUNTIME_TARGET=riscv \\" >&2
+	echo "  build first:  \\" >&2
 	echo "                  cargo build --release -p gemini-node" >&2
 	exit 1
 fi
