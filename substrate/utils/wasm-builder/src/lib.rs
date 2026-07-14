@@ -63,9 +63,8 @@
 //!
 //! By using environment variables, you can configure which Wasm binaries are built and how:
 //!
-//! - `SUBSTRATE_RUNTIME_TARGET` - Sets the target for building runtime. Supported values are `wasm`
-//!   or `riscv` (experimental, do not use it in production!). By default the target is equal to
-//!   `wasm`.
+//! - `SUBSTRATE_RUNTIME_TARGET` - Sets the target for building the runtime. The only supported
+//!   value is `riscv` (the default); the wasm runtime target was removed from this fork.
 //! - `SKIP_WASM_BUILD` - Skips building any Wasm binary. This is useful when only native should be
 //!   recompiled. If this is the first run and there doesn't exist a Wasm binary, this will set both
 //!   variables to `None`.
@@ -88,8 +87,7 @@
 //!   actual workspace.
 //! - `WASM_BUILD_STD` - Sets whether the Rust's standard library crates (`core` and `alloc`) will
 //!   also be built. This is necessary to make sure the standard library crates only use the exact
-//!   WASM feature set that our executor supports. Enabled by default for RISC-V target and WASM
-//!   target (but only if Rust < 1.84). Disabled by default for WASM target and Rust >= 1.84.
+//!   feature set that our executor supports. Enabled by default for the RISC-V target.
 //! - `WASM_BUILD_CARGO_ARGS` - This can take a string as space separated list of `cargo` arguments.
 //!   It was added specifically for the use case of enabling JSON diagnostic messages during the
 //!   build phase, to be used by IDEs that parse them, but it might be useful for other cases too.
@@ -102,28 +100,18 @@
 //!
 //! ## Prerequisites:
 //!
-//! Wasm builder requires the following prerequisites for building the Wasm binary:
-//! - Rust >= 1.68 and Rust < 1.84:
-//!   - `wasm32-unknown-unknown` target
-//!   - `rust-src` component
-//! - Rust >= 1.84:
-//!   - `wasm32v1-none` target
-//!
-//! If a specific Rust is installed with `rustup`, it is important that the WASM
-//! target is installed as well. For example if installing the Rust from
-//! 26.12.2024 using `rustup install nightly-2024-12-26`, the WASM target
-//! (`wasm32-unknown-unknown` or `wasm32v1-none`) needs to be installed as well
-//! `rustup target add wasm32-unknown-unknown --toolchain nightly-2024-12-26`.
-//! To install the `rust-src` component, use `rustup component add rust-src
-//! --toolchain nightly-2024-12-26`.
+//! Building the runtime blob requires a Rust toolchain that can compile for the RISC-V
+//! (RostroVM) target. As the standard library crates (`core` and `alloc`) are built as part
+//! of the runtime build (see `WASM_BUILD_STD` above), the `rust-src` component needs to be
+//! installed, e.g. via `rustup component add rust-src --toolchain nightly-2024-12-26`.
 
-use prerequisites::DummyCrate;
+// wasm-cull W5: the wasm runtime target and its toolchain probing
+// (wasm32-unknown-unknown / wasm32v1-none) were deleted with the wasm runtime target.
+
 use std::{env, fs, io::BufRead, path::Path, process::Command};
 use version::Version;
 
 mod builder;
-#[cfg(feature = "metadata-hash")]
-mod metadata_hash;
 mod prerequisites;
 mod version;
 mod wasm_project;
@@ -309,50 +297,8 @@ impl CargoCommand {
 	/// Check if the supplied cargo command supports our runtime environment.
 	fn supports_substrate_runtime_env(&self, target: RuntimeTarget) -> bool {
 		match target {
-			RuntimeTarget::Wasm => self.supports_substrate_runtime_env_wasm(),
 			RuntimeTarget::Riscv => true,
 		}
-	}
-
-	/// Check if the supplied cargo command supports our Substrate wasm environment.
-	///
-	/// This means that either the cargo version is at minimum 1.68.0 or this is a nightly cargo.
-	///
-	/// Assumes that cargo version matches the rustc version.
-	fn supports_substrate_runtime_env_wasm(&self) -> bool {
-		// `RUSTC_BOOTSTRAP` tells a stable compiler to behave like a nightly. So, when this env
-		// variable is set, we can assume that whatever rust compiler we have, it is a nightly
-		// compiler. For "more" information, see:
-		// https://github.com/rust-lang/rust/blob/fa0f7d0080d8e7e9eb20aa9cbf8013f96c81287f/src/libsyntax/feature_gate/check.rs#L891
-		if env::var("RUSTC_BOOTSTRAP").is_ok() {
-			return true;
-		}
-
-		let Some(version) = self.version() else { return false };
-
-		// Check if major and minor are greater or equal than 1.68 or this is a nightly.
-		version.major > 1 || (version.major == 1 && version.minor >= 68) || version.is_nightly
-	}
-
-	/// Returns whether this version of the toolchain supports the `wasm32v1-none` target.
-	fn supports_wasm32v1_none_target(&self) -> bool {
-		self.version.map_or(false, |version| {
-			// Check if major and minor are greater or equal than 1.84.
-			version.major > 1 || (version.major == 1 && version.minor >= 84)
-		})
-	}
-
-	/// Returns whether the `wasm32v1-none` target is installed in this version of the toolchain.
-	fn is_wasm32v1_none_target_installed(&self) -> bool {
-		let dummy_crate = DummyCrate::new(self, RuntimeTarget::Wasm, true);
-		dummy_crate.is_target_installed("wasm32v1-none").unwrap_or(false)
-	}
-
-	/// Returns whether the `wasm32v1-none` target is available in this version of the toolchain.
-	fn is_wasm32v1_none_target_available(&self) -> bool {
-		// Check if major and minor are greater or equal than 1.84 and that the `wasm32v1-none`
-		// target is installed for this toolchain.
-		self.supports_wasm32v1_none_target() && self.is_wasm32v1_none_target_installed()
 	}
 }
 
@@ -404,9 +350,11 @@ fn get_bool_environment_variable(name: &str) -> Option<bool> {
 	}
 }
 
+// wasm-cull W5: the `Wasm` target was deleted — RISC-V (RostroVM) is the
+// only runtime format, and the default. `SUBSTRATE_RUNTIME_TARGET=wasm` is
+// a hard error, not a fallback.
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum RuntimeTarget {
-	Wasm,
 	Riscv,
 }
 
@@ -414,62 +362,36 @@ impl RuntimeTarget {
 	/// Creates a new instance.
 	fn new() -> Self {
 		let Some(value) = env::var_os(RUNTIME_TARGET) else {
-			return Self::Wasm;
+			return Self::Riscv;
 		};
 
-		if value == "wasm" {
-			Self::Wasm
-		} else if value == "riscv" {
+		if value == "riscv" {
 			Self::Riscv
 		} else {
 			build_helper::warning!(
-				"RUNTIME_TARGET environment variable must be set to either \"wasm\" or \"riscv\""
+				"RUNTIME_TARGET must be \"riscv\" (the default): the wasm runtime \
+				 target was removed from Rostro (docs/WASM-SURFACE-AUDIT.md)"
 			);
 			std::process::exit(1);
 		}
 	}
 
 	/// Figures out the target parameter value for rustc.
-	fn rustc_target(self, cargo_command: &CargoCommand) -> String {
-		match self {
-			RuntimeTarget::Wasm => {
-				if cargo_command.is_wasm32v1_none_target_available() {
-					"wasm32v1-none".into()
-				} else {
-					"wasm32-unknown-unknown".into()
-				}
-			},
-			RuntimeTarget::Riscv => {
-				let mut args = polkavm_linker::TargetJsonArgs::default();
-				args.is_64_bit = true;
-				let path = polkavm_linker::target_json_path(args).expect("riscv not found");
-				path.into_os_string().into_string().unwrap()
-			},
-		}
+	fn rustc_target(self) -> String {
+		let mut args = polkavm_linker::TargetJsonArgs::default();
+		args.is_64_bit = true;
+		let path = polkavm_linker::target_json_path(args).expect("riscv not found");
+		path.into_os_string().into_string().unwrap()
 	}
 
 	/// Figures out the target directory name used by cargo.
-	fn rustc_target_dir(self, cargo_command: &CargoCommand) -> &'static str {
-		match self {
-			RuntimeTarget::Wasm => {
-				if cargo_command.is_wasm32v1_none_target_available() {
-					"wasm32v1-none".into()
-				} else {
-					"wasm32-unknown-unknown".into()
-				}
-			},
-			RuntimeTarget::Riscv => "riscv64emac-unknown-none-polkavm",
-		}
+	fn rustc_target_dir(self) -> &'static str {
+		"riscv64emac-unknown-none-polkavm"
 	}
 
 	/// Figures out the build-std argument.
-	fn rustc_target_build_std(self, cargo_command: &CargoCommand) -> Option<&'static str> {
-		if !crate::get_bool_environment_variable(crate::WASM_BUILD_STD).unwrap_or_else(
-			|| match self {
-				RuntimeTarget::Wasm => !cargo_command.is_wasm32v1_none_target_available(),
-				RuntimeTarget::Riscv => true,
-			},
-		) {
+	fn rustc_target_build_std(self) -> Option<&'static str> {
+		if !crate::get_bool_environment_variable(crate::WASM_BUILD_STD).unwrap_or(true) {
 			return None;
 		}
 

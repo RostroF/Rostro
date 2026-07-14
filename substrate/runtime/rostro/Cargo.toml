@@ -188,4 +188,3 @@ try-runtime = [
 	"pallet-utility/try-runtime",
 	"sp-runtime/try-runtime",
 ]
-metadata-hash = ["substrate-wasm-builder/metadata-hash"]

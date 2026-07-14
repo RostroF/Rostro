@@ -23,12 +23,8 @@ use std::{
 
 use crate::RuntimeTarget;
 
-/// Extra information when generating the `metadata-hash`.
-#[cfg(feature = "metadata-hash")]
-pub(crate) struct MetadataExtraInfo {
-	pub decimals: u8,
-	pub token_symbol: String,
-}
+// wasm-cull W5: the `metadata-hash` feature (`MetadataExtraInfo`,
+// `enable_metadata_hash`) was deleted with the wasm runtime target.
 
 /// Returns the manifest dir from the `CARGO_MANIFEST_DIR` env.
 fn get_manifest_dir() -> PathBuf {
@@ -57,11 +53,6 @@ impl WasmBuilderSelectProject {
 			file_name: None,
 			project_cargo_toml: get_manifest_dir().join("Cargo.toml"),
 			features_to_enable: Vec::new(),
-			disable_runtime_version_section_check: false,
-			export_heap_base: false,
-			import_memory: false,
-			#[cfg(feature = "metadata-hash")]
-			enable_metadata_hash: None,
 		}
 	}
 
@@ -77,11 +68,6 @@ impl WasmBuilderSelectProject {
 				file_name: None,
 				project_cargo_toml: path,
 				features_to_enable: Vec::new(),
-				disable_runtime_version_section_check: false,
-				export_heap_base: false,
-				import_memory: false,
-				#[cfg(feature = "metadata-hash")]
-				enable_metadata_hash: None,
 			})
 		} else {
 			Err("Project path must point to the `Cargo.toml` of the project")
@@ -112,17 +98,6 @@ pub struct WasmBuilder {
 	project_cargo_toml: PathBuf,
 	/// Features that should be enabled when building the wasm binary.
 	features_to_enable: Vec<String>,
-	/// Should the builder not check that the `runtime_version` section exists in the wasm binary?
-	disable_runtime_version_section_check: bool,
-
-	/// Whether `__heap_base` should be exported (WASM-only).
-	export_heap_base: bool,
-	/// Whether `--import-memory` should be added to the link args (WASM-only).
-	import_memory: bool,
-
-	/// Whether to enable the metadata hash generation.
-	#[cfg(feature = "metadata-hash")]
-	enable_metadata_hash: Option<MetadataExtraInfo>,
 }
 
 impl WasmBuilder {
@@ -166,9 +141,9 @@ impl WasmBuilder {
 
 	/// Enable exporting `__heap_base` as global variable in the WASM binary.
 	///
-	/// This adds `-C link-arg=--export=__heap_base` to `RUST_FLAGS`.
-	pub fn export_heap_base(mut self) -> Self {
-		self.export_heap_base = true;
+	/// This was only used by the removed wasm runtime target and is a no-op now. It is kept so
+	/// that existing `build.rs` files continue to compile.
+	pub fn export_heap_base(self) -> Self {
 		self
 	}
 
@@ -184,9 +159,9 @@ impl WasmBuilder {
 
 	/// Instruct the linker to import the memory into the WASM binary.
 	///
-	/// This adds `-C link-arg=--import-memory` to `RUST_FLAGS`.
-	pub fn import_memory(mut self) -> Self {
-		self.import_memory = true;
+	/// This was only used by the removed wasm runtime target and is a no-op now. It is kept so
+	/// that existing `build.rs` files continue to compile.
+	pub fn import_memory(self) -> Self {
 		self
 	}
 
@@ -206,46 +181,17 @@ impl WasmBuilder {
 		self
 	}
 
-	/// Enable generation of the metadata hash.
-	///
-	/// This will compile the runtime once, fetch the metadata, build the metadata hash and
-	/// then compile again with the env `RUNTIME_METADATA_HASH` set. For more information
-	/// about the metadata hash see [RFC78](https://polkadot-fellows.github.io/RFCs/approved/0078-merkleized-metadata.html).
-	///
-	/// - `token_symbol`: The symbol of the main native token of the chain.
-	/// - `decimals`: The number of decimals of the main native token.
-	#[cfg(feature = "metadata-hash")]
-	pub fn enable_metadata_hash(mut self, token_symbol: impl Into<String>, decimals: u8) -> Self {
-		self.enable_metadata_hash =
-			Some(MetadataExtraInfo { token_symbol: token_symbol.into(), decimals });
-
-		self
-	}
-
 	/// Disable the check for the `runtime_version` wasm section.
 	///
-	/// By default the `wasm-builder` will ensure that the `runtime_version` section will
-	/// exists in the build wasm binary. This `runtime_version` section is used to get the
-	/// `RuntimeVersion` without needing to call into the wasm binary. However, for some
-	/// use cases (like tests) you may want to disable this check.
-	pub fn disable_runtime_version_section_check(mut self) -> Self {
-		self.disable_runtime_version_section_check = true;
+	/// The `runtime_version` section check only applied to the removed wasm runtime target, so
+	/// this is a no-op now. It is kept so that existing `build.rs` files continue to compile.
+	pub fn disable_runtime_version_section_check(self) -> Self {
 		self
 	}
 
 	/// Build the WASM binary.
-	pub fn build(mut self) {
+	pub fn build(self) {
 		let target = RuntimeTarget::new();
-
-		if target == RuntimeTarget::Wasm {
-			if self.export_heap_base {
-				self.rust_flags.push("-C link-arg=--export=__heap_base".into());
-			}
-
-			if self.import_memory {
-				self.rust_flags.push("-C link-arg=--import-memory".into());
-			}
-		}
 
 		let out_dir = PathBuf::from(env::var("OUT_DIR").expect("`OUT_DIR` is set by cargo!"));
 		let file_path =
@@ -268,9 +214,6 @@ impl WasmBuilder {
 			self.rust_flags.join(" "),
 			self.features_to_enable,
 			self.file_name,
-			!self.disable_runtime_version_section_check,
-			#[cfg(feature = "metadata-hash")]
-			self.enable_metadata_hash,
 		);
 
 		// As last step we need to generate our `rerun-if-changed` stuff. If a build fails, we don't
@@ -333,11 +276,8 @@ fn generate_rerun_if_changed_instructions() {
 ///
 /// `features_to_enable` - Features that should be enabled for the project.
 ///
-/// `wasm_binary_name` - The optional wasm binary name that is extended with
-/// `.compact.compressed.wasm`. If `None`, the project name will be used.
-///
-/// `check_for_runtime_version_section` - Should the wasm binary be checked for the
-/// `runtime_version` section?
+/// `wasm_binary_name` - The optional runtime blob name. If `None`, the project name will be
+/// used.
 fn build_project(
 	target: RuntimeTarget,
 	file_name: PathBuf,
@@ -345,8 +285,6 @@ fn build_project(
 	default_rustflags: String,
 	features_to_enable: Vec<String>,
 	wasm_binary_name: Option<String>,
-	check_for_runtime_version_section: bool,
-	#[cfg(feature = "metadata-hash")] enable_metadata_hash: Option<MetadataExtraInfo>,
 ) {
 	// Init jobserver as soon as possible
 	crate::wasm_project::get_jobserver();
@@ -358,23 +296,19 @@ fn build_project(
 		},
 	};
 
-	let (wasm_binary, bloaty) = crate::wasm_project::create_and_compile(
+	let bloaty = crate::wasm_project::create_and_compile(
 		target,
 		&project_cargo_toml,
 		&default_rustflags,
 		cargo_cmd,
 		features_to_enable,
 		wasm_binary_name,
-		check_for_runtime_version_section,
-		#[cfg(feature = "metadata-hash")]
-		enable_metadata_hash,
 	);
 
-	let (wasm_binary, wasm_binary_bloaty) = if let Some(wasm_binary) = wasm_binary {
-		(wasm_binary.wasm_binary_path_escaped(), bloaty.bloaty_path_escaped())
-	} else {
-		(bloaty.bloaty_path_escaped(), bloaty.bloaty_path_escaped())
-	};
+	// wasm-cull W5: the compact/compressed wasm variants were deleted with the wasm runtime
+	// target; the riscv blob was always emitted uncompacted, so both constants point to it.
+	let (wasm_binary, wasm_binary_bloaty) =
+		(bloaty.bloaty_path_escaped(), bloaty.bloaty_path_escaped());
 
 	crate::write_file_if_changed(
 		file_name,
