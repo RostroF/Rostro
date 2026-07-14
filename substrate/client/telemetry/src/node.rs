@@ -32,7 +32,7 @@ use std::{
 	task::{Context, Poll},
 	time::Duration,
 };
-use wasm_timer::Delay;
+use futures_timer::Delay;
 
 pub(crate) type ConnectionNotifierSender = mpsc::Sender<()>;
 pub(crate) type ConnectionNotifierReceiver = mpsc::Receiver<()>;

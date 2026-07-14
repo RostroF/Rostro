@@ -34,7 +34,7 @@ use std::{
 	sync::Arc,
 	time::{Duration, Instant},
 };
-use wasm_timer::Delay;
+use futures_timer::Delay;
 
 /// Log target for this file.
 pub const LOG_TARGET: &str = "peerset";
