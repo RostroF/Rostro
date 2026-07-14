@@ -21,9 +21,12 @@
 //!
 //! `#[ignore]`-gated like the B5/B6 tests — needs the riscv blob:
 //!
-//!   SUBSTRATE_ENABLE_POLKAVM=1 SUBSTRATE_RUNTIME_TARGET=riscv \
-//!     cargo test -p rostro-executor --test isolation_loop --release \
+//!   cargo test -p rostro-executor --test isolation_loop --release \
 //!     -- --ignored --nocapture
+//!
+//! (wasm-cull W5: riscv is the only and default runtime target; the old
+//! SUBSTRATE_ENABLE_POLKAVM / SUBSTRATE_RUNTIME_TARGET env vars are no
+//! longer needed.)
 
 use codec::Encode;
 use gemini_runtime::{
