@@ -374,3 +374,114 @@ fn p256_low_s_boundary() {
 	half_plus[31] += 1; // 0xa8 -> 0xa9, no carry
 	assert!(!is_low_s_p256(&half_plus), "s == n/2 + 1 is high");
 }
+
+// ---------------------------------------------------------------------------
+// verify_against — the keyring entry point (docs/KEYRING.md)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn verify_against_accepts_every_scheme_matched_pair() {
+	let msg = b"hello rostro".to_vec();
+
+	let sr = sr25519::Pair::from_seed(&[0x42u8; 32]);
+	assert!(RostroSignature::Sr25519(sr.sign(&msg))
+		.verify_against(&msg, &RostroSigner::Sr25519(sr.public())));
+
+	let ed = ed25519::Pair::from_seed(&[0x42u8; 32]);
+	assert!(RostroSignature::Ed25519(ed.sign(&msg))
+		.verify_against(&msg, &RostroSigner::Ed25519(ed.public())));
+
+	let secret_bytes: [u8; 32] = hex::decode(ANVIL_DEV_0_SECRET).unwrap().try_into().unwrap();
+	let k1 = ecdsa::Pair::from_seed(&secret_bytes);
+	assert!(RostroSignature::Ecdsa(k1.sign(&msg))
+		.verify_against(&msg, &RostroSigner::Ecdsa(k1.public())));
+	assert!(
+		RostroSignature::EcdsaEip191(k1.sign_prehashed(&eip191_hash(&msg)))
+			.verify_against(&msg, &RostroSigner::Ecdsa(k1.public())),
+		"both secp256k1 envelopes must match an enrolled Ecdsa key"
+	);
+
+	let (sk, pubkey) = p256_test_key();
+	let sig = p256_sign(&sk, &msg);
+	assert!(RostroSignature::EcdsaP256 { pubkey, sig }
+		.verify_against(&msg, &RostroSigner::EcdsaP256(pubkey)));
+}
+
+#[test]
+fn verify_against_ignores_address_binding() {
+	// The keyring use case itself: a P-256 device key signs for an account
+	// it does NOT derive to (the account belongs to a 25519 root; the
+	// keyring authorized the device key). verify_against must accept purely
+	// on the enrolled-key match — Verify::verify on the same signature
+	// rejects, because the account isn't blake2_256(pubkey).
+	let msg = b"hello rostro".to_vec();
+	let (sk, pubkey) = p256_test_key();
+	let sig = p256_sign(&sk, &msg);
+	let rs = RostroSignature::EcdsaP256 { pubkey, sig };
+
+	let root = sr25519::Pair::from_seed(&[0x42u8; 32]);
+	let root_account = sr25519_to_account(&root.public());
+	assert!(!rs.verify(&msg[..], &root_account), "derived path must still reject");
+	assert!(rs.verify_against(&msg, &RostroSigner::EcdsaP256(pubkey)));
+}
+
+#[test]
+fn verify_against_rejects_cross_scheme_and_wrong_key() {
+	let msg = b"hello rostro".to_vec();
+
+	// Same 32 seed bytes, different curves: an sr25519 signature must not
+	// satisfy an enrolled ed25519 key (schemes are explicit in the keyring,
+	// unlike the shared raw-pubkey address namespace).
+	let sr = sr25519::Pair::from_seed(&[0x42u8; 32]);
+	let ed = ed25519::Pair::from_seed(&[0x42u8; 32]);
+	assert!(!RostroSignature::Sr25519(sr.sign(&msg))
+		.verify_against(&msg, &RostroSigner::Ed25519(ed.public())));
+
+	// Wrong enrolled key of the right scheme.
+	let sr2 = sr25519::Pair::from_seed(&[0x43u8; 32]);
+	assert!(!RostroSignature::Sr25519(sr.sign(&msg))
+		.verify_against(&msg, &RostroSigner::Sr25519(sr2.public())));
+
+	// secp256k1 signature against an enrolled key it doesn't recover to.
+	let secret_bytes: [u8; 32] = hex::decode(ANVIL_DEV_0_SECRET).unwrap().try_into().unwrap();
+	let k1 = ecdsa::Pair::from_seed(&secret_bytes);
+	let k1_other = ecdsa::Pair::from_seed(&[0x44u8; 32]);
+	assert!(!RostroSignature::Ecdsa(k1.sign(&msg))
+		.verify_against(&msg, &RostroSigner::Ecdsa(k1_other.public())));
+
+	// P-256 signature against a secp256k1 enrolled key (and vice versa).
+	let (sk, pubkey) = p256_test_key();
+	let sig = p256_sign(&sk, &msg);
+	assert!(!RostroSignature::EcdsaP256 { pubkey, sig }
+		.verify_against(&msg, &RostroSigner::Ecdsa(k1.public())));
+	assert!(!RostroSignature::Ecdsa(k1.sign(&msg))
+		.verify_against(&msg, &RostroSigner::EcdsaP256(pubkey)));
+}
+
+#[test]
+fn verify_against_p256_keeps_pubkey_and_low_s_discipline() {
+	let msg = b"hello rostro".to_vec();
+	let (sk, pubkey) = p256_test_key();
+	let sig = p256_sign(&sk, &msg);
+
+	// Carried pubkey must equal the enrolled pubkey exactly.
+	let sk2 = p256::ecdsa::SigningKey::from_slice(&[0x07u8; 32]).unwrap();
+	let pubkey2: [u8; 33] =
+		sk2.verifying_key().to_encoded_point(true).as_bytes().try_into().unwrap();
+	assert!(
+		!RostroSignature::EcdsaP256 { pubkey, sig }
+			.verify_against(&msg, &RostroSigner::EcdsaP256(pubkey2)),
+		"carried pubkey != enrolled pubkey must be rejected"
+	);
+
+	// High-s twin still rejected on the keyring path.
+	let s_low: [u8; 32] = sig[32..].try_into().unwrap();
+	let s_high = be_sub(&P256_ORDER, &s_low);
+	let mut high = sig;
+	high[32..].copy_from_slice(&s_high);
+	assert!(
+		!RostroSignature::EcdsaP256 { pubkey, sig: high }
+			.verify_against(&msg, &RostroSigner::EcdsaP256(pubkey)),
+		"low-s canonicalization must hold on the keyring path too"
+	);
+}

@@ -70,7 +70,7 @@ use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use sp_core::{crypto::AccountId32, ecdsa, ed25519, sr25519};
 use sp_io::{
-	crypto::secp256k1_ecdsa_recover,
+	crypto::{secp256k1_ecdsa_recover, secp256k1_ecdsa_recover_compressed},
 	hashing::{blake2_256, keccak_256, sha2_256},
 };
 use sp_runtime::traits::{IdentifyAccount, Lazy, Verify};
@@ -285,6 +285,58 @@ impl Verify for RostroSignature {
 				verify_p256(pubkey, sig, m, signer)
 			},
 		}
+	}
+}
+
+impl RostroSignature {
+	/// Verify this signature over `payload` against an explicitly supplied
+	/// authorized key, rather than against the address-derived default.
+	///
+	/// This is the keyring entry point (docs/KEYRING.md): the caller — the
+	/// keyring pallet — has already established that `key` is authorized
+	/// for the signing account, so the address-binding step of the derived
+	/// path is replaced by an exact match against the enrolled pubkey. The
+	/// cryptographic checks are otherwise identical to [`Verify::verify`],
+	/// including P-256 low-s canonicalization.
+	///
+	/// Scheme discipline: the signature variant must match the enrolled
+	/// key's scheme. The two secp256k1 envelopes (`Ecdsa`, `EcdsaEip191`)
+	/// both match an enrolled `Ecdsa` key — same key, two wrap formats,
+	/// exactly the derived-path posture. Every other cross-scheme pairing
+	/// is `false`, never an error: sr25519 and ed25519 stay distinct here
+	/// even though they share the raw-pubkey *address* namespace, because
+	/// an enrolled key names its scheme explicitly.
+	pub fn verify_against(&self, payload: &[u8], key: &RostroSigner) -> bool {
+		match (self, key) {
+			(RostroSignature::Ed25519(sig), RostroSigner::Ed25519(pk)) => sig.verify(payload, pk),
+			(RostroSignature::Sr25519(sig), RostroSigner::Sr25519(pk)) => sig.verify(payload, pk),
+			(RostroSignature::Ecdsa(sig), RostroSigner::Ecdsa(pk)) =>
+				recovered_compressed_matches(sig.as_ref(), &blake2_256(payload), pk),
+			(RostroSignature::EcdsaEip191(sig), RostroSigner::Ecdsa(pk)) =>
+				recovered_compressed_matches(sig.as_ref(), &eip191_hash(payload), pk),
+			(RostroSignature::EcdsaP256 { pubkey, sig }, RostroSigner::EcdsaP256(pk)) => {
+				if pubkey != pk || !is_low_s_p256(&sig[32..64]) {
+					return false;
+				}
+				let prehash = sha2_256(payload);
+				rostro_guest_crypto::verify::p256_verify_prehash(pubkey, sig, &prehash)
+			},
+			_ => false,
+		}
+	}
+}
+
+/// Recover the compressed secp256k1 pubkey from `(sig, hash)` and compare
+/// it byte-exact against an enrolled key. The recover-and-compare shape
+/// mirrors `verify_ecdsa_eth`, but against the enrolled pubkey instead of
+/// the H160-derived address.
+fn recovered_compressed_matches(sig: &[u8; 65], hash: &[u8; 32], pk: &ecdsa::Public) -> bool {
+	match secp256k1_ecdsa_recover_compressed(sig, hash) {
+		Ok(recovered) => {
+			let pk_bytes: &[u8; 33] = pk.as_ref();
+			&recovered == pk_bytes
+		},
+		Err(_) => false,
 	}
 }
 
