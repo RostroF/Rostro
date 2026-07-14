@@ -22,7 +22,7 @@ use crate::{
 		ImportParams, KeystoreParams, NetworkParams, OffchainWorkerParams, RpcEndpoint,
 		SharedParams, TransactionPoolParams,
 	},
-	CliConfiguration, PrometheusParams, RpcParams, RuntimeParams, TelemetryParams,
+	CliConfiguration, PrometheusParams, RpcParams, TelemetryParams,
 };
 use clap::Parser;
 use regex::Regex;
@@ -71,9 +71,6 @@ pub struct RunCmd {
 	#[clap(flatten)]
 	pub prometheus_params: PrometheusParams,
 
-	#[allow(missing_docs)]
-	#[clap(flatten)]
-	pub runtime_params: RuntimeParams,
 
 	#[allow(missing_docs)]
 	#[clap(flatten)]
@@ -332,14 +329,6 @@ impl CliConfiguration for RunCmd {
 
 	fn transaction_pool(&self, is_dev: bool) -> Result<TransactionPoolOptions> {
 		Ok(self.pool_config.transaction_pool(is_dev))
-	}
-
-	fn max_runtime_instances(&self) -> Result<Option<usize>> {
-		Ok(Some(self.runtime_params.max_runtime_instances))
-	}
-
-	fn runtime_cache_size(&self) -> Result<u8> {
-		Ok(self.runtime_params.runtime_cache_size)
 	}
 
 	fn base_path(&self) -> Result<Option<BasePath>> {

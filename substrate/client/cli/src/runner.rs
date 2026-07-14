@@ -194,7 +194,7 @@ mod tests {
 	use super::*;
 	use rc_network::config::NetworkConfiguration;
 	use rc_service::{
-		config::{ExecutorConfiguration, RpcConfiguration},
+		config::RpcConfiguration,
 		Arc, ChainType, GenericChainSpec, NoExtension,
 	};
 	use std::{
@@ -266,8 +266,6 @@ mod tests {
 					.with_genesis_config_patch(Default::default())
 					.build(),
 				),
-				executor: ExecutorConfiguration::default(),
-				wasm_runtime_overrides: None,
 				rpc: RpcConfiguration {
 					addr: None,
 					max_connections: Default::default(),

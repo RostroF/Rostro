@@ -20,7 +20,7 @@
 
 use codec::{Decode, Encode};
 pub use rc_executor::sp_wasm_interface::HostFunctions;
-use rc_executor::{error::Result, WasmExecutor};
+use rc_executor::error::Result;
 use rostro_executor::RostroCodeExecutor;
 use serde_json::{from_slice, Value};
 use sp_core::{
@@ -32,26 +32,13 @@ pub use sp_genesis_builder::{DEV_RUNTIME_PRESET, LOCAL_TESTNET_RUNTIME_PRESET};
 use sp_state_machine::BasicExternalities;
 use std::borrow::Cow;
 
-/// Magic header bytes identifying a PolkaVM program blob, mirroring
-/// `rc_executor_common::runtime_blob::RuntimeBlob::new`'s sniff.
+/// Magic header bytes identifying a PolkaVM program blob.
+///
+/// wasm-cull W4: the Phase Star B7 dual dispatch (`PVM\0` →
+/// RostroCodeExecutor, else → WasmExecutor for legacy wasm test runtimes)
+/// collapsed to single-dispatch once the test runtimes moved to PVM blobs.
+/// A non-PVM blob is a hard error — one input, one executor.
 const POLKAVM_MAGIC: &[u8; 4] = b"PVM\0";
-
-/// Two-executor backing for `GenesisConfigBuilderRuntimeCaller` — Phase
-/// Star B7. WasmExecutor handles legacy WASM blobs (so substrate's own
-/// test runtimes keep working); RostroCodeExecutor handles PVM blobs.
-/// Upstream substrate's WasmExecutor has no PolkaVM dispatch branch —
-/// blob *acceptance* is gated by `ROSTRO_DISABLE_POLKAVM` opt-out (Rostro
-/// defaults to accepting PolkaVM blobs since 2026-05-24), but the actual
-/// call path still has to branch here on the blob kind. Otherwise PVM
-/// runtimes constructed from `ChainSpec::builder(WASM_BINARY...)` would
-/// hit `as_webassembly_blob` and trap during genesis construction.
-enum GenesisExecutor<EHF>
-where
-	EHF: HostFunctions,
-{
-	Wasm(WasmExecutor<(sp_io::SubstrateHostFunctions, EHF)>),
-	PolkaVm(RostroCodeExecutor<(sp_io::SubstrateHostFunctions, EHF)>),
-}
 
 /// A utility that facilitates calling the GenesisBuilder API from the runtime wasm code blob.
 ///
@@ -63,7 +50,7 @@ where
 {
 	code: Cow<'a, [u8]>,
 	code_hash: Vec<u8>,
-	executor: GenesisExecutor<EHF>,
+	executor: RostroCodeExecutor<(sp_io::SubstrateHostFunctions, EHF)>,
 }
 
 impl<'a, EHF> FetchRuntimeCode for GenesisConfigBuilderRuntimeCaller<'a, EHF>
@@ -79,24 +66,18 @@ impl<'a, EHF> GenesisConfigBuilderRuntimeCaller<'a, EHF>
 where
 	EHF: HostFunctions,
 {
-	/// Creates new instance using the provided code blob.
+	/// Creates new instance using the provided PVM code blob.
 	///
-	/// This code is later referred to as `runtime`. Dispatches on the
-	/// blob's magic header: `PVM\0` → RostroCodeExecutor, otherwise →
-	/// WasmExecutor.
+	/// This code is later referred to as `runtime`. Panics on a non-PVM
+	/// blob: RostroVM blobs are the only runtime format.
 	pub fn new(code: &'a [u8]) -> Self {
-		let executor = if code.starts_with(POLKAVM_MAGIC) {
-			GenesisExecutor::PolkaVm(
-				RostroCodeExecutor::<(sp_io::SubstrateHostFunctions, EHF)>::new()
-					.expect("RostroCodeExecutor init: polkavm engine setup must succeed"),
-			)
-		} else {
-			GenesisExecutor::Wasm(
-				WasmExecutor::<(sp_io::SubstrateHostFunctions, EHF)>::builder()
-					.with_allow_missing_host_functions(true)
-					.build(),
-			)
-		};
+		assert!(
+			code.starts_with(POLKAVM_MAGIC),
+			"GenesisConfigBuilderRuntimeCaller: runtime blob is not a PVM blob \
+			 (bad magic); wasm runtimes are not supported",
+		);
+		let executor = RostroCodeExecutor::<(sp_io::SubstrateHostFunctions, EHF)>::new()
+			.expect("RostroCodeExecutor init: polkavm engine setup must succeed");
 		GenesisConfigBuilderRuntimeCaller {
 			code: code.into(),
 			code_hash: sp_crypto_hashing::blake2_256(code).to_vec(),
@@ -110,14 +91,10 @@ where
 			code_fetcher: self,
 			hash: self.code_hash.clone(),
 		};
-		match &self.executor {
-			GenesisExecutor::Wasm(executor) =>
-				executor.call(ext, &runtime_code, method, data, CallContext::Offchain).0,
-			GenesisExecutor::PolkaVm(executor) => executor
-				.call(ext, &runtime_code, method, data, CallContext::Offchain)
-				.0
-				.map_err(|e| rc_executor::error::Error::ApiError(e.into())),
-		}
+		self.executor
+			.call(ext, &runtime_code, method, data, CallContext::Offchain)
+			.0
+			.map_err(|e| rc_executor::error::Error::ApiError(e.into()))
 	}
 
 	/// Returns a json representation of the default `RuntimeGenesisConfig` provided by the

@@ -30,7 +30,7 @@ use rc_network_sync::SyncingService;
 use rc_service::{
 	client::Client,
 	config::{
-		BasePath, DatabaseSource, ExecutorConfiguration, KeystoreConfig, RpcBatchRequestConfig,
+		BasePath, DatabaseSource, KeystoreConfig, RpcBatchRequestConfig,
 		RpcConfiguration,
 	},
 	BlocksPruning, ChainSpecExtension, Configuration, Error, GenericChainSpec, Role,
@@ -239,8 +239,6 @@ fn node_config<E: ChainSpecExtension + Clone + 'static + Send + Sync>(
 		state_pruning: Default::default(),
 		blocks_pruning: BlocksPruning::KeepFinalized,
 		chain_spec: Box::new((*spec).clone()),
-		executor: ExecutorConfiguration::default(),
-		wasm_runtime_overrides: Default::default(),
 		rpc: RpcConfiguration {
 			addr: Default::default(),
 			max_connections: Default::default(),

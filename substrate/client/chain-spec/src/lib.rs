@@ -203,7 +203,7 @@
 //! which can be accessed through the [`ChainSpec::as_storage_builder`] method. There is an
 //! intermediate internal helper that facilitates this interaction,
 //! [`GenesisConfigBuilderRuntimeCaller`], which serves as a straightforward wrapper for
-//! [`rc_executor::WasmExecutor`].
+//! `RostroCodeExecutor` (the RostroVM runtime executor).
 //!
 //! In case of `raw` genesis state the node does not interact with the runtime regarding the
 //! computation of initial state.

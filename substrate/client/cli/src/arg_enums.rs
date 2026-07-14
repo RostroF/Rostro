@@ -21,97 +21,12 @@
 use clap::ValueEnum;
 use std::str::FromStr;
 
-/// The instantiation strategy to use in compiled mode.
-#[derive(Debug, Clone, Copy, ValueEnum)]
-#[value(rename_all = "kebab-case")]
-pub enum WasmtimeInstantiationStrategy {
-	/// Pool the instances to avoid initializing everything from scratch
-	/// on each instantiation. Use copy-on-write memory when possible.
-	PoolingCopyOnWrite,
-
-	/// Recreate the instance from scratch on every instantiation.
-	/// Use copy-on-write memory when possible.
-	RecreateInstanceCopyOnWrite,
-
-	/// Pool the instances to avoid initializing everything from scratch
-	/// on each instantiation.
-	Pooling,
-
-	/// Recreate the instance from scratch on every instantiation. Very slow.
-	RecreateInstance,
-}
-
-/// The default [`WasmtimeInstantiationStrategy`].
-pub const DEFAULT_WASMTIME_INSTANTIATION_STRATEGY: WasmtimeInstantiationStrategy =
-	WasmtimeInstantiationStrategy::PoolingCopyOnWrite;
-
-/// How to execute Wasm runtime code.
-#[derive(Debug, Clone, Copy, ValueEnum)]
-#[value(rename_all = "kebab-case")]
-pub enum WasmExecutionMethod {
-	/// Uses an interpreter which now is deprecated.
-	#[clap(name = "interpreted-i-know-what-i-do")]
-	Interpreted,
-	/// Uses a compiled runtime.
-	Compiled,
-}
-
-impl std::fmt::Display for WasmExecutionMethod {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Interpreted => write!(f, "Interpreted"),
-			Self::Compiled => write!(f, "Compiled"),
-		}
-	}
-}
-
-/// Converts the execution method and instantiation strategy command line arguments
-/// into an execution method which can be used internally.
-///
-/// Phase H probe (2026-05-25): when the `wasmtime-backend` feature is off,
-/// every CLI choice collapses to `WasmExecutionMethod::Disabled`. gemini-node
-/// never reaches a code path that instantiates this value (it uses
-/// `RostroCodeExecutor` directly), so the CLI args are accepted but inert.
-#[cfg(feature = "wasmtime-backend")]
-pub fn execution_method_from_cli(
-	execution_method: WasmExecutionMethod,
-	instantiation_strategy: WasmtimeInstantiationStrategy,
-) -> rc_service::config::WasmExecutionMethod {
-	if let WasmExecutionMethod::Interpreted = execution_method {
-		log::warn!(
-			"`interpreted-i-know-what-i-do` is deprecated and will be removed in the future. Defaults to `compiled` execution mode."
-		);
-	}
-
-	rc_service::config::WasmExecutionMethod::Compiled {
-		instantiation_strategy: match instantiation_strategy {
-			WasmtimeInstantiationStrategy::PoolingCopyOnWrite => {
-				rc_service::config::WasmtimeInstantiationStrategy::PoolingCopyOnWrite
-			},
-			WasmtimeInstantiationStrategy::RecreateInstanceCopyOnWrite => {
-				rc_service::config::WasmtimeInstantiationStrategy::RecreateInstanceCopyOnWrite
-			},
-			WasmtimeInstantiationStrategy::Pooling => {
-				rc_service::config::WasmtimeInstantiationStrategy::Pooling
-			},
-			WasmtimeInstantiationStrategy::RecreateInstance => {
-				rc_service::config::WasmtimeInstantiationStrategy::RecreateInstance
-			},
-		},
-	}
-}
-
-#[cfg(not(feature = "wasmtime-backend"))]
-pub fn execution_method_from_cli(
-	_execution_method: WasmExecutionMethod,
-	_instantiation_strategy: WasmtimeInstantiationStrategy,
-) -> rc_service::config::WasmExecutionMethod {
-	// Phase H probe: wasmtime backend disabled in this build.
-	rc_service::config::WasmExecutionMethod::default()
-}
-
-/// The default [`WasmExecutionMethod`].
-pub const DEFAULT_WASM_EXECUTION_METHOD: WasmExecutionMethod = WasmExecutionMethod::Compiled;
+// wasm-cull W4: `WasmExecutionMethod`, `WasmtimeInstantiationStrategy`,
+// `ExecutionStrategy` and `execution_method_from_cli` were deleted with the
+// wasm executors. Old command lines passing `--wasm-execution`,
+// `--wasmtime-instantiation-strategy`, `--wasm-runtime-overrides` or the
+// deprecated `--execution*` strategy flags now fail with a clear clap error
+// (hard cutover, no grace window).
 
 #[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
@@ -170,20 +85,6 @@ pub enum OutputType {
 	Json,
 	/// Output as text.
 	Text,
-}
-
-/// How to execute blocks
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
-#[value(rename_all = "kebab-case")]
-pub enum ExecutionStrategy {
-	/// Execute with native build (if available, WebAssembly otherwise).
-	Native,
-	/// Only execute with the WebAssembly build.
-	Wasm,
-	/// Execute with both native (where available) and WebAssembly builds.
-	Both,
-	/// Execute with the native build if possible; if it fails, then execute with WebAssembly.
-	NativeElseWasm,
 }
 
 /// Available RPC methods.

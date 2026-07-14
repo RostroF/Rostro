@@ -49,7 +49,6 @@ mod call_executor;
 mod client;
 mod code_provider;
 mod notification_pinning;
-mod wasm_override;
 mod wasm_substitutes;
 
 pub use call_executor::LocalCallExecutor;

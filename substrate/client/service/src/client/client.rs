@@ -157,8 +157,6 @@ pub struct ClientConfig<Block: BlockT> {
 	pub offchain_worker_enabled: bool,
 	/// If true, allows access from the runtime to write into offchain worker db.
 	pub offchain_indexing_api: bool,
-	/// Path where WASM files exist to override the on-chain WASM.
-	pub wasm_runtime_overrides: Option<PathBuf>,
 	/// Skip writing genesis state on first start.
 	pub no_genesis: bool,
 	/// Map of WASM runtime substitute starting at the child of the given block until the runtime
@@ -173,7 +171,6 @@ impl<Block: BlockT> Default for ClientConfig<Block> {
 		Self {
 			offchain_worker_enabled: false,
 			offchain_indexing_api: false,
-			wasm_runtime_overrides: None,
 			no_genesis: false,
 			wasm_runtime_substitutes: HashMap::new(),
 			enable_import_proof_recording: false,

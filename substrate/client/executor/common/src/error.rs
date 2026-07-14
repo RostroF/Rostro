@@ -58,9 +58,6 @@ pub enum Error {
 	#[error("Other: {0}")]
 	Other(String),
 
-	#[error(transparent)]
-	Allocator(#[from] rc_allocator::Error),
-
 	#[error("Host function {0} execution failed with: {1}")]
 	FunctionExecution(String, String),
 

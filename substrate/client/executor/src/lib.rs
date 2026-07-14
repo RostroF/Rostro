@@ -16,47 +16,27 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-//! A crate that provides means of executing/dispatching calls into the runtime.
+//! Runtime-executor trait vocabulary for the client stack.
 //!
-//! There are a few responsibilities of this crate at the moment:
-//!
-//! - It provides an implementation of a common entrypoint for calling into the runtime, both
-//! wasm and compiled.
-//! - It defines the environment for the wasm execution, namely the host functions that are to be
-//! provided into the wasm runtime module.
-//! - It also provides the required infrastructure for executing the current wasm runtime (specified
-//! by the current value of `:code` in the provided externalities), i.e. interfacing with
-//! wasm engine used, instance cache.
+//! wasm-cull W4: the wasm execution engines are gone. `WasmExecutor`
+//! (wasmtime-backed) and `NativeElseWasmExecutor` were deleted together
+//! with the `wasmtime-backend` feature; `RostroCodeExecutor`
+//! (`rostro-executor`, RostroVM) is the only runtime executor. What
+//! remains here is the executor-facing trait vocabulary and error types
+//! the client stack is written against: [`RuntimeVersionOf`], the
+//! [`error`] module, and the host-function re-exports.
 
 #![warn(missing_docs)]
 
-#[macro_use]
-mod executor;
-#[cfg(test)]
-mod integration_tests;
-mod wasm_runtime;
-
 pub use codec::Codec;
-#[allow(deprecated)]
-pub use executor::NativeElseWasmExecutor;
-pub use executor::{with_externalities_safe, NativeExecutionDispatch, WasmExecutor};
 #[doc(hidden)]
 pub use sp_core::traits::Externalities;
 pub use sp_version::{NativeVersion, RuntimeVersion};
 #[doc(hidden)]
 pub use sp_wasm_interface;
 pub use sp_wasm_interface::HostFunctions;
-pub use wasm_runtime::{read_embedded_version, WasmExecutionMethod};
 
-pub use rc_executor_common::{
-	error,
-	wasm_runtime::{HeapAllocStrategy, DEFAULT_HEAP_ALLOC_PAGES, DEFAULT_HEAP_ALLOC_STRATEGY},
-};
-// Phase H (2026-05-25): re-export of the wasmtime instantiation strategy
-// is feature-gated; with `wasmtime-backend` off, the type isn't in scope
-// and downstream callers must avoid referencing it.
-#[cfg(feature = "wasmtime-backend")]
-pub use rc_executor_wasmtime::InstantiationStrategy as WasmtimeInstantiationStrategy;
+pub use rc_executor_common::error;
 
 /// Extracts the runtime version of a given runtime code.
 pub trait RuntimeVersionOf {
@@ -66,30 +46,4 @@ pub trait RuntimeVersionOf {
 		ext: &mut dyn Externalities,
 		runtime_code: &sp_core::traits::RuntimeCode,
 	) -> error::Result<RuntimeVersion>;
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use rc_executor_common::runtime_blob::RuntimeBlob;
-	use rc_runtime_test::wasm_binary_unwrap;
-	use sp_io::TestExternalities;
-
-	#[test]
-	fn call_in_interpreted_wasm_works() {
-		let mut ext = TestExternalities::default();
-		let mut ext = ext.ext();
-
-		let executor = WasmExecutor::<sp_io::SubstrateHostFunctions>::builder().build();
-		let res = executor
-			.uncached_call(
-				RuntimeBlob::uncompress_if_needed(wasm_binary_unwrap()).unwrap(),
-				&mut ext,
-				true,
-				"test_empty_return",
-				&[],
-			)
-			.unwrap();
-		assert_eq!(res, vec![0u8; 0]);
-	}
 }

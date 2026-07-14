@@ -22,11 +22,6 @@ pub use jsonrpsee::server::BatchRequestConfig as RpcBatchRequestConfig;
 use prometheus_endpoint::Registry;
 use rc_chain_spec::ChainSpec;
 pub use rc_client_db::{BlocksPruning, Database, DatabaseSource, PruningMode};
-pub use rc_executor::WasmExecutionMethod;
-// Phase H probe (2026-05-25): wasmtime instantiation strategy only
-// re-exported when rc-executor's wasmtime-backend feature is on.
-#[cfg(feature = "wasmtime-backend")]
-pub use rc_executor::WasmtimeInstantiationStrategy;
 pub use rc_network::{
 	config::{
 		MultiaddrWithPeerId, NetworkConfiguration, NodeKeyConfig, NonDefaultSetConfig, ProtocolId,
@@ -84,12 +79,6 @@ pub struct Configuration {
 	pub blocks_pruning: BlocksPruning,
 	/// Chain configuration.
 	pub chain_spec: Box<dyn ChainSpec>,
-	/// Runtime executor configuration.
-	pub executor: ExecutorConfiguration,
-	/// Directory where local WASM runtimes live. These runtimes take precedence
-	/// over on-chain runtimes when the spec version matches. Set to `None` to
-	/// disable overrides (default).
-	pub wasm_runtime_overrides: Option<PathBuf>,
 	/// RPC configuration.
 	pub rpc: RpcConfiguration,
 	/// Prometheus endpoint configuration. `None` if disabled.
@@ -349,28 +338,7 @@ pub struct RpcConfiguration {
 	pub request_logger_limit: u32,
 }
 
-/// Runtime executor configuration.
-#[derive(Debug, Clone)]
-pub struct ExecutorConfiguration {
-	/// Wasm execution method.
-	pub wasm_method: WasmExecutionMethod,
-	/// The size of the instances cache.
-	///
-	/// The default value is 8.
-	pub max_runtime_instances: usize,
-	/// The default number of 64KB pages to allocate for Wasm execution
-	pub default_heap_pages: Option<u64>,
-	/// Maximum number of different runtime versions that can be cached.
-	pub runtime_cache_size: u8,
-}
-
-impl Default for ExecutorConfiguration {
-	fn default() -> Self {
-		Self {
-			wasm_method: WasmExecutionMethod::default(),
-			max_runtime_instances: 8,
-			default_heap_pages: None,
-			runtime_cache_size: 2,
-		}
-	}
-}
+// wasm-cull W4: `ExecutorConfiguration` deleted. Its knobs (wasm execution
+// method, instance cache, heap pages, runtime cache size) configured the
+// removed wasm executors; `RostroCodeExecutor::new()` reads `POLKAVM_*` env
+// vars and workspace defaults instead.

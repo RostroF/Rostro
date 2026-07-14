@@ -56,8 +56,10 @@ use sp_core::traits::CallContext;
 #[cfg(feature = "std")]
 use sp_runtime::traits::Block as BlockT;
 
-#[cfg(feature = "std")]
-pub mod embed;
+// wasm-cull W4: the `embed` module (rewriting a wasm blob's
+// `runtime_version` custom section via parity-wasm) was deleted. A PVM
+// blob's version is read by executing `Core_version`; there is no section
+// to rewrite.
 
 /// An attribute that accepts a version declaration of a runtime and generates a custom wasm
 /// section with the equivalent contents.
