@@ -12,6 +12,7 @@ pub mod pop;
 pub mod proxy;
 pub mod keys;
 pub mod oids;
+pub mod presentation;
 pub mod runtime_api;
 pub mod template;
 pub mod tpm;
