@@ -270,6 +270,24 @@ pub struct MembershipWitnessData {
 sp_api::decl_runtime_apis! {
     /// Queries against on-chain ZK-PKI state. Pure storage reads — no
     /// off-chain computation, no event replay.
+    ///
+    /// # Public interface — stability contract
+    ///
+    /// This trait is the chain-side surface that external verifiers
+    /// (the identity-rails verifier SDK, and any third-party relying
+    /// party resolving witnessed keypairs) build against. Evolution is
+    /// **additive only**: new methods bump `api_version`; existing
+    /// method signatures and semantics never change within a version.
+    /// A breaking change requires a new major API version declared
+    /// side by side, not an edit in place. Treat every method here as
+    /// published the moment it ships in a runtime.
+    ///
+    /// Version history:
+    /// - v1 — initial surface (cert/entity status, EK lookup,
+    ///   historical validity, HIP genesis, chat-membership roots).
+    /// - v2 — `cert_by_device_key`: device-key reverse resolution for
+    ///   external verifiers.
+    #[api_version(2)]
     pub trait ZkPkiApi<AccountId>
     where
         AccountId: Codec,
@@ -277,6 +295,15 @@ sp_api::decl_runtime_apis! {
         /// Full cert status for a thumbprint. Returns `None` if the
         /// thumbprint has no lookup entry (never existed or purged).
         fn cert_status(thumbprint: [u8; 32]) -> Option<CertStatusResponse<AccountId>>;
+
+        /// Resolve a device public key to its current cert thumbprint.
+        /// `key_hash` is the canonical lookup hash — derive it with
+        /// [`crate::crypto::DevicePublicKey::lookup_hash`] (blake2_256
+        /// over the versioned domain, algorithm discriminant, and
+        /// compressed-SEC1/raw canonical key bytes). Returns the most
+        /// recent cert bound to that key regardless of state; chain
+        /// into `cert_status` for validity. Added in v2.
+        fn cert_by_device_key(key_hash: [u8; 32]) -> Option<[u8; 32]>;
 
         /// Compact summaries of every cert `issuer` has issued that
         /// still has a lookup entry.

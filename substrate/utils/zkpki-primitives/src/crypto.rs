@@ -21,6 +21,12 @@ use scale_info::TypeInfo;
 
 use crate::bounds::MAX_DEVICE_PUBKEY_LEN;
 
+/// Domain-separation prefix for [`DevicePublicKey::lookup_hash`]. Versioned
+/// with the house `rostro/<area>/<purpose>/v<N>` convention; bumping the
+/// version invalidates every derived index key, so it changes only with a
+/// storage migration.
+pub const DEVICE_KEY_LOOKUP_DOMAIN_V1: &[u8] = b"rostro/zkpki/device-key-lookup/v1";
+
 /// Cryptographic algorithm identifier for device-bound keys.
 /// The client picks the strongest algorithm its hardware supports.
 /// The pallet validates signatures by dispatching on this discriminant.
@@ -114,6 +120,41 @@ impl DevicePublicKey {
             // PQC key validation stubbed until crate available
             KeyAlgorithm::MlDsa65 | KeyAlgorithm::MlDsa87 => false,
         }
+    }
+
+    /// Canonical lookup hash for the device-key reverse index:
+    /// `blake2_256(DEVICE_KEY_LOOKUP_DOMAIN_V1 || algorithm discriminant || canonical key bytes)`.
+    ///
+    /// EC keys canonicalize to **compressed SEC1** before hashing, so a key
+    /// minted from uncompressed bytes and the same key extracted from an
+    /// X.509 SPKI in either form resolve to the same index entry. ML-DSA
+    /// raw public keys are already canonical. Verifier-side code MUST use
+    /// this function (or reimplement it byte-exactly) to derive lookup keys —
+    /// hashing the as-presented bytes silently misses compressed/uncompressed
+    /// aliases.
+    ///
+    /// Returns `None` when the key bytes fail to parse for the declared
+    /// algorithm (the pallet rejects such keys at the extrinsic boundary,
+    /// so stored records always hash successfully).
+    pub fn lookup_hash(&self) -> Option<[u8; 32]> {
+        let canonical: alloc::vec::Vec<u8> = match self.algorithm {
+            KeyAlgorithm::EcdsaP256 => {
+                let vk = p256::ecdsa::VerifyingKey::from_sec1_bytes(&self.key_bytes).ok()?;
+                vk.to_encoded_point(true).as_bytes().to_vec()
+            }
+            KeyAlgorithm::EcdsaP521 => {
+                let vk = p521::ecdsa::VerifyingKey::from_sec1_bytes(&self.key_bytes).ok()?;
+                vk.to_encoded_point(true).as_bytes().to_vec()
+            }
+            KeyAlgorithm::MlDsa65 | KeyAlgorithm::MlDsa87 => self.key_bytes.to_vec(),
+        };
+        let mut preimage = alloc::vec::Vec::with_capacity(
+            DEVICE_KEY_LOOKUP_DOMAIN_V1.len() + 1 + canonical.len(),
+        );
+        preimage.extend_from_slice(DEVICE_KEY_LOOKUP_DOMAIN_V1);
+        preimage.extend_from_slice(&self.algorithm.encode());
+        preimage.extend_from_slice(&canonical);
+        Some(sp_io::hashing::blake2_256(&preimage))
     }
 
     /// Verify a signature over a message using this public key.

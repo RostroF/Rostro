@@ -357,6 +357,23 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// Device-key reverse index: canonical lookup hash of the device
+    /// public key ([`DevicePublicKey::lookup_hash`]) → thumbprint of the
+    /// most recent cert record bound to that key. The entry point for
+    /// external verifiers resolving a key presented over TLS / EAP /
+    /// WebAuthn into its witness record; backs
+    /// `ZkPkiApi::cert_by_device_key`. Newest wins on insert (reissue and
+    /// renew repoint the entry); removal is guarded so purging a
+    /// superseded cert cannot clobber the live mapping.
+    #[pallet::storage]
+    pub type CertByDeviceKey<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        [u8; 32],
+        Thumbprint,
+        OptionQuery,
+    >;
+
     // -----------------------------------------------------------------------
     // Chat anonymous-membership tree (depth-32 sparse Poseidon SMT).
     // Storage adapter over `rostro-membership-tree`; the math lives there,
@@ -1297,7 +1314,13 @@ pub mod pallet {
     // Pallet struct & hooks
     // ---------------------------------------------------------------------------
 
+    /// In-code storage version. v1 introduces `CertByDeviceKey`;
+    /// `on_runtime_upgrade` backfills it from existing Cold records.
+    const STORAGE_VERSION: frame_support::traits::StorageVersion =
+        frame_support::traits::StorageVersion::new(1);
+
     #[pallet::pallet]
+    #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
     /// Hold reasons for `fungible::MutateHold` calls out of this
@@ -1406,6 +1429,48 @@ pub mod pallet {
                 expired_flipped.saturating_mul(3).saturating_add(purged.saturating_mul(6)),
             )
         }
+
+        /// v0 → v1: backfill `CertByDeviceKey` from every existing Cold
+        /// record. Mirrors the live path's newest-wins semantics: when
+        /// two records share a device key (reissue / renew leftovers
+        /// awaiting purge), an active cert beats an inactive one, and
+        /// ties break toward the higher mint block. Orphaned Cold
+        /// records (no Hot row) are skipped — they can't serve a status
+        /// query and `cleanup` will reap them.
+        fn on_runtime_upgrade() -> Weight {
+            let onchain = Pallet::<T>::on_chain_storage_version();
+            if onchain >= 1 {
+                return T::DbWeight::get().reads(1);
+            }
+            let mut reads = 1u64;
+            let mut writes = 1u64;
+            for (thumbprint, cold) in CertLookupCold::<T>::iter() {
+                reads = reads.saturating_add(2);
+                let Some(hash) = cold.cert_ec_pubkey.lookup_hash() else {
+                    continue;
+                };
+                let Some(this) = CertLookupHot::<T>::get(thumbprint)
+                    .map(|h| (h.is_active(), h.mint_block))
+                else {
+                    continue;
+                };
+                CertByDeviceKey::<T>::mutate(hash, |slot| {
+                    let occupant = slot
+                        .and_then(|t| CertLookupHot::<T>::get(t))
+                        .map(|h| (h.is_active(), h.mint_block));
+                    let replace = match occupant {
+                        None => true,
+                        Some(occ) => this > occ,
+                    };
+                    if replace {
+                        *slot = Some(thumbprint);
+                        writes = writes.saturating_add(1);
+                    }
+                });
+            }
+            STORAGE_VERSION.put::<Pallet<T>>();
+            T::DbWeight::get().reads_writes(reads, writes)
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -1496,6 +1561,7 @@ pub mod pallet {
                 // flow; no template, no PoP mechanism choice.
                 pop_mechanism: None,
             });
+            Self::device_key_index_insert(&device_pubkey, thumbprint);
             CertLookupCold::<T>::insert(thumbprint, CertRecordCold {
                 thumbprint,
                 cert_ec_pubkey: device_pubkey,
@@ -1622,6 +1688,7 @@ pub mod pallet {
                 // doesn't apply.
                 pop_mechanism: None,
             });
+            Self::device_key_index_insert(&device_pubkey, thumbprint);
             CertLookupCold::<T>::insert(thumbprint, CertRecordCold {
                 thumbprint,
                 cert_ec_pubkey: device_pubkey,
@@ -2201,6 +2268,7 @@ pub mod pallet {
                 // dispatch later.
                 pop_mechanism: template.pop_mechanism,
             });
+            Self::device_key_index_insert(&device_pubkey, thumbprint);
             CertLookupCold::<T>::insert(thumbprint, CertRecordCold {
                 thumbprint,
                 cert_ec_pubkey: device_pubkey,
@@ -2506,6 +2574,7 @@ pub mod pallet {
                 // mechanism the holder must continue to satisfy.
                 pop_mechanism: old_rec.pop_mechanism,
             });
+            Self::device_key_index_insert(&new_device_pubkey, new_thumbprint);
             CertLookupCold::<T>::insert(new_thumbprint, CertRecordCold {
                 thumbprint: new_thumbprint,
                 cert_ec_pubkey: new_device_pubkey,
@@ -2580,6 +2649,9 @@ pub mod pallet {
 
             // Orphaned-cold path — no Hot, no deposit held, just wipe Cold.
             let Some(cert) = cert_hot_opt else {
+                if let Some(cold) = &cert_cold_opt {
+                    Self::device_key_index_remove(&cold.cert_ec_pubkey, thumbprint);
+                }
                 CertLookupCold::<T>::remove(thumbprint);
                 Self::deposit_event(Event::CertReaped {
                     thumbprint,
@@ -2706,6 +2778,7 @@ pub mod pallet {
                     // Root renewal — root certs aren't templated.
                     pop_mechanism: None,
                 });
+                Self::device_key_index_insert(&new_device_pubkey, new_thumbprint);
                 CertLookupCold::<T>::insert(new_thumbprint, CertRecordCold {
                     thumbprint: new_thumbprint,
                     cert_ec_pubkey: new_device_pubkey.clone(),
@@ -2805,6 +2878,7 @@ pub mod pallet {
                     // Issuer renewal — issuer certs aren't templated.
                     pop_mechanism: None,
                 });
+                Self::device_key_index_insert(&new_device_pubkey, new_thumbprint);
                 CertLookupCold::<T>::insert(new_thumbprint, CertRecordCold {
                     thumbprint: new_thumbprint,
                     cert_ec_pubkey: new_device_pubkey.clone(),
@@ -3618,15 +3692,40 @@ pub mod pallet {
         /// `issue_issuer_cert` / `renew_cert` carry an empty
         /// `template_name` and skip this path — templates scope
         /// end-user mints only.
+        /// Point the device-key index at `thumbprint`. Newest wins:
+        /// mint / reissue / renew all repoint the key's entry to the
+        /// record just written.
+        fn device_key_index_insert(key: &DevicePublicKey, thumbprint: Thumbprint) {
+            if let Some(hash) = key.lookup_hash() {
+                CertByDeviceKey::<T>::insert(hash, thumbprint);
+            }
+        }
+
+        /// Clear the device-key index entry — only if it still points
+        /// at `thumbprint`. A reissued / renewed cert has already
+        /// repointed the entry; the superseded record's eventual purge
+        /// must not clobber the live mapping.
+        fn device_key_index_remove(key: &DevicePublicKey, thumbprint: Thumbprint) {
+            if let Some(hash) = key.lookup_hash() {
+                CertByDeviceKey::<T>::mutate_exists(hash, |cur| {
+                    if *cur == Some(thumbprint) {
+                        *cur = None;
+                    }
+                });
+            }
+        }
+
         fn remove_cert_entry(thumbprint: Thumbprint, rec: &CertRecordHot<T::AccountId, BlockNumberFor<T>>) {
             CertLookupHot::<T>::remove(thumbprint);
-            // Clear the membership leaf (if this cert enrolled chat) before
-            // dropping the cold record that holds its position.
+            // Clear the membership leaf (if this cert enrolled chat) and
+            // the device-key index entry before dropping the cold record
+            // that holds both.
             if let Some(cold) = CertLookupCold::<T>::get(thumbprint) {
                 if let Some(pos) = cold.leaf_position {
                     Self::membership_remove(pos);
                     Self::freshness_remove(pos);
                 }
+                Self::device_key_index_remove(&cold.cert_ec_pubkey, thumbprint);
             }
             CertLookupCold::<T>::remove(thumbprint);
             // Mime-wrap binding pair, if any. Stored only for
@@ -4066,6 +4165,16 @@ pub mod pallet {
             ek_hash: [u8; 32],
         ) -> Option<[u8; 32]> {
             EkRegistry::<T>::get(&root, ek_hash)
+        }
+
+        /// Resolve a device public key to its cert thumbprint via the
+        /// canonical lookup hash ([`DevicePublicKey::lookup_hash`]).
+        /// The entry point for external verifiers who hold a key
+        /// (from a TLS client cert, WebAuthn attestation, …) and need
+        /// the witness record; chain the result into
+        /// `query_cert_status` / `query_cert_authentication`.
+        pub fn query_cert_by_device_key(key_hash: [u8; 32]) -> Option<[u8; 32]> {
+            CertByDeviceKey::<T>::get(key_hash)
         }
 
         /// Was the cert valid at a specific historical block? True

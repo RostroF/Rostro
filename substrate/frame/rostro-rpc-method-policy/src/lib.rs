@@ -191,6 +191,7 @@ pub const V0_WELL_KNOWN_POLICIES: &[(&[u8], MethodPolicy)] = &[
 	(b"ZkPkiApi_entity_status", MethodPolicy::PublicGated),
 	(b"ZkPkiApi_ek_lookup", MethodPolicy::PublicGated),
 	(b"ZkPkiApi_chain_valid_at", MethodPolicy::PublicGated),
+	(b"ZkPkiApi_cert_by_device_key", MethodPolicy::PublicGated),
 ];
 
 /// Runtime API exposed for the `rostro-rpc-shield` middleware to query
