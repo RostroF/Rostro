@@ -42,7 +42,6 @@
 
 set -euo pipefail
 
-export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
 LOG_FILTER="${LOG_FILTER:-info}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -52,7 +51,7 @@ SUPERVISOR_BIN="${ROSTRO_SUPERVISOR:-${REPO_ROOT}/target/release/rostro-supervis
 for bin in "$NODE_BIN" "$SUPERVISOR_BIN"; do
 	if [[ ! -x "$bin" ]]; then
 		echo "binary not found at $bin" >&2
-		echo "  build first:  SUBSTRATE_ENABLE_POLKAVM=1 SUBSTRATE_RUNTIME_TARGET=riscv \\" >&2
+		echo "  build first:  \\" >&2
 		echo "                  cargo build --release -p gemini-node -p rostro-supervisor" >&2
 		exit 1
 	fi

@@ -10,11 +10,12 @@ ORACLE="${ORACLE:-$FIXTURES/canonical-hashes.txt}"
 ORACLE_DEEP="$FIXTURES/canonical-hashes-deep.txt"
 
 WORKTREE="$(cd "$ROOT/../.." && pwd)"
-# Use the live lab's canonical-cache binary as the test subject.
-# Same binary the running validators use — both DB backends compiled in,
-# wasmtime-backend feature enabled (the worktree's fresh build is not, by
-# Rostro default — see substrate/client/executor/Cargo.toml). Override via
-# GEMINI_NODE=... if you want to test a different binary.
+# Use the live lab's canonical-cache binary as the test subject: the same
+# binary the running validators use, and the one the star genesis hash
+# below is derived from. (Historical note: this comment used to claim the
+# cache binary had rocksdb + wasmtime-backend compiled in; verified false
+# on 2026-07-12 — it is a standard post-Phase-H ParityDB-only build.)
+# Override via GEMINI_NODE=... if you want to test a different binary.
 GEMINI_NODE="${GEMINI_NODE:-/home/coder/Rostro/.star/alice/canonical-cache/gemini-node}"
 
 # The `star` chain-spec genesis depends on ROSTRO_CANONICAL_GEMINI_NODE_HASH

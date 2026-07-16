@@ -86,9 +86,16 @@ macro_rules! wasm_export_functions {
 		) { $( $fn_impl:tt )* }
 	) => {
 		#[no_mangle]
+		// wasm-cull W2: polkavm-linker only exports symbols carrying the
+		// polkavm export metadata; bare `#[no_mangle]` is internal-only
+		// there. Mirrors sp-api's `impl_runtime_apis!` entry points.
+		#[cfg_attr(
+			all(any(target_arch = "riscv32", target_arch = "riscv64"), substrate_runtime),
+			$crate::__private::polkavm_export(abi = $crate::__private::polkavm_abi)
+		)]
 		#[allow(unreachable_code)]
 		#[cfg(not(feature = "std"))]
-		pub fn $name(input_data: *mut u8, input_len: usize) -> u64 {
+		pub extern "C" fn $name(input_data: *mut u8, input_len: usize) -> u64 {
 			let input: &[u8] = if input_len == 0 {
 				&[0u8; 0]
 			} else {
@@ -114,9 +121,16 @@ macro_rules! wasm_export_functions {
 		) $( -> $ret_ty:ty )? { $( $fn_impl:tt )* }
 	) => {
 		#[no_mangle]
+		// wasm-cull W2: polkavm-linker only exports symbols carrying the
+		// polkavm export metadata; bare `#[no_mangle]` is internal-only
+		// there. Mirrors sp-api's `impl_runtime_apis!` entry points.
+		#[cfg_attr(
+			all(any(target_arch = "riscv32", target_arch = "riscv64"), substrate_runtime),
+			$crate::__private::polkavm_export(abi = $crate::__private::polkavm_abi)
+		)]
 		#[allow(unreachable_code)]
 		#[cfg(not(feature = "std"))]
-		pub fn $name(input_data: *mut u8, input_len: usize) -> u64 {
+		pub extern "C" fn $name(input_data: *mut u8, input_len: usize) -> u64 {
 			let input: &[u8] = if input_len == 0 {
 				&[0u8; 0]
 			} else {

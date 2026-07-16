@@ -27,10 +27,10 @@ use log::warn;
 use names::{Generator, Name};
 use rc_service::{
 	config::{
-		BasePath, Configuration, DatabaseSource, ExecutorConfiguration, IpNetwork, KeystoreConfig,
+		BasePath, Configuration, DatabaseSource, IpNetwork, KeystoreConfig,
 		NetworkConfiguration, NodeKeyConfig, OffchainWorkerConfig, PrometheusConfig, PruningMode,
 		Role, RpcBatchRequestConfig, RpcConfiguration, RpcMethods, TelemetryEndpoints,
-		TransactionPoolOptions, WasmExecutionMethod,
+		TransactionPoolOptions,
 	},
 	BlocksPruning, ChainSpec, TracingReceiver,
 };
@@ -296,21 +296,6 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		Ok(generate_node_name())
 	}
 
-	/// Get the WASM execution method.
-	///
-	/// By default this is retrieved from `ImportParams` if it is available. Otherwise its
-	/// `WasmExecutionMethod::default()`.
-	fn wasm_method(&self) -> Result<WasmExecutionMethod> {
-		Ok(self.import_params().map(|x| x.wasm_method()).unwrap_or_default())
-	}
-
-	/// Get the path where WASM overrides live.
-	///
-	/// By default this is `None`.
-	fn wasm_runtime_overrides(&self) -> Option<PathBuf> {
-		self.import_params().map(|x| x.wasm_runtime_overrides()).unwrap_or_default()
-	}
-
 	/// Get the RPC address.
 	fn rpc_addr(&self, _default_listen_port: u16) -> Result<Option<Vec<RpcEndpoint>>> {
 		Ok(None)
@@ -397,13 +382,6 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		Ok(chain_spec.telemetry_endpoints().clone())
 	}
 
-	/// Get the default value for heap pages
-	///
-	/// By default this is `None`.
-	fn default_heap_pages(&self) -> Result<Option<u64>> {
-		Ok(None)
-	}
-
 	/// Returns an offchain worker config wrapped in `Ok(_)`
 	///
 	/// By default offchain workers are disabled.
@@ -462,20 +440,6 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 			.unwrap_or_else(|| Ok(Default::default()))
 	}
 
-	/// Get maximum runtime instances
-	///
-	/// By default this is `None`.
-	fn max_runtime_instances(&self) -> Result<Option<usize>> {
-		Ok(Default::default())
-	}
-
-	/// Get maximum different runtimes in cache
-	///
-	/// By default this is `2`.
-	fn runtime_cache_size(&self) -> Result<u8> {
-		Ok(2)
-	}
-
 	/// Activate or not the automatic announcing of blocks after import
 	///
 	/// By default this is `false`.
@@ -505,11 +469,9 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		let database = self.database()?.unwrap_or(Database::ParityDb);
 		let node_key = self.node_key(&net_config_dir)?;
 		let role = self.role(is_dev)?;
-		let max_runtime_instances = self.max_runtime_instances()?.unwrap_or(8);
 		let is_validator = role.is_authority();
 		let keystore = self.keystore_config(&config_dir)?;
 		let telemetry_endpoints = self.telemetry_endpoints(&chain_spec)?;
-		let runtime_cache_size = self.runtime_cache_size()?;
 
 		let rpc_addrs: Option<Vec<rc_service::config::RpcEndpoint>> = self
 			.rpc_addr(DCV::rpc_listen_port())?
@@ -537,13 +499,6 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 			warm_up_trie_cache: self.warm_up_trie_cache()?,
 			state_pruning: self.state_pruning()?,
 			blocks_pruning: self.blocks_pruning()?,
-			executor: ExecutorConfiguration {
-				wasm_method: self.wasm_method()?,
-				default_heap_pages: self.default_heap_pages()?,
-				max_runtime_instances,
-				runtime_cache_size,
-			},
-			wasm_runtime_overrides: self.wasm_runtime_overrides(),
 			rpc: RpcConfiguration {
 				addr: rpc_addrs,
 				methods: self.rpc_methods()?,

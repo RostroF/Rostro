@@ -21,20 +21,11 @@
 #![warn(missing_docs)]
 #![deny(unused_crate_dependencies)]
 
+// wasm-cull W4: `runtime_blob` (wasm module parsing via wasm-instrument),
+// `wasm_runtime` (WasmModule/WasmInstance engine traits + heap-alloc
+// strategies) and `util` were deleted with the wasm executors — RostroVM
+// blobs are the only runtime format and `rostro-executor` owns their
+// loading. The error vocabulary the client stack shares is what remains.
+// The `ROSTRO_DISABLE_POLKAVM` escape hatch is gone with the dual
+// dispatch: there is no wasm path left to fall back to.
 pub mod error;
-pub mod runtime_blob;
-pub mod util;
-pub mod wasm_runtime;
-
-pub(crate) fn is_polkavm_enabled() -> bool {
-	// Rostro default flipped to PolkaVM-on (2026-05-24): the chain
-	// runs the RISC-V runtime via PolkaVM, so refusing PolkaVM blobs
-	// would refuse the genesis WASM_BINARY itself. Operators wanting
-	// strict WASM-only set ROSTRO_DISABLE_POLKAVM=1.
-	//
-	// Upstream substrate's `SUBSTRATE_ENABLE_POLKAVM=1` opt-in is
-	// gone — the env var becomes a no-op. Existing scripts that set
-	// it still work (they just don't do anything new); the opt-out
-	// is the only meaningful control here.
-	std::env::var_os("ROSTRO_DISABLE_POLKAVM").map_or(true, |value| value != "1")
-}

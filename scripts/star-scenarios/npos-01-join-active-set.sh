@@ -6,7 +6,7 @@
 # REQUIRES a gemini-node built with the lab-fast-lifecycle feature
 # (25-slot sassafras epochs = sessions; 6-session eras = 150 blocks):
 #
-#   SUBSTRATE_ENABLE_POLKAVM=1 SUBSTRATE_RUNTIME_TARGET=riscv cargo build \
+#   cargo build \
 #     --release -p gemini-node --features gemini-node/lab-fast-lifecycle
 #
 # and the rotation probe:

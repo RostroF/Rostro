@@ -19,7 +19,7 @@
 use crate::{
 	build_network_future, build_system_rpc_future,
 	client::{Client, ClientConfig},
-	config::{Configuration, ExecutorConfiguration, KeystoreConfig, Multiaddr, PrometheusConfig},
+	config::{Configuration, KeystoreConfig, Multiaddr, PrometheusConfig},
 	error::Error,
 	metrics::MetricsService,
 	start_rpc_servers, BuildGenesisBlock, GenesisBlockBuilder, RpcHandlers,
@@ -37,10 +37,7 @@ use rc_client_api::{
 };
 use rc_client_db::{Backend, BlocksPruning, DatabaseSettings, PruningMode};
 use rc_consensus::import_queue::{ImportQueue, ImportQueueService};
-use rc_executor::{
-	sp_wasm_interface::HostFunctions, HeapAllocStrategy, NativeExecutionDispatch, RuntimeVersionOf,
-	WasmExecutor, DEFAULT_HEAP_ALLOC_STRATEGY,
-};
+use rc_executor::RuntimeVersionOf;
 use rc_keystore::LocalKeystore;
 use rc_network::{
 	config::{FullNetworkConfiguration, ProtocolId, SyncMode},
@@ -272,7 +269,6 @@ where
 			ClientConfig {
 				offchain_worker_enabled: config.offchain_worker.enabled,
 				offchain_indexing_api: config.offchain_worker.indexing_enabled,
-				wasm_runtime_overrides: config.wasm_runtime_overrides.clone(),
 				no_genesis: config.no_genesis(),
 				wasm_runtime_substitutes,
 				enable_import_proof_recording,
@@ -362,30 +358,9 @@ fn warm_up_trie_cache<TBl: BlockT>(
 	Ok(())
 }
 
-/// Creates a [`NativeElseWasmExecutor`](rc_executor::NativeElseWasmExecutor) according to
-/// [`Configuration`].
-#[deprecated(note = "Please switch to `new_wasm_executor`. Will be removed at end of 2024.")]
-#[allow(deprecated)]
-pub fn new_native_or_wasm_executor<D: NativeExecutionDispatch>(
-	config: &Configuration,
-) -> rc_executor::NativeElseWasmExecutor<D> {
-	#[allow(deprecated)]
-	rc_executor::NativeElseWasmExecutor::new_with_wasm_executor(new_wasm_executor(&config.executor))
-}
-
-/// Creates a [`WasmExecutor`] according to [`ExecutorConfiguration`].
-pub fn new_wasm_executor<H: HostFunctions>(config: &ExecutorConfiguration) -> WasmExecutor<H> {
-	let strategy = config
-		.default_heap_pages
-		.map_or(DEFAULT_HEAP_ALLOC_STRATEGY, |p| HeapAllocStrategy::Static { extra_pages: p as _ });
-	WasmExecutor::<H>::builder()
-		.with_execution_method(config.wasm_method)
-		.with_onchain_heap_alloc_strategy(strategy)
-		.with_offchain_heap_alloc_strategy(strategy)
-		.with_max_runtime_instances(config.max_runtime_instances)
-		.with_runtime_cache_size(config.runtime_cache_size)
-		.build()
-}
+// wasm-cull W4: `new_wasm_executor` / `new_native_or_wasm_executor` deleted
+// with the wasm executors. Nodes construct `RostroCodeExecutor::new()`
+// directly (Phase Star B7/B8 type-swap).
 
 /// Create an instance of the default DB-backend.
 ///

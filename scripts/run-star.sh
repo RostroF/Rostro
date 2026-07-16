@@ -22,7 +22,6 @@
 set -euo pipefail
 
 # Required at runtime so polkavm-magic blobs are accepted.
-export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE_BIN="${GEMINI_NODE:-${REPO_ROOT}/target/release/gemini-node}"
@@ -31,7 +30,7 @@ SUPERVISOR_BIN="${ROSTRO_SUPERVISOR:-${REPO_ROOT}/target/release/rostro-supervis
 for bin in "$NODE_BIN" "$SUPERVISOR_BIN"; do
 	if [[ ! -x "$bin" ]]; then
 		echo "binary not found at $bin" >&2
-		echo "  build first:  SUBSTRATE_ENABLE_POLKAVM=1 cargo build --release -p gemini-node -p rostro-supervisor" >&2
+		echo "  build first:  cargo build --release -p gemini-node -p rostro-supervisor" >&2
 		exit 1
 	fi
 done

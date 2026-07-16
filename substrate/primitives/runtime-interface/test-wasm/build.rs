@@ -16,6 +16,11 @@
 // limitations under the License.
 
 fn main() {
+	// wasm-cull W2: this fixture is only useful as a PVM blob — force the
+	// riscv target regardless of what the workspace was invoked with, same
+	// as the rostro-executor storage-roundtrip fixture.
+	std::env::set_var("SUBSTRATE_RUNTIME_TARGET", "riscv");
+
 	#[cfg(feature = "std")]
 	{
 		substrate_wasm_builder::WasmBuilder::new()

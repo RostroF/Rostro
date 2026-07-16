@@ -1544,7 +1544,7 @@ mod tests {
 		);
 
 		let mut authority_set =
-			AuthoritySet::<(), u64>::genesis(vec![(AuthorityId::unchecked_from([1; 32]), 5)])
+			AuthoritySet::<(), u64>::genesis(vec![(AuthorityId::unchecked_from([1; 64]), 5)])
 				.unwrap();
 
 		let invalid_change_empty_authorities = PendingChange {

@@ -80,9 +80,6 @@ substrate-test-runtime-client = { workspace = true }
 
 [features]
 default = []
-# Phase H probe (2026-05-25): propagates the wasmtime backend opt-in to
-# rc-executor. Off by default in Rostro chain builds.
-wasmtime-backend = ["rc-executor/wasmtime-backend"]
 runtime-benchmarks = [
 	"rc-client-db/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",

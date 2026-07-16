@@ -219,12 +219,12 @@ cargo +nightly fmt
 ```
 
 Production builds use the standard cargo workflow. Runtime blobs are
-cross-compiled to RISC-V, not WebAssembly, via the
-`SUBSTRATE_RUNTIME_TARGET=riscv` environment variable:
+cross-compiled to RISC-V — the only runtime target; no environment
+variables required (`SUBSTRATE_RUNTIME_TARGET=wasm` is a hard error):
 
 ```sh
-SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p rostro-node
-SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p gemini-node
+cargo build --release -p rostro-node
+cargo build --release -p gemini-node
 ```
 
 This produces a runtime blob at
@@ -249,15 +249,14 @@ Two binaries today, both pointed at a RostroVM-executable runtime via
 | `rostro-node` | `rostro-runtime` | Aura + GRANDPA | single-node solochain iteration |
 | `gemini-node` | `gemini-runtime` | Sassafras + GRANDPA | multi-node peering testbeds |
 
-At runtime, Rostro accepts both WASM and PolkaVM runtime blobs by
-default — the RISC-V runtime is built via `SUBSTRATE_RUNTIME_TARGET=riscv`
-and loaded directly. Operators wanting strict WASM-only mode set
-`ROSTRO_DISABLE_POLKAVM=1` (rare; the chain expects PolkaVM blobs).
+At runtime, Rostro accepts PolkaVM-format (RVM) runtime blobs only —
+wasm executors and the wasm build target were removed
+(docs/WASM-SURFACE-AUDIT.md); a non-PVM `:code` blob is a hard error.
 
 ### Single-node solochain (`rostro-node`)
 
 ```sh
-SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p rostro-node
+cargo build --release -p rostro-node
 ./target/release/rostro-node \
   --dev --tmp --alice --rpc-port 9944
 ```
@@ -273,7 +272,7 @@ authorities and finalize each other's blocks. Driven by the
 self-contained script:
 
 ```sh
-SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p gemini-node
+cargo build --release -p gemini-node
 ./scripts/run-gemini.sh
 ```
 
@@ -289,7 +288,7 @@ as leaves all dialing Alice, all five running as Sassafras + GRANDPA
 authorities.
 
 ```sh
-SUBSTRATE_RUNTIME_TARGET=riscv cargo build --release -p gemini-node
+cargo build --release -p gemini-node
 ./scripts/run-star.sh
 ```
 
@@ -306,7 +305,7 @@ distribution + bucket-peer fallback + anti-entropy without
 involving validators.
 
 ```sh
-SUBSTRATE_RUNTIME_TARGET=riscv \
+\
   cargo build --release -p gemini-node -p rostro-supervisor -p rostro-chat-cli
 ./scripts/run-chat-trio.sh
 ```

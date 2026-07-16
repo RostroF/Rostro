@@ -25,14 +25,13 @@ SUPERVISOR_BIN="${ROSTRO_SUPERVISOR:-${REPO_ROOT}/target/release/rostro-supervis
 for bin in "$NODE_BIN" "$SUPERVISOR_BIN"; do
 	if [[ ! -x "$bin" ]]; then
 		echo "binary not found at $bin" >&2
-		echo "  build first:  SUBSTRATE_ENABLE_POLKAVM=1 cargo build --release -p gemini-node -p rostro-supervisor" >&2
+		echo "  build first:  cargo build --release -p gemini-node -p rostro-supervisor" >&2
 		exit 1
 	fi
 done
 
 GEMINI_NODE_HASH="$(python3 -c "import hashlib,sys;print(hashlib.blake2b(open(sys.argv[1],'rb').read(),digest_size=32).hexdigest())" "$NODE_BIN")"
 export ROSTRO_CANONICAL_GEMINI_NODE_HASH="$GEMINI_NODE_HASH"
-export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
 echo "canonical hash (seeded): 0x${GEMINI_NODE_HASH}"
 
 BOB_BASE="$REPO_ROOT/.star/bob"

@@ -16,18 +16,18 @@ set -euo pipefail
 
 # Phase Star B8: required at runtime to load the PVM runtime blob.
 # `RuntimeBlob::new` rejects PolkaVM-magic blobs unless this is set.
-export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Phase Star B8: switched from rostro-node to gemini-node. gemini-node is
-# the Sassafras-flavoured binary that loads `gemini-runtime` (compiled
-# to PVM via SUBSTRATE_RUNTIME_TARGET=riscv). rostro-node runs the
-# Aura-based rostro-runtime and has no `gemini-local` chain spec.
+# the Sassafras-flavoured binary that loads `gemini-runtime` (compiled to
+# a RISC-V/RVM blob — the only runtime target since wasm-cull W5).
+# rostro-node runs the Aura-based rostro-runtime and has no `gemini-local`
+# chain spec.
 NODE_BIN="${GEMINI_NODE:-${REPO_ROOT}/target/release/gemini-node}"
 
 if [[ ! -x "$NODE_BIN" ]]; then
 	echo "gemini-node binary not found at $NODE_BIN" >&2
-	echo "  build it first:  SUBSTRATE_ENABLE_POLKAVM=1 cargo build --release -p gemini-node" >&2
+	echo "  build it first:  cargo build --release -p gemini-node" >&2
 	exit 1
 fi
 

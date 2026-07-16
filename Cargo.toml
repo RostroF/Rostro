@@ -17,7 +17,6 @@ members = [
 	"substrate/bin/utils/rostro-chat-cli",
 	"substrate/bin/utils/subkey",
 	"substrate/bin/zkpki-tpm2-hip-probe",
-	"substrate/client/allocator",
 	"substrate/client/api",
 	"substrate/client/authority-discovery",
 	"substrate/client/basic-authorship",
@@ -45,8 +44,6 @@ members = [
 	# `RuntimeAllocator` contract violation the upstream impl had
 	# (no 8-byte header + 8-aligned ptr from sbrk → mid-buffer
 	# corruption during genesis state construction).
-	"substrate/client/executor/runtime-test",
-	"substrate/client/executor/wasmtime",
 	"substrate/client/informant",
 	"substrate/client/keystore",
 	"substrate/client/merkle-mountain-range",
@@ -67,7 +64,6 @@ members = [
 	"substrate/client/rpc-api",
 	"substrate/client/rpc-servers",
 	"substrate/client/rpc-spec-v2",
-	"substrate/client/runtime-utilities",
 	"substrate/client/service",
 	"substrate/client/service/test",
 	"substrate/client/state-db",
@@ -258,7 +254,6 @@ members = [
 	"substrate/primitives/runtime-interface/proc-macro",
 	"substrate/primitives/runtime-interface/test",
 	"substrate/primitives/runtime-interface/test-wasm",
-	"substrate/primitives/runtime-interface/test-wasm-deprecated",
 	"substrate/primitives/session",
 	"substrate/primitives/staking",
 	"substrate/primitives/state-machine",
@@ -769,7 +764,6 @@ pallet-utility = { path = "substrate/frame/utility", default-features = false }
 pallet-verify-signature = { path = "substrate/frame/verify-signature", default-features = false }
 pallet-vesting = { path = "substrate/frame/vesting", default-features = false }
 parity-db = { path = "substrate/external/parity-db" }
-parity-wasm = { version = "0.45.0" }
 parking_lot = { version = "0.12.1", default-features = false }
 partial_sort = { version = "0.2.0" }
 paste = { version = "1.0.15", default-features = false }
@@ -861,7 +855,6 @@ rustls = { version = "0.23.18", default-features = false, features = [
 rustversion = { version = "1.0.17" }
 rusty-fork = { version = "0.3.0", default-features = false }
 safe-mix = { version = "1.0", default-features = false }
-rc-allocator = { path = "substrate/client/allocator", default-features = false }
 rc-authority-discovery = { path = "substrate/client/authority-discovery", default-features = false }
 rc-basic-authorship = { path = "substrate/client/basic-authorship", default-features = false }
 rc-block-builder = { path = "substrate/client/block-builder", default-features = false }
@@ -882,7 +875,6 @@ rc-consensus-pow = { path = "substrate/client/consensus/pow", default-features =
 rc-consensus-slots = { path = "substrate/client/consensus/slots", default-features = false }
 rc-executor = { path = "substrate/client/executor", default-features = false }
 rc-executor-common = { path = "substrate/client/executor/common", default-features = false }
-rc-executor-wasmtime = { path = "substrate/client/executor/wasmtime", default-features = false }
 rc-informant = { path = "substrate/client/informant", default-features = false }
 rc-keystore = { path = "substrate/client/keystore", default-features = false }
 rc-mixnet = { path = "substrate/client/mixnet", default-features = false }
@@ -901,8 +893,6 @@ rc-rpc = { path = "substrate/client/rpc", default-features = false }
 rc-rpc-api = { path = "substrate/client/rpc-api", default-features = false }
 rc-rpc-server = { path = "substrate/client/rpc-servers", default-features = false }
 rc-rpc-spec-v2 = { path = "substrate/client/rpc-spec-v2", default-features = false }
-rc-runtime-test = { path = "substrate/client/executor/runtime-test" }
-rc-runtime-utilities = { path = "substrate/client/runtime-utilities", default-features = true }
 rc-service = { path = "substrate/client/service", default-features = false }
 rc-service-test = { path = "substrate/client/service/test" }
 rc-state-db = { path = "substrate/client/state-db", default-features = false }
@@ -988,7 +978,6 @@ sp-runtime = { path = "substrate/primitives/runtime", default-features = false }
 sp-runtime-interface = { path = "substrate/primitives/runtime-interface", default-features = false }
 sp-runtime-interface-proc-macro = { path = "substrate/primitives/runtime-interface/proc-macro", default-features = false }
 sp-runtime-interface-test-wasm = { path = "substrate/primitives/runtime-interface/test-wasm" }
-sp-runtime-interface-test-wasm-deprecated = { path = "substrate/primitives/runtime-interface/test-wasm-deprecated" }
 sp-session = { path = "substrate/primitives/session", default-features = false }
 sp-staking = { path = "substrate/primitives/staking", default-features = false }
 sp-state-machine = { path = "substrate/primitives/state-machine", default-features = false }
@@ -1073,12 +1062,7 @@ void = { version = "1.0.2" }
 w3f-bls = { version = "0.1.9", default-features = false }
 wait-timeout = { version = "0.2" }
 walkdir = { version = "2.5.0" }
-wasm-instrument = { version = "0.4", default-features = false }
-wasm-opt = { version = "0.116" }
-wasm-timer = { version = "0.2.5" }
-wasmi = { version = "0.32.3", default-features = false }
 wasmtime = { version = "36.0.7", default-features = false }
-wat = { version = "1.0.0" }
 x25519-dalek = { version = "2.0" }
 x509-cert = { version = "0.2", default-features = false }
 zeroize = { version = "1.7.0", default-features = false }
@@ -1144,7 +1128,6 @@ sha3 = { opt-level = 3 }
 smallvec = { opt-level = 3 }
 substrate-bip39 = { opt-level = 3 }
 twox-hash = { opt-level = 3 }
-wasmi = { opt-level = 3 }
 x25519-dalek = { opt-level = 3 }
 zeroize = { opt-level = 3 }
 

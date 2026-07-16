@@ -17,23 +17,8 @@
 
 use crate::CheckMetadataHash;
 use codec::{Decode, Encode};
-use frame_metadata::RuntimeMetadataPrefixed;
-use frame_support::{
-	derive_impl,
-	pallet_prelude::{InvalidTransaction, TransactionValidityError},
-};
-use merkleized_metadata::{generate_metadata_digest, ExtraInfo};
-use sp_api::{Metadata, ProvideRuntimeApi};
-use sp_runtime::{
-	traits::{ExtrinsicLike, TransactionExtension},
-	transaction_validity::{TransactionSource, UnknownTransaction},
-};
-use sp_transaction_pool::runtime_api::TaggedTransactionQueue;
-use substrate_test_runtime_client::{
-	prelude::*,
-	runtime::{self, ExtrinsicBuilder},
-	DefaultTestClientBuilderExt, TestClientBuilder,
-};
+use frame_support::derive_impl;
+use sp_runtime::{traits::TransactionExtension, transaction_validity::UnknownTransaction};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -59,66 +44,11 @@ fn rejects_unknown_mode() {
 	assert!(CheckMetadataHash::<Test>::decode(&mut &50u8.encode()[..]).is_err());
 }
 
-/// Generate the metadata hash for the `test-runtime`.
-fn generate_metadata_hash(metadata: RuntimeMetadataPrefixed) -> [u8; 32] {
-	let runtime_version = runtime::VERSION;
-	let base58_prefix = 0;
-
-	let extra_info = ExtraInfo {
-		spec_version: runtime_version.spec_version,
-		spec_name: runtime_version.spec_name.into(),
-		base58_prefix,
-		decimals: 10,
-		token_symbol: "TOKEN".into(),
-	};
-
-	generate_metadata_digest(&metadata.1, extra_info).unwrap().hash()
-}
-
-#[test]
-fn ensure_check_metadata_works_on_real_extrinsics() {
-	sp_tracing::try_init_simple();
-
-	let client = TestClientBuilder::new().build();
-	let runtime_api = client.runtime_api();
-	let best_hash = client.chain_info().best_hash;
-
-	let metadata = RuntimeMetadataPrefixed::decode(
-		&mut &runtime_api.metadata_at_version(best_hash, 15).unwrap().unwrap()[..],
-	)
-	.unwrap();
-
-	let valid_transaction = ExtrinsicBuilder::new_include_data(vec![1, 2, 3])
-		.metadata_hash(generate_metadata_hash(metadata))
-		.build();
-	// Ensure that the transaction is signed.
-	assert!(!valid_transaction.is_bare());
-
-	runtime_api
-		.validate_transaction(best_hash, TransactionSource::External, valid_transaction, best_hash)
-		.unwrap()
-		.unwrap();
-
-	// Including some random metadata hash should make the transaction invalid.
-	let invalid_transaction = ExtrinsicBuilder::new_include_data(vec![1, 2, 3])
-		.metadata_hash([10u8; 32])
-		.build();
-	// Ensure that the transaction is signed.
-	assert!(!invalid_transaction.is_bare());
-
-	assert_eq!(
-		TransactionValidityError::from(InvalidTransaction::BadProof),
-		runtime_api
-			.validate_transaction(
-				best_hash,
-				TransactionSource::External,
-				invalid_transaction,
-				best_hash
-			)
-			.unwrap()
-			.unwrap_err()
-	);
-}
+// wasm-cull W2 (per D1): `ensure_check_metadata_works_on_real_extrinsics` and
+// its hash helper are culled. They exercised ENABLED-mode CheckMetadataHash
+// against a hash baked in by wasm-builder's metadata-hash step, which executed
+// the runtime blob through the removed WasmExecutor. Rostro ships disabled
+// mode only (the tests above cover it); see docs/WASM-SURFACE-AUDIT.md.
 
 #[allow(unused)]
 mod docs {
@@ -168,14 +98,5 @@ mod docs {
 		type PalletInfo = add_metadata_hash_extension::PalletInfo;
 	}
 
-	#[docify::export]
-	fn enable_metadata_hash_in_wasm_builder() {
-		substrate_wasm_builder::WasmBuilder::init_with_defaults()
-			// Requires the `metadata-hash` feature to be activated.
-			// You need to pass the main token symbol and its number of decimals.
-			.enable_metadata_hash("TOKEN", 12)
-			// The runtime will be build twice and the second time the `RUNTIME_METADATA_HASH`
-			// environment variable will be set for the `CheckMetadataHash` extension.
-			.build()
-	}
+
 }

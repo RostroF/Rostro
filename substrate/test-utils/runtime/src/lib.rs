@@ -96,6 +96,13 @@ pub mod wasm_binary_logging_disabled {
 	include!(concat!(env!("OUT_DIR"), "/wasm_binary_logging_disabled.rs"));
 }
 
+/// The runtime blob built with `increment-spec-version` (`spec_version: 3`),
+/// for runtime-upgrade tests. See the note on the second `VERSION` const.
+#[cfg(feature = "std")]
+pub mod wasm_binary_spec_version_incremented {
+	include!(concat!(env!("OUT_DIR"), "/wasm_binary_spec_version_incremented.rs"));
+}
+
 /// Wasm binary unwrapped. If built with `SKIP_WASM_BUILD`, the function panics.
 #[cfg(feature = "std")]
 pub fn wasm_binary_unwrap() -> &'static [u8] {
@@ -115,12 +122,36 @@ pub fn wasm_binary_logging_disabled_unwrap() -> &'static [u8] {
 }
 
 /// Test runtime version.
+#[cfg(not(feature = "increment-spec-version"))]
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: alloc::borrow::Cow::Borrowed("test"),
 	impl_name: alloc::borrow::Cow::Borrowed("parity-test"),
 	authoring_version: 1,
 	spec_version: 2,
+	impl_version: 2,
+	apis: RUNTIME_API_VERSIONS,
+	transaction_version: 1,
+	system_version: 1,
+};
+
+/// Test runtime version with a bumped `spec_version`.
+///
+/// wasm-cull W2: runtime-upgrade tests used to fake a version bump by
+/// rewriting the wasm blob's `runtime_version` section
+/// (`sp_version::embed`), which cannot work on a PVM blob — the version
+/// is read by executing `Core_version`. Instead build.rs produces a
+/// second blob with this feature enabled
+/// (`wasm_binary_spec_version_incremented`); the feature only ever
+/// exists inside that inner wbuild, so lib consumers always see
+/// `spec_version: 2`.
+#[cfg(feature = "increment-spec-version")]
+#[sp_version::runtime_version]
+pub const VERSION: RuntimeVersion = RuntimeVersion {
+	spec_name: alloc::borrow::Cow::Borrowed("test"),
+	impl_name: alloc::borrow::Cow::Borrowed("parity-test"),
+	authoring_version: 1,
+	spec_version: 3,
 	impl_version: 2,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -501,10 +532,17 @@ impl<AId> pallet_session::SessionHandler<AId> for NoopSessionHandler {
 }
 
 parameter_types! {
-	/// Session period in blocks. Arbitrary for the test runtime — `SessionManager = ()` means
-	/// the validator set never rotates, so this only feeds the informational
-	/// `EstimateNextSessionRotation` API.
-	pub const Period: BlockNumber = 100;
+	/// Session period in blocks. `SessionManager = ()` means the validator set
+	/// never rotates, so this only feeds the informational
+	/// `EstimateNextSessionRotation` API — but `PeriodicSessions` still fires
+	/// `should_end_session` every `Period` blocks, and
+	/// `pallet_session::on_initialize` reports `max_block` weight on those
+	/// blocks, which makes every rotation block reject all Normal extrinsics.
+	/// The original value of 100 silently broke every client test that builds
+	/// an extrinsic-carrying chain past block 100 (first bitten:
+	/// rc-network-sync's fork tests at block 2100). Keep this beyond any
+	/// realistic test chain length.
+	pub const Period: BlockNumber = 10_000_000;
 	pub const Offset: BlockNumber = 0;
 }
 
@@ -1236,10 +1274,7 @@ mod tests {
 	use codec::Encode;
 	use frame_support::dispatch::DispatchInfo;
 	use pretty_assertions::assert_eq;
-	use rc_block_builder::BlockBuilderBuilder;
-	use sp_api::{ApiExt, ProvideRuntimeApi};
-	use sp_consensus::BlockOrigin;
-	use sp_core::{storage::well_known_keys::HEAP_PAGES, traits::CallContext};
+	use sp_api::ProvideRuntimeApi;
 	use sp_runtime::{
 		traits::{DispatchTransaction, Hash as _},
 		transaction_validity::{InvalidTransaction, TransactionSource::External, ValidTransaction},
@@ -1256,42 +1291,11 @@ mod tests {
 		);
 	}
 
-	#[test]
-	fn heap_pages_is_respected() {
-		// This tests that the on-chain `HEAP_PAGES` parameter is respected.
-
-		// Create a client devoting only 8 pages of wasm memory. This gives us ~512k of heap memory.
-		let client = TestClientBuilder::new().set_heap_pages(8).build();
-		let best_hash = client.chain_info().best_hash;
-
-		// Try to allocate 1024k of memory on heap. This is going to fail since it is twice larger
-		// than the heap.
-		let mut runtime_api = client.runtime_api();
-		// This is currently required to allocate the 1024k of memory as configured above.
-		runtime_api.set_call_context(CallContext::Onchain);
-		let ret = runtime_api.vec_with_capacity(best_hash, 1048576);
-		assert!(ret.is_err());
-
-		// Create a block that sets the `:heap_pages` to 32 pages of memory which corresponds to
-		// ~2048k of heap memory.
-		let (new_at_hash, block) = {
-			let mut builder = BlockBuilderBuilder::new(&client)
-				.on_parent_block(best_hash)
-				.with_parent_block_number(0)
-				.build()
-				.unwrap();
-			builder.push_storage_change(HEAP_PAGES.to_vec(), Some(32u64.encode())).unwrap();
-			let block = builder.build().unwrap().block;
-			let hash = block.header.hash();
-			(hash, block)
-		};
-
-		futures::executor::block_on(client.import(BlockOrigin::Own, block)).unwrap();
-
-		// Allocation of 1024k while having ~2048k should succeed.
-		let ret = client.runtime_api().vec_with_capacity(new_at_hash, 1048576);
-		assert!(ret.is_ok());
-	}
+	// wasm-cull W1: `heap_pages_is_respected` deleted. It guarded the wasm
+	// allocator's on-chain `HEAP_PAGES` cap; RostroCodeExecutor has no heap-
+	// pages concept (guest memory is the RVM memory map), so the guarded
+	// behavior is no longer shipped. It failed on the RVM path precisely
+	// because the executor correctly ignores `:heappages`.
 
 	#[test]
 	fn test_storage() {
@@ -1439,29 +1443,35 @@ mod tests {
 		use super::*;
 		use crate::genesismap::GenesisStorageBuilder;
 		use pretty_assertions::assert_eq;
-		use rc_executor::{error::Result, WasmExecutor};
-		use rc_executor_common::runtime_blob::RuntimeBlob;
+		use rostro_executor::RostroCodeExecutor;
 		use serde_json::json;
 		use sp_application_crypto::Ss58Codec;
-		use sp_core::traits::Externalities;
+		use sp_core::traits::{
+			CallContext, CodeExecutor, Externalities, RuntimeCode, WrappedRuntimeCode,
+		};
 		use sp_genesis_builder::Result as BuildResult;
 		use sp_state_machine::BasicExternalities;
 		use std::{fs, io::Write};
 		use storage_key_generator::hex;
 
+		// wasm-cull W1: the runtime blob is PVM-only now; drive the
+		// GenesisBuilder API through RostroCodeExecutor, the executor the
+		// chain actually ships (was: WasmExecutor::uncached_call).
 		pub fn executor_call(
 			ext: &mut dyn Externalities,
 			method: &str,
 			data: &[u8],
-		) -> Result<Vec<u8>> {
-			let executor = WasmExecutor::<sp_io::SubstrateHostFunctions>::builder().build();
-			executor.uncached_call(
-				RuntimeBlob::uncompress_if_needed(wasm_binary_unwrap()).unwrap(),
-				ext,
-				true,
-				method,
-				data,
-			)
+		) -> Result<Vec<u8>, String> {
+			let executor = RostroCodeExecutor::<sp_io::SubstrateHostFunctions>::new()
+				.expect("RostroCodeExecutor init: polkavm engine setup must succeed");
+			let code = wasm_binary_unwrap();
+			let code_fetcher = WrappedRuntimeCode(code.into());
+			let runtime_code = RuntimeCode {
+				code_fetcher: &code_fetcher,
+				hash: sp_crypto_hashing::blake2_256(code).to_vec(),
+				heap_pages: None,
+			};
+			executor.call(ext, &runtime_code, method, data, CallContext::Offchain).0
 		}
 
 		#[test]

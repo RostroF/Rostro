@@ -41,7 +41,7 @@ use std::{
 	pin::Pin,
 	sync::Arc,
 };
-use substrate_test_runtime_client::{rc_executor::WasmExecutor, DefaultTestClientBuilderExt};
+use substrate_test_runtime_client::{DefaultTestClientBuilderExt, RostroCodeExecutor};
 
 const STATEMENT_DATA_SIZE: usize = 256;
 
@@ -191,18 +191,16 @@ fn build_handler(
 		dyn Fn(Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>>) + Send + Sync,
 	>,
 	num_threads: usize,
-	max_runtime_instances: usize,
 ) -> (StatementHandler<TestNetwork, TestSync>, PeerId, tempfile::TempDir) {
 	let temp_dir = tempfile::Builder::new().tempdir().expect("Error creating test dir");
 	let mut path: std::path::PathBuf = temp_dir.path().into();
 	path.push("db");
 
-	let wasm_executor = WasmExecutor::builder()
-		.with_max_runtime_instances(max_runtime_instances)
-		.build();
+	let rostro_executor = RostroCodeExecutor::new()
+		.expect("RostroCodeExecutor init: polkavm engine setup must succeed");
 	let (client, _) = substrate_test_runtime_client::TestClientBuilder::new()
-		.build_with_native_executor::<substrate_test_runtime_client::runtime::RuntimeApi, _>(
-		Some(wasm_executor),
+		.build_with_rostro_executor::<substrate_test_runtime_client::runtime::RuntimeApi, _>(
+		Some(rostro_executor),
 	);
 	let client = Arc::new(client);
 	let keystore = Arc::new(rc_keystore::LocalKeystore::in_memory());
@@ -304,7 +302,6 @@ fn bench_on_statements(c: &mut Criterion) {
 	let statement_counts = [100, 500, 1000, 2000];
 	let thread_counts = [1, 2, 4, 8];
 	let peer_counts = [1, 2, 4, 8, 16];
-	let max_runtime_instances = 8;
 	let executor_types = [("blocking", true), ("non_blocking", false)];
 
 	let keypair = sp_core::ed25519::Pair::from_string("//Bench", None).unwrap();
@@ -330,7 +327,7 @@ fn bench_on_statements(c: &mut Criterion) {
 
 					c.bench_function(&benchmark_name, |b| {
 						b.iter_batched(
-							|| build_handler(executor.clone(), num_threads, max_runtime_instances),
+							|| build_handler(executor.clone(), num_threads),
 							|(mut handler, peer_id, _temp_dir)| {
 								// The number of peers determines how many times we might receive a
 								// statement.

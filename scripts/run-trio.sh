@@ -37,7 +37,6 @@
 
 set -euo pipefail
 
-export SUBSTRATE_ENABLE_POLKAVM="${SUBSTRATE_ENABLE_POLKAVM:-1}"
 # Log filter for the gemini-node `-l` flag (Substrate uses `--log`,
 # not RUST_LOG). Default: INFO for everything. Override to debug a
 # specific target, e.g. `LOG_FILTER="info,rostro-validator-channel=debug"`.
@@ -50,9 +49,9 @@ SUPERVISOR_BIN="${ROSTRO_SUPERVISOR:-${REPO_ROOT}/target/release/rostro-supervis
 for bin in "$NODE_BIN" "$SUPERVISOR_BIN"; do
 	if [[ ! -x "$bin" ]]; then
 		echo "binary not found at $bin" >&2
-		echo "  build first:  SUBSTRATE_ENABLE_POLKAVM=1 SUBSTRATE_RUNTIME_TARGET=riscv \\" >&2
+		echo "  build first:  \\" >&2
 		echo "                  cargo build --release -p gemini-node -p rostro-supervisor" >&2
-		echo "  (the SUBSTRATE_RUNTIME_TARGET=riscv part embeds a PVM-compiled runtime blob;" >&2
+		echo "  (the part embeds a PVM-compiled runtime blob;" >&2
 		echo "   without it the executor errors with 'blob doesn't start with the expected magic bytes')" >&2
 		exit 1
 	fi

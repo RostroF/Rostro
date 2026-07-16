@@ -380,7 +380,7 @@ mod tests {
 		// When we can't decode proof from Vec<u8>
 		check_finality_proof::<Block>(
 			1,
-			vec![(UncheckedFrom::unchecked_from([3u8; 32]), 1u64)],
+			vec![(UncheckedFrom::unchecked_from([3u8; 64]), 1u64)],
 			vec![42],
 		)
 		.unwrap_err();
@@ -391,7 +391,7 @@ mod tests {
 		// When decoded proof has zero length
 		check_finality_proof::<Block>(
 			1,
-			vec![(UncheckedFrom::unchecked_from([3u8; 32]), 1u64)],
+			vec![(UncheckedFrom::unchecked_from([3u8; 64]), 1u64)],
 			Vec::<GrandpaJustification<Block>>::new().encode(),
 		)
 		.unwrap_err();
@@ -424,7 +424,7 @@ mod tests {
 
 		check_finality_proof::<Block>(
 			1,
-			vec![(UncheckedFrom::unchecked_from([3u8; 32]), 1u64)],
+			vec![(UncheckedFrom::unchecked_from([3u8; 64]), 1u64)],
 			finality_proof.encode(),
 		)
 		.unwrap_err();
@@ -437,8 +437,8 @@ mod tests {
 		auth: &[RostroHybridKeyring],
 	) -> finality_grandpa::Commit<H256, u64, S, Id>
 	where
-		Id: From<sp_core::ed25519::Public>,
-		S: From<sp_core::ed25519::Signature>,
+		Id: From<sp_core::rostro_hybrid::Public>,
+		S: From<sp_core::rostro_hybrid::Signature>,
 	{
 		let mut precommits = Vec::new();
 

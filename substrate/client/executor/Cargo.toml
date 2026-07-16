@@ -6,7 +6,7 @@ edition.workspace = true
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 homepage.workspace = true
 repository.workspace = true
-description = "A crate that provides means of executing/dispatching calls into the runtime."
+description = "Runtime-executor trait vocabulary for the client stack (RostroVM executes; see rostro-executor)."
 documentation = "https://docs.rs/rc-executor"
 readme = "README.md"
 
@@ -16,70 +16,23 @@ workspace = true
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
-[[bench]]
-name = "bench"
-harness = false
+# wasm-cull W4: the wasm execution engines (wasmtime backend, WasmExecutor,
+# NativeElseWasmExecutor, the `wasmtime-backend` feature) were deleted.
+# RostroCodeExecutor (`rostro-executor`) is the only runtime executor; this
+# crate keeps the executor-facing traits + error types the client stack is
+# written against.
 
 [dependencies]
-parking_lot = { workspace = true, default-features = true }
-schnellru = { workspace = true }
-tracing = { workspace = true, default-features = true }
-
 codec = { workspace = true, default-features = true }
 rc-executor-common = { default-features = true, workspace = true }
-# Phase H probe (2026-05-25): made optional so a Rostro build can drop
-# the wasmtime backend entirely (PolkaVM-only). Enabled by the
-# `wasmtime-backend` feature; left OFF by default in Rostro chain
-# builds so wasmtime's startup-time memfd_create + mprotect(PROT_EXEC)
-# don't trigger inside Cannae.
-rc-executor-wasmtime = { default-features = true, workspace = true, optional = true }
-sp-api = { default-features = true, workspace = true }
 sp-core = { default-features = true, workspace = true }
-sp-externalities = { default-features = true, workspace = true }
-sp-io = { default-features = true, workspace = true }
-sp-panic-handler = { default-features = true, workspace = true }
-sp-runtime-interface = { default-features = true, workspace = true }
-sp-trie = { default-features = true, workspace = true }
 sp-version = { default-features = true, workspace = true }
 sp-wasm-interface = { default-features = true, workspace = true }
 
-[dev-dependencies]
-array-bytes = { workspace = true, default-features = true }
-assert_matches = { workspace = true }
-criterion = { workspace = true, default-features = true }
-num_cpus = { workspace = true }
-paste = { workspace = true, default-features = true }
-rc-runtime-test = { workspace = true }
-rc-tracing = { default-features = true, workspace = true }
-sp-crypto-hashing = { default-features = true, workspace = true }
-sp-maybe-compressed-blob = { default-features = true, workspace = true }
-sp-runtime = { default-features = true, workspace = true }
-sp-state-machine = { default-features = true, workspace = true }
-sp-tracing = { default-features = true, workspace = true }
-substrate-test-runtime = { workspace = true }
-tempfile = { workspace = true }
-tracing-subscriber = { workspace = true }
-wat = { workspace = true }
-
 [features]
 default = ["std"]
-# This crate does not have `no_std` support, we just require this for tests
 std = [
-	"sp-api/std",
 	"sp-core/std",
-	"sp-externalities/std",
-	"sp-io/std",
-	"sp-runtime-interface/std",
-	"sp-trie/std",
 	"sp-version/std",
 	"sp-wasm-interface/std",
 ]
-# Phase H probe (2026-05-25): opt-in wasmtime compiled backend. When
-# off, `WasmExecutionMethod` has no usable variant; constructing a
-# `WasmExecutor` and asking it to instantiate fails fast. Rostro chain
-# builds leave this off — RostroCodeExecutor (PolkaVM interpreter) is
-# the only runtime executor in use, and wasmtime's startup-time
-# memfd_create + mprotect(PROT_EXEC) are dead code paths that fire
-# inside Cannae if linked in.
-wasmtime-backend = ["dep:rc-executor-wasmtime", "sp-wasm-interface/wasmtime"]
-wasm-extern-trace = []

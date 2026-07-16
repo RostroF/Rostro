@@ -1086,7 +1086,7 @@ mod tests {
 
 		let re = regex::Regex::new(concat!(
 			r"^Invalid JSON blob: unknown field `babex`, expected one of `system`, `babe`, ",
-			r"`substrateTest`, `balances` at line \d+ column \d+ for blob:$"
+			r"`session`, `substrateTest`, `balances` at line \d+ column \d+ for blob:$"
 		))
 		.unwrap();
 
@@ -1115,7 +1115,7 @@ mod tests {
 		}))
 		.build();
 
-		assert!(output.as_json(true).unwrap_err().contains("Invalid JSON blob: unknown field `invalid_pallet`, expected one of `system`, `babe`, `substrateTest`, `balances`"));
+		assert!(output.as_json(true).unwrap_err().contains("Invalid JSON blob: unknown field `invalid_pallet`, expected one of `system`, `babe`, `session`, `substrateTest`, `balances`"));
 	}
 
 	#[test]

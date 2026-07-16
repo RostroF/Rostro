@@ -29,7 +29,7 @@ use crate::{
 
 use parking_lot::Mutex;
 use prometheus_endpoint::Registry;
-use wasm_timer::Delay;
+use futures_timer::Delay;
 
 use rc_network_types::PeerId;
 

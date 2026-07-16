@@ -64,15 +64,14 @@ futures = { workspace = true }
 pretty_assertions = { workspace = true }
 rc-block-builder = { default-features = true, workspace = true }
 rc-chain-spec = { default-features = true, workspace = true }
-rc-executor = { default-features = true, workspace = true }
-rc-executor-common = { default-features = true, workspace = true }
+rostro-executor = { default-features = true, workspace = true }
 serde = { features = ["alloc", "derive"], workspace = true }
 sp-consensus = { default-features = true, workspace = true }
 sp-tracing = { default-features = true, workspace = true }
 substrate-test-runtime-client = { workspace = true }
 
 [build-dependencies]
-substrate-wasm-builder = { optional = true, features = ["metadata-hash"], workspace = true, default-features = true }
+substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
 
 [features]
 default = ["std"]
@@ -124,6 +123,10 @@ std = [
 
 # Special feature to disable logging
 disable-logging = ["sp-api/disable-logging"]
+# Only ever enabled by build.rs for the `wasm_binary_spec_version_incremented`
+# inner wbuild; never enable on the lib (feature unification would bump every
+# consumer's VERSION).
+increment-spec-version = []
 
 # This feature adds BLS crypto primitives.
 # It should not be used in production since the implementation and interface may still

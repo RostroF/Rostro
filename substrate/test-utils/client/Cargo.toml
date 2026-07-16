@@ -25,6 +25,7 @@ rc-client-db = { features = ["test-helpers"], workspace = true, default-features
 rc-consensus = { default-features = true, workspace = true }
 rc-executor = { default-features = true, workspace = true }
 rc-service = { default-features = false, workspace = true }
+rostro-executor = { default-features = true, workspace = true }
 serde = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
 sp-blockchain = { default-features = true, workspace = true }
