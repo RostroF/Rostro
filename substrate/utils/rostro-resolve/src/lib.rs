@@ -70,13 +70,19 @@ pub struct ResolvedFacts<AccountId> {
 pub trait ChainView<AccountId> {
     type Error;
 
-    /// Steps 1–2: `cert_by_device_key(key_hash)` then
-    /// `cert_status(thumbprint)`. `Ok(None)` when the key has no index
-    /// entry or the record vanished between the two reads.
+    /// Steps 1–2: `certs_by_device_key(key_hash)` then `cert_status`
+    /// for each returned thumbprint. Returns the facts for every cert
+    /// bound to the key (a device legitimately backs more than one).
+    /// All members MUST be read at ONE finalized head — each carries
+    /// that head in its `provenance`, and the core judges each against
+    /// its own provenance block, so there is no head to drift. An empty
+    /// vec means the key has no index entry (or every indexed record
+    /// vanished between the two reads); the core maps that to
+    /// `UnknownKey`.
     fn resolve_device_key(
         &self,
         key_hash: [u8; 32],
-    ) -> Result<Option<ResolvedFacts<AccountId>>, Self::Error>;
+    ) -> Result<Vec<ResolvedFacts<AccountId>>, Self::Error>;
 
     /// Current finalized head `(block_number, block_hash)` — the "now"
     /// used by the expiry and staleness gates.
@@ -297,9 +303,83 @@ pub fn resolve<AccountId: PartialEq + Clone>(
     }
 }
 
-/// Full §4 pipeline over a chain view: locate (gate 1), fetch status
-/// (gate 2), then [`resolve`] (gates 3–6). The convenience entry point
-/// adapters call.
+/// Progress rank of a failure, in §4 gate order — higher means the
+/// cert cleared more gates before failing. Used to pick the single
+/// most-informative reason when no member of a device-key set passes:
+/// a policy mismatch (the verifier's own config) is more actionable
+/// than a suspended sibling.
+fn gate_rank(r: &InvalidReason) -> u8 {
+    match r {
+        InvalidReason::UnknownKey | InvalidReason::NoRecord => 0,
+        InvalidReason::CertInactive(_) | InvalidReason::Expired => 1,
+        InvalidReason::IssuerNotActive(_) | InvalidReason::RootNotActive(_) => 2,
+        InvalidReason::RootNotAccepted
+        | InvalidReason::AttestationTypeRejected(_)
+        | InvalidReason::ManufacturerUnverified
+        | InvalidReason::MissingEku(_) => 3,
+        InvalidReason::StaleFacts { .. } => 4,
+        InvalidReason::TierBelowPolicy { .. } => 5,
+    }
+}
+
+/// Does `cand` (a `Valid`) beat the current best? Higher tier wins;
+/// ties break toward the lower thumbprint so the choice is
+/// deterministic regardless of member order.
+fn valid_beats<AccountId>(cand: &Verdict<AccountId>, cur: Option<&Verdict<AccountId>>) -> bool {
+    let (ct, cth) = match cand {
+        Verdict::Valid { tier, thumbprint, .. } => (*tier, *thumbprint),
+        Verdict::Invalid(_) => return false,
+    };
+    match cur {
+        None => true,
+        Some(Verdict::Valid { tier, thumbprint, .. }) => {
+            ct > *tier || (ct == *tier && cth < *thumbprint)
+        }
+        Some(Verdict::Invalid(_)) => true,
+    }
+}
+
+/// Resolve a whole device-key set: run §4 gates 3–6 over every member
+/// and combine. Returns the highest-assurance `Valid` when any member
+/// passes; otherwise the single most-informative `Invalid` — the
+/// member that progressed furthest through the gates — or `UnknownKey`
+/// for an empty set. Each member is judged against the finalized head
+/// it was READ at (`provenance.block_number`), so head and facts are
+/// self-consistent by construction; there is no separate head fetch to
+/// drift. Pure over the fact set — the same members always yield the
+/// same verdict.
+pub fn resolve_set<AccountId: PartialEq + Clone>(
+    members: &[ResolvedFacts<AccountId>],
+    evidence: TierEvidence,
+    policy: &Policy<AccountId>,
+) -> Verdict<AccountId> {
+    let mut best_valid: Option<Verdict<AccountId>> = None;
+    let mut best_invalid: Option<InvalidReason> = None;
+    for m in members {
+        match resolve(&m.status, evidence, policy, m.provenance.block_number) {
+            v @ Verdict::Valid { .. } => {
+                if valid_beats(&v, best_valid.as_ref()) {
+                    best_valid = Some(v);
+                }
+            }
+            Verdict::Invalid(reason) => {
+                if best_invalid
+                    .as_ref()
+                    .map_or(true, |cur| gate_rank(&reason) > gate_rank(cur))
+                {
+                    best_invalid = Some(reason);
+                }
+            }
+        }
+    }
+    best_valid
+        .or_else(|| best_invalid.map(Verdict::Invalid))
+        .unwrap_or(Verdict::Invalid(InvalidReason::UnknownKey))
+}
+
+/// Full §4 pipeline over a chain view: locate the device-key set
+/// (gate 1), fetch each member's status (gate 2), then [`resolve_set`]
+/// (gates 3–6). The convenience entry point adapters call.
 pub fn resolve_key<AccountId, V>(
     view: &V,
     key_hash: [u8; 32],
@@ -310,11 +390,8 @@ where
     AccountId: PartialEq + Clone,
     V: ChainView<AccountId>,
 {
-    let (head, _hash) = view.finalized_head()?;
-    match view.resolve_device_key(key_hash)? {
-        None => Ok(Verdict::Invalid(InvalidReason::UnknownKey)),
-        Some(facts) => Ok(resolve(&facts.status, evidence, policy, head)),
-    }
+    let members = view.resolve_device_key(key_hash)?;
+    Ok(resolve_set(&members, evidence, policy))
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -453,11 +530,11 @@ mod tests {
     #[test]
     fn required_eku_must_be_present() {
         let mut p = accepting_policy();
-        p.required_ekus = vec![Eku::ProofOfPersonhood];
+        p.required_ekus = vec![Eku::CodeSigning];
         let v = resolve(&good_facts(), possession(), &p, HEAD);
         assert_eq!(
             v,
-            Verdict::Invalid(InvalidReason::MissingEku(Eku::ProofOfPersonhood))
+            Verdict::Invalid(InvalidReason::MissingEku(Eku::CodeSigning))
         );
     }
 
@@ -502,10 +579,22 @@ mod tests {
         assert_eq!(both.achieved_tier(), AssuranceTier::FreshDevice);
     }
 
-    // ── resolve_key over a mock chain view ─────────────────────────
+    // ── resolve_set / resolve_key over a device-key set ────────────
+
+    /// Wrap facts as a set member read at `HEAD`.
+    fn member(status: CertStatusResponse<AccountId>) -> ResolvedFacts<AccountId> {
+        ResolvedFacts {
+            status,
+            provenance: Provenance {
+                finalized_hash: [0x77; 32],
+                block_number: HEAD,
+                state_proof: None,
+            },
+        }
+    }
 
     struct MockView {
-        facts: Option<ResolvedFacts<AccountId>>,
+        members: Vec<ResolvedFacts<AccountId>>,
         head: u64,
     }
 
@@ -515,8 +604,8 @@ mod tests {
         fn resolve_device_key(
             &self,
             _key_hash: [u8; 32],
-        ) -> Result<Option<ResolvedFacts<AccountId>>, ()> {
-            Ok(self.facts.clone())
+        ) -> Result<Vec<ResolvedFacts<AccountId>>, ()> {
+            Ok(self.members.clone())
         }
 
         fn finalized_head(&self) -> Result<(u64, [u8; 32]), ()> {
@@ -525,30 +614,122 @@ mod tests {
     }
 
     #[test]
-    fn resolve_key_unknown_key_and_full_pipeline() {
-        let empty = MockView {
-            facts: None,
-            head: HEAD,
-        };
+    fn empty_set_is_unknown_key() {
+        let empty = MockView { members: vec![], head: HEAD };
         assert_eq!(
             resolve_key(&empty, [0u8; 32], possession(), &accepting_policy()),
             Ok(Verdict::Invalid(InvalidReason::UnknownKey)),
         );
+    }
 
-        let populated = MockView {
-            facts: Some(ResolvedFacts {
-                status: good_facts(),
-                provenance: Provenance {
-                    finalized_hash: [0x77; 32],
-                    block_number: HEAD,
-                    state_proof: None,
-                },
-            }),
+    #[test]
+    fn single_member_full_pipeline() {
+        let view = MockView {
+            members: vec![member(good_facts())],
             head: HEAD,
         };
         assert!(matches!(
-            resolve_key(&populated, [0u8; 32], possession(), &accepting_policy()),
+            resolve_key(&view, [0u8; 32], possession(), &accepting_policy()),
             Ok(Verdict::Valid { .. }),
         ));
+    }
+
+    #[test]
+    fn set_returns_a_valid_member_over_an_invalid_sibling() {
+        // One cert suspended, one good under the accepted root: the
+        // good one wins — a single-slot index could have hidden it.
+        let mut suspended = good_facts();
+        suspended.thumbprint = [0x01; 32];
+        suspended.status = OcspStatus::Revoked;
+        suspended.cert_state = CertState::Suspended;
+        let mut good = good_facts();
+        good.thumbprint = [0x02; 32];
+
+        let view = MockView {
+            members: vec![member(suspended), member(good)],
+            head: HEAD,
+        };
+        assert_eq!(
+            resolve_key(&view, [0u8; 32], possession(), &accepting_policy()),
+            Ok(Verdict::Valid {
+                thumbprint: [0x02; 32],
+                issuer: ISSUER,
+                root: ROOT,
+                tier: AssuranceTier::Possession,
+            }),
+        );
+    }
+
+    #[test]
+    fn set_selects_root_the_verifier_actually_trusts() {
+        // Two valid-on-chain certs under different roots; policy trusts
+        // only the second. Resolution must find it, not fail on the
+        // first — the whole point of the set model.
+        const OTHER_ROOT: AccountId = 99;
+        let mut under_other = good_facts();
+        under_other.thumbprint = [0x01; 32];
+        under_other.root = OTHER_ROOT;
+        let mut under_trusted = good_facts();
+        under_trusted.thumbprint = [0x02; 32];
+        under_trusted.root = ROOT;
+
+        let view = MockView {
+            members: vec![member(under_other), member(under_trusted)],
+            head: HEAD,
+        };
+        // Policy accepts only ROOT.
+        assert_eq!(
+            resolve_key(&view, [0u8; 32], possession(), &accepting_policy()),
+            Ok(Verdict::Valid {
+                thumbprint: [0x02; 32],
+                issuer: ISSUER,
+                root: ROOT,
+                tier: AssuranceTier::Possession,
+            }),
+        );
+    }
+
+    #[test]
+    fn all_invalid_set_reports_the_furthest_gate() {
+        // One suspended (gate 3), one good-but-wrong-root (gate 5).
+        // The policy-mismatch is the more actionable reason.
+        let mut suspended = good_facts();
+        suspended.thumbprint = [0x01; 32];
+        suspended.status = OcspStatus::Revoked;
+        suspended.cert_state = CertState::Suspended;
+        let mut wrong_root = good_facts();
+        wrong_root.thumbprint = [0x02; 32];
+        wrong_root.root = 99;
+
+        let view = MockView {
+            members: vec![member(suspended), member(wrong_root)],
+            head: HEAD,
+        };
+        assert_eq!(
+            resolve_key(&view, [0u8; 32], possession(), &accepting_policy()),
+            Ok(Verdict::Invalid(InvalidReason::RootNotAccepted)),
+        );
+    }
+
+    #[test]
+    fn set_prefers_higher_tier_then_lower_thumbprint() {
+        // Two valid members; tie broken deterministically by thumbprint.
+        let mut a = good_facts();
+        a.thumbprint = [0x05; 32];
+        let mut b = good_facts();
+        b.thumbprint = [0x03; 32];
+        let view = MockView {
+            members: vec![member(a), member(b)],
+            head: HEAD,
+        };
+        assert_eq!(
+            resolve_key(&view, [0u8; 32], possession(), &accepting_policy()),
+            Ok(Verdict::Valid {
+                thumbprint: [0x03; 32],
+                issuer: ISSUER,
+                root: ROOT,
+                tier: AssuranceTier::Possession,
+            }),
+        );
     }
 }

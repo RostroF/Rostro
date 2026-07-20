@@ -144,9 +144,8 @@ fn setup_up_to_offer() -> ([u8; 32], u64) {
     (nonce, offer.created_at)
 }
 
-fn mint_tpm_cert(ek_hash: [u8; 32]) -> [u8; 32] {
-    let (nonce, created_at) = setup_up_to_offer();
-    let payload = AttestationPayloadV3 {
+fn mint_payload(ek_hash: [u8; 32]) -> AttestationPayloadV3 {
+    AttestationPayloadV3 {
         cert_ec_chain: vec![vec![]],
         attest_ec_chain: vec![vec![]],
         hmac_binding_output: [0u8; 32],
@@ -157,7 +156,18 @@ fn mint_tpm_cert(ek_hash: [u8; 32]) -> [u8; 32] {
         }
         .encode(),
         integrity_signature: vec![],
-    };
+    }
+}
+
+/// The device-key index set for a lookup hash, as the runtime API
+/// surfaces it.
+fn certs_of(key_hash: [u8; 32]) -> Vec<[u8; 32]> {
+    zk_pki_pallet::Pallet::<Runtime>::query_certs_by_device_key(key_hash)
+}
+
+fn mint_tpm_cert(ek_hash: [u8; 32]) -> [u8; 32] {
+    let (nonce, created_at) = setup_up_to_offer();
+    let payload = mint_payload(ek_hash);
     assert_ok!(ZkPki::mint_cert(
         RuntimeOrigin::signed(account(USER_ACCOUNT)),
         nonce,
@@ -213,33 +223,69 @@ fn invalid_key_bytes_produce_no_lookup_hash() {
 // ──────────────────────────────────────────────────────────────────────
 
 #[test]
-fn mint_indexes_device_key() {
+fn mint_adds_to_device_key_set() {
     run(|| {
         let thumbprint = mint_tpm_cert([0x42u8; 32]);
+        assert_eq!(certs_of(user_key_hash()), vec![thumbprint]);
+    });
+}
+
+#[test]
+fn two_certs_can_share_a_device_key_set() {
+    run(|| {
+        let thumbprint = mint_tpm_cert([0x42u8; 32]);
+        // A device legitimately backs a second witnessed cert (e.g. a
+        // second issuer under a different root). Both must resolve — a
+        // single-slot index would hide one.
+        let second = [0x88u8; 32];
+        zk_pki_pallet::CertByDeviceKey::<Runtime>::mutate(user_key_hash(), |slot| {
+            slot.as_mut().unwrap().try_push(second).unwrap();
+        });
+        let set = certs_of(user_key_hash());
+        assert!(set.contains(&thumbprint) && set.contains(&second));
+        assert_eq!(set.len(), 2);
+    });
+}
+
+#[test]
+fn removing_one_member_keeps_the_others() {
+    run(|| {
+        let thumbprint = mint_tpm_cert([0x42u8; 32]);
+        // Add a sibling cert to the same device key's set, then
+        // invalidate the minted one. The sibling survives — no repoint,
+        // no clobber, no strand.
+        let sibling = [0x99u8; 32];
+        zk_pki_pallet::CertByDeviceKey::<Runtime>::mutate(user_key_hash(), |slot| {
+            slot.as_mut().unwrap().try_push(sibling).unwrap();
+        });
+        assert_ok!(ZkPki::invalidate_cert(
+            RuntimeOrigin::signed(account(ISSUER_ACCOUNT)),
+            thumbprint,
+        ));
         assert_eq!(
-            zk_pki_pallet::Pallet::<Runtime>::query_cert_by_device_key(user_key_hash()),
-            Some(thumbprint),
+            certs_of(user_key_hash()),
+            vec![sibling],
+            "removal drops only the one thumbprint from the set"
         );
     });
 }
 
 #[test]
-fn invalidate_clears_index() {
+fn invalidating_the_last_member_empties_the_set() {
     run(|| {
         let thumbprint = mint_tpm_cert([0x42u8; 32]);
         assert_ok!(ZkPki::invalidate_cert(
             RuntimeOrigin::signed(account(ISSUER_ACCOUNT)),
             thumbprint,
         ));
-        assert_eq!(
-            zk_pki_pallet::Pallet::<Runtime>::query_cert_by_device_key(user_key_hash()),
-            None,
-        );
+        // Set drained to empty → entry deleted → key is UnknownKey.
+        assert!(certs_of(user_key_hash()).is_empty());
+        assert!(!zk_pki_pallet::CertByDeviceKey::<Runtime>::contains_key(user_key_hash()));
     });
 }
 
 #[test]
-fn suspend_keeps_index() {
+fn suspend_keeps_membership() {
     run(|| {
         let thumbprint = mint_tpm_cert([0x42u8; 32]);
         assert_ok!(ZkPki::suspend_cert(
@@ -248,31 +294,38 @@ fn suspend_keeps_index() {
             None,
         ));
         // Suspended certs still resolve — the verifier learns the state
-        // from cert_status; the index only forgets purged records.
-        assert_eq!(
-            zk_pki_pallet::Pallet::<Runtime>::query_cert_by_device_key(user_key_hash()),
-            Some(thumbprint),
-        );
+        // from cert_status; the set only forgets removed records.
+        assert_eq!(certs_of(user_key_hash()), vec![thumbprint]);
     });
 }
 
 #[test]
-fn guarded_remove_preserves_repointed_entry() {
+fn mint_rejects_when_device_key_set_full() {
+    use frame_support::{assert_noop, traits::ConstU32};
     run(|| {
-        let thumbprint = mint_tpm_cert([0x42u8; 32]);
-        // Simulate a reissue having repointed the key's entry at a
-        // successor cert. Purging the superseded cert must not clobber
-        // the live mapping.
-        let successor = [0x99u8; 32];
-        zk_pki_pallet::CertByDeviceKey::<Runtime>::insert(user_key_hash(), successor);
-        assert_ok!(ZkPki::invalidate_cert(
-            RuntimeOrigin::signed(account(ISSUER_ACCOUNT)),
-            thumbprint,
-        ));
-        assert_eq!(
-            zk_pki_pallet::Pallet::<Runtime>::query_cert_by_device_key(user_key_hash()),
-            Some(successor),
-            "guarded remove must only clear an entry that still points at the removed cert"
+        // Pre-fill this device key's set to the bound. The next mint
+        // bound to the same key must fail (reject-on-full) and roll back.
+        let full: BoundedVec<[u8; 32], ConstU32<{ zk_pki_pallet::MAX_CERTS_PER_KEY }>> =
+            BoundedVec::try_from((0u8..zk_pki_pallet::MAX_CERTS_PER_KEY as u8)
+                .map(|i| [i; 32])
+                .collect::<Vec<_>>())
+            .unwrap();
+        zk_pki_pallet::CertByDeviceKey::<Runtime>::insert(user_key_hash(), full);
+
+        let (nonce, created_at) = setup_up_to_offer();
+        let payload = mint_payload([0x42u8; 32]);
+        assert_noop!(
+            ZkPki::mint_cert(
+                RuntimeOrigin::signed(account(USER_ACCOUNT)),
+                nonce,
+                payload,
+                created_at,
+                None,
+                None,
+                None,
+                None,
+            ),
+            zk_pki_pallet::Error::<Runtime>::DeviceKeyCertSetFull,
         );
     });
 }
@@ -282,7 +335,7 @@ fn guarded_remove_preserves_repointed_entry() {
 // ──────────────────────────────────────────────────────────────────────
 
 #[test]
-fn migration_backfills_index_from_cold_records() {
+fn migration_backfills_set_from_cold_records() {
     use frame_support::traits::{GetStorageVersion, Hooks, StorageVersion};
 
     run(|| {
@@ -293,10 +346,7 @@ fn migration_backfills_index_from_cold_records() {
 
         zk_pki_pallet::Pallet::<Runtime>::on_runtime_upgrade();
 
-        assert_eq!(
-            zk_pki_pallet::Pallet::<Runtime>::query_cert_by_device_key(user_key_hash()),
-            Some(thumbprint),
-        );
+        assert_eq!(certs_of(user_key_hash()), vec![thumbprint]);
         assert_eq!(
             zk_pki_pallet::Pallet::<Runtime>::on_chain_storage_version(),
             StorageVersion::new(1),
@@ -315,11 +365,13 @@ fn migration_is_idempotent_at_current_version() {
         // writes it. An upgrade at the current version must not touch
         // the index.
         StorageVersion::new(1).put::<zk_pki_pallet::Pallet<Runtime>>();
-        zk_pki_pallet::CertByDeviceKey::<Runtime>::insert(user_key_hash(), [0x77u8; 32]);
+        let sentinel: BoundedVec<[u8; 32], frame_support::traits::ConstU32<{ zk_pki_pallet::MAX_CERTS_PER_KEY }>> =
+            BoundedVec::try_from(vec![[0x77u8; 32]]).unwrap();
+        zk_pki_pallet::CertByDeviceKey::<Runtime>::insert(user_key_hash(), sentinel);
         zk_pki_pallet::Pallet::<Runtime>::on_runtime_upgrade();
         assert_eq!(
-            zk_pki_pallet::Pallet::<Runtime>::query_cert_by_device_key(user_key_hash()),
-            Some([0x77u8; 32]),
+            certs_of(user_key_hash()),
+            vec![[0x77u8; 32]],
             "guarded no-op: version >= 1 must skip the backfill"
         );
         let _ = thumbprint;

@@ -286,8 +286,16 @@ sp_api::decl_runtime_apis! {
     /// - v1 — initial surface (cert/entity status, EK lookup,
     ///   historical validity, HIP genesis, chat-membership roots).
     /// - v2 — `cert_by_device_key`: device-key reverse resolution for
-    ///   external verifiers.
-    #[api_version(2)]
+    ///   external verifiers. Single-slot (`Option<[u8; 32]>`).
+    ///   Superseded by v3 before ever reaching a deployed consumer.
+    /// - v3 — `certs_by_device_key`: replaces v2's single-slot lookup
+    ///   with the *set* of thumbprints bound to a device key
+    ///   (`Vec<[u8; 32]>`). A device legitimately backs more than one
+    ///   witnessed cert; single-slot resolution could hide a valid cert
+    ///   from a verifier whose policy trusts a different root. External
+    ///   SDKs feature-detect with `api_version::<ZkPkiApi>() >= 3`,
+    ///   never `has_api` (exact-match returns false across any bump).
+    #[api_version(3)]
     pub trait ZkPkiApi<AccountId>
     where
         AccountId: Codec,
@@ -296,14 +304,17 @@ sp_api::decl_runtime_apis! {
         /// thumbprint has no lookup entry (never existed or purged).
         fn cert_status(thumbprint: [u8; 32]) -> Option<CertStatusResponse<AccountId>>;
 
-        /// Resolve a device public key to its current cert thumbprint.
-        /// `key_hash` is the canonical lookup hash — derive it with
-        /// [`crate::crypto::DevicePublicKey::lookup_hash`] (blake2_256
-        /// over the versioned domain, algorithm discriminant, and
-        /// compressed-SEC1/raw canonical key bytes). Returns the most
-        /// recent cert bound to that key regardless of state; chain
-        /// into `cert_status` for validity. Added in v2.
-        fn cert_by_device_key(key_hash: [u8; 32]) -> Option<[u8; 32]>;
+        /// Resolve a device public key to the *set* of cert thumbprints
+        /// bound to it. `key_hash` is the canonical lookup hash — derive
+        /// it with [`crate::crypto::DevicePublicKey::lookup_hash`]
+        /// (blake2_256 over the versioned domain, algorithm
+        /// discriminant, and compressed-SEC1/raw canonical key bytes).
+        /// Returns every thumbprint bound to that key regardless of
+        /// state (a device legitimately backs more than one witnessed
+        /// cert); the verifier evaluates each against its own policy —
+        /// chain into `cert_status`. Empty vec = key not witnessed.
+        /// Added in v3 (replaces v2's single-slot `cert_by_device_key`).
+        fn certs_by_device_key(key_hash: [u8; 32]) -> sp_std::vec::Vec<[u8; 32]>;
 
         /// Compact summaries of every cert `issuer` has issued that
         /// still has a lookup entry.

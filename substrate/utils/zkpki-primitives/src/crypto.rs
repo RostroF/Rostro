@@ -127,15 +127,16 @@ impl DevicePublicKey {
     ///
     /// EC keys canonicalize to **compressed SEC1** before hashing, so a key
     /// minted from uncompressed bytes and the same key extracted from an
-    /// X.509 SPKI in either form resolve to the same index entry. ML-DSA
-    /// raw public keys are already canonical. Verifier-side code MUST use
-    /// this function (or reimplement it byte-exactly) to derive lookup keys —
-    /// hashing the as-presented bytes silently misses compressed/uncompressed
-    /// aliases.
+    /// X.509 SPKI in either form resolve to the same index entry. Verifier-side
+    /// code MUST use this function (or reimplement it byte-exactly) to derive
+    /// lookup keys — hashing the as-presented bytes silently misses
+    /// compressed/uncompressed aliases.
     ///
-    /// Returns `None` when the key bytes fail to parse for the declared
-    /// algorithm (the pallet rejects such keys at the extrinsic boundary,
-    /// so stored records always hash successfully).
+    /// Returns `None` when the key bytes cannot be confirmed well-formed for
+    /// the declared algorithm — fail closed. This tracks [`Self::is_valid`]
+    /// arm-for-arm (both parse EC points; both reject ML-DSA until the parser
+    /// ships), so the extrinsic boundary and the index derivation never
+    /// disagree about which keys are indexable.
     pub fn lookup_hash(&self) -> Option<[u8; 32]> {
         let canonical: alloc::vec::Vec<u8> = match self.algorithm {
             KeyAlgorithm::EcdsaP256 => {
@@ -146,7 +147,12 @@ impl DevicePublicKey {
                 let vk = p521::ecdsa::VerifyingKey::from_sec1_bytes(&self.key_bytes).ok()?;
                 vk.to_encoded_point(true).as_bytes().to_vec()
             }
-            KeyAlgorithm::MlDsa65 | KeyAlgorithm::MlDsa87 => self.key_bytes.to_vec(),
+            // ML-DSA validation is stubbed (see `is_valid` / `verify_signature`):
+            // with no parser we cannot confirm these bytes are a well-formed key,
+            // so fail closed rather than hash unvalidated input. When ML-DSA lands
+            // the canonical form is the raw public-key bytes, and this arm returns
+            // `Some` in lockstep with `is_valid`.
+            KeyAlgorithm::MlDsa65 | KeyAlgorithm::MlDsa87 => return None,
         };
         let mut preimage = alloc::vec::Vec::with_capacity(
             DEVICE_KEY_LOOKUP_DOMAIN_V1.len() + 1 + canonical.len(),
