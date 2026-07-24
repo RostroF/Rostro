@@ -191,7 +191,7 @@ pub const V0_WELL_KNOWN_POLICIES: &[(&[u8], MethodPolicy)] = &[
 	(b"ZkPkiApi_entity_status", MethodPolicy::PublicGated),
 	(b"ZkPkiApi_ek_lookup", MethodPolicy::PublicGated),
 	(b"ZkPkiApi_chain_valid_at", MethodPolicy::PublicGated),
-	(b"ZkPkiApi_cert_by_device_key", MethodPolicy::PublicGated),
+	(b"ZkPkiApi_certs_by_device_key", MethodPolicy::PublicGated),
 ];
 
 /// Runtime API exposed for the `rostro-rpc-shield` middleware to query
@@ -219,6 +219,34 @@ pub mod pallet {
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
+
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		/// Re-assert the well-known policy set on every runtime upgrade.
+		/// The compiled [`V0_WELL_KNOWN_POLICIES`] list is authoritative
+		/// for the native shield's allowlist. Genesis seeds it, but a
+		/// method added to the list in a later runtime would otherwise
+		/// never reach an already-running chain's registry — and the
+		/// shield default-denies unregistered methods, so the new API
+		/// would be silently unreachable after `set_code` (the exact gap
+		/// that stranded `ZkPkiApi_cert_by_device_key` at spec 109).
+		/// Idempotent upsert keeps the registry in lockstep with the
+		/// binary — the mechanism `set_method_policy`'s doc promises,
+		/// applied to the whole set so no future addition is forgotten.
+		/// Cheap: O(list) writes, once per upgrade.
+		fn on_runtime_upgrade() -> Weight {
+			let mut writes = 0u64;
+			for (name, policy) in super::V0_WELL_KNOWN_POLICIES.iter() {
+				if let Ok(key) =
+					BoundedVec::<u8, ConstU32<MAX_METHOD_NAME_LEN>>::try_from(name.to_vec())
+				{
+					RpcMethodPolicy::<T>::insert(&key, policy);
+					writes = writes.saturating_add(1);
+				}
+			}
+			T::DbWeight::get().writes(writes)
+		}
+	}
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {

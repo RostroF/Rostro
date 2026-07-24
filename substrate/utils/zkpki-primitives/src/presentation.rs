@@ -31,6 +31,14 @@ pub const PRESENTATION_CALL_TOKEN_DOMAIN_V1: &[u8] = b"rostro/presentation/call-
 
 /// Reserved for the channel-bound profile if a profile-specific exporter
 /// binding is ever needed beyond what TLS 1.3 CertificateVerify provides.
-/// Unused today; declared so the name is burned.
-pub const PRESENTATION_CHANNEL_BINDING_DOMAIN_V1: &[u8] =
+/// Unused today; declared so the name is burned in the registry.
+///
+/// `#[doc(hidden)]` and deliberately NOT a `pub` signing constant: the
+/// preimage layout for a channel-binding token is undesigned, so nothing
+/// should be able to sign with `channel-binding/v1` and freeze its bytes
+/// to an accidental format. Promote to a documented `pub const` only when
+/// the profile's field layout is actually specified.
+#[doc(hidden)]
+#[allow(dead_code)]
+pub(crate) const _RESERVED_PRESENTATION_CHANNEL_BINDING_DOMAIN_V1: &[u8] =
     b"rostro/presentation/channel-binding/v1";

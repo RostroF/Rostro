@@ -14493,6 +14493,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rostro-resolve"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "zk-pki-primitives",
+]
+
+[[package]]
 name = "rostro-ring-rvm-bench"
 version = "0.1.0"
 dependencies = [

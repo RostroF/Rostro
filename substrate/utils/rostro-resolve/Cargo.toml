@@ -1,0 +1,22 @@
+# NOTE: deliberately no `license` field — resolution of hardware-secured
+# witnessed keypairs is patent-relevant; licensing instrument is a pending
+# user decision. Matches the zkpki crate family. Do not add
+# Apache-2.0/GPL fields here.
+[package]
+name = "rostro-resolve"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+description = "Identity-rails resolution core: deterministic validity + assurance-tier evaluation of witnessed keypairs against zkpki chain facts. I/O-free; implements docs/ZKPKI-RESOLUTION.md."
+
+[lints]
+workspace = true
+
+[dependencies]
+zk-pki-primitives = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+frame-support = { workspace = true, features = ["std"] }

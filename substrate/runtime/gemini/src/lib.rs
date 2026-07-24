@@ -245,7 +245,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gemini"),
 	impl_name: Cow::Borrowed("gemini-runtime"),
 	authoring_version: 1,
-	spec_version: 109,
+	spec_version: 110,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -1782,8 +1782,8 @@ impl_runtime_apis! {
 			zk_pki_pallet::Pallet::<Runtime>::query_ek_lookup(root, ek_hash)
 		}
 
-		fn cert_by_device_key(key_hash: [u8; 32]) -> Option<[u8; 32]> {
-			zk_pki_pallet::Pallet::<Runtime>::query_cert_by_device_key(key_hash)
+		fn certs_by_device_key(key_hash: [u8; 32]) -> sp_std::vec::Vec<[u8; 32]> {
+			zk_pki_pallet::Pallet::<Runtime>::query_certs_by_device_key(key_hash)
 		}
 
 		fn chain_valid_at(thumbprint: [u8; 32], block_number: u64) -> bool {
