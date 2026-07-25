@@ -485,3 +485,169 @@ fn verify_against_p256_keeps_pubkey_and_low_s_discipline() {
 		"low-s canonicalization must hold on the keyring path too"
 	);
 }
+
+// ── WebAuthn (secp256r1) — WebAuthnP256 variant (index 5) ──────────────────
+
+#[test]
+fn base64url_encode_known_vectors() {
+	// RFC 4648 §10 vectors — validate the bit-packing, all three remainder
+	// cases, and no padding. base64url == base64 for these inputs.
+	assert_eq!(base64url_encode(b"").as_slice(), b"".as_slice());
+	assert_eq!(base64url_encode(b"f").as_slice(), b"Zg".as_slice());
+	assert_eq!(base64url_encode(b"fo").as_slice(), b"Zm8".as_slice());
+	assert_eq!(base64url_encode(b"foo").as_slice(), b"Zm9v".as_slice());
+	assert_eq!(base64url_encode(b"foob").as_slice(), b"Zm9vYg".as_slice());
+	assert_eq!(base64url_encode(b"fooba").as_slice(), b"Zm9vYmE".as_slice());
+	assert_eq!(base64url_encode(b"foobar").as_slice(), b"Zm9vYmFy".as_slice());
+	// URL alphabet: indices 62/63 are '-'/'_' (not base64's '+'/'/').
+	assert_eq!(B64URL[62], b'-');
+	assert_eq!(B64URL[63], b'_');
+}
+
+/// A well-formed `clientDataJSON` binding `payload`
+/// (challenge = base64url(sha2_256(payload))).
+fn client_data_for(payload: &[u8]) -> Vec<u8> {
+	let challenge = base64url_encode(&sha2_256(payload));
+	let mut cdj = Vec::new();
+	cdj.extend_from_slice(br#"{"type":"webauthn.get","challenge":""#);
+	cdj.extend_from_slice(&challenge);
+	cdj.extend_from_slice(br#"","origin":"https://rostro.example"}"#);
+	cdj
+}
+
+/// Assemble a WebAuthn assertion from `sk` over `client_data_json`, with `flags`
+/// in a minimal 37-byte `authenticatorData`. Signs `authData ‖ sha256(clientDataJSON)`
+/// low-s — exactly what a passkey authenticator produces.
+fn webauthn_assertion(
+	sk: &p256::ecdsa::SigningKey,
+	pubkey: [u8; 33],
+	client_data_json: Vec<u8>,
+	flags: u8,
+) -> RostroSignature {
+	let mut authenticator_data = vec![0u8; 37];
+	authenticator_data[32] = flags;
+	let mut m = authenticator_data.clone();
+	m.extend_from_slice(&sha2_256(&client_data_json));
+	let sig = p256_sign(sk, &m);
+	RostroSignature::WebAuthnP256 {
+		pubkey,
+		authenticator_data: BoundedVec::try_from(authenticator_data).expect("<= 256 bytes"),
+		client_data_json: BoundedVec::try_from(client_data_json).expect("<= 1024 bytes"),
+		sig,
+	}
+}
+
+const UP_UV: u8 = 0x05; // User Present + User Verified
+
+#[test]
+fn webauthn_p256_verifies_both_paths() {
+	let (sk, pubkey) = p256_test_key();
+	let account = ecdsa_p256_to_account(&pubkey);
+	let signer = RostroSigner::EcdsaP256(pubkey);
+	for payload in [&b"register anthony.rst"[..], &b""[..], &b"transfer 1 ROS to bob"[..]] {
+		let rs = webauthn_assertion(&sk, pubkey, client_data_for(payload), UP_UV);
+		assert!(rs.verify(payload, &account), "valid WebAuthn assertion must verify (derived path)");
+		assert!(
+			rs.verify_against(payload, &signer),
+			"valid WebAuthn assertion must verify (keyring path)"
+		);
+	}
+}
+
+#[test]
+fn webauthn_p256_rejects_challenge_for_other_payload() {
+	// An assertion signed while approving payload A must not verify for payload
+	// B — the challenge binds the exact extrinsic (anti-replay across payloads).
+	let (sk, pubkey) = p256_test_key();
+	let account = ecdsa_p256_to_account(&pubkey);
+	let rs = webauthn_assertion(&sk, pubkey, client_data_for(b"payload A"), UP_UV);
+	assert!(!rs.verify(&b"payload B"[..], &account), "challenge must bind the exact payload");
+}
+
+#[test]
+fn webauthn_p256_requires_user_present_flag() {
+	let (sk, pubkey) = p256_test_key();
+	let account = ecdsa_p256_to_account(&pubkey);
+	let payload = b"register anthony.rst";
+	let rs = webauthn_assertion(&sk, pubkey, client_data_for(payload), 0x00);
+	assert!(!rs.verify(&payload[..], &account), "User-Present flag must be set");
+}
+
+#[test]
+fn webauthn_p256_rejects_wrong_type() {
+	let (sk, pubkey) = p256_test_key();
+	let account = ecdsa_p256_to_account(&pubkey);
+	let payload = b"register anthony.rst";
+	let challenge = base64url_encode(&sha2_256(payload));
+	let mut cdj = Vec::new();
+	cdj.extend_from_slice(br#"{"type":"webauthn.create","challenge":""#);
+	cdj.extend_from_slice(&challenge);
+	cdj.extend_from_slice(br#""}"#);
+	let rs = webauthn_assertion(&sk, pubkey, cdj, UP_UV);
+	assert!(!rs.verify(&payload[..], &account), "type must be webauthn.get");
+}
+
+#[test]
+fn webauthn_p256_rejects_backslash_in_client_data() {
+	// Any backslash could escape a decoy `"challenge"`; reject wholesale so the
+	// substring scan stays provably unambiguous.
+	let (sk, pubkey) = p256_test_key();
+	let account = ecdsa_p256_to_account(&pubkey);
+	let payload = b"register anthony.rst";
+	let challenge = base64url_encode(&sha2_256(payload));
+	let mut cdj = Vec::new();
+	cdj.extend_from_slice(br#"{"type":"webauthn.get","challenge":""#);
+	cdj.extend_from_slice(&challenge);
+	cdj.extend_from_slice(br#"","origin":"https:\/\/rostro.example"}"#);
+	let rs = webauthn_assertion(&sk, pubkey, cdj, UP_UV);
+	assert!(!rs.verify(&payload[..], &account), "any backslash must reject");
+}
+
+#[test]
+fn webauthn_p256_rejects_tampered_authenticator_data() {
+	let (sk, pubkey) = p256_test_key();
+	let account = ecdsa_p256_to_account(&pubkey);
+	let payload = b"register anthony.rst";
+	let mut rs = webauthn_assertion(&sk, pubkey, client_data_for(payload), UP_UV);
+	if let RostroSignature::WebAuthnP256 { authenticator_data, .. } = &mut rs {
+		// Flip a byte in the signed authenticatorData: envelope checks still pass
+		// (rpIdHash isn't enforced), but the signature no longer matches.
+		let mut bytes = authenticator_data.clone().into_inner();
+		bytes[0] ^= 0xff;
+		*authenticator_data = BoundedVec::try_from(bytes).unwrap();
+	}
+	assert!(!rs.verify(&payload[..], &account), "tampered authenticatorData must fail the signature");
+}
+
+#[test]
+fn webauthn_p256_rejects_short_authenticator_data() {
+	let (sk, pubkey) = p256_test_key();
+	let account = ecdsa_p256_to_account(&pubkey);
+	let payload = b"x";
+	let cdj = client_data_for(payload);
+	let authenticator_data = vec![0u8; 36]; // < 37
+	let mut m = authenticator_data.clone();
+	m.extend_from_slice(&sha2_256(&cdj));
+	let sig = p256_sign(&sk, &m);
+	let rs = RostroSignature::WebAuthnP256 {
+		pubkey,
+		authenticator_data: BoundedVec::try_from(authenticator_data).unwrap(),
+		client_data_json: BoundedVec::try_from(cdj).unwrap(),
+		sig,
+	};
+	assert!(!rs.verify(&payload[..], &account), "authenticatorData < 37 bytes must reject");
+}
+
+#[test]
+fn webauthn_p256_rejects_wrong_account_and_pubkey_swap() {
+	let (sk, pubkey) = p256_test_key();
+	let payload = b"register anthony.rst";
+	let rs = webauthn_assertion(&sk, pubkey, client_data_for(payload), UP_UV);
+	let attacker: AccountId32 = [0x99u8; 32].into();
+	assert!(!rs.verify(&payload[..], &attacker), "must reject when account != blake2_256(pubkey)");
+	let other = RostroSigner::EcdsaP256([0x02u8; 33]);
+	assert!(
+		!rs.verify_against(payload, &other),
+		"keyring path must reject when the enrolled key != the carried pubkey"
+	);
+}

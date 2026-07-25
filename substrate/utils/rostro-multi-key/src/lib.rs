@@ -295,8 +295,17 @@ impl Verify for RostroSignature {
 				let m = msg.get();
 				verify_p256(pubkey, sig, m, signer)
 			},
-			// B1.1: fail-closed until B1.2 lands the WebAuthn envelope verify.
-			RostroSignature::WebAuthnP256 { .. } => false,
+			RostroSignature::WebAuthnP256 { pubkey, authenticator_data, client_data_json, sig } =>
+				match webauthn_message(
+					authenticator_data.as_slice(),
+					client_data_json.as_slice(),
+					msg.get(),
+				) {
+					// verify_p256 binds pubkey→account, enforces low-s, and P-256
+					// verifies over sha2_256(signed) = the WebAuthn digest.
+					Some(signed) => verify_p256(pubkey, sig, &signed, signer),
+					None => false,
+				},
 		}
 	}
 }
@@ -334,6 +343,28 @@ impl RostroSignature {
 				let prehash = sha2_256(payload);
 				rostro_guest_crypto::verify::p256_verify_prehash(pubkey, sig, &prehash)
 			},
+			(
+				RostroSignature::WebAuthnP256 { pubkey, authenticator_data, client_data_json, sig },
+				RostroSigner::EcdsaP256(pk),
+			) => {
+				if pubkey != pk || !is_low_s_p256(&sig[32..64]) {
+					return false;
+				}
+				// Keyring path: enrolled-key match already done above; bind the
+				// WebAuthn envelope to `payload` and P-256 verify over its digest.
+				match webauthn_message(
+					authenticator_data.as_slice(),
+					client_data_json.as_slice(),
+					payload,
+				) {
+					Some(signed) => rostro_guest_crypto::verify::p256_verify_prehash(
+						pubkey,
+						sig,
+						&sha2_256(&signed),
+					),
+					None => false,
+				}
+			},
 			_ => false,
 		}
 	}
@@ -370,6 +401,86 @@ fn verify_p256(pubkey: &[u8; 33], sig: &[u8; 64], payload: &[u8], signer: &Accou
 	}
 	let prehash = sha2_256(payload);
 	rostro_guest_crypto::verify::p256_verify_prehash(pubkey, sig, &prehash)
+}
+
+// ── WebAuthn (variant 5) envelope verify ─────────────────────────────────────
+//
+// The passkey signs `authenticatorData ‖ sha2_256(clientDataJSON)`, and
+// clientDataJSON embeds our challenge = base64url(sha2_256(payload)). We validate
+// the envelope + challenge binding and hand the reconstructed message to the
+// shared P-256 verify. All parsing is a bounded byte-scan (no JSON lib) — this is
+// the one verify path that ingests hostile input, so it gets the smallest possible
+// parser (docs/PHASE-B-WEBAUTHN.md §2a, §4).
+
+/// base64url alphabet (RFC 4648 §5), no padding — the WebAuthn `challenge` form.
+const B64URL: &[u8; 64] =
+	b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/// User-Present flag bit in `authenticatorData` flags (WebAuthn §6.1).
+const AUTH_FLAG_UP: u8 = 0x01;
+
+/// base64url-encode `input` without padding. We only ever encode our own 32-byte
+/// hash (never decode attacker bytes), so this is the entire base64 surface.
+fn base64url_encode(input: &[u8]) -> Vec<u8> {
+	let mut out = Vec::with_capacity((input.len() + 2) / 3 * 4);
+	for chunk in input.chunks(3) {
+		let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+		let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+		let n = ((chunk[0] as u32) << 16) | (b1 << 8) | b2;
+		out.push(B64URL[((n >> 18) & 0x3f) as usize]);
+		out.push(B64URL[((n >> 12) & 0x3f) as usize]);
+		if chunk.len() > 1 {
+			out.push(B64URL[((n >> 6) & 0x3f) as usize]);
+		}
+		if chunk.len() > 2 {
+			out.push(B64URL[(n & 0x3f) as usize]);
+		}
+	}
+	out
+}
+
+/// True iff `needle` occurs as a contiguous subslice of `haystack`.
+fn contains_sub(haystack: &[u8], needle: &[u8]) -> bool {
+	needle.is_empty()
+		|| (needle.len() <= haystack.len() && haystack.windows(needle.len()).any(|w| w == needle))
+}
+
+/// Validate a WebAuthn assertion envelope and bind it to `payload`, returning the
+/// signed message `authenticatorData ‖ sha2_256(clientDataJSON)` for P-256 verify,
+/// or `None` if any check fails (docs/PHASE-B-WEBAUTHN.md §4 D1):
+///  - `clientDataJSON` contains no `\` — so every `"` is structural and the
+///    substring matches below cannot be fooled by an escaped decoy;
+///  - contains `"type":"webauthn.get"`;
+///  - contains `"challenge":"<base64url(sha2_256(payload))>"` — binds the exact
+///    extrinsic to the user's approval (anti-replay across payloads);
+///  - `authenticatorData` is ≥ 37 bytes with the User-Present flag set.
+/// rpId/origin are carried but not enforced on-chain in B1 (deferred, §4 D2).
+fn webauthn_message(
+	authenticator_data: &[u8],
+	client_data_json: &[u8],
+	payload: &[u8],
+) -> Option<Vec<u8>> {
+	if client_data_json.contains(&b'\\') {
+		return None;
+	}
+	if !contains_sub(client_data_json, br#""type":"webauthn.get""#) {
+		return None;
+	}
+	let challenge = base64url_encode(&sha2_256(payload));
+	let mut needle = Vec::with_capacity(challenge.len() + 14);
+	needle.extend_from_slice(br#""challenge":""#);
+	needle.extend_from_slice(&challenge);
+	needle.push(b'"');
+	if !contains_sub(client_data_json, &needle) {
+		return None;
+	}
+	if authenticator_data.len() < 37 || authenticator_data[32] & AUTH_FLAG_UP == 0 {
+		return None;
+	}
+	let mut m = Vec::with_capacity(authenticator_data.len() + 32);
+	m.extend_from_slice(authenticator_data);
+	m.extend_from_slice(&sha2_256(client_data_json));
+	Some(m)
 }
 
 /// P-256 group order `n` halved (floor), big-endian. A signature with
