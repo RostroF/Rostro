@@ -19,7 +19,6 @@ sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
-serde = { workspace = true, optional = true, features = ["derive"] }
 # k256 is used to decompress compressed secp256k1 pubkeys for the
 # Eth-style AccountId derivation. sp-core itself uses k256 for no_std
 # ecdsa recovery, so this is the same crate substrate already vendors.
@@ -48,6 +47,4 @@ std = [
 	"sp-io/std",
 	"sp-runtime/std",
 	"sp-std/std",
-	"serde",
-	"serde/std",
 ]

@@ -68,37 +68,17 @@ extern crate alloc;
 use alloc::vec::Vec;
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
-use sp_core::{crypto::AccountId32, ecdsa, ed25519, sr25519};
+use sp_core::{bounded::BoundedVec, crypto::AccountId32, ecdsa, ed25519, sr25519, ConstU32};
 use sp_io::{
 	crypto::{secp256k1_ecdsa_recover, secp256k1_ecdsa_recover_compressed},
 	hashing::{blake2_256, keccak_256, sha2_256},
 };
 use sp_runtime::traits::{IdentifyAccount, Lazy, Verify};
 
-/// serde `with` adapter for byte arrays longer than 32 (serde's blanket
-/// impls stop at 32). Serializes as the raw byte sequence; used for the
-/// P-256 compressed pubkey (33) and raw signature (64). std-only, matching
-/// the enum's `cfg_attr(std, derive(Serialize, Deserialize))`.
-#[cfg(feature = "std")]
-mod serde_bytes_array {
-	use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-	pub fn serialize<S: Serializer, const N: usize>(bytes: &[u8; N], s: S) -> Result<S::Ok, S::Error> {
-		bytes[..].serialize(s)
-	}
-
-	pub fn deserialize<'de, D: Deserializer<'de>, const N: usize>(d: D) -> Result<[u8; N], D::Error> {
-		let v = alloc::vec::Vec::<u8>::deserialize(d)?;
-		v.try_into()
-			.map_err(|v: alloc::vec::Vec<u8>| serde::de::Error::invalid_length(v.len(), &"N bytes"))
-	}
-}
-
 /// Multi-scheme signer enum. Variant order mirrors substrate's
 /// `MultiSigner` (`Ed25519`, `Sr25519`, `Ecdsa`); the `IdentifyAccount`
 /// impl differs only in the Ecdsa arm (Ethereum-style derivation).
 #[derive(Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum RostroSigner {
 	Ed25519(ed25519::Public),
 	Sr25519(sr25519::Public),
@@ -108,7 +88,7 @@ pub enum RostroSigner {
 	/// `WebAuthnP256`) — same curve, same device key, same account. Kept
 	/// as raw bytes: sp_core has no P-256 type, and the account is a hash
 	/// of these bytes regardless.
-	EcdsaP256(#[cfg_attr(feature = "std", serde(with = "serde_bytes_array"))] [u8; 33]),
+	EcdsaP256([u8; 33]),
 }
 
 impl From<sr25519::Public> for RostroSigner {
@@ -205,12 +185,19 @@ pub fn ecdsa_compressed_to_eth_h160(pk: &ecdsa::Public) -> Option<[u8; 20]> {
 	Some(out)
 }
 
+/// Max WebAuthn `authenticatorData` bytes accepted on-chain (variant 5):
+/// `rpIdHash(32) ‖ flags(1) ‖ signCount(4)` plus optional attested-cred-data /
+/// extensions. Bounds `MaxEncodedLen` and is enforced at decode. (Aptos's audit
+/// HIGH-1 was a 1024 cap defined-but-never-enforced; `BoundedVec` enforces ours.)
+pub const MAX_AUTHENTICATOR_DATA: u32 = 256;
+/// Max WebAuthn `clientDataJSON` bytes accepted on-chain (variant 5).
+pub const MAX_CLIENT_DATA_JSON: u32 = 1024;
+
 /// Multi-scheme signature enum. Variant order mirrors substrate's
 /// `MultiSignature` (`Ed25519`, `Sr25519`, `Ecdsa`) so the three native
 /// variants are byte-identical on the wire; `EcdsaEip191` is the one
-/// Rostro-specific addition.
+/// Rostro-specific addition, `EcdsaP256` (4) and `WebAuthnP256` (5) the P-256 pair.
 #[derive(Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum RostroSignature {
 	Ed25519(ed25519::Signature),
 	/// Sr25519 signature — bare 64-byte sig. The pubkey is the signer
@@ -242,10 +229,34 @@ pub enum RostroSignature {
 	/// `v`-normalization contract above.
 	EcdsaP256 {
 		/// Compressed SEC1 pubkey (`0x02/0x03 ‖ X`).
-		#[cfg_attr(feature = "std", serde(with = "serde_bytes_array"))]
 		pubkey: [u8; 33],
 		/// Raw ECDSA signature `r ‖ s`, low-s canonical.
-		#[cfg_attr(feature = "std", serde(with = "serde_bytes_array"))]
+		sig: [u8; 64],
+	},
+	/// NIST P-256 **WebAuthn** assertion (passkey) — variant index 5. Same P-256
+	/// device key and account as [`RostroSignature::EcdsaP256`]: it shares the
+	/// `RostroSigner::EcdsaP256` arm and the `blake2_256(pubkey)` address, so a
+	/// passkey needs no new signer variant and no new address scheme. Only the
+	/// *envelope* differs — the authenticator signs
+	/// `authenticator_data ‖ sha2_256(client_data_json)` (the WebAuthn assertion
+	/// format), and `client_data_json` embeds the challenge, which Rostro sets to
+	/// `sha2_256(payload)`. `verify` reconstructs that message, binds the embedded
+	/// challenge to the payload (see the verify impl + docs/PHASE-B-WEBAUTHN.md §4
+	/// D1), and P-256-verifies via the shared `verify_p256` path.
+	///
+	/// `sig` is raw `r ‖ s`, low-s canonical — the same non-malleability discipline
+	/// as `EcdsaP256`. `authenticator_data` / `client_data_json` are `BoundedVec`
+	/// so `MaxEncodedLen` stays finite and the envelope is capped **at decode**
+	/// (no unbounded extrinsic). SERDE-FREE (docs/PHASE-B-WEBAUTHN.md §2a): SCALE only.
+	WebAuthnP256 {
+		/// Compressed SEC1 pubkey (`0x02/0x03 ‖ X`).
+		pubkey: [u8; 33],
+		/// WebAuthn `authenticatorData`: `rpIdHash(32) ‖ flags(1) ‖ signCount(4)`
+		/// plus optional attested-cred-data / extensions.
+		authenticator_data: BoundedVec<u8, ConstU32<MAX_AUTHENTICATOR_DATA>>,
+		/// WebAuthn `clientDataJSON` (UTF-8): `{"type":"webauthn.get","challenge":…}`.
+		client_data_json: BoundedVec<u8, ConstU32<MAX_CLIENT_DATA_JSON>>,
+		/// Raw ECDSA signature `r ‖ s`, low-s canonical.
 		sig: [u8; 64],
 	},
 }
@@ -284,6 +295,16 @@ impl Verify for RostroSignature {
 				let m = msg.get();
 				verify_p256(pubkey, sig, m, signer)
 			},
+			// SUPPLEMENTAL-ONLY: a passkey (`WebAuthnP256`) has no EK/AIK hardware
+			// attestation, so it may never be a *sole* account root. The derived
+			// path is disabled here; a passkey is honored only via `verify_against`
+			// (keyring), enrolled beside an attested root (raw StrongBox `EcdsaP256`,
+			// which CAN root). This is the chain-enforced "you can't mint an address
+			// with a passkey" (docs/PHASE-B-WEBAUTHN.md §2b). A bare passkey-derived
+			// address can therefore never sign, so it can never even self-enroll —
+			// only an existing attested root can add a passkey. Transitional anyway:
+			// the whole P-256 signer sunsets at Q-day (PQ migration).
+			RostroSignature::WebAuthnP256 { .. } => false,
 		}
 	}
 }
@@ -321,6 +342,28 @@ impl RostroSignature {
 				let prehash = sha2_256(payload);
 				rostro_guest_crypto::verify::p256_verify_prehash(pubkey, sig, &prehash)
 			},
+			(
+				RostroSignature::WebAuthnP256 { pubkey, authenticator_data, client_data_json, sig },
+				RostroSigner::EcdsaP256(pk),
+			) => {
+				if pubkey != pk || !is_low_s_p256(&sig[32..64]) {
+					return false;
+				}
+				// Keyring path: enrolled-key match already done above; bind the
+				// WebAuthn envelope to `payload` and P-256 verify over its digest.
+				match webauthn_message(
+					authenticator_data.as_slice(),
+					client_data_json.as_slice(),
+					payload,
+				) {
+					Some(signed) => rostro_guest_crypto::verify::p256_verify_prehash(
+						pubkey,
+						sig,
+						&sha2_256(&signed),
+					),
+					None => false,
+				}
+			},
 			_ => false,
 		}
 	}
@@ -357,6 +400,86 @@ fn verify_p256(pubkey: &[u8; 33], sig: &[u8; 64], payload: &[u8], signer: &Accou
 	}
 	let prehash = sha2_256(payload);
 	rostro_guest_crypto::verify::p256_verify_prehash(pubkey, sig, &prehash)
+}
+
+// ── WebAuthn (variant 5) envelope verify ─────────────────────────────────────
+//
+// The passkey signs `authenticatorData ‖ sha2_256(clientDataJSON)`, and
+// clientDataJSON embeds our challenge = base64url(sha2_256(payload)). We validate
+// the envelope + challenge binding and hand the reconstructed message to the
+// shared P-256 verify. All parsing is a bounded byte-scan (no JSON lib) — this is
+// the one verify path that ingests hostile input, so it gets the smallest possible
+// parser (docs/PHASE-B-WEBAUTHN.md §2a, §4).
+
+/// base64url alphabet (RFC 4648 §5), no padding — the WebAuthn `challenge` form.
+const B64URL: &[u8; 64] =
+	b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/// User-Present flag bit in `authenticatorData` flags (WebAuthn §6.1).
+const AUTH_FLAG_UP: u8 = 0x01;
+
+/// base64url-encode `input` without padding. We only ever encode our own 32-byte
+/// hash (never decode attacker bytes), so this is the entire base64 surface.
+fn base64url_encode(input: &[u8]) -> Vec<u8> {
+	let mut out = Vec::with_capacity((input.len() + 2) / 3 * 4);
+	for chunk in input.chunks(3) {
+		let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+		let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+		let n = ((chunk[0] as u32) << 16) | (b1 << 8) | b2;
+		out.push(B64URL[((n >> 18) & 0x3f) as usize]);
+		out.push(B64URL[((n >> 12) & 0x3f) as usize]);
+		if chunk.len() > 1 {
+			out.push(B64URL[((n >> 6) & 0x3f) as usize]);
+		}
+		if chunk.len() > 2 {
+			out.push(B64URL[(n & 0x3f) as usize]);
+		}
+	}
+	out
+}
+
+/// True iff `needle` occurs as a contiguous subslice of `haystack`.
+fn contains_sub(haystack: &[u8], needle: &[u8]) -> bool {
+	needle.is_empty()
+		|| (needle.len() <= haystack.len() && haystack.windows(needle.len()).any(|w| w == needle))
+}
+
+/// Validate a WebAuthn assertion envelope and bind it to `payload`, returning the
+/// signed message `authenticatorData ‖ sha2_256(clientDataJSON)` for P-256 verify,
+/// or `None` if any check fails (docs/PHASE-B-WEBAUTHN.md §4 D1):
+///  - `clientDataJSON` contains no `\` — so every `"` is structural and the
+///    substring matches below cannot be fooled by an escaped decoy;
+///  - contains `"type":"webauthn.get"`;
+///  - contains `"challenge":"<base64url(sha2_256(payload))>"` — binds the exact
+///    extrinsic to the user's approval (anti-replay across payloads);
+///  - `authenticatorData` is ≥ 37 bytes with the User-Present flag set.
+/// rpId/origin are carried but not enforced on-chain in B1 (deferred, §4 D2).
+fn webauthn_message(
+	authenticator_data: &[u8],
+	client_data_json: &[u8],
+	payload: &[u8],
+) -> Option<Vec<u8>> {
+	if client_data_json.contains(&b'\\') {
+		return None;
+	}
+	if !contains_sub(client_data_json, br#""type":"webauthn.get""#) {
+		return None;
+	}
+	let challenge = base64url_encode(&sha2_256(payload));
+	let mut needle = Vec::with_capacity(challenge.len() + 14);
+	needle.extend_from_slice(br#""challenge":""#);
+	needle.extend_from_slice(&challenge);
+	needle.push(b'"');
+	if !contains_sub(client_data_json, &needle) {
+		return None;
+	}
+	if authenticator_data.len() < 37 || authenticator_data[32] & AUTH_FLAG_UP == 0 {
+		return None;
+	}
+	let mut m = Vec::with_capacity(authenticator_data.len() + 32);
+	m.extend_from_slice(authenticator_data);
+	m.extend_from_slice(&sha2_256(client_data_json));
+	Some(m)
 }
 
 /// P-256 group order `n` halved (floor), big-endian. A signature with
