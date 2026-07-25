@@ -106,7 +106,7 @@ Consequences baked into this scope:
 | B1.4 | authenticatorData flag checks | UP (user-present) bit required; UV surfaced; rpId per D2; signCount ignored (nonce covers replay) | ✅ (in B1.2 `webauthn_message`) |
 | B1.5 | Fixture test vectors | valid assertion (p256 dev-crate) → pass on both paths; tamper each field → fail; base64url KAT independent of verify | ✅ d018b8a9 (32 tests) |
 | B1.6 | Runtime wiring + RISC-V build | verify path admits variant 5 (runtime calls `verify`/`verify_against`, no match change); `enroll_key` unchanged; `cargo build --release -p gemini-node` (RISC-V) green | ✅ build green; **metadata regen → carries to B2** |
-| B1.7 | Solo-node encoding/verify proof | a WebAuthn-signed extrinsic accepted on a fresh solo node on the new binary | ⬜ (fold into B2 E2E — unit coverage makes standalone live proof largely redundant) |
+| B1.7 | Solo-node encoding/verify proof | a WebAuthn-signed extrinsic accepted on a fresh solo node on the new binary | ✅ PROVEN — fresh solo node (`:9955`, new binary, metadata exposes `WebAuthnP256`): valid assertion ACCEPTED (`ExtrinsicSuccess`, derived path), tampered assertion REJECTED (`BadProof`). Harness = dotwave `labtool webauthn-probe` (software P-256) |
 
 **Bounds (B1.1):** the WebAuthn envelope is larger than other variants
 (authData ~37B, clientDataJSON ~120-250B). Use `BoundedVec` so `MaxEncodedLen`
