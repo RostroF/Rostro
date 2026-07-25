@@ -68,7 +68,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
-use sp_core::{crypto::AccountId32, ecdsa, ed25519, sr25519};
+use sp_core::{bounded::BoundedVec, crypto::AccountId32, ecdsa, ed25519, sr25519, ConstU32};
 use sp_io::{
 	crypto::{secp256k1_ecdsa_recover, secp256k1_ecdsa_recover_compressed},
 	hashing::{blake2_256, keccak_256, sha2_256},
@@ -185,10 +185,18 @@ pub fn ecdsa_compressed_to_eth_h160(pk: &ecdsa::Public) -> Option<[u8; 20]> {
 	Some(out)
 }
 
+/// Max WebAuthn `authenticatorData` bytes accepted on-chain (variant 5):
+/// `rpIdHash(32) ‖ flags(1) ‖ signCount(4)` plus optional attested-cred-data /
+/// extensions. Bounds `MaxEncodedLen` and is enforced at decode. (Aptos's audit
+/// HIGH-1 was a 1024 cap defined-but-never-enforced; `BoundedVec` enforces ours.)
+pub const MAX_AUTHENTICATOR_DATA: u32 = 256;
+/// Max WebAuthn `clientDataJSON` bytes accepted on-chain (variant 5).
+pub const MAX_CLIENT_DATA_JSON: u32 = 1024;
+
 /// Multi-scheme signature enum. Variant order mirrors substrate's
 /// `MultiSignature` (`Ed25519`, `Sr25519`, `Ecdsa`) so the three native
 /// variants are byte-identical on the wire; `EcdsaEip191` is the one
-/// Rostro-specific addition.
+/// Rostro-specific addition, `EcdsaP256` (4) and `WebAuthnP256` (5) the P-256 pair.
 #[derive(Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Clone, Eq, PartialEq, Debug)]
 pub enum RostroSignature {
 	Ed25519(ed25519::Signature),
@@ -225,47 +233,32 @@ pub enum RostroSignature {
 		/// Raw ECDSA signature `r ‖ s`, low-s canonical.
 		sig: [u8; 64],
 	},
-	// ── RESERVED: WebAuthnP256 — index 5 (Phase B / webauthn-v0) ──────────────
-	//
-	// Passkey (WebAuthn assertion) envelope over the SAME P-256 device key, so it
-	// shares `RostroSigner::EcdsaP256` and the `ecdsa_p256_to_account` derivation —
-	// no new signer variant, no new address scheme. Append here as index 5; do NOT
-	// reorder existing variants (wire-stable discriminants).
-	//
-	// SERDE-FREE: rostro-multi-key drops `serde` crate-wide (B1.0) — serde on a
-	// signature type is std/host-side surface on the network-facing perimeter,
-	// outside RVM (docs/PHASE-B-WEBAUTHN.md §2a). So NO `#[cfg_attr(std, serde(…))]`
-	// on any field below; SCALE `Encode`/`Decode`/`MaxEncodedLen` only.
-	//
-	// Planned shape (bound the envelope so MaxEncodedLen stays finite; enforce at
-	// decode — cf. Aptos audit HIGH-1, a 1024 cap defined-but-never-enforced):
-	//     WebAuthnP256 {
-	//         pubkey: [u8; 33],                    // compressed SEC1
-	//         authenticator_data: BoundedVec<u8, A>, // A = 256 (rpIdHash‖flags‖count[‖…])
-	//         client_data_json:  BoundedVec<u8, C>, // C = 1024
-	//         sig: [u8; 64],                        // raw r‖s, low-s
-	//     }
-	//
-	// Verify (mirror Aptos AIP-61's 8-step checklist, Apache-2.0; parse swapped for
-	// a webauthn-sol-style string match, MIT — see docs/PHASE-B-WEBAUTHN.md §8):
-	//   1. reject if client_data_json contains any `\` (backslash) — then every `"`
-	//      is structural, so the substring match below cannot be fooled by a decoy.
-	//   2. require substring `"type":"webauthn.get"`.
-	//   3. challenge bind: require substring
-	//        `"challenge":"` ‖ base64url(sha2_256(payload)) ‖ `"`
-	//      (challenge = sha2_256 of the signer payload — bounded 32 B; NO SHA3).
-	//      We only base64url-ENCODE our own hash; never decode attacker bytes.
-	//   4. authenticator_data: len ≥ 37; UP flag `authenticator_data[32] & 0x01`
-	//      set (UV `& 0x04` surfaced, optional). rpIdHash[0..32] recorded, NOT
-	//      enforced in B1 (deferred, D2 — matches Aptos treating origin as app-layer).
-	//   5. reconstruct m = authenticator_data ‖ sha2_256(client_data_json).
-	//   6. P-256 verify: reuse `verify_p256(pubkey, sig, m, signer)` — it sha256's
-	//      `m` internally, giving sha256(m) = the exact WebAuthn digest. low-s
-	//      enforced there already. No new crypto.
-	//   Net-new no_std code = a base64url encoder + the string checks above; all
-	//   crypto/hashing is reuse (`verify_p256`, `sp_io` sha2). The verify uses no
-	//   serde_json/passkey_types/aptos_crypto/anyhow/ring — smallest parser on the
-	//   hostile path (blast-radius, not deps: serde_json is already a runtime dep).
+	/// NIST P-256 **WebAuthn** assertion (passkey) — variant index 5. Same P-256
+	/// device key and account as [`RostroSignature::EcdsaP256`]: it shares the
+	/// `RostroSigner::EcdsaP256` arm and the `blake2_256(pubkey)` address, so a
+	/// passkey needs no new signer variant and no new address scheme. Only the
+	/// *envelope* differs — the authenticator signs
+	/// `authenticator_data ‖ sha2_256(client_data_json)` (the WebAuthn assertion
+	/// format), and `client_data_json` embeds the challenge, which Rostro sets to
+	/// `sha2_256(payload)`. `verify` reconstructs that message, binds the embedded
+	/// challenge to the payload (see the verify impl + docs/PHASE-B-WEBAUTHN.md §4
+	/// D1), and P-256-verifies via the shared `verify_p256` path.
+	///
+	/// `sig` is raw `r ‖ s`, low-s canonical — the same non-malleability discipline
+	/// as `EcdsaP256`. `authenticator_data` / `client_data_json` are `BoundedVec`
+	/// so `MaxEncodedLen` stays finite and the envelope is capped **at decode**
+	/// (no unbounded extrinsic). SERDE-FREE (docs/PHASE-B-WEBAUTHN.md §2a): SCALE only.
+	WebAuthnP256 {
+		/// Compressed SEC1 pubkey (`0x02/0x03 ‖ X`).
+		pubkey: [u8; 33],
+		/// WebAuthn `authenticatorData`: `rpIdHash(32) ‖ flags(1) ‖ signCount(4)`
+		/// plus optional attested-cred-data / extensions.
+		authenticator_data: BoundedVec<u8, ConstU32<MAX_AUTHENTICATOR_DATA>>,
+		/// WebAuthn `clientDataJSON` (UTF-8): `{"type":"webauthn.get","challenge":…}`.
+		client_data_json: BoundedVec<u8, ConstU32<MAX_CLIENT_DATA_JSON>>,
+		/// Raw ECDSA signature `r ‖ s`, low-s canonical.
+		sig: [u8; 64],
+	},
 }
 
 impl Verify for RostroSignature {
@@ -302,6 +295,8 @@ impl Verify for RostroSignature {
 				let m = msg.get();
 				verify_p256(pubkey, sig, m, signer)
 			},
+			// B1.1: fail-closed until B1.2 lands the WebAuthn envelope verify.
+			RostroSignature::WebAuthnP256 { .. } => false,
 		}
 	}
 }
