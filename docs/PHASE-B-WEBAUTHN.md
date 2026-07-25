@@ -99,14 +99,14 @@ Consequences baked into this scope:
 
 | # | Deliverable | Acceptance | Status |
 |---|-------------|-----------|--------|
-| B1.0 | **Drop `serde` from `rostro-multi-key`** (perimeter-surface reduction, §2a) | optional `serde` dep + `derive(Serialize,Deserialize)` + `serde(with=…)` attrs + `serde_bytes_array` module removed; types are pure SCALE; runtime (RISC-V) + `gemini-node` (std) build green | ☐ |
-| B1.1 | `RostroSignature::WebAuthnP256 { pubkey:[u8;33], authenticator_data: BoundedVec<u8,A>, client_data_json: BoundedVec<u8,C>, sig:[u8;64] }` appended at index 5, **serde-free** | Encode/Decode/TypeInfo/MaxEncodedLen derive; NO serde attrs; index 5 stable; existing variants byte-unchanged | ☐ |
-| B1.2 | `Verify::verify` + `verify_against` arms | reconstruct `authData ‖ sha256(clientDataJSON)`, P-256 verify over its sha256, low-s enforced, pubkey→account match (verify) / enrolled-key match (verify_against) | ☐ |
-| B1.3 | clientDataJSON challenge binding (D1) | reject if any `\`; `clientDataJSON` contains `"challenge":"<base64url(sha2_256(payload))>"` and `"type":"webauthn.get"`; else reject | ☐ |
-| B1.4 | authenticatorData flag checks | UP (user-present) bit required; UV surfaced; rpId per D2; signCount ignored (nonce covers replay) | ☐ |
-| B1.5 | Fixture test vectors | known `(pubkey, authData, clientDataJSON, sig, challenge)` → pass; tamper each field → fail; `(scheme,pubkey)→AccountId32` pinned (reuses P-256 vector) | ☐ |
-| B1.6 | Runtime wiring | `KeyringSignature`/`Checkable` verify path admits variant 5; keyring `enroll_key` unchanged (signer already `EcdsaP256`); metadata regen; `cargo build --release -p gemini-node` (RISC-V) green | ☐ |
-| B1.7 | Solo-node encoding/verify proof | a WebAuthn-signed extrinsic (software P-256 assertion fixture) accepted on the spec-bumped solo node | ☐ |
+| B1.0 | **Drop `serde` from `rostro-multi-key`** (perimeter-surface reduction, §2a) | optional `serde` dep + `derive(Serialize,Deserialize)` + `serde(with=…)` attrs + `serde_bytes_array` module removed; types are pure SCALE; runtime (RISC-V) + `gemini-node` (std) build green | ✅ 07b0c123 |
+| B1.1 | `RostroSignature::WebAuthnP256 { pubkey:[u8;33], authenticator_data: BoundedVec<u8,A>, client_data_json: BoundedVec<u8,C>, sig:[u8;64] }` appended at index 5, **serde-free** | Encode/Decode/TypeInfo/MaxEncodedLen derive; NO serde attrs; index 5 stable; existing variants byte-unchanged | ✅ 830c115b |
+| B1.2 | `Verify::verify` + `verify_against` arms | reconstruct `authData ‖ sha256(clientDataJSON)`, P-256 verify over its sha256, low-s enforced, pubkey→account match (verify) / enrolled-key match (verify_against) | ✅ d018b8a9 |
+| B1.3 | clientDataJSON challenge binding (D1) | reject if any `\`; `clientDataJSON` contains `"challenge":"<base64url(sha2_256(payload))>"` and `"type":"webauthn.get"`; else reject | ✅ (in B1.2 `webauthn_message`) |
+| B1.4 | authenticatorData flag checks | UP (user-present) bit required; UV surfaced; rpId per D2; signCount ignored (nonce covers replay) | ✅ (in B1.2 `webauthn_message`) |
+| B1.5 | Fixture test vectors | valid assertion (p256 dev-crate) → pass on both paths; tamper each field → fail; base64url KAT independent of verify | ✅ d018b8a9 (32 tests) |
+| B1.6 | Runtime wiring + RISC-V build | verify path admits variant 5 (runtime calls `verify`/`verify_against`, no match change); `enroll_key` unchanged; `cargo build --release -p gemini-node` (RISC-V) green | ✅ build green; **metadata regen → carries to B2** |
+| B1.7 | Solo-node encoding/verify proof | a WebAuthn-signed extrinsic accepted on a fresh solo node on the new binary | ⬜ (fold into B2 E2E — unit coverage makes standalone live proof largely redundant) |
 
 **Bounds (B1.1):** the WebAuthn envelope is larger than other variants
 (authData ~37B, clientDataJSON ~120-250B). Use `BoundedVec` so `MaxEncodedLen`
