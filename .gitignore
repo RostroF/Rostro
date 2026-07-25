@@ -47,6 +47,9 @@ rustc-ice-*
 *.local.md
 *CLAUDE*
 
+# Single-node base-path populated by scripts/run-solo.sh
+# (one Alice validator on the dev chain; keystore + ParityDB).
+/.solo/
 # Per-node base-paths populated by scripts/run-star.sh, run-trio.sh,
 # and scripts/star-scenarios/*.sh. Contain keystore + RocksDB.
 /.star/
