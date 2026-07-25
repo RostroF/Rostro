@@ -50,17 +50,28 @@ reconstruct the envelope and confirm the embedded `challenge` is our extrinsic
 signer payload. That envelope reconstruction + challenge binding is the entire
 new attack surface.
 
-## 2. Slice split
+## 2. Slice split (REWEIGHTED 2026-07-25)
 
-| Slice | Where | Depends on | Gasless? | Delivers |
-|-------|-------|-----------|----------|----------|
-| **B1** WebAuthn verify | chain (this worktree) | — | n/a | the primitive |
-| **B2** Passkey **recovery** | dotwave | B1 | **no** | "add recovery method" → completes #3; activates the dormant banner |
-| **B3** Passkey **account** | dotwave | B1 + gasless | **yes** | seedless "Continue with Google" onboarding |
-| Parallel | chain/infra | — | — | sponsorship model (faucet / meta-tx / PoP-gated) for B3 |
+**Strategic ruling (user):** WebAuthn-as-extrinsic-signer is **supplemental
+convenience only**. A passkey has no EK/AIK hardware attestation, so it may
+**never mint / root an account** — chain-enforced, keyring-only (see §2b). And
+it is **transitional**: this whole P-256 signer sunsets at Q-day when PQ
+(ML-DSA/SLH-DSA) takes over, so its shelf life is already numbered. WebAuthn's
+real value for Rostro is as the **external IdP protocol** ("Sign in with Rostro"),
+not as the wallet's account key.
 
-Sequence: **B1 → B2 → B3**. B2 is the self-contained early win (rides an already
-funded account, no gasless); B3 waits on the sponsorship decision.
+| Slice | Where | Delivers |
+|-------|-------|----------|
+| **B1** WebAuthn verify — **keyring-only** | chain (this worktree) | the primitive: passkey = supplemental signer, never a root |
+| **B2** Passkey **recovery** | dotwave | "add recovery method": enroll a passkey *beside* an attested root, then `setRecoveryConfigured()` → **completes #3** |
+| ~~**B3** Passkey **account**~~ **DROPPED** | — | a passkey may not root an account. "Seedless" onboarding re-roots on an attested **StrongBox** key (no seed) + passkey **recovery**, not a passkey root. No gasless-for-passkey needed. |
+| **RS-5** "Sign in with Rostro" | rails / verifier-SDK | **the primary WebAuthn investment**: WebAuthn as the deployed auth protocol external RPs run; SDK answers "this device key is witnessed + attested + behind a verified human", no server, no PII |
+
+Sequence: **B1 → B2 → RS-5**. B1 (done) makes the passkey a valid *supplemental*
+keyring signer. B2 is the modest recovery use (completes #3). RS-5 is where the
+weight moves: exposing Rostro *through* WebAuthn to external platforms, rather
+than consuming WebAuthn in the wallet. The attested silicon key stays the root of
+everything (extrinsic signing AND the credential presented via WebAuthn to RPs).
 
 ### 2a. Trust boundary — hostile parsing stays inside RVM
 
@@ -93,6 +104,30 @@ Consequences baked into this scope:
    that willingly ingests hostile input gets the smallest possible parser, so a
    parser bug is as contained and auditable as we can make it, sandbox or not.
 
+### 2b. Passkey is supplemental — chain-enforced keyring-only
+
+The identity primitive is an **attested silicon key** (StrongBox/TPM, EK/AIK
+attested, zkpki-witnessed). A synced passkey has **no such attestation** — that
+is the price of its portability/recovery. So a passkey may never be a *sole*
+account authority.
+
+Enforced at consensus, not by client discipline:
+
+- `WebAuthnP256` is honored **only via `verify_against` (keyring path)** — a
+  passkey enrolled *beside* an attested root. `Verify::verify` (the derived path,
+  address = `blake2_256(pubkey)`) returns `false` for `WebAuthnP256`.
+- `EcdsaP256` (raw StrongBox, attestable) keeps **both** paths: it CAN root an
+  account. The signature enum thus encodes the trust distinction — attestable
+  key roots, unattested passkey supplements.
+- This is airtight by a chicken-and-egg: a bare passkey-derived address can never
+  sign (derived path off), so it can never self-enroll; only an existing attested
+  root can add a passkey. Funds sent to a passkey-derived address are unspendable.
+  That is "you cannot mint an address with a passkey", at consensus.
+
+**Bounded shelf life.** This P-256 signer is transitional. At Q-day, PQ signatures
+(ML-DSA-65 variant 6 / SLH-DSA) replace it and the passkey path is sunset. Keep
+the surface minimal accordingly; do not over-invest in the wallet-passkey.
+
 ---
 
 ## 3. B1 deliverables (this slice)
@@ -104,9 +139,10 @@ Consequences baked into this scope:
 | B1.2 | `Verify::verify` + `verify_against` arms | reconstruct `authData ‖ sha256(clientDataJSON)`, P-256 verify over its sha256, low-s enforced, pubkey→account match (verify) / enrolled-key match (verify_against) | ✅ d018b8a9 |
 | B1.3 | clientDataJSON challenge binding (D1) | reject if any `\`; `clientDataJSON` contains `"challenge":"<base64url(sha2_256(payload))>"` and `"type":"webauthn.get"`; else reject | ✅ (in B1.2 `webauthn_message`) |
 | B1.4 | authenticatorData flag checks | UP (user-present) bit required; UV surfaced; rpId per D2; signCount ignored (nonce covers replay) | ✅ (in B1.2 `webauthn_message`) |
-| B1.5 | Fixture test vectors | valid assertion (p256 dev-crate) → pass on both paths; tamper each field → fail; base64url KAT independent of verify | ✅ d018b8a9 (32 tests) |
+| B1.5 | Fixture test vectors | valid enrolled assertion → pass on the keyring path; derived path REJECTS a valid assertion (supplemental-only, §2b); tamper each field → fail; base64url KAT independent of verify | ✅ 33 tests |
 | B1.6 | Runtime wiring + RISC-V build | verify path admits variant 5 (runtime calls `verify`/`verify_against`, no match change); `enroll_key` unchanged; `cargo build --release -p gemini-node` (RISC-V) green | ✅ build green; **metadata regen → carries to B2** |
-| B1.7 | Solo-node encoding/verify proof | a WebAuthn-signed extrinsic accepted on a fresh solo node on the new binary | ✅ PROVEN — fresh solo node (`:9955`, new binary, metadata exposes `WebAuthnP256`): valid assertion ACCEPTED (`ExtrinsicSuccess`, derived path), tampered assertion REJECTED (`BadProof`). Harness = dotwave `labtool webauthn-probe` (software P-256) |
+| B1.8 | **Keyring-only enforcement** (§2b) | `WebAuthnP256` rejected on the derived path (`Verify::verify`→false), honored only via `verify_against`; passkey can never root/mint an account; unit-proven | ✅ (verify arm + tests) |
+| B1.7 | Solo-node keyring-path proof | an *enrolled*-passkey WebAuthn extrinsic accepted (keyring path); a passkey-rooted (derived) extrinsic rejected | ⏳ RE-PROVE via **B2a** — the pre-lockdown derived-path proof (valid ACCEPTED, tampered REJECTED on `:9955`) is now superseded; B2a enrolls a passkey beside a root and signs via the keyring path, and confirms the derived path is refused |
 
 **Bounds (B1.1):** the WebAuthn envelope is larger than other variants
 (authData ~37B, clientDataJSON ~120-250B). Use `BoundedVec` so `MaxEncodedLen`
@@ -159,15 +195,29 @@ escape-aware structural scan (still no JSON lib) — additive, not a wire change
 
 ## 5. Scope fence — B1 OUT (forwarding addresses)
 
-- Client passkey ceremony / Credential Manager → **B2/B3** (dotwave).
+- Client passkey ceremony / Credential Manager → **B2** (dotwave).
 - "Add recovery method" UX + `setRecoveryConfigured()` wiring → **B2**.
-- Seedless onboarding fork + passkey account creation → **B3**.
-- Gasless/sponsored funding → **parallel track**.
-- rpId on-chain enforcement → deferred (D2b), tracked as a forward commitment.
+- ~~Seedless onboarding fork + passkey account creation~~ → **DROPPED** (passkey
+  can't root, §2b); seedless re-roots on attested StrongBox + passkey recovery.
+- WebAuthn as external IdP ("Sign in with Rostro") → **RS-5** (rails), the primary
+  WebAuthn investment.
+- rpId on-chain enforcement → deferred (D2b). Note: the CLIENT still needs an rpId
+  + assetlinks for the Credential Manager ceremony (B2b); user has domains.
 - iOS AuthenticationServices → later (B2/B3 land Android first).
 
 ## 6. Decision log
 
+- 2026-07-25 — **KEYRING-ONLY / passkey-is-supplemental (user ruling), §2b.**
+  `WebAuthnP256` rejected on the derived path (`Verify::verify`→false), honored
+  only via `verify_against` (enrolled beside an attested root). A passkey has no
+  EK/AIK attestation, so it may never root/mint an account; `EcdsaP256` (attestable
+  StrongBox) keeps both paths. Chain-enforced, not client discipline. Reversed
+  B1.2's derived-path arm; tests + B1.7 re-pointed to the keyring path (→ B2a).
+- 2026-07-25 — **ROADMAP REWEIGHTED (user).** WebAuthn-as-signer = supplemental
+  convenience with a bounded shelf life (sunsets at Q-day → ML-DSA/SLH-DSA). B3
+  (passkey account) DROPPED; seedless re-roots on attested StrongBox + passkey
+  recovery. Primary WebAuthn investment moves to RS-5 "Sign in with Rostro" (the
+  external IdP protocol), not the wallet passkey.
 - 2026-07-25 — Shared `EcdsaP256` signer arm ⇒ no new address derivation; variant
   5 is signature-only, append-only at index 5.
 - 2026-07-25 — **D1 RESOLVED:** challenge = `sha2_256(payload)` (bounded 32 B);

@@ -295,17 +295,16 @@ impl Verify for RostroSignature {
 				let m = msg.get();
 				verify_p256(pubkey, sig, m, signer)
 			},
-			RostroSignature::WebAuthnP256 { pubkey, authenticator_data, client_data_json, sig } =>
-				match webauthn_message(
-					authenticator_data.as_slice(),
-					client_data_json.as_slice(),
-					msg.get(),
-				) {
-					// verify_p256 binds pubkey→account, enforces low-s, and P-256
-					// verifies over sha2_256(signed) = the WebAuthn digest.
-					Some(signed) => verify_p256(pubkey, sig, &signed, signer),
-					None => false,
-				},
+			// SUPPLEMENTAL-ONLY: a passkey (`WebAuthnP256`) has no EK/AIK hardware
+			// attestation, so it may never be a *sole* account root. The derived
+			// path is disabled here; a passkey is honored only via `verify_against`
+			// (keyring), enrolled beside an attested root (raw StrongBox `EcdsaP256`,
+			// which CAN root). This is the chain-enforced "you can't mint an address
+			// with a passkey" (docs/PHASE-B-WEBAUTHN.md §2b). A bare passkey-derived
+			// address can therefore never sign, so it can never even self-enroll —
+			// only an existing attested root can add a passkey. Transitional anyway:
+			// the whole P-256 signer sunsets at Q-day (PQ migration).
+			RostroSignature::WebAuthnP256 { .. } => false,
 		}
 	}
 }
