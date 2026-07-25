@@ -196,6 +196,16 @@ escape-aware structural scan (still no JSON lib) — additive, not a wire change
   **blast radius, not dependencies** — `serde_json` (no_std+alloc) is *already* a
   gemini-runtime dep (`runtime/gemini/Cargo.toml`). The hostile-input verify path
   gets the smallest possible parser regardless.
+- 2026-07-25 — Aptos verify body pulled (Apache-2.0) and confirms our sequence
+  exactly: decode challenge → `verify_expected_challenge_from_message_matches_actual`
+  → `generate_verification_data = authData ‖ SHA256(clientDataJSON)` → P-256 verify
+  (their `verify_arbitrary_msg` hashes internally = our `verify_p256`). **Real test
+  vector** available in their tests module — a wild clientDataJSON that is compact,
+  backslash-free, `"type":"webauthn.get"`, challenge = 32-byte hash → 43-char b64url:
+  `{"type":"webauthn.get","challenge":"eUf1aXwdtHKnIYUXkTgHxmWtYQ_U0c3O8Ldmx3PTA_g",…}`.
+  Validates the ban-backslash + encode-and-match scan against real data. B1.5: lift
+  the exact `(pubkey, authData, clientDataJSON, sig)` bytes from aptos-core webauthn.rs
+  tests as our first fixture + add tamper cases; re-hash challenge with sha2 for ours.
 
 ## 7. Open questions
 

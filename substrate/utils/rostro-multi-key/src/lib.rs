@@ -75,30 +75,10 @@ use sp_io::{
 };
 use sp_runtime::traits::{IdentifyAccount, Lazy, Verify};
 
-/// serde `with` adapter for byte arrays longer than 32 (serde's blanket
-/// impls stop at 32). Serializes as the raw byte sequence; used for the
-/// P-256 compressed pubkey (33) and raw signature (64). std-only, matching
-/// the enum's `cfg_attr(std, derive(Serialize, Deserialize))`.
-#[cfg(feature = "std")]
-mod serde_bytes_array {
-	use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-	pub fn serialize<S: Serializer, const N: usize>(bytes: &[u8; N], s: S) -> Result<S::Ok, S::Error> {
-		bytes[..].serialize(s)
-	}
-
-	pub fn deserialize<'de, D: Deserializer<'de>, const N: usize>(d: D) -> Result<[u8; N], D::Error> {
-		let v = alloc::vec::Vec::<u8>::deserialize(d)?;
-		v.try_into()
-			.map_err(|v: alloc::vec::Vec<u8>| serde::de::Error::invalid_length(v.len(), &"N bytes"))
-	}
-}
-
 /// Multi-scheme signer enum. Variant order mirrors substrate's
 /// `MultiSigner` (`Ed25519`, `Sr25519`, `Ecdsa`); the `IdentifyAccount`
 /// impl differs only in the Ecdsa arm (Ethereum-style derivation).
 #[derive(Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum RostroSigner {
 	Ed25519(ed25519::Public),
 	Sr25519(sr25519::Public),
@@ -108,7 +88,7 @@ pub enum RostroSigner {
 	/// `WebAuthnP256`) — same curve, same device key, same account. Kept
 	/// as raw bytes: sp_core has no P-256 type, and the account is a hash
 	/// of these bytes regardless.
-	EcdsaP256(#[cfg_attr(feature = "std", serde(with = "serde_bytes_array"))] [u8; 33]),
+	EcdsaP256([u8; 33]),
 }
 
 impl From<sr25519::Public> for RostroSigner {
@@ -210,7 +190,6 @@ pub fn ecdsa_compressed_to_eth_h160(pk: &ecdsa::Public) -> Option<[u8; 20]> {
 /// variants are byte-identical on the wire; `EcdsaEip191` is the one
 /// Rostro-specific addition.
 #[derive(Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum RostroSignature {
 	Ed25519(ed25519::Signature),
 	/// Sr25519 signature — bare 64-byte sig. The pubkey is the signer
@@ -242,10 +221,8 @@ pub enum RostroSignature {
 	/// `v`-normalization contract above.
 	EcdsaP256 {
 		/// Compressed SEC1 pubkey (`0x02/0x03 ‖ X`).
-		#[cfg_attr(feature = "std", serde(with = "serde_bytes_array"))]
 		pubkey: [u8; 33],
 		/// Raw ECDSA signature `r ‖ s`, low-s canonical.
-		#[cfg_attr(feature = "std", serde(with = "serde_bytes_array"))]
 		sig: [u8; 64],
 	},
 	// ── RESERVED: WebAuthnP256 — index 5 (Phase B / webauthn-v0) ──────────────
