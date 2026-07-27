@@ -121,6 +121,18 @@ echo "injecting GRANDPA Ed25519 keys for all 5 nodes..."
 "$NODE_BIN" key insert --suri //Dave    --key-type gran --base-path "$DAVE_BASE"    --chain star
 "$NODE_BIN" key insert --suri //Eve     --key-type gran --base-path "$EVE_BASE"     --chain star
 
+# ATTESTOR secp256k1 keys (RWA attestor quorum). ecdsa scheme, key type "atte".
+# The offchain signer reads these to sign the RootOfRoots checkpoint; derived
+# from the same //seed as the genesis attestor session key so the recovered
+# eth-address matches the on-chain attestor set. Without these, offchain_worker
+# finds no in-set key and never submits an `attest`.
+echo "injecting ATTESTOR secp256k1 keys for all 5 nodes..."
+"$NODE_BIN" key insert --scheme ecdsa --suri //Alice   --key-type atte --base-path "$ALICE_BASE"   --chain star
+"$NODE_BIN" key insert --scheme ecdsa --suri //Bob     --key-type atte --base-path "$BOB_BASE"     --chain star
+"$NODE_BIN" key insert --scheme ecdsa --suri //Charlie --key-type atte --base-path "$CHARLIE_BASE" --chain star
+"$NODE_BIN" key insert --scheme ecdsa --suri //Dave    --key-type atte --base-path "$DAVE_BASE"    --chain star
+"$NODE_BIN" key insert --scheme ecdsa --suri //Eve     --key-type atte --base-path "$EVE_BASE"     --chain star
+
 # `--canonical-files-dir` makes the running binary advertise the heal-
 # fetch server and serve canonical bytes to peers. Same dir is the
 # heal source if our own verifier finds a mismatch on boot.

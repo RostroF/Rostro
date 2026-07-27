@@ -293,6 +293,9 @@ macro_rules! with_crypto_scheme {
 			$crate::CryptoScheme::Ed25519 => {
 				$method::<sp_core::ed25519::Pair, $($generics),*>($($params),*)
 			}
+			$crate::CryptoScheme::Ecdsa => {
+				$method::<sp_core::ecdsa::Pair, $($generics),*>($($params),*)
+			}
 			// The hybrid consensus scheme has no account-space identity
 			// (MultiSigner stays classical on purpose), so generic key
 			// commands cannot route through this macro with it. Commands

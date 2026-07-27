@@ -93,6 +93,13 @@ fn resolve_scheme(
 			None => Ok(ResolvedScheme::Bandersnatch),
 			Some(_) => refuse("bandersnatch"),
 		},
+		// The attestor-quorum session key is always secp256k1 (its signatures
+		// must be Ethereum-`ecrecover`-verifiable); derive it from the key type
+		// so scripts need no --scheme, and reject any other scheme.
+		"atte" => match explicit {
+			None | Some(CryptoScheme::Ecdsa) => Ok(ResolvedScheme::Classical(CryptoScheme::Ecdsa)),
+			Some(_) => refuse("ecdsa"),
+		},
 		_ => Ok(match explicit {
 			None | Some(CryptoScheme::RostroHybrid) => ResolvedScheme::RostroHybrid,
 			Some(scheme) => ResolvedScheme::Classical(scheme),
