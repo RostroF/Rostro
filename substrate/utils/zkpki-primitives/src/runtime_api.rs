@@ -263,6 +263,40 @@ pub struct MembershipWitnessData {
     pub freshness_path: Vec<[u8; 32]>,
 }
 
+/// The public side of a **witness** cert's presentation: everything a foreign
+/// verifier needs to prove a specific customer's leaf is in its issuer's witness
+/// tree, given that issuer's root (via [`IssuerRoots`]) is in the signed
+/// checkpoint. All keccak256, so an EVM contract walks it with its native opcode.
+///
+/// This is the witness-tree analog of [`MembershipWitnessData`]. The two are
+/// mutually exclusive: a cert lives in exactly one tree kind (the global chat
+/// Poseidon tree OR one issuer's keccak tree), so `membership_witness` serves the
+/// former and `witness_branch` the latter, and neither serves the other's certs.
+///
+/// The leaf preimage is `keccak256(id_commitment ++ expiry_be8 ++ scope_be8)`;
+/// `id_commitment` is held by the presenter (the customer's device), not served
+/// here, exactly as the membership circuit takes it as a private witness.
+#[derive(Encode, Decode, Clone, PartialEq, Eq, TypeInfo)]
+#[cfg_attr(feature = "std", derive(Debug, serde::Serialize, serde::Deserialize))]
+pub struct WitnessBranchData<AccountId> {
+    /// The issuer whose witness tree holds this cert — the pinned trust anchor a
+    /// relying party resolves up the charter chain. Its roots are proven in the
+    /// checkpoint via [`IssuerRoots`].
+    pub issuer: AccountId,
+    /// The customer's leaf index in the issuer's witness + freshness trees.
+    pub leaf_position: u64,
+    /// The cert's expiry block (part of the witness leaf preimage).
+    pub expiry_block: u64,
+    /// The freshness leaf value: the fresh-until epoch. A verifier reads it off
+    /// the branch and checks `>= current_epoch`.
+    pub fresh_until_epoch: u32,
+    /// Depth-32 keccak authentication path, leaf → issuer witness root (siblings
+    /// bottom-up, raw 32-byte nodes).
+    pub witness_path: Vec<[u8; 32]>,
+    /// Depth-32 keccak authentication path, leaf → issuer freshness root.
+    pub freshness_path: Vec<[u8; 32]>,
+}
+
 /// One issuer's entry in the root-of-roots, plus the branch proving it is
 /// committed under the signed checkpoint. A foreign verifier rebuilds the leaf
 /// `keccak256(issuer ‖ witness_root ‖ freshness_root)` at `index`, walks `path`
@@ -343,7 +377,11 @@ sp_api::decl_runtime_apis! {
     ///   Attestor-Quorum checkpoint a foreign Ethereum contract verifies via
     ///   `ecrecover` (docs/ATTESTOR-QUORUM.md). All keccak256-based so a foreign
     ///   contract walks the branches with its native opcode.
-    #[api_version(4)]
+    /// - v5 — `witness_branch`: the customer's keccak leaf branch within an
+    ///   issuer's witness tree, completing the RWA presentation chain
+    ///   `signed_checkpoint` → `issuer_branch(B)` → `witness_branch(customer)`.
+    ///   Complement of `membership_witness` (which serves the chat tree).
+    #[api_version(5)]
     pub trait ZkPkiApi<AccountId>
     where
         AccountId: Codec,
@@ -467,5 +505,13 @@ sp_api::decl_runtime_apis! {
         /// contract pins and checks recovered signers against, and which it
         /// tracks for rotation.
         fn attestor_set() -> Vec<[u8; 20]>;
+
+        /// The customer's leaf branch within its issuer's witness tree (v5):
+        /// leaf index, expiry, freshness epoch, and the two keccak paths against
+        /// the issuer's witness + freshness roots. `None` if `thumbprint` is not
+        /// a witness cert. Completes the chain `signed_checkpoint` →
+        /// `issuer_branch(B)` → `witness_branch(customer)`. The complement of
+        /// `membership_witness` (chat tree); the two never serve the same cert.
+        fn witness_branch(thumbprint: [u8; 32]) -> Option<WitnessBranchData<AccountId>>;
     }
 }

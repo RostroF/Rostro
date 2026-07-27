@@ -37,7 +37,7 @@ pub mod pallet {
         },
         pop::{derive_pop_nonce, PopAssertion},
         proxy::ValidateProxy,
-        runtime_api::MembershipWitnessData,
+        runtime_api::{MembershipWitnessData, WitnessBranchData},
         issuer::{
             DeregistrationRecord, EntityState, IssuerRecord, RootRecord, MAX_CAPABILITY_EKUS,
         },
@@ -565,6 +565,54 @@ pub mod pallet {
                 expiry_block: hot.expiry_block.unique_saturated_into(),
                 fresh_until_epoch,
                 membership_path,
+                freshness_path,
+            })
+        }
+
+        /// The public side of a **witness** cert's presentation: the customer's
+        /// leaf index, expiry, freshness epoch, and the two keccak authentication
+        /// paths against the issuer's witness + freshness roots. `None` if the
+        /// thumbprint is not a witness cert (a chat / original cert, or absent).
+        ///
+        /// This is the exact complement of [`Self::membership_witness`]:
+        /// `membership_witness` returns `None` for a witness cert and walks the
+        /// global Poseidon chat tree; `witness_branch` returns `None` for a
+        /// non-witness cert and walks the issuer's keccak tree. `WitnessLeafIssuer`
+        /// is the single authoritative router, so a cert is served by exactly one
+        /// of the two and the paths never cross.
+        ///
+        /// Read-only: it touches only the issuer's witness state, never the chat
+        /// tree or the public cert indexes.
+        pub fn witness_branch(thumbprint: [u8; 32]) -> Option<WitnessBranchData<T::AccountId>> {
+            // Only witness certs live in an issuer keccak tree; a non-witness
+            // thumbprint short-circuits here rather than walk the wrong tree.
+            let issuer = WitnessLeafIssuer::<T>::get(thumbprint)?;
+            let cold = CertLookupCold::<T>::get(thumbprint)?;
+            let index = cold.leaf_position?;
+            let hot = CertLookupHot::<T>::get(thumbprint)?;
+
+            let empties = empty_roots(&KeccakHasher);
+            let w_store = WitnessNodeStore::<T>(issuer.clone());
+            let witness_path = authentication_path(&w_store, &empties, index).to_vec();
+            let f_store = WitnessFreshnessNodeStore::<T>(issuer.clone());
+            let freshness_path = authentication_path(&f_store, &empties, index).to_vec();
+
+            // The witness freshness leaf is `value_leaf(epoch)`: the u64 epoch
+            // big-endian in the last 8 bytes. Absent node ⇒ empty leaf ⇒ epoch 0.
+            let fresh_until_epoch = WitnessFreshnessNodes::<T>::get(&issuer, (0u8, index))
+                .map(|b| {
+                    let mut hi = [0u8; 8];
+                    hi.copy_from_slice(&b[24..32]);
+                    u64::from_be_bytes(hi) as u32
+                })
+                .unwrap_or(0);
+
+            Some(WitnessBranchData {
+                issuer,
+                leaf_position: index,
+                expiry_block: hot.expiry_block.unique_saturated_into(),
+                fresh_until_epoch,
+                witness_path,
                 freshness_path,
             })
         }

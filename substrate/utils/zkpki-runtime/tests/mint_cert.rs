@@ -1012,3 +1012,133 @@ fn root_of_roots_commits_issuer_and_branch_verifies() {
         assert_eq!(root_from_path(&KeccakHasher, leaf2, idx2, &path_arr2), ror2);
     });
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Orthogonality: chat membership, original certs, and witness certs are
+// independent paths. `membership_witness` (global chat Poseidon tree) and
+// `witness_branch` (per-issuer keccak tree) are EXACT complements — a cert is
+// served by exactly one, and neither mint disturbs the other's tree. The
+// live 3-way test proves they also coexist at runtime.
+// ──────────────────────────────────────────────────────────────────────
+
+/// A witness cert is served by `witness_branch` (its keccak branch verifies to
+/// the issuer's witness root), is NOT served by `membership_witness`, and its
+/// mint leaves the global chat Poseidon tree untouched.
+#[test]
+fn witness_branch_serves_witness_cert_and_is_orthogonal_to_chat() {
+    use rostro_sparse_merkle::keccak::{value_leaf, KeccakHasher};
+    use rostro_sparse_merkle::root_from_path;
+
+    run(|| {
+        let issuer = account(ISSUER_ACCOUNT);
+        let (nonce, created_at) = setup_up_to_offer_witness_auth();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        let idc = enrollment.id_commitment; // held by the presenter; not served
+
+        let chat_root_before = ZkPki::membership_root();
+        assert_ok!(ZkPki::mint_witness_cert(
+            RuntimeOrigin::signed(account(USER_ACCOUNT)),
+            nonce,
+            payload,
+            created_at,
+            None,
+            None,
+            None,
+            enrollment,
+        ));
+
+        let thumb = witness_thumb();
+
+        // Served by witness_branch; the branch verifies to the issuer root.
+        let wb = ZkPki::witness_branch(thumb).expect("witness cert served by witness_branch");
+        assert_eq!(wb.issuer, issuer);
+        assert_eq!(wb.leaf_position, 0);
+
+        let hot = zk_pki_pallet::CertLookupHot::<Runtime>::get(thumb).expect("hot record");
+        let leaf = ZkPki::witness_leaf_value(&idc, hot.expiry_block);
+        let wpath: [[u8; 32]; 32] = wb.witness_path.clone().try_into().expect("depth-32");
+        assert_eq!(
+            root_from_path(&KeccakHasher, leaf, wb.leaf_position, &wpath),
+            ZkPki::witness_root(&issuer),
+            "witness branch verifies to the issuer witness root",
+        );
+        // Freshness branch verifies too (leaf = value_leaf(epoch)).
+        let fleaf = value_leaf(wb.fresh_until_epoch as u64);
+        let fpath: [[u8; 32]; 32] = wb.freshness_path.clone().try_into().expect("depth-32");
+        assert_eq!(
+            root_from_path(&KeccakHasher, fleaf, wb.leaf_position, &fpath),
+            ZkPki::witness_freshness_root(&issuer),
+            "witness freshness branch verifies",
+        );
+
+        // NOT served by the chat membership path, and the global chat tree is
+        // untouched by the witness mint.
+        assert!(
+            ZkPki::membership_witness(thumb).is_none(),
+            "membership_witness must not serve a witness cert",
+        );
+        assert_eq!(
+            ZkPki::membership_root(),
+            chat_root_before,
+            "witness mint leaves the chat tree untouched",
+        );
+    });
+}
+
+/// A chat-enrolled cert is served by `membership_witness`, is NOT served by
+/// `witness_branch`, and its mint creates no issuer witness tree.
+#[test]
+fn chat_cert_served_by_membership_witness_and_is_orthogonal_to_witness() {
+    use rostro_sparse_merkle::empty_root;
+    use rostro_sparse_merkle::keccak::KeccakHasher;
+
+    run(|| {
+        let issuer = account(ISSUER_ACCOUNT);
+        let (nonce, created_at) = setup_up_to_offer_chat_auth();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+
+        assert_ok!(ZkPki::mint_cert(
+            RuntimeOrigin::signed(account(USER_ACCOUNT)),
+            nonce,
+            payload,
+            created_at,
+            None,
+            None,
+            None,
+            Some(enrollment),
+        ));
+
+        let thumb = zk_pki_pallet::CertsByUser::<Runtime>::iter_prefix(account(USER_ACCOUNT))
+            .next()
+            .map(|(t, _)| t)
+            .expect("chat cert minted");
+
+        // Served by the chat membership path, NOT by the witness path.
+        assert!(
+            ZkPki::membership_witness(thumb).is_some(),
+            "membership_witness must serve a chat cert",
+        );
+        assert!(
+            ZkPki::witness_branch(thumb).is_none(),
+            "witness_branch must not serve a chat cert",
+        );
+        assert!(
+            zk_pki_pallet::WitnessLeafIssuer::<Runtime>::get(thumb).is_none(),
+            "chat cert has no witness routing entry",
+        );
+        // The chat mint created no issuer witness tree.
+        assert_eq!(
+            ZkPki::witness_root(&issuer),
+            empty_root(&KeccakHasher),
+            "chat mint creates no issuer witness tree",
+        );
+    });
+}

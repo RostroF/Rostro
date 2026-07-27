@@ -247,6 +247,10 @@ pub const EPOCH_LENGTH_IN_SLOTS: u32 = 25;
 // (docs/ATTESTOR-QUORUM.md). SessionKeys wire-format change =>
 // GENESIS-BREAKING (like the sassafras add at 106); lands via chain reset,
 // NOT set_code. Also carries ZkPkiApi v4 (signed_checkpoint / issuer_branch).
+// 112 = ZkPkiApi v5: witness_branch(thumbprint) serves the customer's keccak
+// leaf branch within an issuer's witness tree (RWA presentation Phase 3),
+// completing signed_checkpoint -> issuer_branch -> witness_branch. Additive
+// runtime-API method; pure set_code (no wire/genesis change).
 //
 // lab-fast-lifecycle keeps the SAME spec_version but cfg-gates
 // BondingDuration (28→1) + the membership-epoch clock (block/25→block/
@@ -259,7 +263,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gemini"),
 	impl_name: Cow::Borrowed("gemini-runtime"),
 	authoring_version: 1,
-	spec_version: 111,
+	spec_version: 112,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -1917,6 +1921,12 @@ impl_runtime_apis! {
 
 		fn attestor_set() -> Vec<[u8; 20]> {
 			pallet_rostro_attestor::Pallet::<Runtime>::attestor_addresses()
+		}
+
+		fn witness_branch(
+			thumbprint: [u8; 32],
+		) -> Option<zk_pki_primitives::runtime_api::WitnessBranchData<AccountId>> {
+			ZkPki::witness_branch(thumbprint)
 		}
 	}
 }
