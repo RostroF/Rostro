@@ -166,6 +166,7 @@ members = [
 	"substrate/frame/rostro-governance",
 	"substrate/frame/rostro-history-anchor",
 	"substrate/frame/rostro-key-lineage",
+	"substrate/frame/rostro-attestor",
 	"substrate/frame/rostro-keyring",
 	"substrate/frame/rostro-operator-state",
 	"substrate/frame/rostro-proof-anchor",
@@ -707,6 +708,7 @@ pallet-rostro-canonical-files = { path = "substrate/frame/rostro-canonical-files
 pallet-rostro-governance = { path = "substrate/frame/rostro-governance", default-features = false }
 pallet-rostro-history-anchor = { path = "substrate/frame/rostro-history-anchor", default-features = false }
 pallet-rostro-key-lineage = { path = "substrate/frame/rostro-key-lineage", default-features = false }
+pallet-rostro-attestor = { path = "substrate/frame/rostro-attestor", default-features = false }
 pallet-rostro-keyring = { path = "substrate/frame/rostro-keyring", default-features = false }
 pallet-rostro-operator-state = { path = "substrate/frame/rostro-operator-state", default-features = false }
 pallet-rostro-personhood = { path = "substrate/frame/pallet-rostro-personhood", default-features = false }
