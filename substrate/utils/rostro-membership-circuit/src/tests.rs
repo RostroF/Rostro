@@ -1,6 +1,7 @@
 use super::*;
 use ark_relations::r1cs::ConstraintSystem;
-use rostro_membership_tree::{authentication_path, empty_roots, update, MemoryStore};
+use rostro_sparse_merkle::poseidon::PoseidonHasher;
+use rostro_sparse_merkle::{authentication_path, empty_roots, update, MemoryStore};
 use rostro_poseidon_bn254::{hash_leaf, id_commitment, nullifier, params, PoseidonField};
 
 type F = PoseidonField;
@@ -14,7 +15,8 @@ fn index_to_bits(index: u64) -> Vec<bool> {
 /// expiring at block 5000, proven at epoch 15 / anchor block 4000.
 fn valid_circuit() -> MembershipCircuit {
     let p = params();
-    let empties = empty_roots(&p);
+    let h = PoseidonHasher::new();
+    let empties = empty_roots(&h);
     let index = 5u64;
 
     let s = F::from(987_654_321u64);
@@ -24,12 +26,12 @@ fn valid_circuit() -> MembershipCircuit {
     let m_leaf = hash_leaf(&p, idc, expiry_block, scope);
 
     let mut m_store = MemoryStore::new();
-    let m_root = update(&mut m_store, &p, &empties, index, m_leaf);
+    let m_root = update(&mut m_store, &h, &empties, index, m_leaf);
     let m_path = authentication_path(&m_store, &empties, index).to_vec();
 
     let fresh_until = F::from(20u64);
     let mut f_store = MemoryStore::new();
-    let f_root = update(&mut f_store, &p, &empties, index, fresh_until);
+    let f_root = update(&mut f_store, &h, &empties, index, fresh_until);
     let f_path = authentication_path(&f_store, &empties, index).to_vec();
 
     let current_epoch = F::from(15u64);
@@ -126,13 +128,13 @@ fn stale_freshness_fails() {
 fn fresh_exactly_at_current_epoch_ok() {
     // fresh_until == current_epoch is still fresh (inclusive). Rebuild the
     // freshness tree so the leaf equals current_epoch (15).
-    let p = params();
-    let empties = empty_roots(&p);
+    let h = PoseidonHasher::new();
+    let empties = empty_roots(&h);
     let index = 5u64;
     let mut c = valid_circuit();
     let fresh = F::from(15u64);
     let mut f_store = MemoryStore::new();
-    let f_root = update(&mut f_store, &p, &empties, index, fresh);
+    let f_root = update(&mut f_store, &h, &empties, index, fresh);
     c.fresh_until_epoch = Some(fresh);
     c.freshness_root = Some(f_root);
     c.freshness_path = Some(authentication_path(&f_store, &empties, index).to_vec());

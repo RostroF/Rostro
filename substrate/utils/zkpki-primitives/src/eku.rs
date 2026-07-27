@@ -74,6 +74,25 @@ pub enum Eku {
     /// Appended after `SmartContractIssuer` — variant indexes are
     /// live in SCALE-encoded chain state; append-only.
     ChatAuth,
+    /// Witness membership: the cert holds a presentable anonymous
+    /// membership credential (non-chat) — the "approved-to-transact"
+    /// form used for RWA and other relying-party flows.
+    ///
+    /// The declared form of a witness-cert leaf: `mint_witness_cert`
+    /// accepts an enrollment only under a template carrying this EKU,
+    /// and inserts the leaf into the same broad anonymity set
+    /// (`MEMBERSHIP_SCOPE`) as chat — the presentation is bound to a
+    /// relying-party action via the circuit's `challenge`, not by a
+    /// separate scope. Unlike `ChatAuth`, the on-chain cert carries no
+    /// resolvable issuer↔holder edge (the witness path suppresses the
+    /// user/issuer secondary indexes); the leaf is the only footprint.
+    /// Chartering flows through the normal capability chain
+    /// (root → issuer → template); the holder's silicon is checked at
+    /// mint (§5.5), not via the root's own attestation.
+    ///
+    /// Appended after `ChatAuth` — variant indexes are live in
+    /// SCALE-encoded chain state; append-only.
+    WitnessAuth,
 }
 
 impl Eku {
@@ -90,6 +109,7 @@ impl Eku {
                 | Eku::IssuerCert
                 | Eku::RootCert
                 | Eku::ChatAuth
+                | Eku::WitnessAuth
         )
     }
 
@@ -108,6 +128,7 @@ impl Eku {
                 | Eku::ProofOfPersonhood
                 | Eku::SmartContractIssuer
                 | Eku::ChatAuth
+                | Eku::WitnessAuth
         )
     }
 
@@ -119,6 +140,7 @@ impl Eku {
                 | Eku::ProofOfPersonhood
                 | Eku::SmartContractIssuer
                 | Eku::ChatAuth
+                | Eku::WitnessAuth
         )
     }
 }
@@ -133,7 +155,7 @@ mod tests {
     /// reorders or inserts instead of appending.
     #[test]
     fn eku_variant_indexes_are_pinned() {
-        let pins: [(Eku, u8); 11] = [
+        let pins: [(Eku, u8); 12] = [
             (Eku::ServerAuth, 0),
             (Eku::ClientAuth, 1),
             (Eku::CodeSigning, 2),
@@ -145,6 +167,7 @@ mod tests {
             (Eku::RootCert, 8),
             (Eku::SmartContractIssuer, 9),
             (Eku::ChatAuth, 10),
+            (Eku::WitnessAuth, 11),
         ];
         for (eku, index) in pins {
             assert_eq!(eku.encode(), vec![index], "{eku:?} index drifted");
@@ -160,5 +183,18 @@ mod tests {
         // on the enrollment itself is the hardware check, so PoP-free
         // templates may carry ChatAuth (e.g. lab desktop mints).
         assert!(!Eku::ChatAuth.implies_pop_required());
+    }
+
+    #[test]
+    fn witness_auth_capability_plumbing() {
+        // WitnessAuth is a full sibling of ChatAuth in the charter chain:
+        // an issuer can only grant it if its own cert carries it, and it
+        // is delegable at root and issuer tiers.
+        assert!(Eku::WitnessAuth.requires_issuer_capability());
+        assert!(Eku::WitnessAuth.valid_for_root());
+        assert!(Eku::WitnessAuth.valid_for_issuer());
+        // Same silicon-gate reasoning as ChatAuth: the §5.5 hardware
+        // check is on the enrollment, not forced via the template.
+        assert!(!Eku::WitnessAuth.implies_pop_required());
     }
 }

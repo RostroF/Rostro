@@ -1,9 +1,10 @@
 use super::*;
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 use rostro_membership_circuit::{groth16 as circuit_groth16, MembershipCircuit};
-use rostro_membership_tree::{authentication_path, empty_roots, update, MemoryStore, DEPTH};
+use rostro_sparse_merkle::poseidon::PoseidonHasher;
+use rostro_sparse_merkle::{authentication_path, empty_roots, update, MemoryStore, DEPTH};
 use rostro_poseidon_bn254::{
-    fr_to_bytes_le, hash_leaf, id_commitment, nullifier as poseidon_nullifier, params,
+    fr_to_bytes_le, hash_leaf, id_commitment, nullifier as poseidon_nullifier,
     PoseidonField as F,
 };
 use std::collections::HashSet;
@@ -55,7 +56,7 @@ fn build(
     rng: &mut StdRng,
     session_pubkey: &[u8],
 ) -> (HandshakeRequest, [u8; 32], [u8; 32]) {
-    let p = params();
+    let p = PoseidonHasher::new();
     let empties = empty_roots(&p);
     let index = 5u64;
 

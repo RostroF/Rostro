@@ -17,7 +17,7 @@ p256              = { workspace = true, features = ["std"] }
 # Membership-tree integration test: build reference leaves/roots and compare
 # against the pallet's storage-backed tree.
 rostro-poseidon-bn254  = { workspace = true, default-features = true }
-rostro-membership-tree = { workspace = true, default-features = true }
+rostro-sparse-merkle = { workspace = true, default-features = true }
 
 [dependencies]
 codec             = { features = ["derive"], workspace = true }

@@ -52,10 +52,17 @@ pub mod pallet {
     use zk_pki_tpm::{
         verify_chat_enrollment, AttestationPayloadV3, BindingProofVerifier, ChatEnrollment,
     };
-    use rostro_membership_tree::{
-        authentication_path, empty_leaf, empty_root, empty_roots, update as smt_update,
-        NodeStore, CAPACITY as MEMBERSHIP_CAPACITY,
+    // Shared sparse-merkle math, one algorithm generic over a hasher. Chat's
+    // anonymity set uses the Poseidon hasher (SNARK-verified); the per-issuer
+    // witness trees use the keccak hasher (a foreign contract walks the branch
+    // with the native keccak opcode). `update`/`empty_roots`/`empty_root` take
+    // the hasher; `empty_leaf` is a method on it.
+    use rostro_sparse_merkle::{
+        authentication_path, empty_root, empty_roots, update, Hasher, NodeStore,
+        CAPACITY as MEMBERSHIP_CAPACITY,
     };
+    use rostro_sparse_merkle::keccak::{self, KeccakHasher};
+    use rostro_sparse_merkle::poseidon::PoseidonHasher;
     use rostro_poseidon_bn254::{
         fr_from_canonical_bytes_le, fr_to_bytes_le, hash_leaf, params as poseidon_params,
         PoseidonField as MembershipFr,
@@ -438,7 +445,7 @@ pub mod pallet {
     /// canonical decode.
     pub struct MembershipNodeStore<T>(core::marker::PhantomData<T>);
 
-    impl<T: Config> NodeStore for MembershipNodeStore<T> {
+    impl<T: Config> NodeStore<MembershipFr> for MembershipNodeStore<T> {
         fn get(&self, level: u8, index: u64) -> Option<MembershipFr> {
             MembershipNodes::<T>::get((level, index)).and_then(|b| fr_from_canonical_bytes_le(&b))
         }
@@ -470,31 +477,29 @@ pub mod pallet {
 
         /// Insert `leaf`, returning its index, or `None` if the tree is full.
         pub fn membership_insert(leaf: MembershipFr) -> Option<u64> {
-            let params = poseidon_params();
-            let empties = empty_roots(&params);
+            let hasher = PoseidonHasher::new();
+            let empties = empty_roots(&hasher);
             let index = Self::membership_alloc_slot()?;
             let mut store = MembershipNodeStore::<T>(core::marker::PhantomData);
-            let root = smt_update(&mut store, &params, &empties, index, leaf);
+            let root = update(&mut store, &hasher, &empties, index, leaf);
             Self::membership_commit_root(fr_to_bytes_le(&root));
             Some(index)
         }
 
         /// Clear the leaf at `index`, returning the slot to the free-list.
         pub fn membership_remove(index: u64) {
-            let params = poseidon_params();
-            let empties = empty_roots(&params);
+            let hasher = PoseidonHasher::new();
+            let empties = empty_roots(&hasher);
             let mut store = MembershipNodeStore::<T>(core::marker::PhantomData);
-            let root = smt_update(&mut store, &params, &empties, index, empty_leaf());
+            let root = update(&mut store, &hasher, &empties, index, hasher.empty_leaf());
             Self::membership_free_slot(index);
             Self::membership_commit_root(fr_to_bytes_le(&root));
         }
 
         /// The current membership root, or the empty-tree root before any leaf.
         pub fn membership_root() -> [u8; 32] {
-            MembershipRoot::<T>::get().unwrap_or_else(|| {
-                let params = poseidon_params();
-                fr_to_bytes_le(&empty_root(&params))
-            })
+            MembershipRoot::<T>::get()
+                .unwrap_or_else(|| fr_to_bytes_le(&empty_root(&PoseidonHasher::new())))
         }
 
         /// Whether `root` is the current root or within the recent-root ring.
@@ -520,12 +525,18 @@ pub mod pallet {
         /// caller's cert to the serving node) is documented on
         /// [`MembershipWitnessData`].
         pub fn membership_witness(thumbprint: [u8; 32]) -> Option<MembershipWitnessData> {
+            // This serves the global chat tree only. A witness cert's leaf
+            // lives in its issuer's tree; serving that path (against the
+            // issuer's root) is Phase 2, so short-circuit here rather than walk
+            // the wrong tree and return a path that verifies against nothing.
+            if WitnessLeafIssuer::<T>::contains_key(thumbprint) {
+                return None;
+            }
             let cold = CertLookupCold::<T>::get(thumbprint)?;
             let index = cold.leaf_position?;
             let hot = CertLookupHot::<T>::get(thumbprint)?;
 
-            let params = poseidon_params();
-            let empties = empty_roots(&params);
+            let empties = empty_roots(&PoseidonHasher::new());
 
             let m_store = MembershipNodeStore::<T>(core::marker::PhantomData);
             let f_store = FreshnessNodeStore::<T>(core::marker::PhantomData);
@@ -638,7 +649,7 @@ pub mod pallet {
     /// NodeStore adapter binding the freshness tree to storage.
     pub struct FreshnessNodeStore<T>(core::marker::PhantomData<T>);
 
-    impl<T: Config> NodeStore for FreshnessNodeStore<T> {
+    impl<T: Config> NodeStore<MembershipFr> for FreshnessNodeStore<T> {
         fn get(&self, level: u8, index: u64) -> Option<MembershipFr> {
             FreshnessNodes::<T>::get((level, index)).and_then(|b| fr_from_canonical_bytes_le(&b))
         }
@@ -667,29 +678,27 @@ pub mod pallet {
         /// `leaf >= current_epoch` directly. Used at enrollment and by Phase 1
         /// HIP continuity.
         pub fn freshness_set(index: u64, fresh_until_epoch: u32) {
-            let params = poseidon_params();
-            let empties = empty_roots(&params);
+            let hasher = PoseidonHasher::new();
+            let empties = empty_roots(&hasher);
             let mut store = FreshnessNodeStore::<T>(core::marker::PhantomData);
             let leaf = MembershipFr::from(fresh_until_epoch as u64);
-            let root = smt_update(&mut store, &params, &empties, index, leaf);
+            let root = update(&mut store, &hasher, &empties, index, leaf);
             Self::freshness_commit_root(fr_to_bytes_le(&root));
         }
 
         /// Clear the freshness leaf at `index` (cert removed).
         pub fn freshness_remove(index: u64) {
-            let params = poseidon_params();
-            let empties = empty_roots(&params);
+            let hasher = PoseidonHasher::new();
+            let empties = empty_roots(&hasher);
             let mut store = FreshnessNodeStore::<T>(core::marker::PhantomData);
-            let root = smt_update(&mut store, &params, &empties, index, empty_leaf());
+            let root = update(&mut store, &hasher, &empties, index, hasher.empty_leaf());
             Self::freshness_commit_root(fr_to_bytes_le(&root));
         }
 
         /// Current freshness root, or the empty-tree root before any leaf.
         pub fn freshness_root() -> [u8; 32] {
-            FreshnessRoot::<T>::get().unwrap_or_else(|| {
-                let params = poseidon_params();
-                fr_to_bytes_le(&empty_root(&params))
-            })
+            FreshnessRoot::<T>::get()
+                .unwrap_or_else(|| fr_to_bytes_le(&empty_root(&PoseidonHasher::new())))
         }
 
         /// Whether `root` is the current freshness root or within its ring.
@@ -711,6 +720,257 @@ pub mod pallet {
                 }
                 let _ = h.try_push(root);
             });
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Witness membership trees — one PER ISSUER (not a single global tree).
+    // A witness cert's leaf lives only in its issuer's tree, so a relying
+    // party pins that issuer's root as its trust anchor (verified up the
+    // charter chain) and a membership proof establishes "a customer of issuer
+    // B" without revealing which customer. Storage mirrors the chat tree but
+    // is issuer-keyed; the tree math (rostro-membership-tree) is reused as-is.
+    // Kept fully separate from the global chat tree so chat's max-anonymity
+    // design is undisturbed.
+    // -----------------------------------------------------------------------
+
+    /// Domain scope committed into every witness leaf, distinct from chat's
+    /// `MEMBERSHIP_SCOPE` so a presentation cannot cross the chat/witness
+    /// domain boundary. Per-issuer separation is by tree (root), not scope.
+    const WITNESS_SCOPE: u64 = 2;
+
+    /// Sparse occupied witness-tree nodes: `(issuer, level, index)` → field
+    /// bytes. Missing entry = empty-subtree root for that level.
+    #[pallet::storage]
+    pub type WitnessNodes<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Blake2_128Concat, (u8, u64), [u8; 32], OptionQuery>;
+
+    /// Current witness-tree root per issuer. `None` before the issuer's first
+    /// witness leaf — readers fall back to the empty-tree root.
+    #[pallet::storage]
+    pub type WitnessRoot<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, [u8; 32], OptionQuery>;
+
+    /// Per-issuer next never-used leaf index (high-water mark).
+    #[pallet::storage]
+    pub type WitnessNextIndex<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
+    /// Per-issuer free-list stack: `(issuer, stack position)` → leaf index.
+    #[pallet::storage]
+    pub type WitnessFreeSlots<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Blake2_128Concat, u32, u64, OptionQuery>;
+
+    /// Per-issuer count of entries on the free-list stack.
+    #[pallet::storage]
+    pub type WitnessFreeCount<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
+
+    /// Per-issuer recent-root ring (newest last), bounded at
+    /// [`MEMBERSHIP_ROOT_HISTORY`].
+    #[pallet::storage]
+    pub type WitnessRootHistory<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, BoundedVec<[u8; 32], ConstU32<MEMBERSHIP_ROOT_HISTORY>>, ValueQuery>;
+
+    /// Per-issuer witness freshness-tree nodes (shares the membership index
+    /// space, exactly as the chat freshness tree does).
+    #[pallet::storage]
+    pub type WitnessFreshnessNodes<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Blake2_128Concat, (u8, u64), [u8; 32], OptionQuery>;
+
+    /// Current witness freshness root per issuer.
+    #[pallet::storage]
+    pub type WitnessFreshnessRoot<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, [u8; 32], OptionQuery>;
+
+    /// Per-issuer recent witness-freshness-root ring.
+    #[pallet::storage]
+    pub type WitnessFreshnessRootHistory<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, BoundedVec<[u8; 32], ConstU32<MEMBERSHIP_ROOT_HISTORY>>, ValueQuery>;
+
+    /// Routing index for a witness cert's leaf: `thumbprint → issuer` whose
+    /// tree holds the leaf. Populated at witness mint, read at teardown so the
+    /// leaf is cleared from the correct issuer's tree even on the orphaned-cold
+    /// reap path (no hot record). Reveals only thumbprint↔issuer, consistent
+    /// with the named-issuer model (the tree is already issuer-keyed); it
+    /// carries no user link.
+    #[pallet::storage]
+    pub type WitnessLeafIssuer<T: Config> =
+        StorageMap<_, Blake2_128Concat, Thumbprint, T::AccountId, OptionQuery>;
+
+    /// NodeStore adapter binding an issuer's witness tree to storage.
+    pub struct WitnessNodeStore<T: Config>(T::AccountId);
+
+    impl<T: Config> NodeStore<[u8; 32]> for WitnessNodeStore<T> {
+        fn get(&self, level: u8, index: u64) -> Option<[u8; 32]> {
+            WitnessNodes::<T>::get(&self.0, (level, index))
+        }
+        fn set(&mut self, level: u8, index: u64, value: [u8; 32]) {
+            WitnessNodes::<T>::insert(&self.0, (level, index), value);
+        }
+        fn clear(&mut self, level: u8, index: u64) {
+            WitnessNodes::<T>::remove(&self.0, (level, index));
+        }
+    }
+
+    /// NodeStore adapter binding an issuer's witness freshness tree to storage.
+    pub struct WitnessFreshnessNodeStore<T: Config>(T::AccountId);
+
+    impl<T: Config> NodeStore<[u8; 32]> for WitnessFreshnessNodeStore<T> {
+        fn get(&self, level: u8, index: u64) -> Option<[u8; 32]> {
+            WitnessFreshnessNodes::<T>::get(&self.0, (level, index))
+        }
+        fn set(&mut self, level: u8, index: u64, value: [u8; 32]) {
+            WitnessFreshnessNodes::<T>::insert(&self.0, (level, index), value);
+        }
+        fn clear(&mut self, level: u8, index: u64) {
+            WitnessFreshnessNodes::<T>::remove(&self.0, (level, index));
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// Witness leaf value: `keccak256(id_commitment ++ expiry_be ++
+        /// scope_be)`. `id_commitment` is the raw 32-byte hardware-bound
+        /// commitment from enrollment (its Poseidon-ness is irrelevant here —
+        /// the witness tree is keccak so a foreign verifier can reconstruct
+        /// this with `abi.encodePacked`).
+        pub fn witness_leaf_value(
+            id_commitment: &[u8; 32],
+            expiry_block: BlockNumberFor<T>,
+        ) -> [u8; 32] {
+            let expiry: u64 = expiry_block.unique_saturated_into();
+            keccak::hash_leaf(id_commitment, expiry, WITNESS_SCOPE)
+        }
+
+        /// Allocate a leaf slot in `issuer`'s witness tree (reuse a freed slot
+        /// or extend the high-water mark). `None` if the tree is full.
+        fn witness_alloc_slot(issuer: &T::AccountId) -> Option<u64> {
+            let count = WitnessFreeCount::<T>::get(issuer);
+            if count > 0 {
+                let pos = count - 1;
+                if let Some(slot) = WitnessFreeSlots::<T>::take(issuer, pos) {
+                    WitnessFreeCount::<T>::insert(issuer, pos);
+                    return Some(slot);
+                }
+            }
+            let next = WitnessNextIndex::<T>::get(issuer);
+            if next >= MEMBERSHIP_CAPACITY {
+                return None;
+            }
+            WitnessNextIndex::<T>::insert(issuer, next + 1);
+            Some(next)
+        }
+
+        /// Return a slot to `issuer`'s free-list stack.
+        fn witness_free_slot(issuer: &T::AccountId, index: u64) {
+            let count = WitnessFreeCount::<T>::get(issuer);
+            WitnessFreeSlots::<T>::insert(issuer, count, index);
+            WitnessFreeCount::<T>::insert(issuer, count + 1);
+        }
+
+        /// Persist `issuer`'s new witness root and append to its recent ring.
+        fn witness_commit_root(issuer: &T::AccountId, root: [u8; 32]) {
+            WitnessRoot::<T>::insert(issuer, root);
+            WitnessRootHistory::<T>::mutate(issuer, |h| {
+                if h.last() == Some(&root) {
+                    return;
+                }
+                if h.len() as u32 >= MEMBERSHIP_ROOT_HISTORY {
+                    let _ = h.remove(0);
+                }
+                let _ = h.try_push(root);
+            });
+        }
+
+        /// Insert `leaf` into `issuer`'s witness tree, returning its index, or
+        /// `None` if the tree is full.
+        pub fn witness_insert(issuer: &T::AccountId, leaf: [u8; 32]) -> Option<u64> {
+            let hasher = KeccakHasher;
+            let empties = empty_roots(&hasher);
+            let index = Self::witness_alloc_slot(issuer)?;
+            let mut store = WitnessNodeStore::<T>(issuer.clone());
+            let root = update(&mut store, &hasher, &empties, index, leaf);
+            Self::witness_commit_root(issuer, root);
+            Some(index)
+        }
+
+        /// Clear the leaf at `index` in `issuer`'s witness tree, freeing the slot.
+        pub fn witness_remove(issuer: &T::AccountId, index: u64) {
+            let hasher = KeccakHasher;
+            let empties = empty_roots(&hasher);
+            let mut store = WitnessNodeStore::<T>(issuer.clone());
+            let root = update(&mut store, &hasher, &empties, index, hasher.empty_leaf());
+            Self::witness_free_slot(issuer, index);
+            Self::witness_commit_root(issuer, root);
+        }
+
+        /// `issuer`'s current witness root, or the empty-tree root before any leaf.
+        pub fn witness_root(issuer: &T::AccountId) -> [u8; 32] {
+            WitnessRoot::<T>::get(issuer).unwrap_or_else(|| empty_root(&KeccakHasher))
+        }
+
+        /// Whether `root` is `issuer`'s current witness root or within its ring.
+        pub fn witness_root_recent(issuer: &T::AccountId, root: &[u8; 32]) -> bool {
+            if Self::witness_root(issuer) == *root {
+                return true;
+            }
+            WitnessRootHistory::<T>::get(issuer).iter().any(|r| r == root)
+        }
+
+        /// Set/bump the witness freshness leaf at `index` in `issuer`'s tree.
+        pub fn witness_freshness_set(issuer: &T::AccountId, index: u64, fresh_until_epoch: u32) {
+            let hasher = KeccakHasher;
+            let empties = empty_roots(&hasher);
+            let mut store = WitnessFreshnessNodeStore::<T>(issuer.clone());
+            // The freshness leaf IS the epoch (a value leaf), so a verifier can
+            // read `fresh_until_epoch` off the branch and check `>= current`.
+            let leaf = keccak::value_leaf(fresh_until_epoch as u64);
+            let root = update(&mut store, &hasher, &empties, index, leaf);
+            Self::witness_freshness_commit_root(issuer, root);
+        }
+
+        /// Clear the witness freshness leaf at `index` in `issuer`'s tree.
+        pub fn witness_freshness_remove(issuer: &T::AccountId, index: u64) {
+            let hasher = KeccakHasher;
+            let empties = empty_roots(&hasher);
+            let mut store = WitnessFreshnessNodeStore::<T>(issuer.clone());
+            let root = update(&mut store, &hasher, &empties, index, hasher.empty_leaf());
+            Self::witness_freshness_commit_root(issuer, root);
+        }
+
+        /// `issuer`'s current witness freshness root, or the empty-tree root.
+        pub fn witness_freshness_root(issuer: &T::AccountId) -> [u8; 32] {
+            WitnessFreshnessRoot::<T>::get(issuer).unwrap_or_else(|| empty_root(&KeccakHasher))
+        }
+
+        fn witness_freshness_commit_root(issuer: &T::AccountId, root: [u8; 32]) {
+            WitnessFreshnessRoot::<T>::insert(issuer, root);
+            WitnessFreshnessRootHistory::<T>::mutate(issuer, |h| {
+                if h.last() == Some(&root) {
+                    return;
+                }
+                if h.len() as u32 >= MEMBERSHIP_ROOT_HISTORY {
+                    let _ = h.remove(0);
+                }
+                let _ = h.try_push(root);
+            });
+        }
+
+        /// Clear a cert's membership + freshness leaf from whichever tree holds
+        /// it: a witness cert's issuer tree (routed via [`WitnessLeafIssuer`])
+        /// or the global chat tree. Uniform across all teardown paths,
+        /// including orphaned-cold reap where no hot record is available.
+        fn remove_membership_leaf(thumbprint: Thumbprint, pos: u64) {
+            match WitnessLeafIssuer::<T>::take(thumbprint) {
+                Some(issuer) => {
+                    Self::witness_remove(&issuer, pos);
+                    Self::witness_freshness_remove(&issuer, pos);
+                }
+                None => {
+                    Self::membership_remove(pos);
+                    Self::freshness_remove(pos);
+                }
+            }
         }
     }
 
@@ -960,6 +1220,10 @@ pub mod pallet {
         ContractOffered { issuer: T::AccountId, user: T::AccountId, nonce: [u8; 32], expiry_block: BlockNumberFor<T> },
         ContractReplaced { issuer: T::AccountId, user: T::AccountId, old_nonce: [u8; 32], new_nonce: [u8; 32] },
         CertMinted { thumbprint: Thumbprint, user: T::AccountId, issuer: T::AccountId },
+        /// An anonymous witness cert was minted. Deliberately carries only
+        /// the thumbprint: naming `user`/`issuer` here would re-create in the
+        /// event log the very issuer<->holder edge the witness path suppresses.
+        WitnessCertMinted { thumbprint: Thumbprint },
         /// TEST HARNESS ONLY: a membership leaf was directly enrolled at `index`.
         #[cfg(feature = "test-harness")]
         TestMembershipEnrolled { index: u64, expiry_block: BlockNumberFor<T> },
@@ -1327,6 +1591,13 @@ pub mod pallet {
         /// template), not a device-class side effect — an unchartered
         /// enrollment is a hard reject, never a silent skip.
         ChatEnrollmentNotPermittedByTemplate,
+        /// A witness cert was requested but the template does not grant the
+        /// `WitnessAuth` EKU. The witness-membership charter must flow through
+        /// root -> issuer -> template, same as chat.
+        WitnessAuthNotPermittedByTemplate,
+        /// `mint_witness_cert` was reached without an enrollment. A witness
+        /// cert IS its membership leaf, so enrollment is mandatory.
+        WitnessEnrollmentRequired,
     }
 
     // ---------------------------------------------------------------------------
@@ -1840,21 +2111,8 @@ pub mod pallet {
         /// longer carried as an extrinsic parameter.
         #[pallet::call_index(3)]
         #[pallet::weight(T::WeightInfo::mint_cert())]
-        // mint_cert parameter notes:
-        //   * `hip_proof_at_genesis` — required for PoP certs
-        //     (template's `pop_requirement == Required`); `None` is
-        //     accepted for non-PoP certs and ignored. The verifier
-        //     runs internal consistency checks only — there's no
-        //     prior fingerprint to compare against at genesis.
-        //   * `commitment_c` — required exactly when the template's
-        //     `pop_mechanism == Some(MimeWrap)`; rejected with
-        //     `MimeWrapCommitmentNotApplicable` for any other case.
-        //   * `ec_key_pub_claimed` — Paseo tripwire (option B): the
-        //     chain re-derives the same value from
-        //     `cert.cold.cert_ec_pubkey` (canonicalize SEC1 → DER
-        //     SPKI, then SHA256) and asserts equality. Mainnet
-        //     (option A) drops this parameter and chain-derives
-        //     only. See `ZK-PKI ec_key_pub Binding` memory.
+        /// Mint a standard, publicly-resolvable end-user cert (writes the
+        /// issuer/user secondary indexes). Shared body in `mint_cert_inner`.
         pub fn mint_cert(
             origin: OriginFor<T>,
             contract_nonce: [u8; 32],
@@ -1865,476 +2123,47 @@ pub mod pallet {
             ec_key_pub_claimed: Option<[u8; 32]>,
             chat_enrollment: Option<ChatEnrollment>,
         ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            let offer = ContractOffers::<T>::get(contract_nonce)
-                .ok_or(Error::<T>::OfferNotFound)?;
-            ensure!(offer.user == who, Error::<T>::NotOfferRecipient);
-            ensure!(
-                offer_created_at_block == offer.created_at,
-                Error::<T>::OfferCreatedAtMismatch,
-            );
-            let now = <frame_system::Pallet<T>>::block_number();
-            ensure!(now < offer.expiry_block, Error::<T>::ContractExpired);
-            let ui_key = UserIssuerKey::new(who.clone(), offer.issuer.clone());
-            ensure!(!UserIssuerIndex::<T>::contains_key(&ui_key), Error::<T>::UserAlreadyHasCertFromIssuer);
-            Self::enforce_challenge_deadline_issuer(&offer.issuer, now);
-            let issuer_rec = Issuers::<T>::get(&offer.issuer).ok_or(Error::<T>::NotAnIssuer)?;
-            let issuer_cert = CertLookupHot::<T>::get(issuer_rec.cert_thumbprint).ok_or(Error::<T>::CertNotFound)?;
-            ensure!(now < issuer_cert.expiry_block, Error::<T>::CertExpired);
-            Self::enforce_challenge_deadline_root(&issuer_rec.root, now);
-            let root_rec = Roots::<T>::get(&issuer_rec.root).ok_or(Error::<T>::NotARoot)?;
-            let root_cert = CertLookupHot::<T>::get(root_rec.cert_thumbprint).ok_or(Error::<T>::CertNotFound)?;
-            ensure!(now < root_cert.expiry_block, Error::<T>::CertExpired);
-            let expiry_block = now.saturating_add(offer.ttl_blocks);
-            ensure!(expiry_block <= issuer_cert.expiry_block, Error::<T>::ExpiryExceedsParent);
-
-            // Template re-check at mint. The issuer may have discarded
-            // the referenced template between offer and mint; that
-            // signals they no longer stand behind this class and the
-            // mint must fail so the user doesn't end up with a cert
-            // whose policy is already orphaned. We hold the template
-            // record for PoP enforcement and the issued_count bump below.
-            let template = CertTemplates::<T>::get(&offer.issuer, &offer.template_name)
-                .ok_or(Error::<T>::TemplateNotFound)?;
-
-            // TODO-3 binding-proof verification. The verified result
-            // carries everything we need to write the cert record —
-            // the cert_ec pubkey, the EK hash for dedup, the
-            // attestation type, and the manufacturer-verified flag.
-            // Offer-nonce-is-challenge: `contract_nonce` is passed
-            // directly; no derivation.
-            let verified = T::BindingProofVerifier::verify(
-                &attestation_payload,
-                &contract_nonce,
-                offer.created_at.unique_saturated_into(),
-                offer.expiry_block.unique_saturated_into(),
+            Self::mint_cert_inner(
+                ensure_signed(origin)?,
+                contract_nonce,
+                attestation_payload,
+                offer_created_at_block,
+                hip_proof_at_genesis,
+                commitment_c,
+                ec_key_pub_claimed,
+                chat_enrollment,
+                Disclosure::Public,
             )
-            .map_err(|_| Error::<T>::AttestationInvalid)?;
+        }
 
-            ensure!(verified.cert_ec_pubkey.is_valid(), Error::<T>::InvalidPublicKey);
-
-            let att_type = verified.attestation_type.clone();
-            let ek_hash = verified.ek_hash;
-            let device_pubkey = verified.cert_ec_pubkey.clone();
-
-            // PoP enforcement per the template's declared policy. A
-            // template marked Required accepts only AttestationType::Tpm;
-            // NotRequired waives the check entirely.
-            if matches!(template.pop_requirement, PopRequirement::Required)
-                && att_type != AttestationType::Tpm
-            {
-                return Err(Error::<T>::PopRequired.into());
-            }
-
-            // Chat membership enrollment (optional). If present, verify the
-            // id_commitment is bound to the same attested silicon (the
-            // attest_ec key the attestation just proved) for this offer
-            // nonce, and is a canonical field element. The leaf is built now
-            // and inserted with the cert record below, so it only ever
-            // enters the tree if the whole mint commits.
-            let membership_leaf: Option<MembershipFr> = match chat_enrollment.as_ref() {
-                Some(enrollment) => {
-                    // Charter gate: membership-tree admission requires the
-                    // template to grant the ChatAuth EKU, which itself flows
-                    // through the root → issuer capability-subset checks.
-                    // This is the policy half of the EKU ⇔ leaf invariant;
-                    // the stamping half is at the cert-record write below.
-                    ensure!(
-                        template.ekus.iter().any(|e| *e == Eku::ChatAuth),
-                        Error::<T>::ChatEnrollmentNotPermittedByTemplate,
-                    );
-                    // §5.5 device-integrity gate: only StrongBox-grade, intact
-                    // silicon may bind a membership commitment.
-                    // `attestation_type == Tpm` is `is_pop_eligible`: StrongBox
-                    // security level on both keys AND bootloader locked AND
-                    // verified boot. The binding key shares this RootOfTrust,
-                    // so this gates the silicon the id_commitment is bound to.
-                    // (Key non-exportability, origin==GENERATED, is the
-                    // remaining §5.5 item, pending a parser extension.)
-                    ensure!(
-                        att_type == AttestationType::Tpm,
-                        Error::<T>::ChatEnrollmentInsecureDevice,
-                    );
-                    // §5.5 non-exportability: the binding key (attest_ec) must
-                    // be hardware-generated (origin == GENERATED), so its
-                    // private material was never imported and cannot have
-                    // existed outside the secure element.
-                    ensure!(
-                        verified.attest_ec_origin_generated,
-                        Error::<T>::ChatEnrollmentKeyNotHardwareGenerated,
-                    );
-                    verify_chat_enrollment(
-                        enrollment,
-                        &verified.attest_ec_pubkey,
-                        &contract_nonce,
-                    )
-                    .map_err(|_| Error::<T>::ChatEnrollmentInvalid)?;
-                    let id_commitment = fr_from_canonical_bytes_le(&enrollment.id_commitment)
-                        .ok_or(Error::<T>::IdCommitmentNotCanonical)?;
-                    Some(Self::membership_leaf_value(id_commitment, expiry_block))
-                }
-                None => None,
-            };
-
-            // HIP genesis recording. For PoP templates we require a
-            // `CanonicalHipProof` and verify it internally (no prior
-            // fingerprint to compare against at genesis). The
-            // returned fingerprint is pinned onto the Cold record so
-            // future HIP-gated extrinsics have a baseline. Non-PoP
-            // templates accept `None` and don't record anything.
-            let genesis_fingerprint: Option<GenesisHardwareFingerprint> =
-                if matches!(template.pop_requirement, PopRequirement::Required) {
-                    let proof = hip_proof_at_genesis
-                        .as_ref()
-                        .ok_or(Error::<T>::HipProofRequired)?;
-                    // Verify the proof's crypto before recording anything.
-                    // Same call for both Tpm2 and StrongBox variants —
-                    // dispatch lives inside the hip crate.
-                    zk_pki_hip::verify_hip_proof_internal(proof)
-                        .map_err(|_| Error::<T>::HipProofInvalid)?;
-                    // Derive a matching genesis fingerprint variant.
-                    // StrongBox's RootOfTrust / patch fields are `None`
-                    // this pass — X.509 chain parsing is deferred to
-                    // the seal-break taxonomy session, at which point
-                    // the mint path will populate real values and the
-                    // compare logic will begin enforcing them.
-                    Some(match proof {
-                        CanonicalHipProof::Tpm2(p) => {
-                            GenesisHardwareFingerprint::Tpm2(Tpm2GenesisFingerprint {
-                                flavor: p.flavor,
-                                ek_hash: p.ek_hash,
-                                aik_public_hash: sp_io::hashing::blake2_256(
-                                    p.aik_public.as_slice(),
-                                ),
-                                pcr_values: p.pcr_values.clone(),
-                                schema_version: CURRENT_SCHEMA_VERSION,
-                            })
-                        }
-                        CanonicalHipProof::StrongBox(p) => {
-                            let mut binding_input = [0u8; 64];
-                            binding_input[..32].copy_from_slice(&p.hmac_binding_output);
-                            binding_input[32..].copy_from_slice(&p.nonce);
-                            GenesisHardwareFingerprint::StrongBox(
-                                StrongBoxGenesisFingerprint {
-                                    cert_ec_public_hash: sp_io::hashing::blake2_256(
-                                        &p.cert_ec_public,
-                                    ),
-                                    attest_ec_public_hash: sp_io::hashing::blake2_256(
-                                        &p.attest_ec_public,
-                                    ),
-                                    hmac_binding_commitment:
-                                        sp_io::hashing::blake2_256(&binding_input),
-                                    root_of_trust: None,
-                                    os_patch_level: None,
-                                    boot_patch_level: None,
-                                    vendor_patch_level: None,
-                                    schema_version: CURRENT_SCHEMA_VERSION,
-                                },
-                            )
-                        }
-                    })
-                } else {
-                    None
-                };
-
-            // ── Mime-wrap PoP path (Android StrongBox tier) ──
-            //
-            // Validate the `commitment_c` / `ec_key_pub_claimed`
-            // arguments against the template's `pop_mechanism`,
-            // platform-gate the mechanism against the attestation
-            // chain, derive ec_key_pub from the verified cert pubkey,
-            // and assert the equality tripwire (Paseo phase, option
-            // B). On success, the pair is stored in
-            // `MimeWrapCommitments` after the thumbprint is
-            // computed below.
-            //
-            // The match below also rejects cross-tier requests:
-            // a HipSigned template with a StrongBox proof, or a
-            // MimeWrap template with a Tpm2 proof, fail before any
-            // state changes.
-            let mime_wrap_pair: Option<([u8; 32], [u8; 32])> =
-                match template.pop_mechanism {
-                    Some(PopMechanism::MimeWrap) => {
-                        // Required: commitment_c and ec_key_pub_claimed.
-                        let commitment = commitment_c
-                            .ok_or(Error::<T>::MimeWrapCommitmentRequired)?;
-                        let claimed = ec_key_pub_claimed
-                            .ok_or(Error::<T>::MimeWrapCommitmentRequired)?;
-
-                        // Platform gate. MimeWrap permitted only on
-                        // StrongBox; Tpm2 is a category error.
-                        let platform = hip_proof_at_genesis
-                            .as_ref()
-                            .map(HipPlatform::from_proof)
-                            .ok_or(Error::<T>::HipProofRequired)?;
-                        ensure!(
-                            matches!(platform, HipPlatform::StrongBox),
-                            Error::<T>::MimeWrapNotPermittedOnTpm2,
-                        );
-
-                        // Tripwire: re-derive ec_key_pub from the
-                        // verified device pubkey and assert equality
-                        // with the client-supplied value. Mismatch
-                        // means dotwave/pallet canonicalization specs
-                        // have drifted, or the caller is attempting
-                        // to bind a fake ec_key_pub to a real cert.
-                        let derived = crate::mime_wrap::derive_ec_key_pub_p256(
-                            device_pubkey.key_bytes.as_slice(),
-                        )
-                        .ok_or(Error::<T>::MimeWrapEcKeyPubMismatch)?;
-                        ensure!(
-                            derived == claimed,
-                            Error::<T>::MimeWrapEcKeyPubMismatch,
-                        );
-
-                        Some((commitment, derived))
-                    }
-                    Some(PopMechanism::HipSigned) => {
-                        // HipSigned permitted only on Tpm2; StrongBox
-                        // would re-introduce the HMAC-binding
-                        // weakness MimeWrap was designed to mask.
-                        let platform = hip_proof_at_genesis
-                            .as_ref()
-                            .map(HipPlatform::from_proof)
-                            .ok_or(Error::<T>::HipProofRequired)?;
-                        ensure!(
-                            !matches!(platform, HipPlatform::StrongBox),
-                            Error::<T>::HipSignedNotPermittedOnStrongBox,
-                        );
-                        // Mime-wrap fields not applicable on this
-                        // path; surface explicitly rather than
-                        // silently dropping them.
-                        ensure!(
-                            commitment_c.is_none() && ec_key_pub_claimed.is_none(),
-                            Error::<T>::MimeWrapCommitmentNotApplicable,
-                        );
-                        None
-                    }
-                    None => {
-                        // Non-PoP template: no mechanism, no mime-wrap
-                        // fields permitted.
-                        ensure!(
-                            commitment_c.is_none() && ec_key_pub_claimed.is_none(),
-                            Error::<T>::MimeWrapCommitmentNotApplicable,
-                        );
-                        None
-                    }
-                };
-
-            // EK deduplication: only applies to PoP-eligible
-            // (`AttestationType::Tpm`) certs. Packed or None verdicts
-            // skip the registry entirely — they're explicitly not
-            // hardware-bound identities, so minting a second Packed
-            // cert with the same EK hash is not a duplication
-            // violation.
-            // Root-scoped lookup: the end-user cert is anchored
-            // under `issuer_rec.root`, so that's the trust domain
-            // whose EK registry we consult. Two different roots
-            // certifying the same device is allowed by design.
-            if att_type.is_pop_eligible() {
-                ensure!(
-                    !EkRegistry::<T>::contains_key(&issuer_rec.root, ek_hash),
-                    Error::<T>::EkAlreadyRegistered,
-                );
-            }
-            let ek_opt = if att_type.is_pop_eligible() { Some(ek_hash) } else { None };
-            let canonical = CertCanonical {
-                schema_version: CURRENT_SCHEMA_VERSION,
-                root: issuer_rec.root.clone(), issuer: offer.issuer.clone(), user: who.clone(),
-                user_pubkey: device_pubkey.clone(), registration_block: now, expiry: expiry_block,
-                metadata: offer.metadata.clone(),
-            };
-            let thumbprint = Self::compute_thumbprint(&canonical);
-            ensure!(!CertLookupHot::<T>::contains_key(thumbprint), Error::<T>::ThumbprintCollision);
-
-            // ──────────── Fee system ────────────
-            //
-            // Full fee distribution for `mint_cert`. All other
-            // cert-creation sites (register_root, issue_issuer_cert,
-            // reissue, renew) take only `T::CertDeposit::get()`;
-            // mint_cert is the only path that charges a tiered fee
-            // AND derives the held deposit from it.
-            //
-            // Tier selection: PoP certs pay `MintFeePoP` (lowest —
-            // the flagship use case); non-PoP Tpm and all Packed pay
-            // `MintFeePacked`; no-attestation pays `MintFeeNone`
-            // (highest — lowest trust).
-            //
-            // Distribution:
-            //   protocol_fee    = mint_fee * ProtocolFeeBasisPoints
-            //                     → transferred to ProtocolFeeRecipient
-            //   deposit         = max(mint_fee * DepositBasisPoints,
-            //                         MinDeposit)
-            //                     → held under HoldReason::CertDeposit
-            //                       on the minter's own account
-            //   block_creator   = min(mint_fee - protocol_fee - deposit,
-            //                         mint_fee * BlockCreatorCapBasisPoints)
-            //                     → transferred to FindAuthor result
-            //                       (skipped if no author or author=None)
-            //   remainder       = mint_fee - protocol_fee - deposit
-            //                     - block_creator_tip
-            //                     → transferred to ProtocolFeeRecipient
-            //
-            // All four movements happen inside this atomic dispatch —
-            // any `?` unwinds the whole mint.
-            let mint_fee = Self::mint_fee_for(&att_type, &template.ekus);
-            let protocol_fee = Self::bp_of(mint_fee, T::ProtocolFeeBasisPoints::get());
-            let deposit_pct = Self::bp_of(mint_fee, T::DepositBasisPoints::get());
-            let deposit = deposit_pct.max(T::MinDeposit::get());
-            let creator_cap = Self::bp_of(mint_fee, T::BlockCreatorCapBasisPoints::get());
-            let after_protocol_and_deposit = mint_fee
-                .saturating_sub(protocol_fee)
-                .saturating_sub(deposit);
-            let block_creator_tip = after_protocol_and_deposit.min(creator_cap);
-            let remainder = after_protocol_and_deposit.saturating_sub(block_creator_tip);
-
-            let protocol_recipient = T::ProtocolFeeRecipient::get();
-
-            // 1. Transfer the protocol-fee cut first. This also
-            //    doubles as the up-front balance-sufficient check:
-            //    if the user can't cover the protocol fee, the whole
-            //    mint reverts before any storage is touched.
-            if !protocol_fee.is_zero() {
-                <T::Currency as Currency<T::AccountId>>::transfer(
-                    &who,
-                    &protocol_recipient,
-                    protocol_fee,
-                    ExistenceRequirement::KeepAlive,
-                )?;
-            }
-            // 2. Place the hold.
-            Self::hold_cert_deposit(&who, deposit)?;
-            // 3. Tip the block author if FindAuthor returns one. `()`
-            //    (the test wiring) returns None — mint still works,
-            //    the tip just rolls into the remainder.
-            let author_opt: Option<T::AccountId> =
-                <T::FindAuthor as FindAuthor<T::AccountId>>::find_author(
-                    core::iter::empty(),
-                );
-            let actual_block_tip = match (author_opt.as_ref(), block_creator_tip.is_zero()) {
-                (Some(author), false) => {
-                    <T::Currency as Currency<T::AccountId>>::transfer(
-                        &who,
-                        author,
-                        block_creator_tip,
-                        ExistenceRequirement::KeepAlive,
-                    )?;
-                    block_creator_tip
-                }
-                _ => BalanceOf::<T>::zero(),
-            };
-            // 4. Anything left (including the tip that wasn't paid
-            //    because FindAuthor returned None) ships to the
-            //    protocol recipient.
-            let rollup_to_protocol = remainder.saturating_add(
-                block_creator_tip.saturating_sub(actual_block_tip),
-            );
-            if !rollup_to_protocol.is_zero() {
-                <T::Currency as Currency<T::AccountId>>::transfer(
-                    &who,
-                    &protocol_recipient,
-                    rollup_to_protocol,
-                    ExistenceRequirement::KeepAlive,
-                )?;
-            }
-
-            // Insert the membership leaf (if enrolling) and capture its
-            // position. Transactional with the rest of the mint.
-            let leaf_position = match membership_leaf {
-                Some(leaf) => {
-                    let index =
-                        Self::membership_insert(leaf).ok_or(Error::<T>::MembershipTreeFull)?;
-                    // Phase 0: set the cert's initial HIP-freshness deadline at
-                    // the same index in the parallel freshness tree. Phase 1
-                    // continuity bumps it; the membership leaf stays static (D6).
-                    Self::freshness_set(index, Self::initial_fresh_until_epoch());
-                    Some(index)
-                }
-                None => None,
-            };
-
-            // EKU truthfulness (the stamping half of EKU ⇔ leaf): ChatAuth
-            // reaches the cert record only when an enrollment actually
-            // inserted a leaf. A mint that declines enrollment under a
-            // ChatAuth template gets the EKU stripped — the cert never
-            // claims a capability it cannot exercise.
-            let cert_ekus = if leaf_position.is_some() {
-                template.ekus.clone()
-            } else {
-                BoundedVec::truncate_from(
-                    template
-                        .ekus
-                        .iter()
-                        .filter(|e| **e != Eku::ChatAuth)
-                        .cloned()
-                        .collect::<sp_std::vec::Vec<_>>(),
-                )
-            };
-            CertLookupHot::<T>::insert(thumbprint, CertRecordHot {
-                schema_version: CURRENT_SCHEMA_VERSION, thumbprint,
-                root: issuer_rec.root.clone(), issuer: offer.issuer.clone(), user: who.clone(),
-                mint_block: now, expiry_block, state: CertState::Active,
-                ek_hash: ek_opt,
-                attestation_type: att_type,
-                manufacturer_verified: verified.manufacturer_verified,
-                template_name: offer.template_name.clone(),
-                ekus: cert_ekus,
-                // Inherit the template's PoP mechanism — pinned at
-                // mint, never mutated. Drives `verify_pop_assertion`
-                // dispatch later.
-                pop_mechanism: template.pop_mechanism,
-            });
-            Self::insert_cold_record(thumbprint, CertRecordCold {
-                thumbprint,
-                cert_ec_pubkey: device_pubkey,
-                deposit,
-                genesis_os_version: None,
-                genesis_os_patch_level: None,
-                genesis_vendor_patch_level: None,
-                genesis_boot_patch_level: None,
-                suspension_reason: None,
-                suspension_block: None,
-                issuer_metadata: Some(offer.metadata.clone()),
-                genesis_fingerprint,
-                leaf_position,
-            })?;
-            if let Some(eh) = ek_opt {
-                EkRegistry::<T>::insert(&issuer_rec.root, eh, thumbprint);
-            }
-            // Persist the mime-wrap binding pair if the template
-            // selected MimeWrap. The pair was already validated
-            // above (commitment_c provided, platform gate passed,
-            // ec_key_pub tripwire matched), so this is a pure write.
-            if let Some(pair) = mime_wrap_pair {
-                MimeWrapCommitments::<T>::insert(thumbprint, pair);
-                Self::deposit_event(Event::MimeWrapCommitmentRecorded { thumbprint });
-            }
-            UserIssuerIndex::<T>::insert(&ui_key, thumbprint);
-            CertsByIssuer::<T>::insert(&offer.issuer, thumbprint, ());
-            CertsByUser::<T>::insert(&who, thumbprint, ());
-            CertsByRoot::<T>::insert(&issuer_rec.root, thumbprint, ());
-            Self::push_to_expiry_index(expiry_block, thumbprint)?;
-            ContractOffers::<T>::remove(contract_nonce);
-            let offer_key = IssuerUserKey::new(offer.issuer.clone(), who.clone());
-            OfferIndex::<T>::remove(&offer_key);
-            T::Currency::unreserve(&offer.issuer, offer.deposit);
-            OfferExpiryIndex::<T>::mutate(offer.expiry_block, |n| n.retain(|x| x != &contract_nonce));
-
-            // Template accounting — lifetime counter (monotonic) and
-            // the O(1) discard-safety counter. Both writes are in the
-            // same execution as the cert insert above, so no partial
-            // state is ever observable.
-            CertTemplates::<T>::mutate(&offer.issuer, &offer.template_name, |maybe| {
-                if let Some(tpl) = maybe.as_mut() {
-                    tpl.issued_count = tpl.issued_count.saturating_add(1);
-                }
-            });
-            TemplateActiveCertCount::<T>::mutate(&offer.issuer, &offer.template_name, |c| {
-                *c = c.saturating_add(1);
-            });
-
-            Self::deposit_event(Event::CertMinted { thumbprint, user: who, issuer: offer.issuer });
-            Ok(())
+        /// Mint an anonymous witness cert. The membership leaf is inserted
+        /// (enrollment is mandatory) but NO issuer/user secondary index is
+        /// written, so the chain carries no resolvable issuer<->holder edge.
+        /// Revocation is unchanged (drives off `leaf_position`). Shared body
+        /// in `mint_cert_inner`.
+        #[pallet::call_index(21)]
+        #[pallet::weight(T::WeightInfo::mint_cert())]
+        pub fn mint_witness_cert(
+            origin: OriginFor<T>,
+            contract_nonce: [u8; 32],
+            attestation_payload: AttestationPayloadV3,
+            offer_created_at_block: BlockNumberFor<T>,
+            hip_proof_at_genesis: Option<CanonicalHipProof>,
+            commitment_c: Option<[u8; 32]>,
+            ec_key_pub_claimed: Option<[u8; 32]>,
+            enrollment: ChatEnrollment,
+        ) -> DispatchResult {
+            Self::mint_cert_inner(
+                ensure_signed(origin)?,
+                contract_nonce,
+                attestation_payload,
+                offer_created_at_block,
+                hip_proof_at_genesis,
+                commitment_c,
+                ec_key_pub_claimed,
+                Some(enrollment),
+                Disclosure::Witness,
+            )
         }
 
         /// Issuer suspends an end-user cert.
@@ -2670,8 +2499,7 @@ pub mod pallet {
                     // stored) before dropping Cold, so the SMT leaf can't
                     // leak.
                     if let Some(pos) = cold.leaf_position {
-                        Self::membership_remove(pos);
-                        Self::freshness_remove(pos);
+                        Self::remove_membership_leaf(thumbprint, pos);
                     }
                     Self::device_key_index_remove(&cold.cert_ec_pubkey, thumbprint);
                 }
@@ -3343,11 +3171,588 @@ pub mod pallet {
         }
     }
 
+    /// Disclosure mode for a minted cert. Selects the only two points where
+    /// `mint_cert_inner` diverges: whether the one-cert-per-issuer-user check
+    /// runs, and whether the issuer<->holder secondary indexes / edge-bearing
+    /// event are written. A pure control value; never persisted.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "std", derive(Debug))]
+    pub enum Disclosure {
+        /// Standard cert: writes the resolvable issuer/user indexes.
+        Public,
+        /// Witness cert: no resolvable edge; the membership leaf is the only
+        /// on-chain footprint.
+        Witness,
+    }
+
+    impl Disclosure {
+        /// `true` for the standard, publicly-resolvable cert path.
+        pub fn is_public(&self) -> bool {
+            matches!(self, Disclosure::Public)
+        }
+    }
+
     // ---------------------------------------------------------------------------
     // Internal helpers
     // ---------------------------------------------------------------------------
 
     impl<T: Config> Pallet<T> {
+        /// Shared mint logic for `mint_cert` (public) and `mint_witness_cert`
+        /// (anonymous). `disclosure` gates the only two points that differ:
+        /// the one-cert-per-issuer-user check and the issuer/user
+        /// secondary-index writes. Everything else (validation, fees,
+        /// PoP/HIP/mime-wrap, EK dedup, record writes, membership leaf) is
+        /// identical across both paths.
+        fn mint_cert_inner(
+            who: T::AccountId,
+            contract_nonce: [u8; 32],
+            attestation_payload: AttestationPayloadV3,
+            offer_created_at_block: BlockNumberFor<T>,
+            hip_proof_at_genesis: Option<CanonicalHipProof>,
+            commitment_c: Option<[u8; 32]>,
+            ec_key_pub_claimed: Option<[u8; 32]>,
+            chat_enrollment: Option<ChatEnrollment>,
+            disclosure: Disclosure,
+        ) -> DispatchResult {
+            let offer = ContractOffers::<T>::get(contract_nonce)
+                .ok_or(Error::<T>::OfferNotFound)?;
+            ensure!(offer.user == who, Error::<T>::NotOfferRecipient);
+            ensure!(
+                offer_created_at_block == offer.created_at,
+                Error::<T>::OfferCreatedAtMismatch,
+            );
+            let now = <frame_system::Pallet<T>>::block_number();
+            ensure!(now < offer.expiry_block, Error::<T>::ContractExpired);
+            // One-cert-per-issuer-user is a public-cert invariant enforced via
+            // the user index. Witness certs write no user index (no resolvable
+            // edge), so their Sybil control shifts to the EK/device dedup
+            // below; this check is public-only.
+            if disclosure.is_public() {
+                let ui_key = UserIssuerKey::new(who.clone(), offer.issuer.clone());
+                ensure!(!UserIssuerIndex::<T>::contains_key(&ui_key), Error::<T>::UserAlreadyHasCertFromIssuer);
+            }
+            Self::enforce_challenge_deadline_issuer(&offer.issuer, now);
+            let issuer_rec = Issuers::<T>::get(&offer.issuer).ok_or(Error::<T>::NotAnIssuer)?;
+            let issuer_cert = CertLookupHot::<T>::get(issuer_rec.cert_thumbprint).ok_or(Error::<T>::CertNotFound)?;
+            ensure!(now < issuer_cert.expiry_block, Error::<T>::CertExpired);
+            Self::enforce_challenge_deadline_root(&issuer_rec.root, now);
+            let root_rec = Roots::<T>::get(&issuer_rec.root).ok_or(Error::<T>::NotARoot)?;
+            let root_cert = CertLookupHot::<T>::get(root_rec.cert_thumbprint).ok_or(Error::<T>::CertNotFound)?;
+            ensure!(now < root_cert.expiry_block, Error::<T>::CertExpired);
+            let expiry_block = now.saturating_add(offer.ttl_blocks);
+            ensure!(expiry_block <= issuer_cert.expiry_block, Error::<T>::ExpiryExceedsParent);
+
+            // Template re-check at mint. The issuer may have discarded
+            // the referenced template between offer and mint; that
+            // signals they no longer stand behind this class and the
+            // mint must fail so the user doesn't end up with a cert
+            // whose policy is already orphaned. We hold the template
+            // record for PoP enforcement and the issued_count bump below.
+            let template = CertTemplates::<T>::get(&offer.issuer, &offer.template_name)
+                .ok_or(Error::<T>::TemplateNotFound)?;
+
+            // TODO-3 binding-proof verification. The verified result
+            // carries everything we need to write the cert record —
+            // the cert_ec pubkey, the EK hash for dedup, the
+            // attestation type, and the manufacturer-verified flag.
+            // Offer-nonce-is-challenge: `contract_nonce` is passed
+            // directly; no derivation.
+            let verified = T::BindingProofVerifier::verify(
+                &attestation_payload,
+                &contract_nonce,
+                offer.created_at.unique_saturated_into(),
+                offer.expiry_block.unique_saturated_into(),
+            )
+            .map_err(|_| Error::<T>::AttestationInvalid)?;
+
+            ensure!(verified.cert_ec_pubkey.is_valid(), Error::<T>::InvalidPublicKey);
+
+            let att_type = verified.attestation_type.clone();
+            let ek_hash = verified.ek_hash;
+            let device_pubkey = verified.cert_ec_pubkey.clone();
+
+            // PoP enforcement per the template's declared policy. A
+            // template marked Required accepts only AttestationType::Tpm;
+            // NotRequired waives the check entirely.
+            if matches!(template.pop_requirement, PopRequirement::Required)
+                && att_type != AttestationType::Tpm
+            {
+                return Err(Error::<T>::PopRequired.into());
+            }
+
+            // Chat membership enrollment (optional). If present, verify the
+            // id_commitment is bound to the same attested silicon (the
+            // attest_ec key the attestation just proved) for this offer
+            // nonce, and is a canonical field element. The leaf is built now
+            // and inserted with the cert record below, so it only ever
+            // enters the tree if the whole mint commits.
+            // A witness cert IS its membership leaf, so enrollment is
+            // mandatory. mint_witness_cert always supplies it, but enforce the
+            // invariant here regardless of caller.
+            if matches!(disclosure, Disclosure::Witness) {
+                ensure!(chat_enrollment.is_some(), Error::<T>::WitnessEnrollmentRequired);
+            }
+            let enrolled_commitment: Option<[u8; 32]> = match chat_enrollment.as_ref() {
+                Some(enrollment) => {
+                    // Charter gate keyed to the disclosure mode: a public
+                    // cert's leaf rides the ChatAuth EKU, a witness cert's
+                    // rides WitnessAuth. Both flow through the root → issuer
+                    // capability-subset checks and admit to the same broad
+                    // anonymity set. Policy half of the EKU ⇔ leaf invariant;
+                    // the stamping half is at the cert-record write below.
+                    match disclosure {
+                        Disclosure::Public => ensure!(
+                            template.ekus.iter().any(|e| *e == Eku::ChatAuth),
+                            Error::<T>::ChatEnrollmentNotPermittedByTemplate,
+                        ),
+                        Disclosure::Witness => ensure!(
+                            template.ekus.iter().any(|e| *e == Eku::WitnessAuth),
+                            Error::<T>::WitnessAuthNotPermittedByTemplate,
+                        ),
+                    }
+                    // §5.5 device-integrity gate: only StrongBox-grade, intact
+                    // silicon may bind a membership commitment.
+                    // `attestation_type == Tpm` is `is_pop_eligible`: StrongBox
+                    // security level on both keys AND bootloader locked AND
+                    // verified boot. The binding key shares this RootOfTrust,
+                    // so this gates the silicon the id_commitment is bound to.
+                    // (Key non-exportability, origin==GENERATED, is the
+                    // remaining §5.5 item, pending a parser extension.)
+                    ensure!(
+                        att_type == AttestationType::Tpm,
+                        Error::<T>::ChatEnrollmentInsecureDevice,
+                    );
+                    // §5.5 non-exportability: the binding key (attest_ec) must
+                    // be hardware-generated (origin == GENERATED), so its
+                    // private material was never imported and cannot have
+                    // existed outside the secure element.
+                    ensure!(
+                        verified.attest_ec_origin_generated,
+                        Error::<T>::ChatEnrollmentKeyNotHardwareGenerated,
+                    );
+                    verify_chat_enrollment(
+                        enrollment,
+                        &verified.attest_ec_pubkey,
+                        &contract_nonce,
+                    )
+                    .map_err(|_| Error::<T>::ChatEnrollmentInvalid)?;
+                    // Validate the commitment is a canonical BN254 field element
+                    // (the device produces a Poseidon commitment for both paths)
+                    // and carry the raw bytes forward. The leaf is built at
+                    // insertion, where the disclosure mode selects the tree:
+                    // chat = Poseidon global tree, witness = keccak issuer tree.
+                    ensure!(
+                        fr_from_canonical_bytes_le(&enrollment.id_commitment).is_some(),
+                        Error::<T>::IdCommitmentNotCanonical,
+                    );
+                    Some(enrollment.id_commitment)
+                }
+                None => None,
+            };
+
+            // HIP genesis recording. For PoP templates we require a
+            // `CanonicalHipProof` and verify it internally (no prior
+            // fingerprint to compare against at genesis). The
+            // returned fingerprint is pinned onto the Cold record so
+            // future HIP-gated extrinsics have a baseline. Non-PoP
+            // templates accept `None` and don't record anything.
+            let genesis_fingerprint: Option<GenesisHardwareFingerprint> =
+                if matches!(template.pop_requirement, PopRequirement::Required) {
+                    let proof = hip_proof_at_genesis
+                        .as_ref()
+                        .ok_or(Error::<T>::HipProofRequired)?;
+                    // Verify the proof's crypto before recording anything.
+                    // Same call for both Tpm2 and StrongBox variants —
+                    // dispatch lives inside the hip crate.
+                    zk_pki_hip::verify_hip_proof_internal(proof)
+                        .map_err(|_| Error::<T>::HipProofInvalid)?;
+                    // Derive a matching genesis fingerprint variant.
+                    // StrongBox's RootOfTrust / patch fields are `None`
+                    // this pass — X.509 chain parsing is deferred to
+                    // the seal-break taxonomy session, at which point
+                    // the mint path will populate real values and the
+                    // compare logic will begin enforcing them.
+                    Some(match proof {
+                        CanonicalHipProof::Tpm2(p) => {
+                            GenesisHardwareFingerprint::Tpm2(Tpm2GenesisFingerprint {
+                                flavor: p.flavor,
+                                ek_hash: p.ek_hash,
+                                aik_public_hash: sp_io::hashing::blake2_256(
+                                    p.aik_public.as_slice(),
+                                ),
+                                pcr_values: p.pcr_values.clone(),
+                                schema_version: CURRENT_SCHEMA_VERSION,
+                            })
+                        }
+                        CanonicalHipProof::StrongBox(p) => {
+                            let mut binding_input = [0u8; 64];
+                            binding_input[..32].copy_from_slice(&p.hmac_binding_output);
+                            binding_input[32..].copy_from_slice(&p.nonce);
+                            GenesisHardwareFingerprint::StrongBox(
+                                StrongBoxGenesisFingerprint {
+                                    cert_ec_public_hash: sp_io::hashing::blake2_256(
+                                        &p.cert_ec_public,
+                                    ),
+                                    attest_ec_public_hash: sp_io::hashing::blake2_256(
+                                        &p.attest_ec_public,
+                                    ),
+                                    hmac_binding_commitment:
+                                        sp_io::hashing::blake2_256(&binding_input),
+                                    root_of_trust: None,
+                                    os_patch_level: None,
+                                    boot_patch_level: None,
+                                    vendor_patch_level: None,
+                                    schema_version: CURRENT_SCHEMA_VERSION,
+                                },
+                            )
+                        }
+                    })
+                } else {
+                    None
+                };
+
+            // ── Mime-wrap PoP path (Android StrongBox tier) ──
+            //
+            // Validate the `commitment_c` / `ec_key_pub_claimed`
+            // arguments against the template's `pop_mechanism`,
+            // platform-gate the mechanism against the attestation
+            // chain, derive ec_key_pub from the verified cert pubkey,
+            // and assert the equality tripwire (Paseo phase, option
+            // B). On success, the pair is stored in
+            // `MimeWrapCommitments` after the thumbprint is
+            // computed below.
+            //
+            // The match below also rejects cross-tier requests:
+            // a HipSigned template with a StrongBox proof, or a
+            // MimeWrap template with a Tpm2 proof, fail before any
+            // state changes.
+            let mime_wrap_pair: Option<([u8; 32], [u8; 32])> =
+                match template.pop_mechanism {
+                    Some(PopMechanism::MimeWrap) => {
+                        // Required: commitment_c and ec_key_pub_claimed.
+                        let commitment = commitment_c
+                            .ok_or(Error::<T>::MimeWrapCommitmentRequired)?;
+                        let claimed = ec_key_pub_claimed
+                            .ok_or(Error::<T>::MimeWrapCommitmentRequired)?;
+
+                        // Platform gate. MimeWrap permitted only on
+                        // StrongBox; Tpm2 is a category error.
+                        let platform = hip_proof_at_genesis
+                            .as_ref()
+                            .map(HipPlatform::from_proof)
+                            .ok_or(Error::<T>::HipProofRequired)?;
+                        ensure!(
+                            matches!(platform, HipPlatform::StrongBox),
+                            Error::<T>::MimeWrapNotPermittedOnTpm2,
+                        );
+
+                        // Tripwire: re-derive ec_key_pub from the
+                        // verified device pubkey and assert equality
+                        // with the client-supplied value. Mismatch
+                        // means dotwave/pallet canonicalization specs
+                        // have drifted, or the caller is attempting
+                        // to bind a fake ec_key_pub to a real cert.
+                        let derived = crate::mime_wrap::derive_ec_key_pub_p256(
+                            device_pubkey.key_bytes.as_slice(),
+                        )
+                        .ok_or(Error::<T>::MimeWrapEcKeyPubMismatch)?;
+                        ensure!(
+                            derived == claimed,
+                            Error::<T>::MimeWrapEcKeyPubMismatch,
+                        );
+
+                        Some((commitment, derived))
+                    }
+                    Some(PopMechanism::HipSigned) => {
+                        // HipSigned permitted only on Tpm2; StrongBox
+                        // would re-introduce the HMAC-binding
+                        // weakness MimeWrap was designed to mask.
+                        let platform = hip_proof_at_genesis
+                            .as_ref()
+                            .map(HipPlatform::from_proof)
+                            .ok_or(Error::<T>::HipProofRequired)?;
+                        ensure!(
+                            !matches!(platform, HipPlatform::StrongBox),
+                            Error::<T>::HipSignedNotPermittedOnStrongBox,
+                        );
+                        // Mime-wrap fields not applicable on this
+                        // path; surface explicitly rather than
+                        // silently dropping them.
+                        ensure!(
+                            commitment_c.is_none() && ec_key_pub_claimed.is_none(),
+                            Error::<T>::MimeWrapCommitmentNotApplicable,
+                        );
+                        None
+                    }
+                    None => {
+                        // Non-PoP template: no mechanism, no mime-wrap
+                        // fields permitted.
+                        ensure!(
+                            commitment_c.is_none() && ec_key_pub_claimed.is_none(),
+                            Error::<T>::MimeWrapCommitmentNotApplicable,
+                        );
+                        None
+                    }
+                };
+
+            // EK deduplication: only applies to PoP-eligible
+            // (`AttestationType::Tpm`) certs. Packed or None verdicts
+            // skip the registry entirely — they're explicitly not
+            // hardware-bound identities, so minting a second Packed
+            // cert with the same EK hash is not a duplication
+            // violation.
+            // Root-scoped lookup: the end-user cert is anchored
+            // under `issuer_rec.root`, so that's the trust domain
+            // whose EK registry we consult. Two different roots
+            // certifying the same device is allowed by design.
+            if att_type.is_pop_eligible() {
+                ensure!(
+                    !EkRegistry::<T>::contains_key(&issuer_rec.root, ek_hash),
+                    Error::<T>::EkAlreadyRegistered,
+                );
+            }
+            let ek_opt = if att_type.is_pop_eligible() { Some(ek_hash) } else { None };
+            let canonical = CertCanonical {
+                schema_version: CURRENT_SCHEMA_VERSION,
+                root: issuer_rec.root.clone(), issuer: offer.issuer.clone(), user: who.clone(),
+                user_pubkey: device_pubkey.clone(), registration_block: now, expiry: expiry_block,
+                metadata: offer.metadata.clone(),
+            };
+            let thumbprint = Self::compute_thumbprint(&canonical);
+            ensure!(!CertLookupHot::<T>::contains_key(thumbprint), Error::<T>::ThumbprintCollision);
+
+            // ──────────── Fee system ────────────
+            //
+            // Full fee distribution for `mint_cert`. All other
+            // cert-creation sites (register_root, issue_issuer_cert,
+            // reissue, renew) take only `T::CertDeposit::get()`;
+            // mint_cert is the only path that charges a tiered fee
+            // AND derives the held deposit from it.
+            //
+            // Tier selection: PoP certs pay `MintFeePoP` (lowest —
+            // the flagship use case); non-PoP Tpm and all Packed pay
+            // `MintFeePacked`; no-attestation pays `MintFeeNone`
+            // (highest — lowest trust).
+            //
+            // Distribution:
+            //   protocol_fee    = mint_fee * ProtocolFeeBasisPoints
+            //                     → transferred to ProtocolFeeRecipient
+            //   deposit         = max(mint_fee * DepositBasisPoints,
+            //                         MinDeposit)
+            //                     → held under HoldReason::CertDeposit
+            //                       on the minter's own account
+            //   block_creator   = min(mint_fee - protocol_fee - deposit,
+            //                         mint_fee * BlockCreatorCapBasisPoints)
+            //                     → transferred to FindAuthor result
+            //                       (skipped if no author or author=None)
+            //   remainder       = mint_fee - protocol_fee - deposit
+            //                     - block_creator_tip
+            //                     → transferred to ProtocolFeeRecipient
+            //
+            // All four movements happen inside this atomic dispatch —
+            // any `?` unwinds the whole mint.
+            let mint_fee = Self::mint_fee_for(&att_type, &template.ekus);
+            let protocol_fee = Self::bp_of(mint_fee, T::ProtocolFeeBasisPoints::get());
+            let deposit_pct = Self::bp_of(mint_fee, T::DepositBasisPoints::get());
+            let deposit = deposit_pct.max(T::MinDeposit::get());
+            let creator_cap = Self::bp_of(mint_fee, T::BlockCreatorCapBasisPoints::get());
+            let after_protocol_and_deposit = mint_fee
+                .saturating_sub(protocol_fee)
+                .saturating_sub(deposit);
+            let block_creator_tip = after_protocol_and_deposit.min(creator_cap);
+            let remainder = after_protocol_and_deposit.saturating_sub(block_creator_tip);
+
+            let protocol_recipient = T::ProtocolFeeRecipient::get();
+
+            // 1. Transfer the protocol-fee cut first. This also
+            //    doubles as the up-front balance-sufficient check:
+            //    if the user can't cover the protocol fee, the whole
+            //    mint reverts before any storage is touched.
+            if !protocol_fee.is_zero() {
+                <T::Currency as Currency<T::AccountId>>::transfer(
+                    &who,
+                    &protocol_recipient,
+                    protocol_fee,
+                    ExistenceRequirement::KeepAlive,
+                )?;
+            }
+            // 2. Place the hold.
+            Self::hold_cert_deposit(&who, deposit)?;
+            // 3. Tip the block author if FindAuthor returns one. `()`
+            //    (the test wiring) returns None — mint still works,
+            //    the tip just rolls into the remainder.
+            let author_opt: Option<T::AccountId> =
+                <T::FindAuthor as FindAuthor<T::AccountId>>::find_author(
+                    core::iter::empty(),
+                );
+            let actual_block_tip = match (author_opt.as_ref(), block_creator_tip.is_zero()) {
+                (Some(author), false) => {
+                    <T::Currency as Currency<T::AccountId>>::transfer(
+                        &who,
+                        author,
+                        block_creator_tip,
+                        ExistenceRequirement::KeepAlive,
+                    )?;
+                    block_creator_tip
+                }
+                _ => BalanceOf::<T>::zero(),
+            };
+            // 4. Anything left (including the tip that wasn't paid
+            //    because FindAuthor returned None) ships to the
+            //    protocol recipient.
+            let rollup_to_protocol = remainder.saturating_add(
+                block_creator_tip.saturating_sub(actual_block_tip),
+            );
+            if !rollup_to_protocol.is_zero() {
+                <T::Currency as Currency<T::AccountId>>::transfer(
+                    &who,
+                    &protocol_recipient,
+                    rollup_to_protocol,
+                    ExistenceRequirement::KeepAlive,
+                )?;
+            }
+
+            // Insert the membership leaf (if enrolling) and capture its
+            // position. Transactional with the rest of the mint.
+            let leaf_position = match enrolled_commitment {
+                Some(id_commitment) => {
+                    // Phase 0: set the cert's initial HIP-freshness deadline at
+                    // the same index in the parallel freshness tree. Phase 1
+                    // continuity bumps it; the membership leaf stays static (D6).
+                    // The leaf is built here, where disclosure selects the tree.
+                    let index = match disclosure {
+                        Disclosure::Public => {
+                            let idc = fr_from_canonical_bytes_le(&id_commitment)
+                                .ok_or(Error::<T>::IdCommitmentNotCanonical)?;
+                            let leaf = Self::membership_leaf_value(idc, expiry_block);
+                            let idx = Self::membership_insert(leaf).ok_or(Error::<T>::MembershipTreeFull)?;
+                            Self::freshness_set(idx, Self::initial_fresh_until_epoch());
+                            idx
+                        }
+                        Disclosure::Witness => {
+                            // Witness leaf goes into the ISSUER's own keccak tree,
+                            // and the thumbprint→issuer routing entry lets
+                            // teardown find the right tree later.
+                            let leaf = Self::witness_leaf_value(&id_commitment, expiry_block);
+                            let idx = Self::witness_insert(&offer.issuer, leaf).ok_or(Error::<T>::MembershipTreeFull)?;
+                            Self::witness_freshness_set(&offer.issuer, idx, Self::initial_fresh_until_epoch());
+                            WitnessLeafIssuer::<T>::insert(thumbprint, offer.issuer.clone());
+                            idx
+                        }
+                    };
+                    Some(index)
+                }
+                None => None,
+            };
+
+            // EKU truthfulness (the stamping half of EKU ⇔ leaf): ChatAuth
+            // reaches the cert record only when an enrollment actually
+            // inserted a leaf. A mint that declines enrollment under a
+            // ChatAuth template gets the EKU stripped — the cert never
+            // claims a capability it cannot exercise.
+            let cert_ekus = if leaf_position.is_some() {
+                template.ekus.clone()
+            } else {
+                BoundedVec::truncate_from(
+                    template
+                        .ekus
+                        .iter()
+                        .filter(|e| **e != Eku::ChatAuth)
+                        .cloned()
+                        .collect::<sp_std::vec::Vec<_>>(),
+                )
+            };
+            CertLookupHot::<T>::insert(thumbprint, CertRecordHot {
+                schema_version: CURRENT_SCHEMA_VERSION, thumbprint,
+                root: issuer_rec.root.clone(), issuer: offer.issuer.clone(), user: who.clone(),
+                mint_block: now, expiry_block, state: CertState::Active,
+                ek_hash: ek_opt,
+                attestation_type: att_type,
+                manufacturer_verified: verified.manufacturer_verified,
+                template_name: offer.template_name.clone(),
+                ekus: cert_ekus,
+                // Inherit the template's PoP mechanism — pinned at
+                // mint, never mutated. Drives `verify_pop_assertion`
+                // dispatch later.
+                pop_mechanism: template.pop_mechanism,
+            });
+            let cold_record = CertRecordCold {
+                thumbprint,
+                cert_ec_pubkey: device_pubkey,
+                deposit,
+                genesis_os_version: None,
+                genesis_os_patch_level: None,
+                genesis_vendor_patch_level: None,
+                genesis_boot_patch_level: None,
+                suspension_reason: None,
+                suspension_block: None,
+                issuer_metadata: Some(offer.metadata.clone()),
+                genesis_fingerprint,
+                leaf_position,
+            };
+            // `insert_cold_record` also writes the CertByDeviceKey reverse
+            // index — the device-key -> cert edge external verifiers resolve
+            // through. A witness cert is never resolved by device key in the
+            // clear (presentation is via ZK membership), so it stores the cold
+            // record directly and omits that index. Teardown's
+            // device_key_index_remove is a safe no-op when it was never written.
+            if disclosure.is_public() {
+                Self::insert_cold_record(thumbprint, cold_record)?;
+            } else {
+                CertLookupCold::<T>::insert(thumbprint, cold_record);
+            }
+            if let Some(eh) = ek_opt {
+                EkRegistry::<T>::insert(&issuer_rec.root, eh, thumbprint);
+            }
+            // Persist the mime-wrap binding pair if the template
+            // selected MimeWrap. The pair was already validated
+            // above (commitment_c provided, platform gate passed,
+            // ec_key_pub tripwire matched), so this is a pure write.
+            if let Some(pair) = mime_wrap_pair {
+                MimeWrapCommitments::<T>::insert(thumbprint, pair);
+                Self::deposit_event(Event::MimeWrapCommitmentRecorded { thumbprint });
+            }
+            // Issuer<->holder secondary indexes: the resolvable edge, written
+            // for public certs only. Witness certs omit every one so no
+            // on-chain index links issuer or user to the thumbprint; the
+            // membership leaf is their sole footprint. `ui_key` is inlined here
+            // now that it is public-only.
+            if disclosure.is_public() {
+                UserIssuerIndex::<T>::insert(&UserIssuerKey::new(who.clone(), offer.issuer.clone()), thumbprint);
+                CertsByIssuer::<T>::insert(&offer.issuer, thumbprint, ());
+                CertsByUser::<T>::insert(&who, thumbprint, ());
+                CertsByRoot::<T>::insert(&issuer_rec.root, thumbprint, ());
+            }
+            Self::push_to_expiry_index(expiry_block, thumbprint)?;
+            ContractOffers::<T>::remove(contract_nonce);
+            let offer_key = IssuerUserKey::new(offer.issuer.clone(), who.clone());
+            OfferIndex::<T>::remove(&offer_key);
+            T::Currency::unreserve(&offer.issuer, offer.deposit);
+            OfferExpiryIndex::<T>::mutate(offer.expiry_block, |n| n.retain(|x| x != &contract_nonce));
+
+            // Template accounting — lifetime counter (monotonic) and
+            // the O(1) discard-safety counter. Both writes are in the
+            // same execution as the cert insert above, so no partial
+            // state is ever observable.
+            CertTemplates::<T>::mutate(&offer.issuer, &offer.template_name, |maybe| {
+                if let Some(tpl) = maybe.as_mut() {
+                    tpl.issued_count = tpl.issued_count.saturating_add(1);
+                }
+            });
+            TemplateActiveCertCount::<T>::mutate(&offer.issuer, &offer.template_name, |c| {
+                *c = c.saturating_add(1);
+            });
+
+            // The public mint event names user+issuer, which is itself the
+            // edge. A witness mint emits a thumbprint-only event so the log
+            // carries no link.
+            match disclosure {
+                Disclosure::Public => Self::deposit_event(Event::CertMinted { thumbprint, user: who, issuer: offer.issuer }),
+                Disclosure::Witness => Self::deposit_event(Event::WitnessCertMinted { thumbprint }),
+            }
+            Ok(())
+        }
+
         pub fn compute_thumbprint(
             canonical: &CertCanonical<T::AccountId, BlockNumberFor<T>, BoundedVec<u8, ConstU32<MAX_METADATA_LEN>>>,
         ) -> Thumbprint {
@@ -3780,8 +4185,7 @@ pub mod pallet {
             // that holds both.
             if let Some(cold) = CertLookupCold::<T>::get(thumbprint) {
                 if let Some(pos) = cold.leaf_position {
-                    Self::membership_remove(pos);
-                    Self::freshness_remove(pos);
+                    Self::remove_membership_leaf(thumbprint, pos);
                 }
                 Self::device_key_index_remove(&cold.cert_ec_pubkey, thumbprint);
             }

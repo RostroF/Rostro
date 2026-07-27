@@ -1,0 +1,24 @@
+[package]
+name = "rostro-sparse-merkle"
+description = "Depth-32 sparse Merkle tree — the shared math for Rostro's identity trees. Generic over a Hasher, with two instantiations: Poseidon-BN254 (chat, SNARK-friendly, verified in a Groth16 circuit) and keccak256 (witness, foreign-verifier-friendly). Insert/remove with free-list slot reuse, sparse empty-subtree roots, authentication paths. no_std; the pallet supplies storage, this crate is the math."
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ark-bn254             = { workspace = true, features = ["curve"] }
+ark-ff                = { workspace = true }
+rostro-poseidon-bn254 = { workspace = true }
+sp-crypto-hashing     = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "ark-bn254/std",
+    "ark-ff/std",
+    "rostro-poseidon-bn254/std",
+    "sp-crypto-hashing/std",
+]

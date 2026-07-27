@@ -53,7 +53,7 @@ use ark_r1cs_std::{
     select::CondSelectGadget,
 };
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
-use rostro_membership_tree::DEPTH;
+use rostro_sparse_merkle::DEPTH;
 use rostro_poseidon_bn254::{
     gadget::{hash_leaf_var, hash_node_var, id_commitment_var, nullifier_var},
     params, PoseidonConfig,
@@ -96,7 +96,7 @@ pub struct MembershipCircuit {
 }
 
 /// Recompute a Merkle root in-circuit from a leaf, its index bits, and an
-/// authentication path. Mirrors `rostro_membership_tree::root_from_path`:
+/// authentication path. Mirrors `rostro_sparse_merkle::root_from_path`:
 /// bit 0 ⇒ this node is the left child, bit 1 ⇒ the right child.
 fn merkle_root(
     cs: ConstraintSystemRef<Fr>,

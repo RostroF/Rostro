@@ -13826,8 +13826,8 @@ dependencies = [
  "ark-std 0.5.0",
  "parity-scale-codec",
  "rostro-membership-circuit",
- "rostro-membership-tree",
  "rostro-poseidon-bn254",
+ "rostro-sparse-merkle",
 ]
 
 [[package]]
@@ -14292,17 +14292,8 @@ dependencies = [
  "ark-serialize 0.5.0",
  "ark-snark",
  "ark-std 0.5.0",
- "rostro-membership-tree",
  "rostro-poseidon-bn254",
-]
-
-[[package]]
-name = "rostro-membership-tree"
-version = "0.1.0"
-dependencies = [
- "ark-bn254",
- "ark-ff 0.5.0",
- "rostro-poseidon-bn254",
+ "rostro-sparse-merkle",
 ]
 
 [[package]]
@@ -14616,6 +14607,16 @@ dependencies = [
  "rostro-chat-primitives",
  "sp-crypto-hashing 0.1.0",
  "zeroize",
+]
+
+[[package]]
+name = "rostro-sparse-merkle"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254",
+ "ark-ff 0.5.0",
+ "rostro-poseidon-bn254",
+ "sp-crypto-hashing 0.1.0",
 ]
 
 [[package]]
@@ -20797,8 +20798,8 @@ dependencies = [
  "frame-support",
  "frame-system",
  "parity-scale-codec",
- "rostro-membership-tree",
  "rostro-poseidon-bn254",
+ "rostro-sparse-merkle",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -20859,8 +20860,8 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "parity-scale-codec",
- "rostro-membership-tree",
  "rostro-poseidon-bn254",
+ "rostro-sparse-merkle",
  "scale-info",
  "sp-api",
  "sp-block-builder",

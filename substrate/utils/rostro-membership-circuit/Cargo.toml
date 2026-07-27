@@ -14,7 +14,7 @@ ark-ff                = { workspace = true }
 ark-relations         = { workspace = true }
 ark-r1cs-std          = { workspace = true }
 rostro-poseidon-bn254 = { workspace = true, features = ["gadget"] }
-rostro-membership-tree = { workspace = true }
+rostro-sparse-merkle = { workspace = true }
 
 # Groth16 proving machinery (feature "groth16"). Optional: the constraint
 # system itself does not need the pairing curve.
@@ -27,7 +27,7 @@ ark-std       = { workspace = true, optional = true }
 ark-relations          = { workspace = true, default-features = true }
 ark-r1cs-std           = { workspace = true, default-features = true }
 rostro-poseidon-bn254  = { workspace = true, default-features = true, features = ["gadget"] }
-rostro-membership-tree = { workspace = true, default-features = true }
+rostro-sparse-merkle = { workspace = true, default-features = true }
 
 [[example]]
 name = "setup_test_keys"
@@ -41,7 +41,7 @@ std = [
     "ark-relations/std",
     "ark-r1cs-std/std",
     "rostro-poseidon-bn254/std",
-    "rostro-membership-tree/std",
+    "rostro-sparse-merkle/std",
 ]
 # Groth16 setup / prove / verify + (de)serialization. Implies std.
 groth16 = [

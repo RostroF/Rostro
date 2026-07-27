@@ -29,7 +29,7 @@ zk-pki-tpm      = { workspace = true }
 zk-pki-integrity = { workspace = true }
 zk-pki-hip      = { workspace = true }
 rostro-poseidon-bn254 = { workspace = true }
-rostro-membership-tree = { workspace = true }
+rostro-sparse-merkle = { workspace = true }
 
 # Mime-wrap Groth16 verifier kernel (Stage 5b migration). Same
 # arkworks crates as the Stage 4 standalone pallet. ark-bn254 needs
@@ -67,7 +67,7 @@ std = [
     "zk-pki-integrity/std",
     "zk-pki-hip/std",
     "rostro-poseidon-bn254/std",
-    "rostro-membership-tree/std",
+    "rostro-sparse-merkle/std",
     "ark-bn254/std",
     "ark-groth16/std",
     "ark-serialize/std",

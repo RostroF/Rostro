@@ -112,17 +112,23 @@ fn run<R>(f: impl FnOnce() -> R) -> R {
 /// admit chat enrollments. Enrollment tests use
 /// [`setup_up_to_offer_chat_auth`].
 fn setup_up_to_offer() -> ([u8; 32], BlockNumber) {
-    setup_offer_impl(false)
+    setup_offer_impl(None)
 }
 
 /// Chat-chartered variant: `ChatAuth` flows root capability → issuer
 /// capability → template EKUs, so `mint_cert` accepts a
 /// `chat_enrollment` under the offer.
 fn setup_up_to_offer_chat_auth() -> ([u8; 32], BlockNumber) {
-    setup_offer_impl(true)
+    setup_offer_impl(Some(zk_pki_primitives::eku::Eku::ChatAuth))
 }
 
-fn setup_offer_impl(chat_auth: bool) -> ([u8; 32], BlockNumber) {
+/// Witness-chartered variant: `WitnessAuth` flows root → issuer → template,
+/// so `mint_witness_cert` accepts an enrollment under the offer.
+fn setup_up_to_offer_witness_auth() -> ([u8; 32], BlockNumber) {
+    setup_offer_impl(Some(zk_pki_primitives::eku::Eku::WitnessAuth))
+}
+
+fn setup_offer_impl(cap: Option<zk_pki_primitives::eku::Eku>) -> ([u8; 32], BlockNumber) {
     use zk_pki_primitives::eku::Eku;
 
     // 1. Register root. T::Attestation is NoopAttestationVerifier so
@@ -131,7 +137,7 @@ fn setup_offer_impl(chat_auth: bool) -> ([u8; 32], BlockNumber) {
     let root_pubkey =
         DevicePublicKey::new_p256(&test_cert_ec_pubkey()).expect("valid P-256 pubkey");
     let empty_att: BoundedVec<_, _> = BoundedVec::try_from(vec![]).unwrap();
-    let cap_source: Vec<Eku> = if chat_auth { vec![Eku::ChatAuth] } else { vec![] };
+    let cap_source: Vec<Eku> = cap.into_iter().collect();
     let cap_ekus:
         BoundedVec<zk_pki_primitives::eku::Eku, frame_support::traits::ConstU32<8>> =
         BoundedVec::try_from(cap_source.clone()).unwrap();
@@ -754,5 +760,187 @@ fn mint_cert_with_enrollment_stamps_chat_auth_eku() {
         assert!(hot.ekus.iter().any(|e| *e == Eku::ChatAuth), "ChatAuth stamped");
         let cold = zk_pki_pallet::CertLookupCold::<Runtime>::get(thumb).expect("cold record");
         assert_eq!(cold.leaf_position, Some(0), "leaf inserted");
+    });
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Witness certs (RWA credential): per-issuer keccak tree, edge-suppressed
+// ──────────────────────────────────────────────────────────────────────
+
+/// The single witness thumbprint minted in a test, found via the routing map
+/// (`CertsByUser` is deliberately not written for witness certs, so the usual
+/// user-index lookup can't find it).
+fn witness_thumb() -> [u8; 32] {
+    zk_pki_pallet::WitnessLeafIssuer::<Runtime>::iter()
+        .next()
+        .map(|(t, _)| t)
+        .expect("a witness cert was minted")
+}
+
+#[test]
+fn mint_witness_cert_lands_in_issuer_tree_not_global() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer_witness_auth();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+
+        let issuer = account(ISSUER_ACCOUNT);
+        let global_empty = ZkPki::membership_root();
+        let issuer_empty = ZkPki::witness_root(&issuer);
+
+        assert_ok!(ZkPki::mint_witness_cert(
+            RuntimeOrigin::signed(account(USER_ACCOUNT)),
+            nonce,
+            payload,
+            created_at,
+            None,
+            None,
+            None,
+            enrollment,
+        ));
+
+        // The leaf landed in the ISSUER's own witness tree (+ its freshness).
+        assert_ne!(ZkPki::witness_root(&issuer), issuer_empty, "issuer witness root advances");
+        assert_ne!(
+            ZkPki::witness_freshness_root(&issuer),
+            issuer_empty,
+            "issuer freshness root advances",
+        );
+        // The global chat tree is untouched.
+        assert_eq!(ZkPki::membership_root(), global_empty, "chat global tree untouched");
+
+        // Routing entry recorded; cold record present at leaf 0.
+        let thumb = witness_thumb();
+        assert_eq!(
+            zk_pki_pallet::WitnessLeafIssuer::<Runtime>::get(thumb),
+            Some(issuer.clone()),
+        );
+        let cold = zk_pki_pallet::CertLookupCold::<Runtime>::get(thumb).expect("cold record");
+        assert_eq!(cold.leaf_position, Some(0));
+    });
+}
+
+#[test]
+fn mint_witness_cert_writes_no_edge_indexes() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer_witness_auth();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        assert_ok!(ZkPki::mint_witness_cert(
+            RuntimeOrigin::signed(account(USER_ACCOUNT)),
+            nonce,
+            payload,
+            created_at,
+            None,
+            None,
+            None,
+            enrollment,
+        ));
+
+        let user = account(USER_ACCOUNT);
+        let issuer = account(ISSUER_ACCOUNT);
+
+        // No resolvable issuer<->holder edge in any secondary index.
+        assert!(
+            zk_pki_pallet::CertsByUser::<Runtime>::iter_prefix(&user).next().is_none(),
+            "witness cert must not write CertsByUser",
+        );
+        assert!(
+            zk_pki_pallet::CertsByIssuer::<Runtime>::iter_prefix(&issuer).next().is_none(),
+            "witness cert must not write CertsByIssuer",
+        );
+        assert!(
+            !zk_pki_pallet::UserIssuerIndex::<Runtime>::contains_key(
+                zk_pki_primitives::keys::UserIssuerKey::new(user.clone(), issuer.clone())
+            ),
+            "witness cert must not write UserIssuerIndex",
+        );
+        // No device-key reverse index either (the key is never resolved in the
+        // clear for a witness cert).
+        let dpk = DevicePublicKey::new_p256(&test_cert_ec_pubkey()).expect("valid P-256 pubkey");
+        let key_hash = dpk.lookup_hash().expect("canonicalizes");
+        // The root and issuer certs share this test key and legitimately index
+        // it; the witness cert must NOT add itself to the reverse index.
+        assert!(
+            !ZkPki::query_certs_by_device_key(key_hash).contains(&witness_thumb()),
+            "witness cert must not write CertByDeviceKey",
+        );
+    });
+}
+
+#[test]
+fn mint_witness_cert_requires_witness_auth_template() {
+    run(|| {
+        // A ChatAuth-chartered offer does NOT carry WitnessAuth.
+        let (nonce, created_at) = setup_up_to_offer_chat_auth();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        assert_noop!(
+            ZkPki::mint_witness_cert(
+                RuntimeOrigin::signed(account(USER_ACCOUNT)),
+                nonce,
+                payload,
+                created_at,
+                None,
+                None,
+                None,
+                enrollment,
+            ),
+            zk_pki_pallet::Error::<Runtime>::WitnessAuthNotPermittedByTemplate,
+        );
+    });
+}
+
+#[test]
+fn witness_cert_revocation_clears_issuer_tree_leaf() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer_witness_auth();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        let issuer = account(ISSUER_ACCOUNT);
+        let issuer_empty = ZkPki::witness_root(&issuer);
+
+        assert_ok!(ZkPki::mint_witness_cert(
+            RuntimeOrigin::signed(account(USER_ACCOUNT)),
+            nonce,
+            payload,
+            created_at,
+            None,
+            None,
+            None,
+            enrollment,
+        ));
+        let thumb = witness_thumb();
+        assert_ne!(ZkPki::witness_root(&issuer), issuer_empty);
+
+        // The issuer revokes: the leaf is cleared from the ISSUER's tree, the
+        // freshness leaf too, and the routing + cold records are dropped.
+        assert_ok!(ZkPki::invalidate_cert(RuntimeOrigin::signed(issuer.clone()), thumb));
+        assert_eq!(
+            ZkPki::witness_root(&issuer),
+            issuer_empty,
+            "issuer witness root returns to empty on revocation",
+        );
+        assert_eq!(ZkPki::witness_freshness_root(&issuer), issuer_empty, "freshness returns to empty");
+        assert!(
+            zk_pki_pallet::WitnessLeafIssuer::<Runtime>::get(thumb).is_none(),
+            "routing entry cleared",
+        );
+        assert!(
+            zk_pki_pallet::CertLookupCold::<Runtime>::get(thumb).is_none(),
+            "cold record gone",
+        );
     });
 }

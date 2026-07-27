@@ -6,8 +6,9 @@
 //! math itself is trusted from the crate; here we assert the pallet
 //! reproduces a reference `MemoryStore` computation through real storage.
 
-use rostro_membership_tree::{empty_root, empty_roots, update, MemoryStore};
-use rostro_poseidon_bn254::{fr_to_bytes_le, hash_leaf, id_commitment, params, PoseidonField as Fr};
+use rostro_sparse_merkle::poseidon::PoseidonHasher;
+use rostro_sparse_merkle::{empty_root, empty_roots, update, MemoryStore};
+use rostro_poseidon_bn254::{fr_to_bytes_le, hash_leaf, id_commitment, PoseidonField as Fr};
 use sp_runtime::BuildStorage;
 use zk_pki_runtime::{Runtime, ZkPki};
 
@@ -20,14 +21,14 @@ fn ext() -> sp_io::TestExternalities {
 
 /// An arbitrary but realistic leaf value.
 fn leaf(n: u64) -> Fr {
-    let p = params();
+    let p = PoseidonHasher::new();
     hash_leaf(&p, id_commitment(&p, Fr::from(n)), Fr::from(1000u64), Fr::from(1u64))
 }
 
 #[test]
 fn empty_root_before_any_insert() {
     ext().execute_with(|| {
-        let p = params();
+        let p = PoseidonHasher::new();
         let empty = fr_to_bytes_le(&empty_root(&p));
         assert_eq!(ZkPki::membership_root(), empty);
         assert!(ZkPki::membership_root_recent(&empty));
@@ -38,7 +39,7 @@ fn empty_root_before_any_insert() {
 #[test]
 fn pallet_tree_matches_reference_and_reuses_slots() {
     ext().execute_with(|| {
-        let p = params();
+        let p = PoseidonHasher::new();
         let empties = empty_roots(&p);
 
         // Insert two leaves at deterministic indices 0 and 1.
@@ -71,7 +72,7 @@ fn pallet_tree_matches_reference_and_reuses_slots() {
 #[test]
 fn remove_only_leaf_restores_empty_root() {
     ext().execute_with(|| {
-        let p = params();
+        let p = PoseidonHasher::new();
         let idx = ZkPki::membership_insert(leaf(42)).unwrap();
         assert_ne!(ZkPki::membership_root(), fr_to_bytes_le(&empty_root(&p)));
         ZkPki::membership_remove(idx);
@@ -82,7 +83,7 @@ fn remove_only_leaf_restores_empty_root() {
 #[test]
 fn freshness_set_bump_remove_track_root() {
     ext().execute_with(|| {
-        let p = params();
+        let p = PoseidonHasher::new();
         let empty = fr_to_bytes_le(&empty_root(&p));
         assert_eq!(ZkPki::freshness_root(), empty);
 
@@ -104,7 +105,7 @@ fn freshness_set_bump_remove_track_root() {
 #[test]
 fn freshness_leaf_is_the_epoch_value() {
     ext().execute_with(|| {
-        let p = params();
+        let p = PoseidonHasher::new();
         let empties = empty_roots(&p);
         ZkPki::freshness_set(3, 42);
         // The freshness leaf at index 3 is Fr::from(42): the circuit reads it
