@@ -798,6 +798,52 @@ pub mod pallet {
     pub type WitnessLeafIssuer<T: Config> =
         StorageMap<_, Blake2_128Concat, Thumbprint, T::AccountId, OptionQuery>;
 
+    // -----------------------------------------------------------------------
+    // Root-of-roots — the Attestor-signed checkpoint (Phase 2).
+    // A single keccak SMT committing every issuer's witness roots. The leaf at
+    // an issuer's index is `keccak256(issuer ++ membership_root ++
+    // freshness_root)`, recomputed whenever that issuer's witness tree changes.
+    // The Attestor Quorum signs `RootOfRoots` each changed block; a foreign
+    // verifier proves "issuer B's roots are in the signed checkpoint" via a
+    // branch here, then proves the presented leaf against B's own root.
+    // -----------------------------------------------------------------------
+
+    /// Sparse occupied root-of-roots nodes: `(level, index)` → 32-byte node.
+    #[pallet::storage]
+    pub type RootOfRootsNodes<T: Config> =
+        StorageMap<_, Blake2_128Concat, (u8, u64), [u8; 32], OptionQuery>;
+
+    /// The current root-of-roots (the value the Attestor Quorum signs). `None`
+    /// before any issuer has a witness tree — readers fall back to the
+    /// empty-tree root.
+    #[pallet::storage]
+    pub type RootOfRoots<T: Config> = StorageValue<_, [u8; 32], OptionQuery>;
+
+    /// An issuer's stable leaf index in the root-of-roots tree, allocated on
+    /// its first witness-tree change.
+    #[pallet::storage]
+    pub type IssuerTreeIndex<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
+
+    /// Next never-used root-of-roots leaf index (issuer high-water mark).
+    #[pallet::storage]
+    pub type RootOfRootsNextIndex<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+    /// NodeStore adapter binding the single global root-of-roots tree.
+    pub struct RootOfRootsNodeStore<T>(core::marker::PhantomData<T>);
+
+    impl<T: Config> NodeStore<[u8; 32]> for RootOfRootsNodeStore<T> {
+        fn get(&self, level: u8, index: u64) -> Option<[u8; 32]> {
+            RootOfRootsNodes::<T>::get((level, index))
+        }
+        fn set(&mut self, level: u8, index: u64, value: [u8; 32]) {
+            RootOfRootsNodes::<T>::insert((level, index), value);
+        }
+        fn clear(&mut self, level: u8, index: u64) {
+            RootOfRootsNodes::<T>::remove((level, index));
+        }
+    }
+
     /// NodeStore adapter binding an issuer's witness tree to storage.
     pub struct WitnessNodeStore<T: Config>(T::AccountId);
 
@@ -880,6 +926,8 @@ pub mod pallet {
                 }
                 let _ = h.try_push(root);
             });
+            // Roll the change up into the Attestor-signed checkpoint.
+            Self::root_of_roots_update(issuer);
         }
 
         /// Insert `leaf` into `issuer`'s witness tree, returning its index, or
@@ -954,6 +1002,69 @@ pub mod pallet {
                 }
                 let _ = h.try_push(root);
             });
+            // Freshness churn also moves the issuer's committed roots.
+            Self::root_of_roots_update(issuer);
+        }
+
+        // ── Root-of-roots (Attestor-signed checkpoint) ──────────────────────
+
+        /// Leaf committing an issuer's witness roots into the root-of-roots:
+        /// `keccak256(issuer ++ membership_root ++ freshness_root)`. A verifier
+        /// rebuilds this from the issuer identity it pins and the two roots it
+        /// is served.
+        fn root_of_roots_leaf(issuer: &T::AccountId, m_root: [u8; 32], f_root: [u8; 32]) -> [u8; 32] {
+            let mut buf = issuer.encode();
+            buf.extend_from_slice(&m_root);
+            buf.extend_from_slice(&f_root);
+            sp_io::hashing::keccak_256(&buf)
+        }
+
+        /// The issuer's stable root-of-roots leaf index, allocating one on first use.
+        fn issuer_tree_index(issuer: &T::AccountId) -> u64 {
+            IssuerTreeIndex::<T>::get(issuer).unwrap_or_else(|| {
+                let idx = RootOfRootsNextIndex::<T>::get();
+                RootOfRootsNextIndex::<T>::put(idx + 1);
+                IssuerTreeIndex::<T>::insert(issuer, idx);
+                idx
+            })
+        }
+
+        /// Recompute `issuer`'s leaf in the root-of-roots from its current
+        /// witness + freshness roots. Called on every witness-tree change, so
+        /// `RootOfRoots` is current at block end for the Attestors to sign.
+        fn root_of_roots_update(issuer: &T::AccountId) {
+            let idx = Self::issuer_tree_index(issuer);
+            let leaf = Self::root_of_roots_leaf(
+                issuer,
+                Self::witness_root(issuer),
+                Self::witness_freshness_root(issuer),
+            );
+            let hasher = KeccakHasher;
+            let empties = empty_roots(&hasher);
+            let mut store = RootOfRootsNodeStore::<T>(core::marker::PhantomData);
+            let root = update(&mut store, &hasher, &empties, idx, leaf);
+            RootOfRoots::<T>::put(root);
+        }
+
+        /// The current root-of-roots (the Attestor-signed checkpoint value), or
+        /// the empty-tree root before any issuer has a witness tree.
+        pub fn root_of_roots() -> [u8; 32] {
+            RootOfRoots::<T>::get().unwrap_or_else(|| empty_root(&KeccakHasher))
+        }
+
+        /// Everything a verifier needs to prove `issuer`'s roots are in the
+        /// checkpoint: its leaf index, its two current roots (to rebuild the
+        /// leaf), and the authentication path up to `RootOfRoots`. `None` if the
+        /// issuer has no witness tree yet.
+        pub fn root_of_roots_witness(
+            issuer: &T::AccountId,
+        ) -> Option<(u64, [u8; 32], [u8; 32], sp_std::vec::Vec<[u8; 32]>)> {
+            let idx = IssuerTreeIndex::<T>::get(issuer)?;
+            let hasher = KeccakHasher;
+            let empties = empty_roots(&hasher);
+            let store = RootOfRootsNodeStore::<T>(core::marker::PhantomData);
+            let path = authentication_path(&store, &empties, idx).to_vec();
+            Some((idx, Self::witness_root(issuer), Self::witness_freshness_root(issuer), path))
         }
 
         /// Clear a cert's membership + freshness leaf from whichever tree holds

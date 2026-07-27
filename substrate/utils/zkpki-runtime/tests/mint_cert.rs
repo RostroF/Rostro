@@ -944,3 +944,71 @@ fn witness_cert_revocation_clears_issuer_tree_leaf() {
         );
     });
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Root-of-roots (Attestor-signed checkpoint over per-issuer witness roots)
+// ──────────────────────────────────────────────────────────────────────
+
+#[test]
+fn root_of_roots_commits_issuer_and_branch_verifies() {
+    use rostro_sparse_merkle::keccak::KeccakHasher;
+    use rostro_sparse_merkle::{empty_root, root_from_path};
+
+    run(|| {
+        let issuer = account(ISSUER_ACCOUNT);
+        // Empty before any issuer has a witness tree.
+        assert_eq!(ZkPki::root_of_roots(), empty_root(&KeccakHasher));
+        assert!(ZkPki::root_of_roots_witness(&issuer).is_none());
+
+        // Mint a witness cert for this issuer.
+        let (nonce, created_at) = setup_up_to_offer_witness_auth();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        assert_ok!(ZkPki::mint_witness_cert(
+            RuntimeOrigin::signed(account(USER_ACCOUNT)),
+            nonce,
+            payload,
+            created_at,
+            None,
+            None,
+            None,
+            enrollment,
+        ));
+
+        // The checkpoint moved and the issuer was committed at index 0.
+        let ror = ZkPki::root_of_roots();
+        assert_ne!(ror, empty_root(&KeccakHasher), "checkpoint moves on witness mint");
+        let (idx, m_root, f_root, path) =
+            ZkPki::root_of_roots_witness(&issuer).expect("issuer committed in checkpoint");
+        assert_eq!(idx, 0);
+        assert_eq!(m_root, ZkPki::witness_root(&issuer));
+        assert_eq!(f_root, ZkPki::witness_freshness_root(&issuer));
+
+        // A verifier rebuilds the issuer's leaf and walks the branch to the root.
+        let rebuild_leaf = |m: [u8; 32], f: [u8; 32]| {
+            let mut buf = issuer.encode();
+            buf.extend_from_slice(&m);
+            buf.extend_from_slice(&f);
+            sp_core::hashing::keccak_256(&buf)
+        };
+        let leaf = rebuild_leaf(m_root, f_root);
+        let path_arr: [[u8; 32]; 32] = path.try_into().expect("depth-32 path");
+        assert_eq!(root_from_path(&KeccakHasher, leaf, idx, &path_arr), ror);
+
+        // Revocation moves the checkpoint again (issuer now commits empty roots),
+        // and the branch still verifies against the new root.
+        let thumb = witness_thumb();
+        assert_ok!(ZkPki::invalidate_cert(RuntimeOrigin::signed(issuer.clone()), thumb));
+        let ror2 = ZkPki::root_of_roots();
+        assert_ne!(ror2, ror, "checkpoint moves on revocation");
+        let (idx2, m2, f2, path2) =
+            ZkPki::root_of_roots_witness(&issuer).expect("issuer still indexed after revoke");
+        assert_eq!(idx2, 0);
+        let leaf2 = rebuild_leaf(m2, f2);
+        let path_arr2: [[u8; 32]; 32] = path2.try_into().expect("depth-32 path");
+        assert_eq!(root_from_path(&KeccakHasher, leaf2, idx2, &path_arr2), ror2);
+    });
+}
