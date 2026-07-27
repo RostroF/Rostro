@@ -166,6 +166,7 @@ members = [
 	"substrate/frame/rostro-governance",
 	"substrate/frame/rostro-history-anchor",
 	"substrate/frame/rostro-key-lineage",
+	"substrate/frame/rostro-attestor",
 	"substrate/frame/rostro-keyring",
 	"substrate/frame/rostro-operator-state",
 	"substrate/frame/rostro-proof-anchor",
@@ -326,7 +327,7 @@ members = [
 	"substrate/utils/rostro-hash-to-field-air",
 	"substrate/utils/rostro-hash-to-curve-air",
 	"substrate/utils/rostro-poseidon-bn254",
-	"substrate/utils/rostro-membership-tree",
+	"substrate/utils/rostro-sparse-merkle",
 	"substrate/utils/rostro-membership-circuit",
 	"substrate/utils/rostro-chat-membership-auth",
 	"substrate/utils/rostro-chaum-pedersen-air",
@@ -707,6 +708,7 @@ pallet-rostro-canonical-files = { path = "substrate/frame/rostro-canonical-files
 pallet-rostro-governance = { path = "substrate/frame/rostro-governance", default-features = false }
 pallet-rostro-history-anchor = { path = "substrate/frame/rostro-history-anchor", default-features = false }
 pallet-rostro-key-lineage = { path = "substrate/frame/rostro-key-lineage", default-features = false }
+pallet-rostro-attestor = { path = "substrate/frame/rostro-attestor", default-features = false }
 pallet-rostro-keyring = { path = "substrate/frame/rostro-keyring", default-features = false }
 pallet-rostro-operator-state = { path = "substrate/frame/rostro-operator-state", default-features = false }
 pallet-rostro-personhood = { path = "substrate/frame/pallet-rostro-personhood", default-features = false }
@@ -731,7 +733,7 @@ rostro-poseidon-sponge-air = { path = "substrate/utils/rostro-poseidon-sponge-ai
 rostro-hash-to-field-air = { path = "substrate/utils/rostro-hash-to-field-air", default-features = false }
 rostro-hash-to-curve-air = { path = "substrate/utils/rostro-hash-to-curve-air", default-features = false }
 rostro-poseidon-bn254 = { path = "substrate/utils/rostro-poseidon-bn254", default-features = false }
-rostro-membership-tree = { path = "substrate/utils/rostro-membership-tree", default-features = false }
+rostro-sparse-merkle = { path = "substrate/utils/rostro-sparse-merkle", default-features = false }
 rostro-membership-circuit = { path = "substrate/utils/rostro-membership-circuit", default-features = false }
 rostro-chat-membership-auth = { path = "substrate/utils/rostro-chat-membership-auth", default-features = false }
 rostro-chaum-pedersen-air = { path = "substrate/utils/rostro-chaum-pedersen-air", default-features = false }

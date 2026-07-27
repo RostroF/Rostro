@@ -29,7 +29,7 @@ use rc_service::ChainType;
 use serde_json::{json, Value};
 use sp_consensus_grandpa::AuthorityId as GrandpaAuthorityId;
 use sp_consensus_sassafras::EpochConfiguration;
-use sp_core::{sr25519, Pair, Public};
+use sp_core::{ecdsa, sr25519, Pair, Public};
 use sp_runtime::{
 	traits::{IdentifyAccount, Verify},
 	Perbill,
@@ -59,14 +59,18 @@ pub fn get_account_id_from_seed(seed: &str) -> AccountId {
 }
 
 /// Generate the account + Sassafras (bandersnatch) + GRANDPA (hybrid
-/// ed25519+SLH-DSA) authority triple from a seed string. The account is the validator's
-/// on-chain identity: it owns the session-key registration (and is what
-/// `set_keys` rotation is authorized by).
-pub fn authority_keys_from_seed(s: &str) -> (AccountId, SassafrasId, GrandpaId) {
+/// ed25519+SLH-DSA) + Attestor (secp256k1) authority tuple from a seed string.
+/// The account is the validator's on-chain identity: it owns the session-key
+/// registration (and is what `set_keys` rotation is authorized by). The attestor
+/// key is a plain `ecdsa::Public` here (serde-identical to the runtime's
+/// app-wrapped `AttestorId`), derived from the same `//seed` the keystore's
+/// `atte` key uses so the offchain signer's recovered address matches genesis.
+pub fn authority_keys_from_seed(s: &str) -> (AccountId, SassafrasId, GrandpaId, ecdsa::Public) {
 	(
 		get_account_id_from_seed(s),
 		get_from_seed::<SassafrasId>(s),
 		get_from_seed::<GrandpaAuthorityId>(s),
+		get_from_seed::<ecdsa::Public>(s),
 	)
 }
 
@@ -114,6 +118,33 @@ pub fn local_config() -> Result<ChainSpec, String> {
 		vec![
 			authority_keys_from_seed("Alice"),
 			authority_keys_from_seed("Bob"),
+		],
+		get_account_id_from_seed("Alice"),
+		dev_endowed_accounts(),
+	))
+	.with_properties(properties())
+	.build())
+}
+
+// ─── `trio` chain spec — 3-node attestor-quorum bringup ───────────────────
+
+/// Three-authority gemini (Alice + Bob + Charlie). Attestor quorum threshold is
+/// ⌈2·3/3⌉ = 2, so it proves the quorum aggregates across distinct validators
+/// AND tolerates one absent signer (2-of-3). Used to live-prove the RWA
+/// attestor-quorum checkpoint signing (docs/HANDOFF-RWA-CREDENTIAL.md §4c).
+pub fn trio_config() -> Result<ChainSpec, String> {
+	Ok(ChainSpec::builder(
+		WASM_BINARY.ok_or_else(|| "gemini wasm not available".to_string())?,
+		None,
+	)
+	.with_name("Gemini Trio")
+	.with_id("gemini-trio")
+	.with_chain_type(ChainType::Local)
+	.with_genesis_config_patch(testnet_genesis(
+		vec![
+			authority_keys_from_seed("Alice"),
+			authority_keys_from_seed("Bob"),
+			authority_keys_from_seed("Charlie"),
 		],
 		get_account_id_from_seed("Alice"),
 		dev_endowed_accounts(),
@@ -232,7 +263,7 @@ fn read_initial_release_pubkey() -> Option<[u8; 32]> {
 /// `construct-dummy-ring-context` feature gate at genesis-build time
 /// — so we don't pass URS bytes here in v1.
 fn testnet_genesis(
-	initial_authorities: Vec<(AccountId, SassafrasId, GrandpaId)>,
+	initial_authorities: Vec<(AccountId, SassafrasId, GrandpaId, ecdsa::Public)>,
 	root_key: AccountId,
 	endowed_accounts: Vec<AccountId>,
 ) -> Value {
@@ -276,7 +307,11 @@ fn testnet_genesis(
 					(
 						x.0.clone(),
 						x.0.clone(),
-						json!({ "sassafras": x.1.clone(), "grandpa": x.2.clone() }),
+						json!({
+							"sassafras": x.1.clone(),
+							"grandpa": x.2.clone(),
+							"attestor": x.3.clone(),
+						}),
 					)
 				})
 				.collect::<Vec<_>>(),

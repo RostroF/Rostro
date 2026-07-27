@@ -64,6 +64,9 @@ pub enum CryptoScheme {
 	Ed25519,
 	/// sr25519 — account keys.
 	Sr25519,
+	/// ecdsa (secp256k1) — the attestor-quorum session key (`atte`), signed
+	/// bytes verifiable by a foreign Ethereum contract via `ecrecover`.
+	Ecdsa,
 }
 
 impl CryptoScheme {
@@ -73,6 +76,7 @@ impl CryptoScheme {
 			CryptoScheme::RostroHybrid => "rostro-hybrid",
 			CryptoScheme::Ed25519 => "ed25519",
 			CryptoScheme::Sr25519 => "sr25519",
+			CryptoScheme::Ecdsa => "ecdsa",
 		}
 	}
 }

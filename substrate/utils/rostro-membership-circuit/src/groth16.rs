@@ -18,7 +18,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_snark::SNARK;
 use ark_std::rand::{CryptoRng, RngCore};
 use ark_std::{vec, vec::Vec};
-use rostro_membership_tree::DEPTH;
+use rostro_sparse_merkle::DEPTH;
 
 use crate::MembershipCircuit;
 

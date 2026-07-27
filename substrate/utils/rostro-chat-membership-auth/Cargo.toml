@@ -19,4 +19,4 @@ rostro-poseidon-bn254 = { workspace = true, default-features = true }
 [dev-dependencies]
 ark-std                = { workspace = true, default-features = true }
 ark-relations          = { workspace = true, default-features = true }
-rostro-membership-tree = { workspace = true, default-features = true }
+rostro-sparse-merkle = { workspace = true, default-features = true }

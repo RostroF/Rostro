@@ -49,6 +49,7 @@ rostro-multi-key = { path = "../../utils/rostro-multi-key", default-features = f
 pallet-sassafras = { workspace = true, features = ["construct-dummy-ring-context"] }
 pallet-session = { workspace = true, features = ["historical"] }
 pallet-offences = { workspace = true }
+pallet-rostro-attestor = { workspace = true }
 pallet-rostro-key-lineage = { workspace = true }
 pallet-rostro-keyring = { workspace = true }
 pallet-staking = { workspace = true }
@@ -133,6 +134,7 @@ std = [
 	"rostro-multi-key/std",
 	"pallet-sassafras/std",
 	"pallet-offences/std",
+	"pallet-rostro-attestor/std",
 	"pallet-rostro-key-lineage/std",
 	"pallet-rostro-keyring/std",
 	"pallet-session/std",
