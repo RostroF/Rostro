@@ -32,6 +32,20 @@ pub type EthAddress = [u8; 20];
 /// A 65-byte recoverable ECDSA signature `r ‖ s ‖ v`.
 pub type Signature = [u8; 65];
 
+/// The attestor session key. A **secp256k1** app-key (own key type `atte`) that
+/// joins the runtime's `SessionKeys` so it rotates with the validator's other
+/// keys and is vetted through the same `set_keys` path. It is the key the node's
+/// offchain signer uses; the pallet caches the active set's derived Ethereum
+/// addresses each session (see [`OneSessionHandler`] impl below).
+pub mod app {
+    use sp_application_crypto::{app_crypto, ecdsa, KeyTypeId};
+    /// Key type identifier for the attestor signing key.
+    pub const ATTESTOR: KeyTypeId = KeyTypeId(*b"atte");
+    app_crypto!(ecdsa, ATTESTOR);
+}
+/// The attestor authority public key (secp256k1 app-public).
+pub type AuthorityId = app::Public;
+
 /// The current checkpoint value (the `RootOfRoots`) the quorum signs. Wired to
 /// the ZkPki pallet in the runtime; a test value in the mock.
 pub trait CheckpointProvider {
@@ -76,10 +90,17 @@ pub mod pallet {
     use super::*;
     use alloc::vec::Vec;
     use codec::{Decode, Encode, MaxEncodedLen};
-    use frame_support::{pallet_prelude::*, BoundedVec};
-    use frame_system::pallet_prelude::*;
+    use frame_support::{
+        crypto::ecdsa::ECDSAExt, pallet_prelude::*, traits::OneSessionHandler, BoundedVec,
+        WeakBoundedVec,
+    };
+    use frame_system::{
+        offchain::{CreateBare, SubmitTransaction},
+        pallet_prelude::*,
+    };
     use scale_info::TypeInfo;
-    use sp_runtime::traits::UniqueSaturatedInto;
+    use sp_application_crypto::RuntimeAppPublic;
+    use sp_runtime::{traits::UniqueSaturatedInto, BoundToRuntimeAppPublic};
 
     /// A finalized checkpoint: the signed `RootOfRoots` at `height` plus the
     /// quorum of signatures. This is what a foreign verifier consumes.
@@ -93,7 +114,9 @@ pub mod pallet {
     }
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    // `CreateBare` lets the offchain signer submit the unsigned `attest` extrinsic
+    // (the mempool then aggregates the quorum — no gossip stack).
+    pub trait Config: frame_system::Config + CreateBare<Call<Self>> {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         /// Supplies the current `RootOfRoots` (the value being signed).
         type Checkpoint: CheckpointProvider;
@@ -129,6 +152,14 @@ pub mod pallet {
     /// The most recent height that reached a quorum — the served checkpoint.
     #[pallet::storage]
     pub type LatestCheckpoint<T: Config> = StorageValue<_, Checkpoint<T>, OptionQuery>;
+
+    /// The current session's attestor set as Ethereum addresses, derived once per
+    /// session from the validators' `ATTESTOR` session keys (see the
+    /// [`OneSessionHandler`] impl). This is what the runtime's [`AttestorRegistry`]
+    /// binding reads. Bounded by `MaxAttestors` (the chain-wide validator cap).
+    #[pallet::storage]
+    pub type SessionAttestors<T: Config> =
+        StorageValue<_, WeakBoundedVec<EthAddress, T::MaxAttestors>, ValueQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -169,6 +200,16 @@ pub mod pallet {
                 PendingSigs::<T>::remove(old);
             }
         }
+
+        /// Offchain signer (im-online shape). On each block, a validator holding
+        /// an in-set `ATTESTOR` key signs this height's checkpoint and submits an
+        /// unsigned `attest`. Self-gating: a node with no in-set attestor key in
+        /// its keystore does nothing.
+        fn offchain_worker(now: BlockNumberFor<T>) {
+            if sp_io::offchain::is_validator() {
+                Self::offchain_attest(now);
+            }
+        }
     }
 
     #[pallet::call]
@@ -207,6 +248,19 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
+        /// The current served checkpoint (root, height, quorum signatures), or
+        /// `None` if no height has reached quorum yet. Projected to a plain,
+        /// version-stable struct by the runtime API (`ZkPkiApi::signed_checkpoint`).
+        pub fn latest_checkpoint() -> Option<Checkpoint<T>> {
+            LatestCheckpoint::<T>::get()
+        }
+
+        /// The current session's attestor set as Ethereum addresses — a foreign
+        /// contract pins this list; the node uses it to track rotation.
+        pub fn attestor_addresses() -> Vec<EthAddress> {
+            SessionAttestors::<T>::get().into_inner()
+        }
+
         /// The signed commitment: `keccak256(root ‖ height_be8)`.
         pub fn commitment(height: u64, root: &[u8; 32]) -> [u8; 32] {
             let mut buf = [0u8; 40];
@@ -258,6 +312,124 @@ pub mod pallet {
             LatestCheckpoint::<T>::put(Checkpoint { root, height, sigs });
             PendingSigs::<T>::remove(height);
             Self::deposit_event(Event::CheckpointFinalized { height, root, signers });
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// Derive Ethereum addresses for a session's attestor keys and cache them
+        /// as the current attestor set. A key that fails to decode or decompress
+        /// is skipped (a well-formed `ATTESTOR` session key never does).
+        fn cache_session_attestors(keys: impl Iterator<Item = AuthorityId>) {
+            let addrs: Vec<EthAddress> = keys.filter_map(|k| Self::key_to_eth(&k)).collect();
+            let bounded = WeakBoundedVec::<_, T::MaxAttestors>::force_from(
+                addrs,
+                Some("RostroAttestor: attestor keys exceed MaxAttestors; excess dropped."),
+            );
+            SessionAttestors::<T>::put(bounded);
+        }
+
+        /// `AuthorityId` (compressed secp256k1) → 20-byte Ethereum address, via
+        /// `k256` decompression + keccak. Runtime-safe (see `ECDSAExt`).
+        fn key_to_eth(key: &AuthorityId) -> Option<EthAddress> {
+            use sp_core::crypto::ByteArray;
+            let raw = ByteArray::to_raw_vec(key);
+            sp_core::ecdsa::Public::from_slice(&raw).ok()?.to_eth_address().ok()
+        }
+
+        /// Sign this height's checkpoint with each local `ATTESTOR` key that is in
+        /// the current attestor set, and submit an unsigned `attest` per key.
+        fn offchain_attest(now: BlockNumberFor<T>) {
+            let height: u64 = now.unique_saturated_into();
+            // Bind to exactly the root `validate_unsigned` will check for `height`.
+            let Some(root) = RecentRoots::<T>::get(height) else { return };
+            if !Self::should_attest(height, &root) {
+                return;
+            }
+            let set = SessionAttestors::<T>::get();
+            let digest = Self::commitment(height, &root);
+            for auth in AuthorityId::all() {
+                // Only our keys that are in the current attestor set sign.
+                let Some(addr) = Self::key_to_eth(&auth) else { continue };
+                if !set.contains(&addr) {
+                    continue;
+                }
+                // Sign the keccak digest directly (NOT RuntimeAppPublic::sign,
+                // which blake2-prehashes) so the recovered signer is the eth key.
+                use sp_core::crypto::ByteArray;
+                let raw = ByteArray::to_raw_vec(&auth);
+                let Ok(core_pub) = sp_core::ecdsa::Public::from_slice(&raw) else { continue };
+                let Some(sig) =
+                    sp_io::crypto::ecdsa_sign_prehashed(app::ATTESTOR, &core_pub, &digest)
+                else {
+                    continue;
+                };
+                // Ethereum form: v ∈ {27,28} (the host returns 0/1); k256 already
+                // yields low-s, so the bytes satisfy the pallet's canonical check.
+                let mut bytes: [u8; 65] = sig.0;
+                bytes[64] = bytes[64].saturating_add(27);
+                let xt = T::create_bare(Call::attest { height, root, sig: bytes }.into());
+                let _ = SubmitTransaction::<T, Call<T>>::submit_transaction(xt);
+            }
+        }
+
+        /// Attest on a changed root, or on a heartbeat every `RecentWindow/2`
+        /// blocks so a stable root still refreshes the served checkpoint (and a
+        /// validator that missed the change-block still contributes its sig).
+        fn should_attest(height: u64, root: &[u8; 32]) -> bool {
+            let hb = (T::RecentWindow::get() as u64) / 2;
+            if hb != 0 && height % hb == 0 {
+                return true;
+            }
+            match RecentRoots::<T>::get(height.saturating_sub(1)) {
+                Some(prev) => &prev != root,
+                None => true,
+            }
+        }
+    }
+
+    impl<T: Config> BoundToRuntimeAppPublic for Pallet<T> {
+        type Public = AuthorityId;
+    }
+
+    /// Caches each session's validator attestor keys (as Ethereum addresses) so
+    /// the [`AttestorRegistry`] binding always reflects the active validator set.
+    /// The `ATTESTOR` key rides `SessionKeys`, so this fires on every rotation.
+    impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
+        type Key = AuthorityId;
+
+        fn on_genesis_session<'a, I: 'a>(validators: I)
+        where
+            I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+        {
+            Self::cache_session_attestors(validators.map(|(_, k)| k));
+        }
+
+        fn on_new_session<'a, I: 'a>(_changed: bool, validators: I, _queued: I)
+        where
+            I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+        {
+            Self::cache_session_attestors(validators.map(|(_, k)| k));
+        }
+
+        fn on_disabled(_validator_index: u32) {
+            // A validator disabled mid-session simply may not sign; the ⌈2/3⌉
+            // quorum already tolerates absent signers, and the set refreshes at
+            // the next session boundary.
+        }
+    }
+
+    /// The runtime binds `Config::Attestors` to the pallet itself: the attestor
+    /// set is the current session's validators (via their `ATTESTOR` keys), with
+    /// a ⌈2/3⌉ quorum. `v0` = all active validators; a designated subset is a
+    /// later refinement via the key-lineage template.
+    impl<T: Config> AttestorRegistry for Pallet<T> {
+        fn attestors() -> Vec<EthAddress> {
+            SessionAttestors::<T>::get().into_inner()
+        }
+        fn threshold() -> u32 {
+            let n = SessionAttestors::<T>::get().len() as u32;
+            // ⌈2n/3⌉
+            (2 * n + 2) / 3
         }
     }
 

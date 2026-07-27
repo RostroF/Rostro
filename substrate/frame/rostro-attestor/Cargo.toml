@@ -16,12 +16,15 @@ codec = { features = ["derive"], workspace = true }
 scale-info = { features = ["derive"], workspace = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
+sp-application-crypto = { features = ["serde"], workspace = true }
+sp-core = { features = ["serde"], workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 
 [dev-dependencies]
 sp-core = { workspace = true, default-features = true }
 sp-io = { workspace = true, default-features = true }
+sp-keystore = { workspace = true, default-features = true }
 
 [features]
 default = ["std"]
@@ -30,6 +33,8 @@ std = [
     "scale-info/std",
     "frame-support/std",
     "frame-system/std",
+    "sp-application-crypto/std",
+    "sp-core/std",
     "sp-io/std",
     "sp-runtime/std",
 ]

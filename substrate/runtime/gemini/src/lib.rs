@@ -162,10 +162,18 @@ pub mod opaque {
 	// authority-set change each session. The validator set behind
 	// both is produced by pallet-staking's NPoS election, filtered
 	// through KeyLineage.
+	// The attestor secp256k1 key (Attestor pallet) also rides SessionKeys so it
+	// rotates with the consensus keys and is vetted through the same set_keys
+	// path (KeyLineage::note_set_keys sees the full bundle). The Attestor pallet
+	// is its OneSessionHandler: each session it caches the validators' derived
+	// Ethereum addresses as the attestor set. Adding a field is a SessionKeys
+	// wire-format change (genesis-breaking, like the sassafras add at spec 106);
+	// it lands via chain reset, not set_code.
 	impl_opaque_keys! {
 		pub struct SessionKeys {
 			pub sassafras: Sassafras,
 			pub grandpa: Grandpa,
+			pub attestor: Attestor,
 		}
 	}
 }
@@ -233,6 +241,12 @@ pub const EPOCH_LENGTH_IN_SLOTS: u32 = 25;
 // Signed extrinsics wire-identical; pure set_code, no new host fns. (107
 // belongs to the set_id fix on main; keyring took 108 to avoid a
 // duplicate-107 collision.)
+// 111 = attestor quorum: pallet-rostro-attestor + a secp256k1 ATTESTOR key
+// added to SessionKeys, so a validator subset signs the zkpki RootOfRoots
+// checkpoint for a foreign Ethereum contract to verify via ecrecover
+// (docs/ATTESTOR-QUORUM.md). SessionKeys wire-format change =>
+// GENESIS-BREAKING (like the sassafras add at 106); lands via chain reset,
+// NOT set_code. Also carries ZkPkiApi v4 (signed_checkpoint / issuer_branch).
 //
 // lab-fast-lifecycle keeps the SAME spec_version but cfg-gates
 // BondingDuration (28→1) + the membership-epoch clock (block/25→block/
@@ -245,7 +259,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gemini"),
 	impl_name: Cow::Borrowed("gemini-runtime"),
 	authoring_version: 1,
-	spec_version: 110,
+	spec_version: 111,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -1122,6 +1136,37 @@ impl zk_pki_pallet::Config for Runtime {
 	type ProxyValidator = zk_pki_primitives::proxy::NoopProxyValidator;
 }
 
+// ─── Attestor Quorum Configuration ─────────────────────────────────────────
+// A subset of validators (v0 = all active validators) signs the zkpki
+// RootOfRoots checkpoint with a secp256k1 ATTESTOR session key, landed as
+// unsigned txs the mempool aggregates. A foreign Ethereum contract verifies the
+// quorum via `ecrecover`. The pallet is its own OneSessionHandler (caches the
+// session's attestor eth-addresses) and its own AttestorRegistry, so `Attestors`
+// binds back to the pallet. `Checkpoint` reads zkpki's root-of-roots getter.
+// See docs/ATTESTOR-QUORUM.md, docs/HANDOFF-RWA-CREDENTIAL.md.
+
+/// The value the quorum signs: zkpki's root-of-roots over every issuer's witness
+/// + freshness roots, recomputed on each witness-tree change.
+pub struct RootOfRootsCheckpoint;
+impl pallet_rostro_attestor::CheckpointProvider for RootOfRootsCheckpoint {
+	fn root() -> [u8; 32] {
+		ZkPki::root_of_roots()
+	}
+}
+
+impl pallet_rostro_attestor::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Checkpoint = RootOfRootsCheckpoint;
+	// The pallet caches each session's validators (their ATTESTOR keys) as the
+	// attestor set and computes the ⌈2/3⌉ threshold — so it is its own registry.
+	type Attestors = Attestor;
+	// Chain-wide validator cap (matches Staking's elected-set bound).
+	type MaxAttestors = ConstU32<32>;
+	// Retain ~10 minutes of (height → root) so a late-landing attestation still
+	// validates against the root the chain had at its height (6s blocks).
+	type RecentWindow = ConstU32<100>;
+}
+
 // ─── Personhood (PoP) Configuration ───────────────────────────────────────
 // Proof-of-personhood layer above zkpki. mint_pop verifies a
 // passport_attest + liveness_facematch Groth16 pair (BN254) bound to
@@ -1356,6 +1401,11 @@ construct_runtime!(
 		// consulted by extrinsic signature verification
 		// (docs/KEYRING.md). Positional append, same as above.
 		Keyring: pallet_rostro_keyring,
+		// Attestor Quorum: validators sign the zkpki RootOfRoots checkpoint with
+		// a secp256k1 ATTESTOR session key so a foreign contract verifies it via
+		// ecrecover. Rides SessionKeys (genesis-breaking, spec 111). Positional
+		// append. See docs/ATTESTOR-QUORUM.md.
+		Attestor: pallet_rostro_attestor,
 	}
 );
 
@@ -1830,6 +1880,43 @@ impl_runtime_apis! {
 			thumbprint: [u8; 32],
 		) -> Option<zk_pki_primitives::runtime_api::MembershipWitnessData> {
 			zk_pki_pallet::Pallet::<Runtime>::membership_witness(thumbprint)
+		}
+
+		// ── RWA witness-credential serving (v4) ──────────────────────────
+
+		fn root_of_roots() -> [u8; 32] {
+			ZkPki::root_of_roots()
+		}
+
+		fn issuer_branch(
+			issuer: AccountId,
+		) -> Option<zk_pki_primitives::runtime_api::IssuerRoots> {
+			ZkPki::root_of_roots_witness(&issuer).map(|(index, witness_root, freshness_root, path)| {
+				zk_pki_primitives::runtime_api::IssuerRoots {
+					index,
+					witness_root,
+					freshness_root,
+					path,
+				}
+			})
+		}
+
+		fn signed_checkpoint() -> Option<zk_pki_primitives::runtime_api::WitnessCheckpoint> {
+			pallet_rostro_attestor::Pallet::<Runtime>::latest_checkpoint().map(|cp| {
+				zk_pki_primitives::runtime_api::WitnessCheckpoint {
+					root: cp.root,
+					height: cp.height,
+					sigs: cp
+						.sigs
+						.into_iter()
+						.map(sp_core::ecdsa::Signature::from_raw)
+						.collect(),
+				}
+			})
+		}
+
+		fn attestor_set() -> Vec<[u8; 20]> {
+			pallet_rostro_attestor::Pallet::<Runtime>::attestor_addresses()
 		}
 	}
 }

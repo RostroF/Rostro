@@ -4744,6 +4744,7 @@ dependencies = [
  "pallet-rns-marketplace",
  "pallet-rns-registrar",
  "pallet-rns-resolvers",
+ "pallet-rostro-attestor",
  "pallet-rostro-bilateral-receipt",
  "pallet-rostro-canonical-files",
  "pallet-rostro-history-anchor",
@@ -10278,8 +10279,10 @@ dependencies = [
  "frame-system",
  "parity-scale-codec",
  "scale-info",
+ "sp-application-crypto",
  "sp-core",
  "sp-io",
+ "sp-keystore",
  "sp-runtime",
 ]
 

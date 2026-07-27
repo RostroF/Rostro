@@ -9,6 +9,9 @@ use sp_runtime::BuildStorage;
 use std::cell::RefCell;
 
 type Block = frame_system::mocking::MockBlock<Test>;
+/// Extrinsic type for the offchain unsigned-tx submission path (the pallet's
+/// `CreateBare` supertrait requires it; the offchain-worker test decodes it).
+pub type Extrinsic = sp_runtime::testing::TestXt<RuntimeCall, ()>;
 
 frame_support::construct_runtime!(
     pub enum Test {
@@ -16,6 +19,23 @@ frame_support::construct_runtime!(
         Attestor: pallet_rostro_attestor,
     }
 );
+
+impl<LocalCall> frame_system::offchain::CreateTransactionBase<LocalCall> for Test
+where
+    RuntimeCall: From<LocalCall>,
+{
+    type RuntimeCall = RuntimeCall;
+    type Extrinsic = Extrinsic;
+}
+
+impl<LocalCall> frame_system::offchain::CreateBare<LocalCall> for Test
+where
+    RuntimeCall: From<LocalCall>,
+{
+    fn create_bare(call: Self::RuntimeCall) -> Self::Extrinsic {
+        Extrinsic::new_bare(call)
+    }
+}
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {
