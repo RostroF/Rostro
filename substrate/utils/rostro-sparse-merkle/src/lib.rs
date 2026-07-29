@@ -339,6 +339,72 @@ mod tests {
         assert_eq!(root_from_path(&h, leaf, 7, &path), root);
     }
 
+    /// Pinned golden vectors (R5, handoff §6R). Both instantiations are
+    /// consensus- and cross-chain-critical: keccak leaves/roots are
+    /// reconstructed by a foreign contract's native keccak256, and Poseidon
+    /// roots are re-verified inside the chat Groth16 circuit. A byte drift in
+    /// either hasher (parameter set, packing, endianness, empty-subtree
+    /// derivation) silently breaks that byte-identity; roundtrip tests would
+    /// still pass because both sides drift together. These hardcoded vectors
+    /// fail CI the moment the on-the-wire bytes change. Recompute deliberately
+    /// (never auto-update to make this pass) only when the wire format is
+    /// intentionally revved.
+    #[test]
+    fn golden_vectors_are_pinned() {
+        use super::poseidon::fr_to_bytes_le;
+        fn h(s: &str) -> [u8; 32] {
+            let mut o = [0u8; 32];
+            for i in 0..32 {
+                o[i] = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).unwrap();
+            }
+            o
+        }
+
+        // ── keccak (per-issuer witness trees; walked on-chain by a foreign
+        //    verifier). `hash_leaf` == keccak256(idc ‖ expiry_be ‖ scope_be). ──
+        let kh = KeccakHasher;
+        let ke = empty_roots(&kh);
+        assert_eq!(
+            empty_root(&kh),
+            h("27ae5ba08d7291c96c8cbddcc148bf48a6d68c7974b94356f53754ef6171d757"),
+            "keccak empty-tree root drifted",
+        );
+        let kleaf = k_leaf(&[7u8; 32], 1000, 2);
+        assert_eq!(
+            kleaf,
+            h("0fc3e42560b293332193f0e7ba6f9d325487d9cc8a660f4853a8f7f25789d054"),
+            "keccak witness-leaf hash drifted (breaks the Solidity abi.encodePacked reconstruction)",
+        );
+        let mut ks = MemoryStore::<[u8; 32]>::new();
+        assert_eq!(
+            update(&mut ks, &kh, &ke, 5, kleaf),
+            h("95b63ed4b575b694e4f28718d43856175463e667f0fd6fdbee9784411951a9e8"),
+            "keccak root after inserting the pinned leaf at index 5 drifted",
+        );
+
+        // ── poseidon-BN254 (chat membership tree; re-verified in-circuit).
+        //    Fr serialized little-endian canonical. ──
+        let ph = PoseidonHasher::new();
+        let pe = empty_roots(&ph);
+        assert_eq!(
+            fr_to_bytes_le(&empty_root(&ph)),
+            h("7e933280bc78818cffa16c85e3dcbc10cd70a0da76e7d0a94f3a5fd2415ce326"),
+            "poseidon empty-tree root drifted (param-set or empty-subtree change)",
+        );
+        let pleaf = p_leaf(ph.params(), 42u64.into(), 1000u64.into(), 1u64.into());
+        assert_eq!(
+            fr_to_bytes_le(&pleaf),
+            h("359547024bd464b6c4f5392685a48953f4979d70655fc253e2d6fdb222749d1c"),
+            "poseidon leaf hash drifted",
+        );
+        let mut ps = MemoryStore::new();
+        assert_eq!(
+            fr_to_bytes_le(&update(&mut ps, &ph, &pe, 5, pleaf)),
+            h("b7308e9d218539b136cae4585554956d296b04bf8d8cb4a95411af6eff454427"),
+            "poseidon root after inserting the pinned leaf at index 5 drifted",
+        );
+    }
+
     #[test]
     fn value_leaf_is_big_endian_right_aligned() {
         let v = value_leaf(0x0102);

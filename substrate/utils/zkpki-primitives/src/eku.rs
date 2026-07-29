@@ -80,10 +80,13 @@ pub enum Eku {
     ///
     /// The declared form of a witness-cert leaf: `mint_witness_cert`
     /// accepts an enrollment only under a template carrying this EKU,
-    /// and inserts the leaf into the same broad anonymity set
-    /// (`MEMBERSHIP_SCOPE`) as chat — the presentation is bound to a
-    /// relying-party action via the circuit's `challenge`, not by a
-    /// separate scope. Unlike `ChatAuth`, the on-chain cert carries no
+    /// and inserts the leaf into a per-issuer keccak tree under a
+    /// distinct domain scope (`WITNESS_SCOPE = 2`, not chat's
+    /// `MEMBERSHIP_SCOPE = 1`) so a presentation cannot cross the
+    /// chat/witness domain boundary; per-issuer separation is by tree
+    /// (root), not scope. The presentation is additionally bound to a
+    /// relying-party action via the circuit's `challenge`. Unlike
+    /// `ChatAuth`, the on-chain cert carries no
     /// resolvable issuer↔holder edge (the witness path suppresses the
     /// user/issuer secondary indexes); the leaf is the only footprint.
     /// Chartering flows through the normal capability chain
