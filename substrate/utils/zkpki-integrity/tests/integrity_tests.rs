@@ -131,13 +131,10 @@ fn wrong_package_name_rejected() {
 
 #[test]
 fn wrong_signing_cert_rejected() {
-    // During beta, `DOTWAVE_SIGNING_CERT_HASH` is `[0u8; 32]` and the
-    // Kotlin ceremony emits zeros too, so the equality check on the
-    // happy path passes. This test exercises the rejection path by
-    // emitting a non-zero blob hash against the zero constant. Once the
-    // constant is grounded in the real APK signing cert hash at launch,
-    // the test still exercises the rejection path — any mismatch fails,
-    // regardless of which side holds which value.
+    // `DOTWAVE_SIGNING_CERT_HASH` is now the beta signing-cert hash (the ceremony
+    // fills the blob from `SHA-256(apkContentsSigners[0])`). The happy path
+    // (`default_attestation` uses the constant) passes; this test drives the
+    // rejection path with a blob hash that does not match — any mismatch fails.
     let kp = test_keypair();
     let mut att = default_attestation(1_200);
     att.signing_cert_hash = [0xabu8; 32];

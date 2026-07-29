@@ -65,21 +65,29 @@ use zk_pki_primitives::crypto::DevicePublicKey;
 /// returns bytes — no UTF-8 round-tripping required to compare.
 pub const DOTWAVE_PACKAGE_NAME: &[u8] = b"com.dotwave.app";
 
-/// SHA-256 of the Dotwave Android APK signing certificate.
+/// SHA-256 of the Dotwave Android APK signing certificate (DER). Matched against
+/// both the chain's Keystore-written `attestationApplicationId.signature_digest`
+/// and the blob's `signing_cert_hash` (which the ceremony fills from
+/// `SHA-256(apkContentsSigners[0])`). Together those make the app-signature gate
+/// unforgeable: a mimic app can't produce a chain AAID for this cert without the key.
 ///
-/// **Placeholder.** Until the production APK signing key is minted and
-/// this constant is replaced with the real hash, every equality check
-/// against this value passes — the Kotlin ceremony emits the same zero
-/// hash so both sides match and the gate is effectively a no-op for
-/// signing-cert identity. This is intentional for the Paseo beta: the
-/// structural check is wired end-to-end and exercised by tests, but the
-/// constant is not yet grounded in a real cert.
+/// **Beta value = the closed-beta debug signing cert** (extracted 2026-07-28 from
+/// `~/.android/debug.keystore`, `CN=Android Debug`, valid from 2026-03). This binds
+/// to APKs built with that exact keystore, which is correct for a closed beta where
+/// all builds come from one machine. It is **machine-specific** and regenerates if
+/// the keystore is deleted — re-extract if you rebuild elsewhere.
 ///
-/// **Before mainnet:** replace this with the real SHA-256 of the Dotwave
-/// APK signing cert. Governance can rotate it via the same mechanism
-/// that updates `GOOGLE_HARDWARE_ATTESTATION_ROOT_SPKI_HASH` in
-/// `zk-pki-tpm` — constant edit + `schema_version` bump.
-pub const DOTWAVE_SIGNING_CERT_HASH: [u8; 32] = [0u8; 32];
+/// **Before wider release:** mint a dedicated Dotwave release signing key (do NOT
+/// keep shipping debug-signed) and replace this with its cert SHA-256. Governance
+/// rotates it via the attestation-anchor registry path (see
+/// `docs/ATTESTATION-TRUST-ANCHOR-REGISTRY.md`) or a constant edit + `schema_version`
+/// bump.
+pub const DOTWAVE_SIGNING_CERT_HASH: [u8; 32] = [
+    0xf8, 0x8c, 0xbc, 0xa4, 0x59, 0x07, 0x34, 0xcb,
+    0x0c, 0x0c, 0x42, 0xed, 0xc5, 0xe1, 0x4c, 0xc1,
+    0xfe, 0xaf, 0xd8, 0x16, 0x9d, 0x41, 0x04, 0x73,
+    0xf3, 0xdf, 0x53, 0x68, 0x12, 0xf3, 0x45, 0x72,
+];
 
 /// Max bytes for `package_name`. 256 is well over the Android package-name
 /// cap (~150 chars) and matches the bound in the TODO 3 spec.
