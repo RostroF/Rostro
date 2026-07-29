@@ -27,7 +27,7 @@ pub mod pallet {
             MAX_SUSPENSION_REASON_LEN,
         },
         cert::{CertCanonical, CertState, SchemaVersion, Thumbprint, CURRENT_SCHEMA_VERSION},
-        contract::ContractOffer,
+        contract::{ContractOffer, OfferHolder},
         crypto::DevicePublicKey,
         ek::EkHash,
         eku::Eku,
@@ -1378,6 +1378,11 @@ pub mod pallet {
         IssuerCertIssued { root: T::AccountId, issuer: T::AccountId, thumbprint: Thumbprint },
         ContractOffered { issuer: T::AccountId, user: T::AccountId, nonce: [u8; 32], expiry_block: BlockNumberFor<T> },
         ContractReplaced { issuer: T::AccountId, user: T::AccountId, old_nonce: [u8; 32], new_nonce: [u8; 32] },
+        /// A witness contract offer was created. Deliberately names only the
+        /// issuer (disclosed by design) and the nonce — never the holder, whose
+        /// account stays committed in the offer (R1, handoff §6R). The holder
+        /// learns their nonce out-of-band from the issuer.
+        WitnessContractOffered { issuer: T::AccountId, nonce: [u8; 32], expiry_block: BlockNumberFor<T> },
         CertMinted { thumbprint: Thumbprint, user: T::AccountId, issuer: T::AccountId },
         /// An anonymous witness cert was minted. Deliberately carries only
         /// the thumbprint: naming `user`/`issuer` here would re-create in the
@@ -2186,8 +2191,6 @@ pub mod pallet {
             Self::enforce_challenge_deadline_issuer(&issuer_addr, now);
             let issuer_rec = Issuers::<T>::get(&issuer_addr).ok_or(Error::<T>::NotAnIssuer)?;
             ensure!(issuer_rec.can_issue() || issuer_rec.state.is_compromised(), Error::<T>::InvalidEntityState);
-            let ui_key = UserIssuerKey::new(user.clone(), issuer_addr.clone());
-            ensure!(!UserIssuerIndex::<T>::contains_key(&ui_key), Error::<T>::UserAlreadyHasCertFromIssuer);
             let issuer_cert = CertLookupHot::<T>::get(issuer_rec.cert_thumbprint).ok_or(Error::<T>::CertNotFound)?;
             ensure!(now < issuer_cert.expiry_block, Error::<T>::CertExpired);
             Self::enforce_challenge_deadline_root(&issuer_rec.root, now);
@@ -2200,6 +2203,20 @@ pub mod pallet {
             let template = CertTemplates::<T>::get(&issuer_addr, &template_name)
                 .ok_or(Error::<T>::TemplateNotFound)?;
             ensure!(template.is_active, Error::<T>::TemplateInactive);
+            // A witness offer protects the holder: no plaintext account in the offer
+            // record, event, or reverse index (R1, handoff §6R). Detected from the
+            // template's charter EKU — the same signal the mint uses.
+            let is_witness = template.ekus.iter().any(|e| *e == Eku::WitnessAuth);
+            // One-cert-per-(user,issuer) is a public-cert invariant keyed on the named
+            // account. Witness offers keep no such index (Sybil control is the EK/device
+            // dedup at mint), and skipping it also lets a holder who already holds a
+            // public cert from this issuer still receive a witness credential.
+            if !is_witness {
+                ensure!(
+                    !UserIssuerIndex::<T>::contains_key(&UserIssuerKey::new(user.clone(), issuer_addr.clone())),
+                    Error::<T>::UserAlreadyHasCertFromIssuer,
+                );
+            }
             let ttl_u64: u64 = ttl_blocks.unique_saturated_into();
             ensure!(
                 ttl_u64 >= template.min_ttl_blocks && ttl_u64 <= template.max_ttl_blocks,
@@ -2219,23 +2236,39 @@ pub mod pallet {
             let parent_hash = <frame_system::Pallet<T>>::parent_hash();
             let nonce: [u8; 32] = sp_io::hashing::blake2_256(&(issuer_addr.clone(), user.clone(), now, parent_hash).encode());
             let offer_deposit = T::OfferDeposit::get();
-            let offer_key = IssuerUserKey::new(issuer_addr.clone(), user.clone());
-            if let Some(old_nonce) = OfferIndex::<T>::get(&offer_key) {
-                if let Some(old_offer) = ContractOffers::<T>::take(old_nonce) {
-                    T::Currency::unreserve(&issuer_addr, old_offer.deposit);
-                    OfferExpiryIndex::<T>::mutate(old_offer.expiry_block, |n| n.retain(|x| x != &old_nonce));
+            // Replace-existing-offer semantics key on the named (issuer,user) index,
+            // which witness offers don't maintain. A witness issuer may hold several
+            // concurrent witness offers (each nonce-unique); stale ones are reaped by
+            // the nonce-keyed expiry index.
+            if !is_witness {
+                let offer_key = IssuerUserKey::new(issuer_addr.clone(), user.clone());
+                if let Some(old_nonce) = OfferIndex::<T>::get(&offer_key) {
+                    if let Some(old_offer) = ContractOffers::<T>::take(old_nonce) {
+                        T::Currency::unreserve(&issuer_addr, old_offer.deposit);
+                        OfferExpiryIndex::<T>::mutate(old_offer.expiry_block, |n| n.retain(|x| x != &old_nonce));
+                    }
+                    Self::deposit_event(Event::ContractReplaced { issuer: issuer_addr.clone(), user: user.clone(), old_nonce, new_nonce: nonce });
                 }
-                Self::deposit_event(Event::ContractReplaced { issuer: issuer_addr.clone(), user: user.clone(), old_nonce, new_nonce: nonce });
             }
             T::Currency::reserve(&issuer_addr, offer_deposit)?;
+            let holder = if is_witness {
+                OfferHolder::Committed(Self::witness_holder_commitment(&user, &nonce))
+            } else {
+                OfferHolder::Named(user.clone())
+            };
             ContractOffers::<T>::insert(nonce, ContractOffer {
-                issuer: issuer_addr.clone(), user: user.clone(), nonce, expiry_block,
+                issuer: issuer_addr.clone(), holder, nonce, expiry_block,
                 created_at: now, ttl_blocks, deposit: offer_deposit, metadata,
                 template_name,
             });
-            OfferIndex::<T>::insert(&offer_key, nonce);
             Self::push_to_offer_expiry_index(expiry_block, nonce)?;
-            Self::deposit_event(Event::ContractOffered { issuer: issuer_addr, user, nonce, expiry_block });
+            if is_witness {
+                // Holder committed, no reverse index: nothing on-chain names the pair.
+                Self::deposit_event(Event::WitnessContractOffered { issuer: issuer_addr, nonce, expiry_block });
+            } else {
+                OfferIndex::<T>::insert(&IssuerUserKey::new(issuer_addr.clone(), user.clone()), nonce);
+                Self::deposit_event(Event::ContractOffered { issuer: issuer_addr, user, nonce, expiry_block });
+            }
             Ok(())
         }
 
@@ -3356,6 +3389,15 @@ pub mod pallet {
     // ---------------------------------------------------------------------------
 
     impl<T: Config> Pallet<T> {
+        /// Binds a witness offer to its recipient without naming them (R1). The
+        /// nonce salts the commitment per-offer, so the same account under two
+        /// offers yields two distinct commitments and neither can be precomputed
+        /// against a known-account list before the nonce exists. Recomputed at mint
+        /// from the redeeming `who` + the passed nonce; must equal the stored value.
+        fn witness_holder_commitment(who: &T::AccountId, nonce: &[u8; 32]) -> [u8; 32] {
+            sp_io::hashing::blake2_256(&(who, nonce).encode())
+        }
+
         /// Shared mint logic for `mint_cert` (public) and `mint_witness_cert`
         /// (anonymous). `disclosure` gates the only two points that differ:
         /// the one-cert-per-issuer-user check and the issuer/user
@@ -3375,7 +3417,16 @@ pub mod pallet {
         ) -> DispatchResult {
             let offer = ContractOffers::<T>::get(contract_nonce)
                 .ok_or(Error::<T>::OfferNotFound)?;
-            ensure!(offer.user == who, Error::<T>::NotOfferRecipient);
+            // Redemption binding. A named offer must be redeemed by the named account;
+            // a witness offer by the account whose nonce-salted commitment matches —
+            // the holder is never named on-chain but still uniquely bound (R1).
+            match &offer.holder {
+                OfferHolder::Named(u) => ensure!(*u == who, Error::<T>::NotOfferRecipient),
+                OfferHolder::Committed(c) => ensure!(
+                    Self::witness_holder_commitment(&who, &contract_nonce) == *c,
+                    Error::<T>::NotOfferRecipient,
+                ),
+            }
             ensure!(
                 offer_created_at_block == offer.created_at,
                 Error::<T>::OfferCreatedAtMismatch,
@@ -3884,8 +3935,12 @@ pub mod pallet {
             }
             Self::push_to_expiry_index(expiry_block, thumbprint)?;
             ContractOffers::<T>::remove(contract_nonce);
-            let offer_key = IssuerUserKey::new(offer.issuer.clone(), who.clone());
-            OfferIndex::<T>::remove(&offer_key);
+            // The (issuer,user) offer index exists only for named offers; witness
+            // offers never wrote it, so there is nothing to remove (and no `who` to
+            // key on without re-naming the holder).
+            if disclosure.is_public() {
+                OfferIndex::<T>::remove(&IssuerUserKey::new(offer.issuer.clone(), who.clone()));
+            }
             T::Currency::unreserve(&offer.issuer, offer.deposit);
             OfferExpiryIndex::<T>::mutate(offer.expiry_block, |n| n.retain(|x| x != &contract_nonce));
 
@@ -4546,6 +4601,15 @@ pub mod pallet {
             use zk_pki_primitives::runtime_api::{
                 CertState as RpcCertState, CertStatusResponse, OcspStatus, RevocationReason,
             };
+            // R2 (handoff §6R): a witness cert protects the HOLDER. Its hot record
+            // carries holder-linkable device data (`ek_hash`, attestation metadata) that
+            // must not be forward-resolvable from a scraped thumbprint. Witness certs are
+            // presented only via `witness_branch` (which discloses the issuer by design,
+            // never the holder's account or device). Short-circuit, mirroring the
+            // `membership_witness` guard.
+            if WitnessLeafIssuer::<T>::contains_key(thumbprint) {
+                return None;
+            }
             let record = CertLookupHot::<T>::get(thumbprint)?;
             let now = <frame_system::Pallet<T>>::block_number();
             let now_u64: u64 = now.clone().unique_saturated_into();
@@ -4658,6 +4722,13 @@ pub mod pallet {
             BlockNumberFor<T>: Clone + PartialOrd,
         {
             use zk_pki_primitives::runtime_api::{CertAuthInfo, CertState as RpcCertState};
+            // R2 (handoff §6R): this returns `bound_account` (the holder) and the device
+            // pubkey — the exact holder identifiers a witness cert must not surrender to a
+            // scraped thumbprint. Witness auth/possession is proven against the witnessed
+            // key at presentation, not through this global lookup. Short-circuit.
+            if WitnessLeafIssuer::<T>::contains_key(thumbprint) {
+                return None;
+            }
             let hot = CertLookupHot::<T>::get(thumbprint)?;
             let cold = CertLookupCold::<T>::get(thumbprint)?;
             let now = <frame_system::Pallet<T>>::block_number();
@@ -4687,6 +4758,11 @@ pub mod pallet {
         pub fn query_cert_hip_genesis(
             thumbprint: [u8; 32],
         ) -> Option<zk_pki_primitives::hip::GenesisHardwareFingerprint> {
+            // R2 (handoff §6R): the genesis hardware fingerprint is a holder-device
+            // identifier; do not resolve it from a scraped witness thumbprint.
+            if WitnessLeafIssuer::<T>::contains_key(thumbprint) {
+                return None;
+            }
             CertLookupCold::<T>::get(thumbprint)?.genesis_fingerprint
         }
 
