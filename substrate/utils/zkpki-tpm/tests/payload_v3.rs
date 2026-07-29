@@ -196,7 +196,7 @@ fn root_mismatch_rejected() {
 
     let err = verify_binding_proof_with_pins(
         &payload,
-        &shared_a.root_spki_hash(),
+        &[shared_a.root_spki_hash()],
         &intermediates,
         &challenge,
         1_000,
@@ -371,7 +371,7 @@ fn package_name_mismatch_rejected() {
     let intermediates: [[u8; 32]; 1] = [shared.int_spki_hash()];
     let err = verify_binding_proof_with_pins(
         &payload,
-        &shared.root_spki_hash(),
+        &[shared.root_spki_hash()],
         &intermediates,
         &challenge,
         1_000,
@@ -432,7 +432,7 @@ fn signing_cert_mismatch_rejected() {
     let intermediates: [[u8; 32]; 1] = [shared.int_spki_hash()];
     let err = verify_binding_proof_with_pins(
         &payload,
-        &shared.root_spki_hash(),
+        &[shared.root_spki_hash()],
         &intermediates,
         &challenge,
         1_000,
@@ -503,7 +503,7 @@ fn valid_payload_v3_verifies() {
     let intermediates: [[u8; 32]; 1] = [shared.int_spki_hash()];
     let verified = verify_binding_proof_with_pins(
         &payload,
-        &shared.root_spki_hash(),
+        &[shared.root_spki_hash()],
         &intermediates,
         &challenge,
         1_000,

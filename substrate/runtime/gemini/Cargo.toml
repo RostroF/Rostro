@@ -60,16 +60,16 @@ pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 
 # zk-pki — production hardware-attestation primitive. Vendored
-# from ~/Polkadot/pki/ on 2026-05-08. The `test-utils` feature on
-# zk-pki-tpm exposes `NoopBindingProofVerifier`, the same dev-mode
-# binding verifier paseo uses pre-`DOTWAVE_SIGNING_CERT_HASH`. The
-# production `ProductionBindingProofVerifier` swap happens once
-# dotwave's signing cert is final.
+# from ~/Polkadot/pki/ on 2026-05-08. By default the runtime binds the
+# `ProductionBindingProofVerifier` (real chain/root/manufacturer pinning).
+# The `mock-attestation` feature swaps in `NoopBindingProofVerifier` (bypass
+# crypto, decodes `MockVerdict`) for the lab / mock-mint flows — opt-in only,
+# NEVER in a beta/mainnet build.
 # Testbed runtime: enable the test-harness enroll extrinsic. NEVER enabled by the
 # mainnet (rostro) runtime.
 zk-pki-pallet = { workspace = true, features = ["test-harness"] }
 zk-pki-primitives = { workspace = true }
-zk-pki-tpm = { workspace = true, features = ["test-utils"] }
+zk-pki-tpm = { workspace = true }
 
 # Primitives
 # Phase Star B8: route runtime panics through panic_handler::abort_on_panic
@@ -106,6 +106,11 @@ substrate-wasm-builder = { optional = true, workspace = true, default-features =
 # builder's feature propagation. Never ship a lab-fast binary to a real
 # chain (consensus timing changes without a spec bump).
 lab-fast-lifecycle = []
+# Dev/lab only: bind the bypass-crypto `NoopBindingProofVerifier` so mock-mint
+# flows (labtool, run-trio) work without real device attestations. Default
+# builds bind `ProductionBindingProofVerifier`. NEVER ship a mock-attestation
+# binary to a beta/real chain.
+mock-attestation = ["zk-pki-tpm/test-utils"]
 default = ["std"]
 std = [
 	"codec/std",
