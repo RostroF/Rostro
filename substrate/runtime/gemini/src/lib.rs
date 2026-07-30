@@ -1126,10 +1126,16 @@ impl zk_pki_pallet::Config for Runtime {
 	// to the real `TpmAttestationVerifier` once mainnet is staffing
 	// the manufacturer-intermediate whitelist.
 	type Attestation = zk_pki_primitives::traits::TpmTestAttestationVerifier;
-	// Bypass-crypto binding verifier (decodes `MockVerdict` from
-	// `integrity_blob`). Production swap is
-	// `zk_pki_tpm::ProductionBindingProofVerifier` — pending the
-	// real `DOTWAVE_SIGNING_CERT_HASH` constant landing.
+	// Production hardware-attestation verifier: full chain signature walk +
+	// Google root (legacy + 2026) + manufacturer-intermediate pinning + StrongBox/
+	// origin/RootOfTrust extraction. The `mock-attestation` feature swaps in the
+	// bypass-crypto `NoopBindingProofVerifier` for lab/mock-mint flows only.
+	// (App-signing-cert identity auto-enforces once `DOTWAVE_SIGNING_CERT_HASH`
+	// is grounded; hardware/root/package checks are strict now — see the
+	// fail-forward sentinel in `zk-pki-integrity`.)
+	#[cfg(not(feature = "mock-attestation"))]
+	type BindingProofVerifier = zk_pki_tpm::ProductionBindingProofVerifier;
+	#[cfg(feature = "mock-attestation")]
 	type BindingProofVerifier =
 		zk_pki_tpm::test_mock_verifier::NoopBindingProofVerifier;
 	// Placeholder weights — replace with `--pallet zk-pki-pallet

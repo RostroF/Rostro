@@ -14,7 +14,6 @@ use codec::Decode;
 use zk_pki_integrity::{IntegrityAttestation, DOTWAVE_PACKAGE_NAME};
 use zk_pki_tpm::{
     parse_chain_without_verify, verify_chain, verify_binding_proof, AttestationPayloadV3,
-    BindingProofError,
 };
 
 #[test]
@@ -174,29 +173,16 @@ fn integrity_signature_verifies_under_cert_ec_pubkey() {
 }
 
 #[test]
-fn full_verify_binding_proof_fires_integrity_gate_as_expected() {
-    // End-to-end call. Current state: the real SM-G986U capture passes
-    // ALL gates except the signing cert hash check — chain verification
-    // (both chains), root pin, manufacturer intermediate, same-root,
-    // same-challenge, binding signature verify, integrity blob decode,
-    // and integrity signature verify all pass on real bytes.
-    //
-    // The one expected rejection is
-    // `IntegrityFailed(InvalidSigningCert)` — `DOTWAVE_SIGNING_CERT_HASH`
-    // in `zk-pki-integrity` is deliberately left at the `[0u8; 32]`
-    // placeholder. Updating it to the current dev-build hash would
-    // create a constant that works on one machine and silently fails
-    // everywhere else; gating behind `schema_version` is ceremony for a
-    // problem that resolves itself when the real production APK signing
-    // key exists.
-    //
-    // **Action before mainnet: update `DOTWAVE_SIGNING_CERT_HASH` in
-    // `zk-pki-integrity` to the SHA-256 of the production Dotwave APK
-    // signing certificate.** That is the right place for this reminder
-    // — the test asserts the exact failure mode so a silent regression
-    // (e.g., someone setting the constant to a plausible-looking dev
-    // value) shows up as this test failing to match
-    // `InvalidSigningCert`.
+fn full_verify_binding_proof_accepts_real_capture() {
+    // End-to-end: the real SM-G986U StrongBox capture now verifies FULLY against
+    // the production verifier. Every gate passes on real bytes — chain verification
+    // (both chains), Google root pin, Samsung manufacturer intermediate, same-root,
+    // same-challenge, binding signature, integrity blob decode + signature — AND the
+    // signing-cert identity, now that `DOTWAVE_SIGNING_CERT_HASH` is grounded in the
+    // closed-beta signing cert (the capture was produced by that build). This test
+    // previously asserted `IntegrityFailed(InvalidSigningCert)` against the zero
+    // placeholder; that reminder has been actioned. A regression that breaks any gate
+    // (or a wrong signing-cert constant) shows up as this `expect` failing.
     let payload = AttestationPayloadV3 {
         cert_ec_chain: fixture::cert_ec_chain(),
         attest_ec_chain: fixture::attest_ec_chain(),
@@ -209,26 +195,15 @@ fn full_verify_binding_proof_fires_integrity_gate_as_expected() {
         integrity_blob: fixture::integrity_blob(),
         integrity_signature: fixture::integrity_signature(),
     };
-    let result = verify_binding_proof(&payload, &fixture::challenge(), 0, u64::MAX);
-    match result {
-        Err(BindingProofError::IntegrityFailed(inner)) => {
-            // Pinpoint: must be the InvalidSigningCert variant, proving
-            // every prior gate passed and the only remaining blocker is
-            // the placeholder constant.
-            assert!(
-                format!("{:?}", inner).contains("InvalidSigningCert"),
-                "unexpected integrity sub-error: {:?}",
-                inner,
-            );
-        }
-        Ok(_) => panic!(
-            "verify_binding_proof unexpectedly passed — did \
-             DOTWAVE_SIGNING_CERT_HASH get updated? If so this test needs \
-             updating too."
-        ),
-        Err(other) => panic!(
-            "expected IntegrityFailed(InvalidSigningCert); got {:?}",
-            other,
-        ),
-    }
+    let verified = verify_binding_proof(&payload, &fixture::challenge(), 0, u64::MAX)
+        .expect("real StrongBox capture must verify end-to-end against the production verifier");
+    // The security-critical extractions the pallet gates on:
+    assert!(
+        verified.manufacturer_verified,
+        "Samsung manufacturer intermediate must be recognized",
+    );
+    assert!(
+        verified.attest_ec_origin_generated,
+        "binding key must be hardware-generated (origin == GENERATED)",
+    );
 }

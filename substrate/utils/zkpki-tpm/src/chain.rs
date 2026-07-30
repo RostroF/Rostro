@@ -110,6 +110,32 @@ pub const GOOGLE_HARDWARE_ATTESTATION_ROOT_SPKI_HASH: [u8; 32] = [
     0xf6, 0xd8, 0xeb, 0xfb, 0xe8, 0x26, 0xa6, 0xc5,
 ];
 
+/// Blake2b-256 of the SubjectPublicKeyInfo of Google's **2026** hardware
+/// attestation root (`CN=Key Attestation CA1`). Google rotated the root in 2026
+/// (~Apr 10 cutoff): RKP-enabled devices — most modern Android — chain to this
+/// root, while legacy factory-provisioned devices keep the root above. Both must
+/// be pinned; a trust store holding only one silently rejects half the fleet.
+///
+/// Harvested + verified 2026-07-28 from https://android.googleapis.com/attestation/root
+/// via `scripts/harvest-attestation-anchors.py` (byte-identity canary passed against
+/// the legacy root above). DER-fixture regression test is a follow-up (mirror the
+/// `amd_intermediate_spki_hash_matches_constant` pattern).
+pub const GOOGLE_HARDWARE_ATTESTATION_ROOT_2026_SPKI_HASH: [u8; 32] = [
+    0xcb, 0x72, 0x82, 0x72, 0xca, 0x38, 0xa5, 0xfb,
+    0xc6, 0x27, 0x2f, 0x1d, 0xe2, 0x9e, 0x3a, 0x66,
+    0x19, 0xa5, 0x23, 0x55, 0x2c, 0xb5, 0xaf, 0xe7,
+    0xa5, 0x6d, 0xf9, 0x48, 0x77, 0xba, 0x19, 0xee,
+];
+
+/// The set of currently-trusted Google attestation roots (legacy + 2026). This is
+/// the baked genesis-seed / fallback set; the attestation-anchor registry (see
+/// `docs/ATTESTATION-TRUST-ANCHOR-REGISTRY.md`) supersedes it from storage once
+/// wired, without touching the verification logic.
+pub const GOOGLE_ROOTS: &[[u8; 32]] = &[
+    GOOGLE_HARDWARE_ATTESTATION_ROOT_SPKI_HASH,
+    GOOGLE_HARDWARE_ATTESTATION_ROOT_2026_SPKI_HASH,
+];
+
 /// Blake2b-256 of the DER-encoded SubjectPublicKeyInfo belonging to the
 /// Samsung S3K250AF StrongBox manufacturer intermediate certificate
 /// (subject serialNumber `dcafc938d18986a5`, P-384, signed directly by
@@ -267,7 +293,7 @@ const MAX_CHAIN_LEN: usize = 10;
 /// Verify a cert chain and pin the root to Google's Hardware Attestation
 /// Root CA. This is the production entry point.
 pub fn verify_chain(chain: &[Vec<u8>]) -> Result<(), ChainError> {
-    verify_chain_with_pin(chain, &GOOGLE_HARDWARE_ATTESTATION_ROOT_SPKI_HASH)
+    verify_chain_with_roots_and_intermediates(chain, GOOGLE_ROOTS, KNOWN_MANUFACTURER_INTERMEDIATES)
 }
 
 /// Verify a cert chain and pin the root to the supplied SPKI hash. Uses
@@ -281,14 +307,25 @@ pub fn verify_chain_with_pin(
     verify_chain_with_pin_and_intermediates(chain, pin, KNOWN_MANUFACTURER_INTERMEDIATES)
 }
 
-/// Verify a cert chain, pin the root to the supplied SPKI hash, and require
-/// at least one cert between leaf and root (exclusive) to match the supplied
-/// manufacturer intermediate set. Exposed so negative-case tests can inject
-/// an empty or non-matching manufacturer set and confirm the
-/// [`ChainError::UnknownManufacturer`] rejection path fires.
+/// Single-root convenience over [`verify_chain_with_roots_and_intermediates`].
+/// Exposed so negative-case tests can inject a non-matching pin / manufacturer
+/// set and confirm the rejection paths fire.
 pub fn verify_chain_with_pin_and_intermediates(
     chain: &[Vec<u8>],
     pin: &[u8; 32],
+    known_intermediates: &[[u8; 32]],
+) -> Result<(), ChainError> {
+    verify_chain_with_roots_and_intermediates(chain, core::slice::from_ref(pin), known_intermediates)
+}
+
+/// Verify a cert chain, pin the root to one of the supplied SPKI hashes, and
+/// require at least one cert between leaf and root (exclusive) to match the
+/// supplied manufacturer intermediate set. Accepting a root *set* is what lets a
+/// family carry multiple valid roots at once (e.g. Google's legacy + 2026 roots
+/// during the rotation window); the anchor registry passes the live set here.
+pub fn verify_chain_with_roots_and_intermediates(
+    chain: &[Vec<u8>],
+    roots: &[[u8; 32]],
     known_intermediates: &[[u8; 32]],
 ) -> Result<(), ChainError> {
     if chain.is_empty() {
@@ -322,7 +359,7 @@ pub fn verify_chain_with_pin_and_intermediates(
         .to_der()
         .map_err(|_| ChainError::SpkiEncodingFailure)?;
     let root_spki_hash = sp_io::hashing::blake2_256(&root_spki_der);
-    if &root_spki_hash != pin {
+    if !roots.iter().any(|r| r == &root_spki_hash) {
         return Err(ChainError::RootPinMismatch);
     }
 

@@ -243,3 +243,66 @@ fn bad_recovery_id_rejected() {
         );
     });
 }
+
+// ── R3: monotonic finalize — a straggler quorum for an older height must not
+//    regress the served checkpoint. Without the guard, finalizing height 1 after
+//    height 2 would overwrite the newer checkpoint with the older one.
+#[test]
+fn stale_lower_height_does_not_regress_checkpoint() {
+    new_test_ext().execute_with(|| {
+        let pairs = setup(2, 3); // RecentRoots[1] == ROOT, block == 2
+        let root2 = [7u8; 32];
+        set_root(root2);
+        run_to_block(3); // RecentRoots[2] == root2 (RecentWindow 10 keeps both)
+
+        // Finalize the NEWER height 2 first.
+        assert_ok!(Attestor::attest(RuntimeOrigin::none(), 2, root2, sign(&pairs[0], 2, root2)));
+        assert_ok!(Attestor::attest(RuntimeOrigin::none(), 2, root2, sign(&pairs[1], 2, root2)));
+        assert_eq!(LatestCheckpoint::<Test>::get().expect("h2").height, 2);
+
+        // A late quorum for the OLDER height 1 reaches finalize (PendingSigs[1] was
+        // never populated, so DuplicateSigner can't help) — the monotonic guard must
+        // discard it, leaving the served checkpoint at height 2.
+        assert_ok!(Attestor::attest(RuntimeOrigin::none(), HEIGHT, ROOT, sign(&pairs[0], HEIGHT, ROOT)));
+        assert_ok!(Attestor::attest(RuntimeOrigin::none(), HEIGHT, ROOT, sign(&pairs[1], HEIGHT, ROOT)));
+        let cp = LatestCheckpoint::<Test>::get().expect("still h2");
+        assert_eq!(cp.height, 2, "older height must not regress the served checkpoint");
+        assert_eq!(cp.root, root2);
+        assert_eq!(PendingSigs::<Test>::get(HEIGHT).len(), 0, "stale accumulation cleaned up");
+    });
+}
+
+// ── R4: pool-level replay defense — once a height is finalized, a byte-for-byte
+//    captured `attest` for it is rejected at admission (Stale), so it can never
+//    re-enter the mempool and re-finalize an old checkpoint over a newer one.
+#[test]
+fn validate_unsigned_rejects_stale_height() {
+    use frame_support::pallet_prelude::{InvalidTransaction, TransactionSource, ValidateUnsigned};
+    new_test_ext().execute_with(|| {
+        let pairs = setup(2, 3);
+        assert_ok!(Attestor::attest(RuntimeOrigin::none(), HEIGHT, ROOT, sign(&pairs[0], HEIGHT, ROOT)));
+        assert_ok!(Attestor::attest(RuntimeOrigin::none(), HEIGHT, ROOT, sign(&pairs[1], HEIGHT, ROOT)));
+        assert_eq!(LatestCheckpoint::<Test>::get().expect("finalized").height, HEIGHT);
+
+        // A fresh, valid attestation for the finalized height — still rejected at pool
+        // admission because the height is at or below the served checkpoint.
+        let call = crate::Call::<Test>::attest {
+            height: HEIGHT,
+            root: ROOT,
+            sig: sign(&pairs[2], HEIGHT, ROOT),
+        };
+        assert_eq!(
+            <Attestor as ValidateUnsigned>::validate_unsigned(TransactionSource::External, &call),
+            Err(InvalidTransaction::Stale.into()),
+        );
+    });
+}
+
+// ── R5: the pallet's own registry threshold floors at 1 for an empty attestor set,
+//    so ⌈2·0/3⌉ = 0 can never make `count >= threshold` vacuously true.
+#[test]
+fn threshold_floors_at_one_on_empty_set() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(<Attestor as AttestorRegistry>::threshold(), 1);
+    });
+}

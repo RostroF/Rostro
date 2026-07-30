@@ -131,6 +131,9 @@ fn setup_up_to_offer_witness_auth() -> ([u8; 32], BlockNumber) {
 fn setup_offer_impl(cap: Option<zk_pki_primitives::eku::Eku>) -> ([u8; 32], BlockNumber) {
     use zk_pki_primitives::eku::Eku;
 
+    // Computed before `cap` is consumed below; drives the witness nonce lookup.
+    let is_witness = matches!(cap, Some(Eku::WitnessAuth));
+
     // 1. Register root. T::Attestation is NoopAttestationVerifier so
     //    the bytes of `attestation` don't matter — we pass an empty
     //    BoundedVec.  ttl_blocks must be ≤ MaxRootTtlBlocks.
@@ -187,13 +190,23 @@ fn setup_offer_impl(cap: Option<zk_pki_primitives::eku::Eku>) -> ([u8; 32], Bloc
         empty_meta,
     ));
 
-    // Look up the nonce via OfferIndex (issuer, user → nonce).
-    let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
-        account(ISSUER_ACCOUNT),
-        account(USER_ACCOUNT),
-    );
-    let nonce = zk_pki_pallet::OfferIndex::<Runtime>::get(&ui_key)
-        .expect("offer registered above");
+    // Look up the nonce. Public offers register an (issuer,user) OfferIndex;
+    // witness offers deliberately don't (R1 — the index would name the holder),
+    // so fall back to the sole offer record created above (in production the
+    // holder learns the nonce out-of-band from the `WitnessContractOffered`
+    // event).
+    let nonce = if is_witness {
+        zk_pki_pallet::ContractOffers::<Runtime>::iter()
+            .next()
+            .map(|(n, _)| n)
+            .expect("witness offer present")
+    } else {
+        let ui_key = zk_pki_primitives::keys::IssuerUserKey::new(
+            account(ISSUER_ACCOUNT),
+            account(USER_ACCOUNT),
+        );
+        zk_pki_pallet::OfferIndex::<Runtime>::get(&ui_key).expect("offer registered above")
+    };
     let offer = zk_pki_pallet::ContractOffers::<Runtime>::get(nonce)
         .expect("offer present after offer_contract");
     (nonce, offer.created_at)
@@ -1139,6 +1152,106 @@ fn chat_cert_served_by_membership_witness_and_is_orthogonal_to_witness() {
             ZkPki::witness_root(&issuer),
             empty_root(&KeccakHasher),
             "chat mint creates no issuer witness tree",
+        );
+    });
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// R1 / R2 — witness-holder privacy (handoff §6R)
+// ──────────────────────────────────────────────────────────────────────
+
+/// R1: the witness offer names no holder — the record stores a commitment, not
+/// the account, and no (issuer,user) reverse index enumerates who was vouched for.
+#[test]
+fn witness_offer_names_no_holder() {
+    use zk_pki_primitives::contract::OfferHolder;
+    run(|| {
+        let (nonce, _created_at) = setup_up_to_offer_witness_auth();
+        let issuer = account(ISSUER_ACCOUNT);
+        let user = account(USER_ACCOUNT);
+
+        let offer = zk_pki_pallet::ContractOffers::<Runtime>::get(nonce).expect("offer present");
+        assert!(
+            matches!(offer.holder, OfferHolder::Committed(_)),
+            "witness offer must commit to the holder, never name them",
+        );
+        assert!(
+            !zk_pki_pallet::OfferIndex::<Runtime>::contains_key(
+                zk_pki_primitives::keys::IssuerUserKey::new(issuer.clone(), user.clone())
+            ),
+            "witness offer must not write the (issuer,user) OfferIndex",
+        );
+    });
+}
+
+/// R1: only the committed holder can redeem the offer — a different signer whose
+/// nonce-salted commitment does not match is rejected before any mint work.
+#[test]
+fn witness_offer_rejects_wrong_redeemer() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer_witness_auth();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        // ISSUER_ACCOUNT is not the committed holder (USER_ACCOUNT).
+        assert_noop!(
+            ZkPki::mint_witness_cert(
+                RuntimeOrigin::signed(account(ISSUER_ACCOUNT)),
+                nonce,
+                payload,
+                created_at,
+                None,
+                None,
+                None,
+                enrollment,
+            ),
+            zk_pki_pallet::Error::<Runtime>::NotOfferRecipient,
+        );
+    });
+}
+
+/// R2: given a scraped witness thumbprint, the forward cert queries do not resolve
+/// the holder's account or device data — they return `None`, unlike a public cert.
+#[test]
+fn witness_cert_forward_queries_are_guarded() {
+    run(|| {
+        let (nonce, created_at) = setup_up_to_offer_witness_auth();
+        let payload = payload_with_verdict(MockVerdict::Tpm {
+            ek_hash: [0x42u8; 32],
+            pubkey_bytes: test_cert_ec_pubkey(),
+        });
+        let enrollment = valid_enrollment(&nonce);
+        assert_ok!(ZkPki::mint_witness_cert(
+            RuntimeOrigin::signed(account(USER_ACCOUNT)),
+            nonce,
+            payload,
+            created_at,
+            None,
+            None,
+            None,
+            enrollment,
+        ));
+        let thumb = witness_thumb();
+
+        // The hot/cold records exist (witness_branch serves the presentation), but
+        // the identity-resolving queries must refuse them.
+        assert!(
+            ZkPki::witness_branch(thumb).is_some(),
+            "sanity: the witness cert is present and served via witness_branch",
+        );
+        assert!(
+            ZkPki::query_cert_status(thumb).is_none(),
+            "R2: query_cert_status must not resolve a witness thumbprint (leaks ek_hash)",
+        );
+        assert!(
+            ZkPki::query_cert_authentication(thumb).is_none(),
+            "R2: query_cert_authentication must not resolve a witness holder account",
+        );
+        assert!(
+            ZkPki::query_cert_hip_genesis(thumb).is_none(),
+            "R2: query_cert_hip_genesis must not resolve a witness holder device",
         );
     });
 }

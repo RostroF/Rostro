@@ -304,8 +304,19 @@ pub mod pallet {
             addr
         }
 
-        /// Promote a quorum-reaching height to the served checkpoint.
+        /// Promote a quorum-reaching height to the served checkpoint. Monotonic: a
+        /// stale or replayed quorum for a height at or below the currently served
+        /// checkpoint is discarded, never regressing `LatestCheckpoint`. This closes
+        /// the checkpoint-regression race (a straggler quorum for an older height) and
+        /// backstops the pool-level guard in `validate_unsigned` for any on-chain or
+        /// non-eclipsing consumer.
         fn finalize(height: u64, root: [u8; 32], signers: u32) {
+            if let Some(existing) = LatestCheckpoint::<T>::get() {
+                if height <= existing.height {
+                    PendingSigs::<T>::remove(height);
+                    return;
+                }
+            }
             let sigs: BoundedVec<Signature, T::MaxAttestors> = BoundedVec::truncate_from(
                 PendingSigs::<T>::get(height).into_iter().map(|(_, s)| s).collect::<Vec<_>>(),
             );
@@ -428,6 +439,12 @@ pub mod pallet {
         }
         fn threshold() -> u32 {
             let n = SessionAttestors::<T>::get().len() as u32;
+            if n == 0 {
+                // Never auto-finalize on an empty attestor set: ⌈2·0/3⌉ = 0 would make
+                // `count >= threshold` vacuously true. No sig can land on an empty set
+                // (recovery fails membership), but floor at 1 so the invariant is local.
+                return 1;
+            }
             // ⌈2n/3⌉
             (2 * n + 2) / 3
         }
@@ -444,6 +461,16 @@ pub mod pallet {
             // non-attestor signatures never enter the mempool (spam-bounded).
             let addr = Self::verify_attestation(*height, *root, sig)
                 .map_err(|_| InvalidTransaction::BadProof)?;
+            // Monotonic gate: reject attestations for a height at or below the served
+            // checkpoint. After `finalize` prunes `PendingSigs`, the `DuplicateSigner`
+            // memory for that height is gone, so byte-for-byte captured `attest` txs
+            // would otherwise re-enter the pool and re-finalize an old height over a
+            // newer checkpoint — permissionless, no attestor key (R4). This closes it
+            // at pool admission; `finalize` backstops on-chain.
+            let latest_height = LatestCheckpoint::<T>::get().map(|c| c.height).unwrap_or_default();
+            if *height <= latest_height {
+                return InvalidTransaction::Stale.into();
+            }
             ValidTransaction::with_tag_prefix("RostroAttestor")
                 .priority(100)
                 // One valid attestation per (height, attestor): the mempool

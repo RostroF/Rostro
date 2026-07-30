@@ -35,8 +35,8 @@ use zk_pki_primitives::{
 };
 
 use crate::chain::{
-    verify_chain_with_pin_and_intermediates, ChainError,
-    GOOGLE_HARDWARE_ATTESTATION_ROOT_SPKI_HASH, KNOWN_MANUFACTURER_INTERMEDIATES,
+    verify_chain_with_roots_and_intermediates, ChainError,
+    GOOGLE_ROOTS, KNOWN_MANUFACTURER_INTERMEDIATES,
 };
 use crate::parse::{self, VerifiedBootState};
 
@@ -252,7 +252,7 @@ pub fn verify_binding_proof(
 ) -> Result<VerifiedAttestation, BindingProofError> {
     verify_binding_proof_with_pins(
         payload,
-        &GOOGLE_HARDWARE_ATTESTATION_ROOT_SPKI_HASH,
+        GOOGLE_ROOTS,
         KNOWN_MANUFACTURER_INTERMEDIATES,
         expected_challenge,
         offer_created_at_block,
@@ -269,24 +269,24 @@ pub fn verify_binding_proof(
 /// callers should always use [`verify_binding_proof`].
 pub fn verify_binding_proof_with_pins(
     payload: &AttestationPayloadV3,
-    pin: &[u8; 32],
+    roots: &[[u8; 32]],
     known_intermediates: &[[u8; 32]],
     expected_challenge: &[u8],
     offer_created_at_block: u64,
     offer_expiry_block: u64,
 ) -> Result<VerifiedAttestation, BindingProofError> {
     // 1. cert_ec chain: signatures + Google root pin + manufacturer pin.
-    verify_chain_with_pin_and_intermediates(
+    verify_chain_with_roots_and_intermediates(
         &payload.cert_ec_chain,
-        pin,
+        roots,
         known_intermediates,
     )
     .map_err(BindingProofError::CertEcChainInvalid)?;
 
     // 2. attest_ec chain: same suite of checks.
-    verify_chain_with_pin_and_intermediates(
+    verify_chain_with_roots_and_intermediates(
         &payload.attest_ec_chain,
-        pin,
+        roots,
         known_intermediates,
     )
     .map_err(BindingProofError::AttestEcChainInvalid)?;
@@ -355,6 +355,11 @@ pub fn verify_binding_proof_with_pins(
         }
     }
 
+    // Chain<->blob signing-cert cross-check stays STRICT: the chain's AAID
+    // signing_cert_hash is Keystore-written (unforgeable), so requiring the blob to
+    // match it is the anti-mimic gate and is independent of any dotwave-specific
+    // constant. (This requires the dotwave ceremony to emit its real APK signing-cert
+    // hash in the blob, not a placeholder.)
     if let Some(chain_hash) = cert_ec_parsed.signing_cert_hash.as_ref() {
         if chain_hash != &blob.signing_cert_hash {
             return Err(BindingProofError::SigningCertCrossCheckFailed);
